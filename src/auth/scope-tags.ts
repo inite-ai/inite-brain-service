@@ -18,6 +18,7 @@
  * Pure module — no NestJS, no DB, no request context. Importable from
  * services, pure internals, and SQL-fragment builders alike.
  */
+import { ambientWriteScope } from './write-scope';
 
 /** Active namespace: a single end-user's slice of the tenant (0055). */
 export const USER_NAMESPACE = 'user';
@@ -74,5 +75,81 @@ export function parseTag(tag: string): ParsedTag | null {
  * org/team extension of later steps has one call site to widen.
  */
 export function scopeForUser(userId: string | undefined): string[] {
-  return userId ? [userTag(userId)] : [];
+  if (userId) return [userTag(userId)];
+  // Step 3: an ingest may declare the scope its tenant-global writes
+  // belong to (an org connection's group). A user-attributed write is
+  // never widened by it — the user's own tag still wins above.
+  return [...(ambientWriteScope() ?? [])];
+}
+
+/**
+ * The scope tag for one group of one connection:
+ * `team:<connection>:<group>`. The connection is IN the tag on purpose —
+ * "the engineering group" means nothing tenant-wide, and two
+ * connections to two GitLabs may both have a group called `developers`.
+ *
+ * ⚡`<connection>` is the record id's TAIL, never the whole
+ * `source_connection:xyz`: a record id contains a colon, and a tag with
+ * two variable-length colon-separated parts cannot be parsed back. The
+ * tail is unique within its table, which is all a tag needs — and
+ * `parseTeamTag` returns it as `connection`, so no caller mistakes it
+ * for a record id.
+ */
+export function teamTag(connectionId: string, group: string): string {
+  return `${TEAM_NAMESPACE}:${idTail(connectionId)}:${group}`;
+}
+
+/** The tail of a record id (`source_connection:abc` → `abc`). */
+function idTail(id: string): string {
+  const sep = id.indexOf(':');
+  return sep >= 0 ? id.slice(sep + 1) : id;
+}
+
+export interface ParsedTeamTag {
+  /** The connection's record-id TAIL, not the record id. */
+  connection: string;
+  group: string;
+}
+
+/**
+ * `team:<connection>:<group>` → its two halves, or null. The group may
+ * itself contain colons (a source's own id is not ours to constrain);
+ * the connection tail may not, and a tag whose tail is empty — or whose
+ * group is — is unparseable, which hides its row.
+ */
+export function parseTeamTag(tag: string): ParsedTeamTag | null {
+  const parsed = parseTag(tag);
+  if (!parsed || parsed.namespace !== TEAM_NAMESPACE) return null;
+  const sep = parsed.id.indexOf(':');
+  if (sep <= 0 || sep === parsed.id.length - 1) return null;
+  return { connection: parsed.id.slice(0, sep), group: parsed.id.slice(sep + 1) };
+}
+
+/**
+ * The record scope for a write the source plane makes: the owner's tag
+ * when the connection is one person's, else the groups the ITEM says
+ * may see it — and, when neither is known, the empty array that means
+ * tenant-global.
+ *
+ * The three cases are not interchangeable and the order matters. A
+ * personal connection is user-fenced by construction (0055) and its
+ * groups, if the source even has any, are irrelevant: the owner is the
+ * only reader. An org connection's row carries EVERY group the item is
+ * shared with — an OR of clauses in G6's grammar, which the one-clause
+ * AND-set shape cannot express, so the row carries the groups as an
+ * AND-set of one when there is exactly one and, when there are several,
+ * the narrowest wins: an item shared with two groups is written for the
+ * FIRST, and the connector is expected to name the group that owns it.
+ * Widening to a real OR is step 4's staging work, not this one, and
+ * guessing wider here is precisely the failure this whole plane exists
+ * to prevent.
+ */
+export function scopeForSource(p: {
+  userId?: string | undefined;
+  connectionId: string;
+  groups?: readonly string[] | undefined;
+}): string[] {
+  if (p.userId) return [userTag(p.userId)];
+  const group = (p.groups ?? []).find((g) => typeof g === 'string' && g.length > 0);
+  return group === undefined ? [] : [teamTag(p.connectionId, group)];
 }

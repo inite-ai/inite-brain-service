@@ -1,15 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.inite-ai/inite-brain-service",
-  "title": "Inite Brain",
-  "description": "Open-source bitemporal memory layer for LLM agents — knowledge graph with conflict resolution.",
-  "version": "2.3.0",
+  "title": "INITE Brain",
+  "description": "Long-term memory for AI agents: a bitemporal knowledge graph with cited answers.",
+  "version": "2.4.0",
   "websiteUrl": "https://brain.inite.ai",
   "repository": {
     "url": "https://github.com/inite-ai/inite-brain-service",
     "source": "github"
   },
   "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://brain.inite.ai/mcp"
+    },
     {
       "type": "streamable-http",
       "url": "https://brain.inite.ai/mcp/{companyId}",
@@ -31,7 +35,7 @@
   ],
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
-      "tools": 30,
+      "tools": 31,
       "scopes": [
         "read",
         "write",
@@ -41,7 +45,11 @@
       "license": "AGPL-3.0",
       "benchmarks": [
         "LoCoMo"
-      ]
+      ],
+      "auth": {
+        "https://brain.inite.ai/mcp": "OAuth 2.0 (RFC 9728, DCR, PKCE) via https://auth-api.inite.ai",
+        "https://brain.inite.ai/mcp/{companyId}": "Bearer API key"
+      }
     }
   }
 }

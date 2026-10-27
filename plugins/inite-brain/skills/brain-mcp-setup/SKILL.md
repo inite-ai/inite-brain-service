@@ -176,7 +176,7 @@ The detailed taxonomy (which tool for which question) lives in the workflow skil
 | `400: MCP path companyId (...) does not match ApiKey companyId` | URL has wrong companyId for this key | Use the companyId from the `/admin/keys` row, not from another tenant |
 | `401: Unauthorized` | Key missing, expired, or wrong format | Check the `Authorization` header is `Bearer brain_…` exactly; no quotes, no extra spaces |
 | `403: scope brain:write required` | The user has `brain:read` only and tried `record_fact` | Either elevate the key to `brain:write` (admin only) or drop the write call |
-| Tools list empty | Client never reached brain — check the URL is HTTPS and reachable | `curl -I https://brain.inite.ai/mcp/<companyId>` should return 401 (not 404 or DNS error) |
+| Tools list empty | Client never reached brain — check the URL is HTTPS and reachable | Opening `https://brain.inite.ai/.well-known/oauth-protected-resource/mcp` in a browser should show a JSON document (not a 404 or a DNS error) |
 | Cursor / Claude don't see tools after editing config | Client cache | Quit fully (not just close window) and reopen |
 
 ## After setup

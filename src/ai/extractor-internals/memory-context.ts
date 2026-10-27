@@ -129,10 +129,15 @@ function clip(text: string, n: number): string {
  * when the context holds nothing — the extractor input is then
  * byte-identical to a context-free call.
  */
-export function renderMemoryContext(ctx: MemoryContext | undefined): string {
-  if (!ctx) return '';
+export function renderMemoryContext(
+  ctx: MemoryContext | undefined,
+  opts: { turns?: boolean } = {},
+): string {
+  if (!ctx) return opts.turns ? 'CURRENT TURNS:\n' : '';
   const parts: string[] = [];
-  const day = ctx.occurredAt?.slice(0, 10);
+  // Several turns read at once carry their dates in their own headers.
+  const day = opts.turns ? undefined : ctx.occurredAt?.slice(0, 10);
+  const current = opts.turns ? 'CURRENT TURNS' : 'CURRENT TURN';
   if (day) {
     parts.push(
       `TURN DATE: ${day}\n` +
@@ -149,7 +154,7 @@ export function renderMemoryContext(ctx: MemoryContext | undefined): string {
   }
   if (ctx.recentTurns.length > 0) {
     parts.push(
-      'CONVERSATION SO FAR (earlier turns, oldest first — context for names, pronouns and references ONLY; extract facts from the CURRENT TURN alone):\n' +
+      `CONVERSATION SO FAR (earlier turns, oldest first — context for names, pronouns and references ONLY; extract facts from the ${current} alone):\n` +
         ctx.recentTurns
           .map(
             (t) =>
@@ -176,8 +181,8 @@ export function renderMemoryContext(ctx: MemoryContext | undefined): string {
         ctx.predicates.join(', '),
     );
   }
-  if (parts.length === 0) return '';
-  return `${parts.join('\n\n')}\n\nCURRENT TURN:\n`;
+  if (parts.length === 0) return opts.turns ? `${current}:\n` : '';
+  return `${parts.join('\n\n')}\n\n${current}:\n`;
 }
 
 /**

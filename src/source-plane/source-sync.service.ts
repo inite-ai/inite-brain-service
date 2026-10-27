@@ -5,6 +5,7 @@ import type { Connector, ConnectorCtx, ItemDelta } from './connector';
 import { SourceConnectionService, type SourceConnectionRow } from './source-connection.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemService, type SourceItemRow } from './source-item.service';
+import { SourcePrincipalsService } from './source-principals.service';
 
 export interface SyncOptions {
   /** Re-enumerate everything and mark what is missing gone. */
@@ -42,10 +43,12 @@ const ENUMERATE_HARD_CAP = 50_000;
 export class SourceSyncService {
   private readonly logger = new Logger(SourceSyncService.name);
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly connections: SourceConnectionService,
     private readonly catalogue: SourceItemService,
     private readonly effects: SourceItemEffectsService,
+    private readonly principals: SourcePrincipalsService,
   ) {}
 
   /** Exposed for the scheduler (which holds no connection service of its own). */
@@ -76,15 +79,10 @@ export class SourceSyncService {
       durationMs: 0,
     });
     if (!sourcePlaneEnabled()) return { ...base('incremental'), skipped: 'flag_off' };
-    const row = await this.connections.load(companyId, connectionId);
-    if (row.status !== 'active') return { ...base('incremental'), skipped: `status_${row.status}` };
-    if (row.host !== 'server') return { ...base('incremental'), skipped: 'agent_host' };
-    const connector = this.connections.resolveConnector(row);
-    if (!connector) {
-      const error = this.connections.connectorUnavailable(row);
-      await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
-      return { ...base('incremental'), status: 'failed', error };
-    }
+    const opened = await this.open(companyId, connectionId, opts.signal);
+    if ('skipped' in opened) return { ...base('incremental'), skipped: opened.skipped };
+    if ('error' in opened) return { ...base('incremental'), status: 'failed', error: opened.error };
+    const { row, connector } = opened;
     // A feed with no history (readsOnlyNew) is never walked fully: what it
     // did not re-emit is not gone, it is merely past.
     const full =
@@ -92,27 +90,7 @@ export class SourceSyncService {
       (opts.full === true || row.checkpoint == null || connector.walksEverything === true);
     const summary = base(full ? 'full' : 'incremental');
     const runStartedAt = new Date();
-    // The credential is resolved before the run — a revoked account, a
-    // refresh the provider refused, a missing key — is the run's named
-    // failure, not an exception out of the job.
-    let credential: string | null;
-    try {
-      credential = await this.connections.credentialFor(companyId, row);
-    } catch (err) {
-      const error = (err as Error).message ?? String(err);
-      await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
-      return { ...summary, status: 'failed', error };
-    }
-    const ctx: ConnectorCtx = {
-      companyId,
-      connection: this.connections.toConnectorView(row, {
-        ...(await this.connections.sourceContext(companyId, row)),
-        credential,
-        grant: await this.connections.grantHints(companyId, row),
-      }),
-      signal: opts.signal ?? new AbortController().signal,
-      log: (line) => this.logger.log(`[${connectionId}] ${line}`),
-    };
+    const ctx = opened.ctx;
     let checkpoint: Record<string, unknown> | null = full ? null : (row.checkpoint ?? null);
     const toFetch: SourceItemRow[] = [];
     const goneRows: SourceItemRow[] = [];
@@ -144,6 +122,12 @@ export class SourceSyncService {
       }
       await this.fetchChanged({ companyId, ctx, connector, row, summary, toFetch });
       summary.closed = await this.gonePolicy(companyId, row, goneRows);
+      // W5: the ACL mirror runs AFTER the items, so a new item's groups
+      // already exist as tuples by the time anyone reads it. A failure
+      // here fails the run — an ACL that silently stopped updating is
+      // the one failure mode this plane cannot have.
+      const principals = await this.principals.sync({ ctx, connector });
+      if (principals) summary.principals = principals;
       summary.status = 'succeeded';
       await this.connections.recordSync(companyId, connectionId, {
         status: 'succeeded',
@@ -261,6 +245,127 @@ export class SourceSyncService {
       else if (out.status === 'deduplicated') p.summary.deduplicated++;
       else p.summary.failed++;
     }
+  }
+
+  /**
+   * The prologue every run shares: the connection, its connector, and a
+   * ctx with a resolved credential. A revoked account, a refresh the
+   * provider refused, a missing key — each is the run's NAMED failure,
+   * recorded on the connection, never an exception out of the job.
+   */
+  private async open(
+    companyId: string,
+    connectionId: string,
+    signal: AbortSignal | undefined,
+  ): Promise<
+    | { row: SourceConnectionRow; connector: Connector; ctx: ConnectorCtx }
+    | { skipped: string }
+    | { error: string }
+  > {
+    const row = await this.connections.load(companyId, connectionId);
+    if (row.status !== 'active') return { skipped: `status_${row.status}` };
+    // A linked connection is ASKED, never walked (W7): the source keeps
+    // its index and the brain keeps no copy, so there is nothing here to
+    // enumerate and a "sync" of it would be a lie about what happened.
+    if (row.mode === 'linked') return { skipped: 'linked_mode' };
+    if (row.host !== 'server') return { skipped: 'agent_host' };
+    const connector = this.connections.resolveConnector(row);
+    if (!connector) {
+      const error = this.connections.connectorUnavailable(row);
+      await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
+      return { error };
+    }
+    let credential: string | null;
+    try {
+      credential = await this.connections.credentialFor(companyId, row);
+    } catch (err) {
+      const error = (err as Error).message ?? String(err);
+      await this.connections.recordSync(companyId, connectionId, { status: 'failed', error });
+      return { error };
+    }
+    const ctx: ConnectorCtx = {
+      companyId,
+      connection: this.connections.toConnectorView(row, {
+        ...(await this.connections.sourceContext(companyId, row)),
+        credential,
+        grant: await this.connections.grantHints(companyId, row),
+      }),
+      signal: signal ?? new AbortController().signal,
+      log: (line) => this.logger.log(`[${connectionId}] ${line}`),
+    };
+    return { row, connector, ctx };
+  }
+
+  /**
+   * Fetch and ingest a handful of catalogue rows the engine already
+   * knows about — the deepening half of progressive indexing (W6). No
+   * walk, no checkpoint, no gone policy: the catalogue is not re-read,
+   * only the named items are fetched, so a deepening can never change
+   * what the connection has SEEN, only what it has READ.
+   */
+  async deepen(
+    companyId: string,
+    connectionId: string,
+    opts: { itemIds: string[]; signal?: AbortSignal | undefined },
+  ): Promise<SourceSyncSummary> {
+    const started = Date.now();
+    const summary: SourceSyncSummary = {
+      connectionId,
+      mode: 'incremental',
+      status: 'skipped',
+      seen: 0,
+      new: 0,
+      changed: 0,
+      unchanged: 0,
+      gone: 0,
+      fetched: 0,
+      ingested: 0,
+      deduplicated: 0,
+      failed: 0,
+      closed: 0,
+      durationMs: 0,
+    };
+    if (!sourcePlaneEnabled()) return { ...summary, skipped: 'flag_off' };
+    const opened = await this.open(companyId, connectionId, opts.signal);
+    if ('skipped' in opened) return { ...summary, skipped: opened.skipped };
+    if ('error' in opened) return { ...summary, status: 'failed', error: opened.error };
+    const rows = await this.catalogue.byIds(companyId, connectionId, opts.itemIds);
+    summary.seen = rows.length;
+    try {
+      // `contentPolicy: 'manifest'` is exactly the connection this runs
+      // for, so the policy gate of a normal run would refuse it: a
+      // deepening is the operator's own decision to read ONE item.
+      for (const item of rows) {
+        if (opts.signal?.aborted === true) throw new Error('aborted');
+        summary.fetched++;
+        const out = await this.effects.fetchAndIngest({
+          companyId,
+          ctx: opened.ctx,
+          connector: opened.connector,
+          row: item,
+        });
+        if (out.status === 'ingested') summary.ingested++;
+        else if (out.status === 'deduplicated') summary.deduplicated++;
+        else summary.failed++;
+      }
+      await this.catalogue.markDeepened(
+        companyId,
+        rows.map((r) => String(r.id)),
+      );
+      summary.status = 'succeeded';
+    } catch (err) {
+      summary.status = 'failed';
+      summary.error = (err as Error).message ?? String(err);
+    } finally {
+      await opened.connector.endRun?.(opened.ctx).catch(() => undefined);
+    }
+    summary.durationMs = Date.now() - started;
+    this.logger.log(
+      `source deepen ${connectionId} for ${companyId}: ${summary.status} ` +
+        `fetched=${String(summary.fetched)} ingested=${String(summary.ingested)} ` +
+        `failed=${String(summary.failed)} in ${String(summary.durationMs)}ms`,
+    );
+    return summary;
   }
 
   private gonePolicy(

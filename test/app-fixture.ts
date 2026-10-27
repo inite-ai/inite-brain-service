@@ -9,7 +9,13 @@ import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-e
 import { correlationIdMiddleware } from '../src/common/correlation-id.middleware';
 import { debugTraceMiddleware } from '../src/common/debug-trace';
 import { TenantRegistryService } from '../src/auth/tenant-registry.service';
-import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
+import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
+import {
+  InlineExtractionBatch,
+  StubEmbedder,
+  StubExtractor,
+  StubLocalCrossEncoder,
+} from './test-doubles';
 
 export interface AppFixture {
   app: INestApplication;
@@ -34,6 +40,13 @@ export async function createApp(
      * connections and DB-level PERMISSIONS apply.
      */
     enableScopedPool?: boolean;
+    /**
+     * Read captured documents on the queue, as production does. Off by
+     * default: a spec asserts on what a write committed, so the fixture
+     * swaps in InlineExtractionBatch and every write extracts before it
+     * answers (test/extraction-background.e2e-spec.ts opts in).
+     */
+    backgroundExtraction?: boolean;
     /**
      * Additional static keys for the SAME tenant — the ABAC suites need a
      * privileged admin key plus a policy-restricted caller key in one
@@ -112,7 +125,7 @@ export async function createApp(
 
   const stubExtractor = new StubExtractor();
 
-  const moduleRef = await Test.createTestingModule({
+  const builder = Test.createTestingModule({
     imports: [AppModule],
   })
     .overrideProvider(EmbedderService)
@@ -125,8 +138,11 @@ export async function createApp(
     // the rerank stage is still entered — it just resolves to the
     // identity permutation instead of spawning an ONNX worker thread.
     .overrideProvider(LocalCrossEncoderProvider)
-    .useValue(new StubLocalCrossEncoder())
-    .compile();
+    .useValue(new StubLocalCrossEncoder());
+  if (!opts.backgroundExtraction) {
+    builder.overrideProvider(ExtractionBatchService).useValue(new InlineExtractionBatch());
+  }
+  const moduleRef = await builder.compile();
 
   // Mirror main.ts: the raw body is what a webhook signature is checked over.
   const app = moduleRef.createNestApplication({ rawBody: true });

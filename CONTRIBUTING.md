@@ -5,6 +5,17 @@ working production service, not a hobby project, so the bar for changes is
 "would I sign off on this PR if I'd never met you?" Here's what that means
 concretely.
 
+## Working with an AI agent
+
+[AGENTS.md](AGENTS.md) is the source of truth for AI coding agents — and a
+good map for humans: the exact CI gate commands, the zones (green / yellow /
+red — red needs an approved issue before code), where to add an MCP tool,
+REST route, migration or extraction lane, and the idea → PR loop. In Claude
+Code, `/contribute` runs that loop; `/spec-idea` files an idea without code.
+[Open in Codespaces](https://codespaces.new/inite-ai/inite-brain-service) for
+a ready environment. Where this file and AGENTS.md disagree on a command,
+AGENTS.md matches CI (the stale test commands below are tracked in #745).
+
 ## Before you start
 
 - **New here?** Browse [`good first issue`](https://github.com/inite-ai/inite-brain-service/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
@@ -148,10 +159,11 @@ expected — we keep the trail honest.
 
 ## What we DO welcome
 
-- **New predicates / vertical-specific evaluators.** Brain's vocabulary
-  lives in `inite-ecosystem/core/capabilities/knowledge.yaml`; the
-  resolver in this repo reads it. Adding a vertical means a PR to the
-  spec repo PLUS a scenario file under `src/eval/scenarios/`.
+- **New predicates / vertical-specific evaluators.** Brain's core
+  vocabulary is seeded from
+  `src/ai/predicate-registry-internals/core-seed.ts`; a vertical's own
+  predicates ship as a [Domain Pack](docs/domain-packs.md). Adding a
+  vertical means a pack PLUS a scenario file under `src/eval/scenarios/`.
 - **Alternative embedders.** The `EmbedderProvider` interface in
   `src/ai/embedder/` is the seam. Wire a new provider, set
   `EMBEDDER_PROVIDER=<your-id>`, run the eval to prove it doesn't

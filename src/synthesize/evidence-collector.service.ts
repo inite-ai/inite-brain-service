@@ -1,3 +1,4 @@
+import { PENDING_MARK } from './pending-mark';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SearchService, SearchHit } from '../search/search.service';
 import type { LaneId, RetrievalProfile } from '../search/retrieval-profile';
@@ -312,6 +313,7 @@ export class EvidenceCollectorService {
       fragmentEvidence,
       beliefEvidence,
       sceneEvidence,
+      pendingLines,
     ] = await Promise.all([
       opts.asker ? Promise.resolve(opts.asker) : this.collectAsker(opts),
       this.collectStandingInstructions(opts),
@@ -324,6 +326,7 @@ export class EvidenceCollectorService {
       this.collectFragmentEvidence(opts),
       this.collectBeliefEvidence(opts),
       this.collectSceneEvidence(opts),
+      this.collectPendingTurns(opts),
     ]);
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
@@ -342,7 +345,9 @@ export class EvidenceCollectorService {
         : [transcriptLines, insightSlot];
     return {
       asker,
-      transcriptLines: filteredTranscript,
+      // What was said but not yet read goes last (it is the newest) and
+      // past the noise filter: an instruction is rarely about the query.
+      transcriptLines: withPendingTurns(filteredTranscript, pendingLines),
       insightLines: filteredInsights,
       instructions,
       timelineEvidence,
@@ -780,6 +785,20 @@ export class EvidenceCollectorService {
   }
 
   /**
+   * Turns of this scope remembered but not yet read by the extraction
+   * (EpisodeLaneService.pendingTurns) — the working memory between a
+   * write and its facts. Never rejects.
+   */
+  private async collectPendingTurns(opts: {
+    companyId: string;
+    callerScopes: string[];
+    userId?: string | undefined;
+  }): Promise<string[]> {
+    if (!this.episodeLane || getAbortSignal()?.aborted) return [];
+    return this.episodeLane.pendingTurns(opts).catch(() => []);
+  }
+
+  /**
    * T7 instruction lane — the read half: the standing instructions the
    * memory files under the `instruction` predicate for this caller
    * (InstructionLaneService — one indexed read, no search). Launched
@@ -871,4 +890,16 @@ export class EvidenceCollectorService {
     }
     return list.length > 0 ? list.slice(0, INSTRUCTIONS_CAP) : undefined;
   }
+}
+
+/**
+ * The transcript with the pending turns appended, a turn the relevance
+ * lanes already quoted appearing once (as the pending line: its mark is
+ * what tells the generator it is newer than every fact).
+ */
+function withPendingTurns(transcript: string[], pending: string[]): string[] {
+  if (pending.length === 0) return transcript;
+  const unmark = (l: string) => l.replace(` ${PENDING_MARK}]`, ']');
+  const pendingKeys = new Set(pending.map(unmark));
+  return [...transcript.filter((l) => !pendingKeys.has(l)), ...pending];
 }

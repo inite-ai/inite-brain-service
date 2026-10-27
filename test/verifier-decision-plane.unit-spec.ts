@@ -138,4 +138,23 @@ describe('verifier — the decision plane first pass', () => {
     );
     expect(missing.calls).toHaveLength(1);
   });
+
+  it('evidence about a similar but different subject does not answer the question', async () => {
+    const swapped = {
+      ...choice('supported', 0.95),
+      answers: {
+        ...choice('supported', 0.95).answers,
+        question_answered: { type: 'noul' as const, noul: 0.8 },
+        same_subject: { type: 'noul' as const, noul: 0.1 },
+      },
+    };
+    const out = await runVerifier(
+      baseReq({
+        openai: auditorDouble().openai,
+        topicCoverage: true,
+        decisions: decisionsStub({ res: swapped }),
+      }),
+    );
+    expect(out).toMatchObject({ verdict: 'supported', questionAnswered: false });
+  });
 });

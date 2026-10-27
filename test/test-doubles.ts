@@ -1,3 +1,4 @@
+import type { ExtractionBatchService } from '../src/documents/extraction-batch.service';
 import { createHash } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import type { EmbedderService, EmbedderWarmupStatus } from '../src/ai/embedder.service';
@@ -106,12 +107,18 @@ export class StubEmbedder implements Pick<
  */
 export class StubExtractor implements Pick<
   ExtractorService,
-  'extract' | 'modelId' | 'vocabularyVersionHash'
+  'extract' | 'extractBackground' | 'modelId' | 'vocabularyVersionHash'
 > {
   private script: ExtractionResult | null = null;
+  private failure: Error | null = null;
 
   setScript(result: ExtractionResult | null) {
     this.script = result;
+  }
+
+  /** Every extract call throws this until cleared (a provider outage). */
+  setFailure(err: Error | null) {
+    this.failure = err;
   }
 
   modelId(): string {
@@ -126,8 +133,18 @@ export class StubExtractor implements Pick<
   /** The context of every extract call, in order — what the extractor was told. */
   readonly contexts: unknown[] = [];
 
+  /** The queued read: same script, same record of what it was told. */
+  async extractBackground(p: {
+    text: string;
+    companyId: string;
+    context?: unknown;
+  }): Promise<ExtractionResult> {
+    return this.extract(p.text, p.companyId, p.context);
+  }
+
   async extract(text: string, _companyId?: string, context?: unknown): Promise<ExtractionResult> {
     this.contexts.push(context);
+    if (this.failure) throw this.failure;
     if (this.script) return this.script;
     if (!text.trim()) return { entities: [], facts: [], edges: [] };
     return {
@@ -326,4 +343,26 @@ function hashToVector(text: string, dim: number): number[] {
   norm = Math.sqrt(norm) || 1;
   for (let i = 0; i < dim; i++) out[i] = out[i]! / norm;
   return out;
+}
+
+/**
+ * The e2e default for ExtractionBatchService: no queue to read captured
+ * documents, so every write extracts before it answers (the ingest
+ * services take the inline path when `enabled()` is false). A spec
+ * asserts on what a write committed; the one that exercises the queue
+ * boots the real service (createApp({ backgroundExtraction: true })).
+ */
+export class InlineExtractionBatch implements Pick<
+  ExtractionBatchService,
+  'enabled' | 'schedule' | 'runPass'
+> {
+  enabled(): boolean {
+    return false;
+  }
+
+  async schedule(): Promise<void> {}
+
+  async runPass(): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+    return { read: 0, failed: 0, committed: 0, retry: 0 };
+  }
 }

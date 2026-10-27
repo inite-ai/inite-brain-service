@@ -128,7 +128,7 @@ describe('activeFactWhere', () => {
     const { clauses, params } = activeFactWhere(asOf);
     expect(clauses).toEqual([
       // NO `recordedAt <= $asOf`: on this surface `asOf` is VALID time,
-      // exactly as docs/bitemporal-semantics.md and AGENTS.md promise.
+      // exactly as docs/bitemporal-semantics.md and docs/agents-using-brain.md promise.
       // Bounding knowledge time here made a BACKDATED fact appear in
       // search and vanish from the profile for the very same asOf.
       // Knowledge time keeps its own parameter (`recordedAt`).

@@ -85,6 +85,9 @@ export const SourceItemSchema = z.object({
   lastSeenAt: z.string(),
   goneAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** Progressive indexing (W6): how often a query matched this row. */
+  hitCount: z.number().optional(),
+  deepenedAt: z.string().nullable().optional(),
 });
 
 export const SourceItemsListResponseSchema = z.object({
@@ -302,6 +305,7 @@ export const SourceConnectorStateSchema = z.object({
   kind: z.string(),
   state: z.enum(['ready', 'disabled']),
   flag: z.string(),
+  linked: z.boolean().optional(),
 });
 
 export const SourceCatalogResponseSchema = z.object({
@@ -311,6 +315,8 @@ export const SourceCatalogResponseSchema = z.object({
   egressAllowPrivate: z.boolean(),
   /** SOURCE_WEBHOOKS is on. */
   webhooks: z.boolean(),
+  principals: z.boolean().optional(),
+  linked: z.boolean().optional(),
 });
 
 // ── Inspection (the operator's drill-down) ─────────────────────────────
@@ -469,6 +475,7 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'atlassian',
   'slack',
   'github',
+  'gitlab',
 ]);
 
 export const SourceOAuthStartRequestSchema = z.object({
@@ -576,3 +583,30 @@ export type OAuthPopupMessage = z.infer<typeof OAuthPopupMessageSchema>;
 export type RecordsPreviewResponse = z.infer<typeof RecordsPreviewResponseSchema>;
 export type EntityMapping = { fields: Record<string, string>; text?: string[]; coreType?: string };
 export type RecordMapping = Record<string, EntityMapping>;
+
+// ── The ACL mirror (W5) ──────────────────────────────────────────────
+
+export const SourceExternalIdentitySchema = z.object({
+  externalId: z.string(),
+  handle: z.string().nullable(),
+  displayName: z.string().nullable(),
+  email: z.string().nullable(),
+  userId: z.string().nullable(),
+  linkedBy: z.string().nullable(),
+});
+export type SourceExternalIdentity = z.infer<typeof SourceExternalIdentitySchema>;
+
+export const SourceMembershipTupleSchema = z.object({
+  subject: z.string(),
+  object: z.string(),
+  source: z.string(),
+  recordedAt: z.string(),
+  revokedAt: z.string().nullable(),
+});
+
+export const SourcePrincipalsResponseSchema = z.object({
+  epoch: z.number(),
+  identities: z.array(SourceExternalIdentitySchema),
+  tuples: z.array(SourceMembershipTupleSchema),
+});
+export type SourcePrincipalsResponse = z.infer<typeof SourcePrincipalsResponseSchema>;

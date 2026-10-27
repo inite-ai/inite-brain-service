@@ -56,6 +56,8 @@ export class ExtractorCacheService {
     /** The speaker is the user the memory is captured for (a different framing). */
     speakerIsUser?: boolean | undefined;
     addressee?: string | undefined;
+    /** Speakers of the turns one multi-turn read covers (extraction-group.ts). */
+    turns?: string | undefined;
     /** Digest of the memory context the extractor read (memoryContextDigest). */
     memory?: string | undefined;
   }): string {
@@ -77,6 +79,7 @@ export class ExtractorCacheService {
       `sc=${input.scPasses ?? 1}`,
       `spk=${input.speaker ?? ''}${input.speakerIsUser ? '\x1euser' : ''}\x1eadr=${input.addressee ?? ''}`,
       `mem=${input.memory ?? ''}`,
+      ...(input.turns ? [`turns=${input.turns}`] : []),
       nfc(input.text),
     ].join('\x1f');
     return createHash('sha256').update(parts).digest('hex');

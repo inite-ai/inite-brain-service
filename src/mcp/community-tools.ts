@@ -30,7 +30,7 @@ export function registerCommunityTools(
     {
       title: 'Search topic communities (coarse retrieval scope)',
       description:
-        'Cosine-matches the query against topic-community summaries — the coarse retrieval scope. A community is a cluster of related entities (label propagation over the entity graph) with one rolled-up summary. Use BEFORE search_knowledge when the question is broad ("what do we know about X domain") to get an overview instead of a fact firehose, then drill into specific entities. Communities are (re)built off-hours by the dreams loop; an empty result means clustering has not run or the graph is too sparse.',
+        'Cosine-matches the query against topic-community summaries — the coarse retrieval scope. A community is a cluster of related entities (label propagation over the entity graph) with one rolled-up summary. Suited to broad questions ("what do we know about X domain"): it returns an overview of a domain rather than individual facts. Communities are (re)built off-hours by the dreams loop; an empty result means clustering has not run or the graph is too sparse.',
       inputSchema: {
         query: z.string().describe('Natural-language topic / domain'),
         limit: z.number().int().min(1).max(20).optional(),
@@ -62,7 +62,7 @@ export function registerCommunityTools(
     {
       title: 'List topic communities',
       description:
-        'Paginated listing of topic communities, largest first. Each row carries a label, a rolled-up summary, and the member count. Use to enumerate the knowledge map at a glance.',
+        'Paginated listing of topic communities, largest first. Each row carries a label, a rolled-up summary, and the member count. Gives the knowledge map at a glance.',
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional(),
       },
@@ -85,7 +85,7 @@ export function registerCommunityTools(
     {
       title: 'Find the communities an entity belongs to',
       description:
-        'Returns the topic communities a given entity is a member of. Use to place an entity in its broader context — which clusters / themes it participates in — or to pivot from one entity to the wider neighbourhood the cluster summarises.',
+        'Returns the topic communities a given entity is a member of. Places an entity in its broader context — which clusters / themes it participates in — and leads from one entity to the wider neighbourhood the cluster summarises.',
       inputSchema: {
         entityId: z.string().describe('knowledge_entity id'),
       },

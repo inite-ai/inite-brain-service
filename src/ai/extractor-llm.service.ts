@@ -1,7 +1,12 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import { chatCallParams, chatModel, createOpenAiClientOrThrow } from './openai-client';
+import {
+  chatCallParams,
+  chatModel,
+  createOpenAiClientOrThrow,
+  type ServiceTier,
+} from './openai-client';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
@@ -129,6 +134,8 @@ export class ExtractorLlmService {
      * containment. Empty/absent → byte-identical to the pre-coreference call.
      */
     contextPrefix?: string | undefined;
+    /** Offline processing tier — background extraction only. */
+    tier?: ServiceTier | undefined;
   }): Promise<unknown> {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
@@ -165,7 +172,11 @@ export class ExtractorLlmService {
                   }),
                 },
               },
-              ...chatCallParams(model, { temperature, visibleCap: 1500 }),
+              ...chatCallParams(model, {
+                temperature,
+                visibleCap: extractionOutputAllowance(trimmed.length),
+                tier: args.tier,
+              }),
             },
             { signal: getAbortSignal() },
           ),
@@ -180,4 +191,19 @@ export class ExtractorLlmService {
       return null;
     }
   }
+}
+
+/**
+ * The visible-output allowance of one extraction call, from the size of
+ * what it reads. The output copies its clauses verbatim from the input and
+ * adds a fact per clause, so it grows with the input — a fixed 1500 tokens
+ * (6000 with reasoning) cut every dense document of more than a few
+ * kilobytes mid-JSON: all three samples unparseable, the document read as
+ * holding nothing. Measured on 150 merged-PR descriptions: responses
+ * truncated at ~24 000 characters, exactly the old ceiling. About one
+ * visible token per two input characters covers the verbatim copy with
+ * room for the facts; the ceiling bounds a pathological input.
+ */
+export function extractionOutputAllowance(inputChars: number): number {
+  return Math.min(Math.max(1500, Math.ceil(inputChars / 2)), 16_000);
 }

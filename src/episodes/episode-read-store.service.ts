@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { scopeFenceSql } from '../auth/scope-visibility';
+import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
+import { idTailOf } from '../ingest/ingest-utils';
 
 /**
  * Read port over the L0 episode substrate (raw-substrate driver v1,
@@ -294,6 +296,52 @@ export class EpisodeReadStoreService {
     });
   }
 
+  /**
+   * The turns remembered but not yet READ — those of documents whose
+   * generalist extraction is still waiting (documents/extraction-batch):
+   * a mention's own turn (the episode its document header names) and a
+   * posted document's turns (conversation `document:<id>`). Newest first,
+   * under the same PII / user / team fences as every other read here. The
+   * working memory of both the transcript lane and the L3 raw path.
+   */
+  async pendingTurns(opts: {
+    companyId: string;
+    limit: number;
+    includePii: boolean;
+    /** Scope key of the asking end-user; omitted → tenant-global only. */
+    userId?: string | undefined;
+    db?: EpisodeDb | undefined;
+  }): Promise<EpisodeQuoteRow[]> {
+    return this.run(opts.companyId, opts.db, async (db) => {
+      const [runs] = await db.query<[Array<{ docId: unknown; ep?: unknown }>]>(
+        `SELECT docId, docId.meta.episodeId AS ep FROM indexer_run
+          WHERE packId = $pack AND status IN ['pending', 'running'] AND external != true
+          LIMIT ${PENDING_DOCS_CAP}`,
+        { pack: GENERAL_INDEXER_ID },
+      );
+      if (!runs || runs.length === 0) return [];
+      const ids = runs
+        .map((r) => (typeof r.ep === 'string' ? r.ep : ''))
+        .filter((id) => id.startsWith('episode:'));
+      const conversations = runs.map((r) => `document:${idTailOf(String(r.docId))}`);
+      const scope = this.scopeGate(opts.userId);
+      const [rows] = await db.query<[EpisodeQuoteRow[]]>(
+        `SELECT id, conversationId, speaker, text, occurredAt FROM episode
+          WHERE kind = 'turn' AND (id INSIDE $ids OR conversationId INSIDE $convs)
+            ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause}
+          ORDER BY occurredAt DESC LIMIT $k`,
+        {
+          ids: ids.map((id) => new StringRecordId(id)),
+          convs: conversations,
+          k: opts.limit,
+          ...this.userParams(opts.userId),
+          ...scope.params,
+        },
+      );
+      return rows ?? [];
+    });
+  }
+
   /** Quote rows for specific episode ids, PII-fenced, order unspecified. */
   async byIds(opts: {
     companyId: string;
@@ -487,3 +535,6 @@ function toEpochMs(v: Date | string | undefined): number | undefined {
   const t = v instanceof Date ? v.getTime() : Date.parse(String(v));
   return Number.isNaN(t) ? undefined : t;
 }
+
+/** Documents still waiting that one read of the working memory looks at. */
+const PENDING_DOCS_CAP = 50;

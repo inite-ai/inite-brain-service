@@ -240,6 +240,8 @@ const ANCHOR_EPISODE_CAP = 300;
  *  far under ANCHOR_EPISODE_CAP, so aux window centers are bounded by
  *  construction. */
 const L3_DIRECT_ANCHOR_TOPK = 20;
+/** Unread turns the working-memory anchor source reads (their sessions are read in full). */
+const L3_PENDING_TURNS_CAP = 8;
 const L3_SEGMENT_ANCHOR_TOPK = 12;
 const L3_TEMPORAL_ANCHOR_TOPK = 10;
 
@@ -393,15 +395,19 @@ export class L3EscalationService {
     // 8 of 11 escalations read only the sessions those facts pointed at
     // and did not find the answer the raw text held. A session both
     // directions name ranks first (rankL3Sessions counts hits).
-    const [fact, aux] = await Promise.all([
+    const [fact, aux, pending] = await Promise.all([
       this.resolveAnchors(input, fences),
       this.resolveAuxiliaryAnchors(input, fences),
+      this.pendingAnchors(input, fences),
     ]);
     const sources: L3AnchorSource[] = [
       ...(fact.anchors.length > 0 ? [{ source: 'fact' as const, anchors: fact.anchors }] : []),
       ...aux.sources,
+      ...(pending.anchors.length > 0
+        ? [{ source: 'pending' as const, anchors: pending.anchors }]
+        : []),
     ];
-    const centers = [...fact.centers, ...aux.centers];
+    const centers = [...fact.centers, ...aux.centers, ...pending.centers];
     // Attention hints (FOVEA_ATTENTION_HINTS) boost fact anchors by their
     // predicate; aux anchors carry none, so a hint cannot move them. The
     // memory-model reader is consulted only when a fact anchored.
@@ -427,10 +433,17 @@ export class L3EscalationService {
       : profile.l3MaxSessions;
     // 0119: the ranked-session budget of THIS fired escalation.
     draft.maxSessions = maxSessions;
-    const sessionIds = rankL3Sessions(anchors, {
-      max: maxSessions,
-      window,
-    });
+    // What was said and not yet read is read in full, ahead of the ranked
+    // sessions: no relevance signal can vouch for it yet, and it is the
+    // newest thing the memory holds (an answer, a correction, an
+    // instruction). Bounded by the pending-turn cap.
+    const pendingSessions = [...new Set(pending.anchors.map((a) => a.conversationId))];
+    const sessionIds = [
+      ...pendingSessions,
+      ...rankL3Sessions(anchors, { max: maxSessions, window }).filter(
+        (id) => !pendingSessions.includes(id),
+      ),
+    ].slice(0, maxSessions + pendingSessions.length);
     // Anchor-source observability: once per fired escalation per source
     // that contributed ≥1 anchor to the final ranked set.
     const selected = new Set(sessionIds);
@@ -674,6 +687,45 @@ export class L3EscalationService {
       }
     }
     return { sources, centers };
+  }
+
+  /**
+   * The working memory as anchors: the conversations whose turns are
+   * remembered but not yet read (EpisodeReadStoreService.pendingTurns,
+   * fenced like every read here), each turn its own window center.
+   * Consulted on every escalation — a question about something said a
+   * moment ago has no fact and often no lexical hit yet. Fail-soft.
+   */
+  private async pendingAnchors(input: L3EscalateInput, fences: L3Fences): Promise<L3AnchorProbe> {
+    try {
+      const rows = await this.episodes.pendingTurns({
+        companyId: input.companyId,
+        limit: L3_PENDING_TURNS_CAP,
+        includePii: fences.includePii,
+        ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
+      });
+      const anchors: L3SessionAnchor[] = [];
+      const centers: L3AnchorCenter[] = [];
+      for (const r of rows) {
+        if (!r.conversationId) continue;
+        const conversationId = String(r.conversationId);
+        const atMs = toMs(r.occurredAt);
+        anchors.push({ conversationId, score: 1, atMs });
+        if (atMs !== undefined) {
+          centers.push({
+            conversationId,
+            atMs,
+            ...(r.id !== undefined ? { episodeId: String(r.id) } : {}),
+          });
+        }
+      }
+      return { anchors, centers };
+    } catch (e) {
+      this.logger.warn(
+        `L3 pending anchor source failed (companyId=${input.companyId}): ${(e as Error).message}`,
+      );
+      return { anchors: [], centers: [] };
+    }
   }
 
   /** Direct aux probe: fenced BM25 episode hits → session anchors, each

@@ -58,6 +58,7 @@ async function commitOne(meta: Record<string, unknown> | undefined) {
       withCompany: (_c: string, fn: (db: unknown) => unknown) => fn({}),
     } as unknown as SurrealService,
     {
+      prejudge: async () => null,
       resolveOrCreateNamedEntity: async () => 'knowledge_entity:e1',
     } as unknown as EntityUpsertService,
     { resolve } as unknown as FactResolverService,

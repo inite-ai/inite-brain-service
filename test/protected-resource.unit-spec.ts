@@ -149,9 +149,9 @@ describe('ProtectedResourceController — routing', () => {
 });
 
 describe('ApiKeyGuard — WWW-Authenticate challenge', () => {
-  it('401 carries resource_metadata so MCP clients can discover the AS', async () => {
+  async function challenge(path?: string): Promise<string | undefined> {
     const headersSet: Record<string, string> = {};
-    const req = { headers: { host: 'brain.inite.ai', authorization: undefined } };
+    const req = { headers: { host: 'brain.inite.ai', authorization: undefined }, path };
     const res = {
       setHeader: (name: string, value: string) => {
         headersSet[name] = value;
@@ -164,13 +164,38 @@ describe('ApiKeyGuard — WWW-Authenticate challenge', () => {
     } as unknown as ExecutionContext;
 
     // Credential resolver is never reached on the missing-header path.
-    const guard = new ApiKeyGuard({ resolve: async () => null } as never, new Reflector(), {
-      gate: async () => undefined,
-    } as never);
+    const guard = new ApiKeyGuard(
+      { resolve: async () => null } as never,
+      new Reflector(),
+      { gate: async () => undefined } as never,
+      { tagsFor: async () => [] } as never,
+    );
 
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(headersSet['WWW-Authenticate']).toBe(
-      'Bearer resource_metadata="https://brain.inite.ai/.well-known/oauth-protected-resource"',
+    return headersSet['WWW-Authenticate'];
+  }
+
+  it('401 carries resource_metadata and the scopes to ask for', async () => {
+    expect(await challenge('/v1/search')).toBe(
+      'Bearer resource_metadata="https://brain.inite.ai/.well-known/oauth-protected-resource", ' +
+        'scope="brain:read brain:write"',
+    );
+  });
+
+  // Claude requires the metadata's `resource` to equal the URL the user
+  // entered, path included — for the universal endpoint that is `/mcp`.
+  it('the tenant-less MCP endpoint points at its own path-suffixed document', async () => {
+    expect(await challenge('/mcp')).toBe(
+      'Bearer resource_metadata="https://brain.inite.ai/.well-known/oauth-protected-resource/mcp", ' +
+        'scope="brain:read brain:write"',
+    );
+  });
+
+  // Tokens already minted through the per-tenant URL carry the
+  // deployment-wide audience; moving its pointer would orphan them.
+  it('a per-tenant MCP endpoint keeps the deployment-wide document', async () => {
+    expect(await challenge('/mcp/co_demo')).toContain(
+      'resource_metadata="https://brain.inite.ai/.well-known/oauth-protected-resource"',
     );
   });
 });

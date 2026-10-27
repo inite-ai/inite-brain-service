@@ -1,5 +1,10 @@
 # Migration guide — wiring a vertical into INITE Brain
 
+> For INITE's own verticals: their manifests live in INITE's internal spec
+> repository, referenced below as `inite-ecosystem`. Integrating Brain into
+> your own app? Start with [api.md](api.md) and
+> [agents-using-brain.md](agents-using-brain.md) instead.
+
 Walks a vertical maintainer from "no brain integration" to "knowledge
 capability shipped" in their app. The runtime path is `inite.<vertical>` →
 `@inite/knowledge` SDK → brain HTTP/MCP.

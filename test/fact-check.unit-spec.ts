@@ -129,4 +129,42 @@ describe('self-consistency passes merge an entity by name', () => {
     const merged = mergeExtractions([typed('asset'), typed('other')]);
     expect(merged.entities).toHaveLength(2);
   });
+
+  it('checks relations too: a pair the text does not relate is dropped in the same request', async () => {
+    const calls: Array<{ questions: Record<string, { instructions: string }> }> = [];
+    const svc = {
+      enabled: () => true,
+      decide: async (_lane: string, req: (typeof calls)[number]) => {
+        calls.push(req);
+        const answers: Record<string, { type: 'noul'; noul: number }> = {};
+        for (const [q, body] of Object.entries(req.questions)) {
+          answers[q] = { type: 'noul', noul: body.instructions.includes('made by') ? 0.04 : 0.96 };
+        }
+        return { model: 'jev', answers };
+      },
+      confident: (_lane: string, a: { noul: number }) => Math.abs(a.noul - 0.5) * 2 >= 0.7,
+    } as unknown as DecisionService;
+    const result: ExtractionResult = {
+      entities: [
+        { name: 'Jev', type: 'other' },
+        { name: 'OpenRouter', type: 'other' },
+        { name: 'TypeSafe', type: 'other' },
+      ],
+      facts: [],
+      edges: [
+        { fromEntityIndex: 0, toEntityIndex: 1, kind: 'made_by', confidence: 0.8 },
+        { fromEntityIndex: 0, toEntityIndex: 2, kind: 'served_via', confidence: 0.8 },
+      ],
+    };
+    const out = await checkExtraction({
+      result,
+      text: 'Jev — модель TypeSafe, подключена через OpenRouter.',
+      decisions: svc,
+    });
+    expect(calls).toHaveLength(1);
+    expect(out.asked).toBe(2);
+    expect(out.rejected).toBe(1);
+    expect(out.result.edges.map((e) => e.kind)).toEqual(['served_via']);
+    expect(out.droppedFacts).toEqual(['Jev —made_by→ OpenRouter']);
+  });
 });

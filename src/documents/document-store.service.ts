@@ -1,3 +1,4 @@
+import type { TriageStamp } from './triage';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -322,6 +323,17 @@ export class DocumentStoreService {
         charStart: r.charStart,
         charEnd: r.charEnd,
       }));
+    });
+  }
+
+  /** The D1 triage stamp (0167) on documents read as one text. */
+  async setTriage(companyId: string, docIds: string[], stamp: TriageStamp): Promise<void> {
+    if (docIds.length === 0) return;
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`UPDATE $ids SET triage = $stamp RETURN NONE`, {
+        ids: docIds.map((id) => new StringRecordId(`source_document:${idTailOf(id)}`)),
+        stamp,
+      });
     });
   }
 

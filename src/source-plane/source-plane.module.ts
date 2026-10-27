@@ -3,9 +3,11 @@ import { AuthModule } from '../auth/auth.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { EvidenceModule } from '../evidence/evidence.module';
 import { IngestModule } from '../ingest/ingest.module';
+import { OutcomesModule } from '../outcomes/outcomes.module';
 import { SourcesModule } from '../sources/sources.module';
 import { AdminSourceConnectionsController } from './admin-source-connections.controller';
 import { AdminSourceInspectController } from './admin-source-inspect.controller';
+import { AdminSourcePrincipalsController } from './admin-source-principals.controller';
 import { AgentRunService } from './agent-run.service';
 import { AgentSourceConnectionsController } from './agent-source-connections.controller';
 import { AgentSyncService } from './agent-sync.service';
@@ -15,6 +17,7 @@ import { ConfluenceConnector } from './connectors/confluence.connector';
 import { GmailConnector } from './connectors/gmail.connector';
 import { ImapConnector } from './connectors/imap.connector';
 import { GithubConnector } from './connectors/github.connector';
+import { GitlabConnector } from './connectors/gitlab.connector';
 import { SlackConnector } from './connectors/slack.connector';
 import { TelegramConnector } from './connectors/telegram.connector';
 import { DropboxConnector } from './connectors/dropbox.connector';
@@ -51,6 +54,9 @@ import { SourceInspectService } from './source-inspect.service';
 import { SourceItemEffectsService } from './source-item-effects.service';
 import { SourceItemIngestService } from './source-item-ingest.service';
 import { SourceItemService } from './source-item.service';
+import { SourceDeepenService } from './source-deepen.service';
+import { SourceLinkedService } from './source-linked.service';
+import { SourcePrincipalsService } from './source-principals.service';
 import { SourceRunHistoryService } from './source-run-history.service';
 import { SourceSyncQueueService } from './source-sync-queue.service';
 import { SourceSyncService } from './source-sync.service';
@@ -89,11 +95,21 @@ import { SourceSyncService } from './source-sync.service';
  * the connections controllers' `:id`.
  */
 @Module({
-  imports: [AuthModule, DocumentsModule, EvidenceModule, IngestModule, SourcesModule],
+  // OutcomesModule supplies ToolObservationService — the linked lane's
+  // anchor (W7): a hit that nothing can cite is not served.
+  imports: [
+    AuthModule,
+    DocumentsModule,
+    EvidenceModule,
+    IngestModule,
+    OutcomesModule,
+    SourcesModule,
+  ],
   controllers: [
     AdminSourceOAuthController,
     AdminSourceConnectionsController,
     AdminSourceInspectController,
+    AdminSourcePrincipalsController,
     AdminSourceWebhookController,
     SourceWebhookController,
     AgentSourceConnectionsController,
@@ -112,6 +128,7 @@ import { SourceSyncService } from './source-sync.service';
     GmailConnector,
     ImapConnector,
     GithubConnector,
+    GitlabConnector,
     SlackConnector,
     TelegramConnector,
     PipedriveConnector,
@@ -136,6 +153,7 @@ import { SourceSyncService } from './source-sync.service';
         GmailConnector,
         ImapConnector,
         GithubConnector,
+        GitlabConnector,
         SlackConnector,
         TelegramConnector,
         PipedriveConnector,
@@ -164,6 +182,9 @@ import { SourceSyncService } from './source-sync.service';
     SourceItemEffectsService,
     SourceSyncService,
     SourceSyncQueueService,
+    SourceDeepenService,
+    SourceLinkedService,
+    SourcePrincipalsService,
     SourceRunHistoryService,
     SourceInspectService,
     AgentSyncService,
@@ -173,6 +194,11 @@ import { SourceSyncService } from './source-sync.service';
     SourceConnectionService,
     SourceItemService,
     SourceSyncService,
+    // The search pipeline's deepening hook (W6) — injected @Optional(),
+    // so a brain without the source plane simply never probes.
+    SourceSyncQueueService,
+    // The search pipeline's linked lane (W7) — injected @Optional().
+    SourceLinkedService,
     SourceOAuthService,
     SOURCE_CONNECTORS,
   ],

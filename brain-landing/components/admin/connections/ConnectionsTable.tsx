@@ -5,16 +5,7 @@ import { Laptop, Loader2, Pause, Play, Plus, RotateCcw, Search, Trash2 } from 'l
 import type { SourceConnection } from '../../../lib/contracts/admin-source-connections'
 import { GroupHeading, KindLabel } from './KindLabel'
 import { familyOf, groupConnections, labelOf, matchesQuery, type SourceGroup } from './kinds'
-import {
-  accentBtn,
-  dangerBtn,
-  fill,
-  mutedBtn,
-  stamp,
-  statusTone,
-  syncTone,
-  type ConnectionsT,
-} from './shared'
+import { accentBtn, dangerBtn, fill, mutedBtn, shapeNoun, stamp, statusTone, syncTone, type ConnectionsT } from './shared'
 
 export interface ConnectionActions {
   select: (c: SourceConnection) => void
@@ -191,13 +182,7 @@ function ConnectionRow({
         <KindLabel family={familyOf(c)} connector={c.connector} t={t} />
         <span className="text-[var(--text-faint)]">
           {' · '}
-          {c.shape === 'binary'
-            ? t.form.shape.binary
-            : c.shape === 'structure'
-              ? t.form.shape.structure
-              : c.shape === 'conversation'
-                ? t.form.shape.conversation
-                : t.form.shape.document}
+          {shapeNoun(t.form.shape, c.shape)}
         </span>
         <div className="font-mono text-[10px] text-[var(--text-faint)]">
           {c.packId}

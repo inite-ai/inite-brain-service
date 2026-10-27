@@ -14,7 +14,13 @@ import { EmbedderService } from '../src/ai/embedder.service';
 import { ExtractorService } from '../src/ai/extractor.service';
 import { LocalCrossEncoderProvider } from '../src/ai/cross-encoder/local-cross-encoder.provider';
 import { SurrealService } from '../src/db/surreal.service';
-import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from './test-doubles';
+import {
+  InlineExtractionBatch,
+  StubEmbedder,
+  StubExtractor,
+  StubLocalCrossEncoder,
+} from './test-doubles';
+import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
 import { randomUUID, createHash } from 'node:crypto';
 import supertest from 'supertest';
 
@@ -72,6 +78,8 @@ describe('mention-path locale coverage', () => {
       // real ~279MB reranker worker. See test/jest-e2e.json.
       .overrideProvider(LocalCrossEncoderProvider)
       .useValue(new StubLocalCrossEncoder())
+      .overrideProvider(ExtractionBatchService)
+      .useValue(new InlineExtractionBatch())
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

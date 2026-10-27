@@ -276,7 +276,8 @@
         "github": "GitHub",
         "license": "Лицензия",
         "contributing": "Контрибьютинг",
-        "security": "Безопасность"
+        "security": "Безопасность",
+        "privacy": "Конфиденциальность"
       },
       "resources": {
         "title": "Ресурсы",
@@ -789,8 +790,10 @@
           "revision": "ревизия",
           "size": "размер",
           "lastSeen": "видено",
-          "error": "ошибка"
+          "error": "ошибка",
+          "hits": "Попаданий"
         },
+        "deepened": "прочитано по запросу {at}",
         "empty": "Каталог пуст — запусти sync.",
         "prev": "назад",
         "next": "дальше",
@@ -937,7 +940,10 @@
           "closed": "закрыт",
           "retracted": "{status}"
         },
-        "driftHint": "прочитан на более старой ревизии, чем сейчас в каталоге — sweep дрейфа отметит его устаревшим на следующем проходе"
+        "driftHint": "прочитан на более старой ревизии, чем сейчас в каталоге — sweep дрейфа отметит его устаревшим на следующем проходе",
+        "readNow": "Прочитать сейчас",
+        "readHint": "Это подключение только каталогизирует. Чтение заберёт ИМЕННО эту строку и ничего больше — то же углубление, что планирует запрос.",
+        "readAlready": "прочитано по запросу {at}"
       },
       "agents": {
         "title": "Локальные агенты",
@@ -1209,7 +1215,7 @@
             },
             "since": {
               "label": "С даты",
-              "hint": "Для issue: первый обход читает изменившееся после этой даты (YYYY-MM-DD). По умолчанию — 180 дней назад."
+              "hint": "Первый обход читает изменившееся после этой даты (YYYY-MM-DD). По умолчанию — 180 дней назад."
             },
             "includePullRequests": {
               "label": "Включая pull request’ы",
@@ -1217,15 +1223,15 @@
             },
             "labels": {
               "label": "Метки",
-              "hint": "Для issue: только те, где есть все эти метки, по одной в строке. Пусто = все."
+              "hint": "Только те, где есть все эти метки, по одной в строке. Пусто = все."
             },
             "paths": {
               "label": "Только под этими путями",
-              "hint": "Для документов: префиксы путей (docs/, adr/), по одному в строке. Пусто = всё дерево."
+              "hint": "Префиксы путей (docs/, adr/), по одному в строке. Пусто = всё дерево."
             },
             "ref": {
               "label": "Ветка или тег",
-              "hint": "Для документов; пусто = ветка по умолчанию."
+              "hint": "Пусто = ветка по умолчанию."
             },
             "baseUrl": {
               "label": "API GitHub Enterprise",
@@ -1233,7 +1239,7 @@
             },
             "extensions": {
               "label": "Расширения",
-              "hint": "Для документов: что считать текстом. Пусто = стандартная таблица (md, txt, adoc, rst, код, …)."
+              "hint": "Что считать текстом. Пусто = стандартная таблица (md, txt, adoc, rst, код, …)."
             },
             "maxItems": {
               "label": "Макс. issue за прогон",
@@ -1241,15 +1247,65 @@
             },
             "maxFiles": {
               "label": "Макс. файлов",
-              "hint": "Для документов. По умолчанию 5000."
+              "hint": "По умолчанию 5000."
             },
             "maxFileBytes": {
               "label": "Макс. размер файла (байт)",
-              "hint": "Для документов. По умолчанию 1 МБ."
+              "hint": "По умолчанию 1 МБ."
             },
             "allowPrivate": {
               "label": "Разрешить приватные хосты",
               "hint": "Хост GitHub Enterprise внутри вашей сети — деплой уже дал согласие."
+            }
+          },
+          "gitlab": {
+            "project": {
+              "label": "Проект",
+              "hint": "group/name (вложенные группы тоже) или числовой id — проект, доступный токену или подключённому аккаунту."
+            },
+            "since": {
+              "label": "С даты",
+              "hint": "Первый обход читает изменившееся после этой даты (YYYY-MM-DD). По умолчанию — 180 дней назад."
+            },
+            "includeMergeRequests": {
+              "label": "Включая merge request’ы",
+              "hint": "GitLab нумерует issue и merge request отдельно и отдаёт их разными списками; выключено — только issue."
+            },
+            "labels": {
+              "label": "Метки",
+              "hint": "Только те, где есть все эти метки, по одной в строке. Пусто = все."
+            },
+            "paths": {
+              "label": "Только под этими путями",
+              "hint": "Префиксы путей (docs/, adr/), по одному в строке. Пусто = всё дерево."
+            },
+            "ref": {
+              "label": "Ветка или тег",
+              "hint": "Пусто = ветка по умолчанию."
+            },
+            "baseUrl": {
+              "label": "Свой GitLab",
+              "hint": "https://gitlab.example.com (суффикс /api/v4 необязателен) — пусто для gitlab.com."
+            },
+            "extensions": {
+              "label": "Расширения",
+              "hint": "Что считать текстом. Пусто = стандартная таблица (md, txt, adoc, rst, код, …)."
+            },
+            "maxItems": {
+              "label": "Макс. тредов за прогон",
+              "hint": "Issue и merge request делят один лимит, сначала недавно изменённые. По умолчанию 1000."
+            },
+            "maxFiles": {
+              "label": "Макс. файлов",
+              "hint": "По умолчанию 5000."
+            },
+            "maxFileBytes": {
+              "label": "Макс. размер файла (байт)",
+              "hint": "В дереве GitLab нет размера, поэтому лимит применяется к уже пришедшему файлу. По умолчанию 1 МБ."
+            },
+            "allowPrivate": {
+              "label": "Разрешить приватные хосты",
+              "hint": "Свой GitLab внутри вашей сети — деплой уже дал согласие."
             }
           },
           "slack": {
@@ -1620,6 +1676,18 @@
             "body": "Документация, сайты, архивы."
           }
         },
+        "mode": {
+          "title": "Как брейн это получает?",
+          "synced": {
+            "title": "Копировать",
+            "body": "обходить источник по расписанию, каталогизировать и читать изменившееся"
+          },
+          "linked": {
+            "title": "Спрашивать",
+            "body": "никаких обходов и копий — индекс остаётся у источника, его спрашивают в момент запроса"
+          },
+          "linkedHint": "У связанного подключения нет ни расписания, ни каталога, ни политики контента: ничего не хранится. Ответы идут рядом с ранжированием, каждый привязан к вызову, который их дал."
+        },
         "content": {
           "title": "Что брать",
           "text": {
@@ -1660,7 +1728,7 @@
           "document": "документы",
           "binary": "файлы",
           "structure": "записи",
-          "conversation": "письма"
+          "conversation": "разговоры"
         }
       },
       "kinds": {
@@ -1670,6 +1738,8 @@
           "shapes": {
             "document": "Текстовые документы",
             "documentHint": "markdown, текст, csv, json, yaml, html, код",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": "PDF, Word / Excel / PowerPoint, .eml-почта, изображения"
           }
@@ -1680,6 +1750,8 @@
           "shapes": {
             "document": "Страницы",
             "documentHint": "HTML, сведённый к тексту, простой текст, JSON",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": "PDF и офисные документы из sitemap"
           }
@@ -1690,6 +1762,8 @@
           "shapes": {
             "document": "Страницы",
             "documentHint": "страницы и строки баз как текст",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1700,6 +1774,8 @@
           "shapes": {
             "document": "Письма",
             "documentHint": "каждое письмо — реплика своего треда",
+            "conversation": "Письма",
+            "conversationHint": "",
             "binary": "Вложения",
             "binaryHint": "PDF и офисные документы из тех же писем"
           }
@@ -1710,6 +1786,8 @@
           "shapes": {
             "document": "Письма",
             "documentHint": "каждое письмо — реплика своего треда",
+            "conversation": "Письма",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1720,6 +1798,20 @@
           "shapes": {
             "document": "Документы",
             "documentHint": "README, docs/**, ADR, changelog",
+            "conversation": "Issue и pull request’ы",
+            "conversationHint": "каждый тред как разговор: тело и все комментарии",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "gitlab": {
+          "title": "Проект GitLab",
+          "body": "Один проект через API, без клона — каждый issue и merge request как разговор (описание и заметки) и текстовые документы его дерева.",
+          "shapes": {
+            "document": "Документы",
+            "documentHint": "README, docs/**, ADR, changelog",
+            "conversation": "Issue и merge request’ы",
+            "conversationHint": "каждый тред как разговор: описание и все заметки",
             "binary": "",
             "binaryHint": ""
           }
@@ -1730,6 +1822,8 @@
           "shapes": {
             "document": "Сообщения",
             "documentHint": "каждое сообщение — реплика своего канала или треда",
+            "conversation": "Сообщения",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1740,6 +1834,8 @@
           "shapes": {
             "document": "Сообщения",
             "documentHint": "каждое сообщение — реплика своего чата или темы",
+            "conversation": "Сообщения",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1750,6 +1846,8 @@
           "shapes": {
             "document": "Страницы",
             "documentHint": "страницы и посты как текст",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1760,6 +1858,8 @@
           "shapes": {
             "document": "Текстовые документы",
             "documentHint": "markdown, текст, csv, json, yaml, html",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": "PDF, офисные документы, почта, изображения"
           }
@@ -1770,6 +1870,8 @@
           "shapes": {
             "document": "Текстовые ресурсы",
             "documentHint": "текстовые и JSON-ресурсы",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Blob-ресурсы",
             "binaryHint": "PDF, офисные документы, изображения"
           }
@@ -1780,6 +1882,8 @@
           "shapes": {
             "document": "Документы",
             "documentHint": "",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": ""
           }
@@ -1790,6 +1894,8 @@
           "shapes": {
             "document": "Текстовые документы",
             "documentHint": "markdown, text, csv, json, html; Docs / Sheets / Slides как текст",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": "PDF, Word / Excel / PowerPoint, изображения"
           }
@@ -1800,6 +1906,8 @@
           "shapes": {
             "document": "Текстовые документы",
             "documentHint": "markdown, text, csv, json, html",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": "PDF, Word / Excel / PowerPoint, почта, изображения"
           }
@@ -1810,6 +1918,8 @@
           "shapes": {
             "document": "Текстовые документы",
             "documentHint": "markdown, text, csv, json, html",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": "PDF, Word / Excel / PowerPoint, почта, изображения"
           }
@@ -1820,6 +1930,8 @@
           "shapes": {
             "document": "Записи",
             "documentHint": "сделки, контакты, организации",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1830,6 +1942,8 @@
           "shapes": {
             "document": "Записи",
             "documentHint": "строки названных таблиц и view",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1840,6 +1954,8 @@
           "shapes": {
             "document": "Документы",
             "documentHint": "",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": ""
           }
@@ -1850,12 +1966,14 @@
           "shapes": {
             "document": "Документы",
             "documentHint": "",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Файлы",
             "binaryHint": ""
           }
         },
         "both": "И то и другое",
-        "bothHint": "два подключения к одному месту — для документов и для файлов",
+        "bothHint": "два подключения к одному месту — по одному на каждую форму",
         "whatsInside": "Что внутри?",
         "viaPack": "через {packId}",
         "status": {
@@ -2010,6 +2128,20 @@
         },
         "flagOff": "Вебхуки на этом brain выключены — задайте SOURCE_WEBHOOKS=1 (и SOURCE_CREDENTIAL_ENCRYPTION_KEY).",
         "unsupported": "У этого коннектора нет входящего вебхука."
+      },
+      "principals": {
+        "title": "Кому это видно",
+        "subtitle": "Аккаунты, которые знает источник, и их группы. Аккаунт, никем не связанный с пользователем, не даёт доступа вообще — укажите, кто это, и человек получит его группы. Отвязка забирает их назад.",
+        "epoch": "эпоха {epoch}",
+        "empty": "Аккаунтов пока нет — ACL читается при каждой синхронизации.",
+        "account": "Аккаунт",
+        "groups": "Группы",
+        "user": "Это",
+        "userPlaceholder": "id пользователя brain",
+        "link": "Связать",
+        "unlink": "Отвязать",
+        "byOperator": "связал оператор",
+        "byEmail": "совпал уже связанный адрес"
       }
     },
     "marketplace": {
@@ -2333,11 +2465,7 @@
     "subtitle": "Claude Code, ChatGPT, Cursor и твой собственный код подключаются к одному графу. Что записал один — вспомнит следующий, потому что воркспейс берётся из ключа, а не из приложения, которое сейчас открыто.",
     "hubLabel": "Твоя память",
     "hubTitle": "Один граф",
-    "hubItems": [
-      "Факты и убеждения",
-      "Эпизоды и сцены",
-      "Источники и свидетельства"
-    ],
+    "hubItems": ["Факты и убеждения", "Эпизоды и сцены", "Источники и свидетельства"],
     "sdkLabel": "Твоё приложение",
     "clientsLabel": "Клиенты, которых подключаешь",
     "surfaceLabel": "Одна поверхность",

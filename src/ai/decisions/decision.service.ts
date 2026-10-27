@@ -24,7 +24,8 @@ export type DecisionLane =
   | 'chat_router'
   | 'dream_resolver'
   | 'dream_corroborate'
-  | 'extraction_check';
+  | 'extraction_check'
+  | 'triage';
 
 /**
  * Routes a lane's decision to the System One plane, and tells the caller when

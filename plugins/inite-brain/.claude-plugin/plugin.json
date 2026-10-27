@@ -1,7 +1,7 @@
 {
   "name": "inite-brain",
   "displayName": "INITE Brain — persistent memory",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Persistent, bitemporal memory for Claude Code: the MCP tool surface, six skills that teach the model to use it, recall injected at session start, and capture before compaction.",
   "author": {
     "name": "INITE",
@@ -11,21 +11,32 @@
   "homepage": "https://brain.inite.ai/en/docs/mcp/setup",
   "repository": "https://github.com/inite-ai/inite-brain-service",
   "license": "AGPL-3.0-only",
-  "keywords": ["memory", "knowledge-graph", "mcp", "recall", "bitemporal", "rag"],
+  "privacyPolicyUrl": "https://brain.inite.ai/en/privacy",
+  "documentationUrl": "https://brain.inite.ai/en/docs/mcp/setup",
+  "supportUrl": "https://github.com/inite-ai/inite-brain-service/issues",
+  "icon": "./.claude-plugin/icon.png",
+  "keywords": [
+    "memory",
+    "knowledge-graph",
+    "mcp",
+    "recall",
+    "bitemporal",
+    "rag"
+  ],
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "api_key": {
       "type": "string",
-      "title": "Brain API key",
-      "description": "Issue one at https://brain.inite.ai/en/app/keys — it starts with brain_ and is shown once.",
+      "title": "Brain API key (optional, for the session hooks)",
+      "description": "Only the session hooks use it: recall at session start and capture before compaction call brain's REST API with this key. The brain tools and the per-prompt recall sign in with your INITE account instead (Claude asks the first time memory is used). Issue a key at https://brain.inite.ai/en/app/keys — it starts with brain_ and is shown once.",
       "sensitive": true,
-      "required": true
+      "required": false
     },
     "base_url": {
       "type": "string",
       "title": "Brain base URL",
-      "description": "Change only for a self-hosted deployment.",
+      "description": "Where the session hooks send recall and capture requests. Change only for a self-hosted deployment, and add your own server's /mcp URL as an MCP server too.",
       "default": "https://brain.inite.ai"
     },
     "user_id": {
@@ -43,6 +54,12 @@
       "type": "boolean",
       "title": "Capture sessions into memory",
       "description": "Send what you asked for (your messages, never the model's own output) to brain before compaction and at session end, so the next session starts informed.",
+      "default": true
+    },
+    "recall_each_prompt": {
+      "type": "boolean",
+      "title": "Recall on every prompt",
+      "description": "Look each prompt up in brain before the model reads it and attach what comes back as context (at most 2.5 s per prompt; nothing is attached when brain is slow or finds nothing). Needs a Claude Code version with mods; older versions keep the session-start recall alone.",
       "default": true
     }
   }

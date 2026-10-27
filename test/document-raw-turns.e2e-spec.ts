@@ -138,6 +138,23 @@ describe('document raw turns (e2e)', () => {
     expect(again.turns).toBe(0);
   });
 
+  it('the raw turns land on arrival, even when the extraction fails', async () => {
+    f.extractor.setFailure(new Error('429 no credits'));
+    try {
+      const r = await post({ text: `${CHAT}\nClaude: записал.` });
+      const docId = String(r.body.documentId ?? '');
+      expect(docId).not.toBe('');
+      const conv = `document:${docId.replace(/^source_document:/, '')}`;
+      const turns = await query<{ speaker: string }>(
+        'SELECT speaker, occurredAt FROM episode WHERE conversationId = $conv ORDER BY occurredAt',
+        { conv },
+      );
+      expect(turns.map((t) => t.speaker)).toEqual(['Михаил', 'Claude', 'Михаил', 'Claude']);
+    } finally {
+      f.extractor.setFailure(null);
+    }
+  });
+
   it('a document stored without its content keeps no raw turns', async () => {
     script();
     const r = await post({ text: `${CHAT}\nClaude: принято.`, storeContent: false });

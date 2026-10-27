@@ -15,6 +15,8 @@ export type JobType =
   | 'changefeed_drain'
   | 'index_document'
   | 'commit_document'
+  | 'extract_documents'
+  | 'relearn_turn'
   | 'candidate_sweeper'
   | 'recompose'
   | 'reindex_documents'

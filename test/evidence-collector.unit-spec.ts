@@ -1,4 +1,5 @@
 import type { InstructionLaneService } from '../src/synthesize/instruction-lane.service';
+import { PENDING_MARK } from '../src/synthesize/pending-mark';
 import { EvidenceCollectorService } from '../src/synthesize/evidence-collector.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
@@ -243,9 +244,30 @@ describe('EvidenceCollectorService branches', () => {
     ).resolves.toEqual([]);
   });
 
+  it('turns said but not yet read close the transcript, marked, a quoted one kept once', async () => {
+    const quoted = '[2026-09-25] Mike: budget is 2500 now';
+    const segmentLane = {
+      transcriptLines: async () => [quoted, '[2026-09-20] Mike: budget is 4000'],
+    } as unknown as SegmentLaneService;
+    const episodeLane = {
+      pendingTurns: async () => [
+        `[2026-09-25 ${PENDING_MARK}] Mike: budget is 2500 now`,
+        `[2026-09-25 ${PENDING_MARK}] Mike: always answer in Portuguese`,
+      ],
+    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    const svc = new EvidenceCollectorService(noSearch, episodeLane, segmentLane);
+    const out = await svc.collect(collectorArgs(profileWith({ timelineEvidence: 'scan' })));
+    expect(out.transcriptLines).toEqual([
+      '[2026-09-20] Mike: budget is 4000',
+      `[2026-09-25 ${PENDING_MARK}] Mike: budget is 2500 now`,
+      `[2026-09-25 ${PENDING_MARK}] Mike: always answer in Portuguese`,
+    ]);
+  });
+
   it('assistant lane gates on its own flag and joins the transcript set', async () => {
     const calls: Array<{ limit: number; match: string }> = [];
     const episodeLane = {
+      pendingTurns: async () => [],
       assistantTurns: async (o: { limit: number; match: string }) => {
         calls.push({ limit: o.limit, match: o.match });
         return ['[2023-05-01] conv__assistant: use the token bucket'];
@@ -380,6 +402,7 @@ describe('EvidenceCollectorService branches', () => {
   it('grounding quotes gate on factsAsKeys AND factIds, capped best-first', async () => {
     const seen: string[][] = [];
     const episodeLane = {
+      pendingTurns: async () => [],
       groundingQuotes: async (o: { factIds: string[] }) => {
         seen.push(o.factIds);
         return new Map([['f1', ' (source 2023-05-01 Mel: "dog face")']]);
@@ -491,6 +514,7 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
       rawWindows: async (o: { userId?: string }) => scopedLines('raw-window', o.userId),
       assistantTurns: async (o: { userId?: string }) => scopedLines('assistant', o.userId),
       groundingQuotes: async (o: { userId?: string }) => scopedMap('grounding', o.userId),
+      pendingTurns: async (o: { userId?: string }) => scopedLines('pending', o.userId),
     } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
     const segmentLane = {
       transcriptLines: async (o: { userId?: string }) => scopedLines('segment', o.userId),
@@ -566,6 +590,7 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
       'excerpt',
       'grounding',
       'insight',
+      'pending',
       'raw-window',
       'segment',
       'update-story',

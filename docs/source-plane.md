@@ -115,9 +115,22 @@ as four tabs — **Connected**, **Add a source**, **Local agents**,
 **Accounts** — with a tenant that has nothing connected yet opening on
 the catalogue. Both the connections and the catalogue fold by **source
 group**, one fixed order (`kinds.ts` `groupOf`): *Files* (folder,
-bucket, Google Drive, OneDrive, Dropbox), *Web* (sites), *MCP servers*,
-*Code* (repositories), *CRM & records* (the vendors and custom REST),
-*Pushed in* (the doors a publisher writes through).
+bucket, Google Drive, OneDrive, Dropbox), *Web* (sites), *Mail*, *Chat*,
+*MCP servers*, *Code* (repositories and the forges), *CRM & records*
+(the vendors and custom REST), *Pushed in* (the doors a publisher writes
+through).
+
+**One card per kind, a choice per shape.** A kind that a pack declares
+in more than one shape is ONE card, and the flow asks "what's in it?"
+(`kinds.ts` `shapeChoices`): text and files for a folder or a mailbox
+(documents / files / both), and — for a forge, where the same
+repository is at once what was discussed in it and what is committed to
+it — its conversations, its docs, or both, the conversation first
+because it is the half no other host can read. The chosen shapes decide
+which fields the form shows: a thread walk asks for `since`, labels and
+which kinds of thread, a tree walk for `paths`, `ref` and what counts as
+text, and "both" asks for all of them and creates one connection per
+shape, each labelled with its own noun.
 
 - **Deployment fences** — the shipped connectors and their switches, the
   `fs` root jail, the private-egress opt-in — from `/catalog`, so an
@@ -238,16 +251,17 @@ turn yielded (`source.episodeIds`) where a document's would be.
 | **`gmail`** | `SOURCE_KIND_GMAIL` + `SOURCE_OAUTH_CLIENT` | a Gmail mailbox (`mail_memory/gmail`) through the Gmail REST API as the connected Google account (`gmail.readonly` — the same Google app as Drive, one more scope; the account picker flags a Drive-only grant as narrower). One catalogue row per MESSAGE: `messages.list` with the connection's own Gmail query plus `after:<since>` — the operator's `since` (default 90 days back) on a first walk, the checkpoint's walk time less a day of overlap on an incremental one (the engine drops what it already has) — newest first, capped by `maxMessages`; each message's Subject / From / Date by one metadata call. Fetch = `format=raw` → the MIME parse → one turn; the thread id is the conversation. Deletions ride `history.list` from the checkpoint's `historyId` (read from the profile at the START of the walk), `messageDeleted` only; an id too old to serve (404) is logged and deletions wait for a full walk. The `gmail_attachments` entry (binary) lists the same messages with `has:attachment`, one row per attachment (`<message id>#<part id>`) judged by the `fs` media table on name, reported type and size, bytes by `attachments.get` | `id:<message id>` — a delivered message never changes | `{ query?, labelIds?, since?, maxMessages?, includeSpamTrash?, extensions?, maxFileBytes? }`; credential `oauth:<grant id>` |
 | **`imap`** | `SOURCE_KIND_IMAP` | any mailbox over IMAP (`mail_memory/imap`) — a host, a user, the mailbox password (an app password where the provider issues one) as the credential — read-only, with a client of its own (`connectors/imap-client.ts`, no dependency): greeting, LOGIN, EXAMINE, UID SEARCH, UID FETCH, LOGOUT and nothing else; TLS on 993, a plain socket only under the double opt-in (`allowPrivate` + `SOURCE_EGRESS_ALLOW_PRIVATE`, the host through the same egress fence as HTTP, the link-local range refused even then). Per mailbox (`INBOX` by default; plain ASCII names): a first walk `UID SEARCH SINCE <since>`, the newest `maxMessages` of it, their headers in one `UID FETCH … BODY.PEEK[HEADER.FIELDS (…)]`; the checkpoint keeps each mailbox's UIDVALIDITY and highest UID, an incremental run fetches `<highest+1>:*` only, a mailbox whose UIDVALIDITY moved is walked again; what was deleted is found by a full walk (the connector never expunges). The Message-ID is the row's id (the same message in two mailboxes is one row); the RFC 5092 URL `imap://user@host/INBOX;UIDVALIDITY=n/;UID=m` is its origin AND how fetch (`BODY.PEEK[]`) finds it. Not spoken: STARTTLS, OAuth over IMAP, IDLE, CONDSTORE / QRESYNC, attachments as evidence (a binary entry is refused by name) | `m:<Message-ID>` (else `uid:<locator>`) | `{ host, port?, tls?, user, mailboxes?, since?, maxMessages?, allowPrivate? }`; credential = the password |
 
-### The forge (W4.8) — a repository without a clone
+### The forge (W4.8, W4.9) — a repository without a clone
 
 `code_memory` already had a repository in two shapes on the local agent
 (the indexer's structure, `repo_docs`' documents). The forge adds the
 same repository over the API, and the third thing a repository holds:
-what was **discussed** about the code.
+what was **discussed** about the code. Two forges, one shape.
 
 | Kind | Flag | Reads | Revision | Config |
 |---|---|---|---|---|
 | **`github`** | `SOURCE_KIND_GITHUB` (+ `SOURCE_OAUTH_CLIENT` for a connected account) | one GitHub repository (or GitHub Enterprise Server, `config.baseUrl`) through the REST API as a connected GitHub account or a token that can read it — read-only: the brain never comments, labels or closes. **Conversation** (`code_memory/github_issues`): every ISSUE and PULL REQUEST is one conversation `gh:<owner>/<repo>#<n>` whose turns are the body (the title rides on it) and then every comment, each speaking as its author — a name, else the login, a bot said to be one. The listing is `/issues?state=all&sort=updated&since=…` (GitHub models a PR as an issue, so `includePullRequests: false` is what drops them; `labels` narrows further), `updated_at` is the revision — a new comment, an edit or a state change re-runs the door and the thread lands whole. **Document** (`code_memory/github_docs`): the text files of the default branch (or `ref`) from ONE recursive tree call, filtered by `paths` and judged by the same media table as a folder, fetched through the blob API; the blob sha is the revision, so an unchanged file is not read again. A full walk marks what is gone (a deleted issue, a removed file) | `u:<updated_at>` · `blob:<sha>` | `{ repo, baseUrl?, ref?, includePullRequests?, labels?, since?, maxItems?, paths?, extensions?, maxFiles?, maxFileBytes?, allowPrivate? }`; credential `oauth:<grant id>` or a token |
+| **`gitlab`** | `SOURCE_KIND_GITLAB` (+ `SOURCE_OAUTH_CLIENT` for a connected account) | one GitLab project (gitlab.com or self-managed, `config.baseUrl`) through the v4 API as a connected GitLab account or an access token with `read_api` — read-only. **Conversation** (`code_memory/gitlab_issues`): every ISSUE and MERGE REQUEST is one conversation whose turns are the description (the title rides on it) and then every note, each speaking as its author. ⚡GitLab counts the two SEPARATELY and lists them at separate endpoints — issue #5 and merge request !5 are two different threads, so the conversation id carries GitLab's own sigil (`gl:<project>#5` vs `gl:<project>!5`) and the two listings are walked one after the other under ONE `maxItems` cap (`includeMergeRequests: false` drops the second, `labels` narrows both). ⚡A note may be the activity feed rather than a comment ("changed the description", "assigned to @x"): GitLab marks those `system: true` and they are not turns. `updated_at` is the revision. **Document** (`code_memory/gitlab_docs`): the text files of the default branch (or `ref`) from the recursive tree listing, filtered by `paths` and judged by the same media table as a folder, fetched through the blobs API; the blob id is the revision. ⚡A GitLab tree entry carries no size, so the byte cap lands on the blob when it arrives rather than before it is asked for. A full walk marks what is gone | `u:<updated_at>` · `blob:<id>` | `{ project, baseUrl?, ref?, includeMergeRequests?, labels?, since?, maxItems?, paths?, extensions?, maxFiles?, maxFileBytes?, allowPrivate? }`; credential `oauth:<grant id>` or a token |
 
 ### Chat (W4.7) — a channel is a conversation
 
@@ -647,6 +661,173 @@ the server naming the account to sign in again. Flag: `SOURCE_MCP_OAUTH`
 the official CRM servers' tools (§ 2.1 of the CRM plan) — W7's linked
 lane calls their `search` at retrieval time.
 
+## Asked, not copied (W7) — the linked lane
+
+Everything else in this plane COPIES: it walks a source, catalogues what
+is there, fetches what changed, commits it through the doors. That is
+the right trade for a wiki and the wrong one for a ticket system with a
+million rows and a search engine of its own.
+
+A connection in **`mode: 'linked'`** is never walked and never
+catalogued. It has no schedule, no checkpoint and no catalogue rows —
+syncing one is refused by name (`skipped: linked_mode`), because a
+"sync" that copied nothing would be a lie about what happened. Instead
+`SOURCE_LINKED` calls the connector's `search()` at query time, and the
+hits ride in the search response's `linked` section.
+
+**Beside the ranking, never inside it.** Another system's opinion is not
+this brain's memory. Mixing the two would make a citation mean two
+different things — "a fact we hold, with its provenance" and "a row
+someone else's index returned" — so `linked` is its own array and
+`results` is untouched.
+
+**Anchored, or not served.** Every call writes a content-free
+`tool_observation` (0111) — the tool name, digests of the arguments and
+the result, the duration — and each result set carries its
+`observationRef`. Hand that ref to `ingest_document` and the chain
+closes: tool result → document → fact, each pointing back. A hit whose
+observation could not be written is **not returned at all**; an
+unattributable claim is worse than a missing one, so the lane would
+rather answer nothing. That is also why `TOOL_OBSERVATIONS_ENABLED` is a
+second requirement rather than a nice-to-have.
+
+**Bounded, because it is a network call on the query path.** One round
+per connection (25 at most), `SOURCE_LINKED_PER_QUERY` hits each
+(default 5), an eight-second deadline, and every failure named in the
+lane's own `degraded` list rather than raised — a lane that can fail a
+search is a lane an operator turns off. A connector with no `search()`
+says so by name instead of returning a silent zero.
+
+| Kind | What it asks | What comes back |
+|---|---|---|
+| **`gitlab`** | the project search, one call per scope — `issues` and `blobs` | issues as `issue/<iid>` with the description as the snippet, files as `file/<path>` with GitLab's own excerpt. ⚡Interleaved, not concatenated: a project whose issues all match would otherwise bury every file under the cap |
+
+## What it reads, and when (W6) — progressive indexing
+
+Doctrine 5: *manifest always, content by policy*. A connection whose
+`contentPolicy` is `manifest` walks a whole org drive for the price of a
+listing and reads nothing — cheap, and useless until something asks.
+`SOURCE_PROGRESSIVE` is the half that makes it useful: **a retrieval hit
+on a manifest-only item schedules its deepening**.
+
+Every query, after retrieval, is matched against the CATALOGUE — the
+titles and paths the walk already recorded for free. A match counts a
+hit on the row; the best few (`SOURCE_DEEPEN_PER_QUERY`, default 3) are
+queued as a `source_sync` job with a `deepen` payload, which fetches
+*those rows alone* and puts them through the ordinary doors. The next
+question finds content where this one found only a filename.
+
+Three properties it is built to keep, and the reasons:
+
+- **It never changes the answer it rides on.** The probe runs off the
+  request's critical path and its result is a job. Blocking a search on
+  a network fetch of an unknown file is not a trade anyone asked for,
+  and pretending the content is already there would be a lie.
+- **A hit is not a read.** `hitCount` on the row is the evidence that
+  reading would have been worth it. Deepening is budgeted separately, so
+  a flood of queries against a million-item drive costs counter updates,
+  not a million fetches. A row already deepened is not a candidate again
+  — the ordinary revision diff keeps it current from then on.
+- **It reads only what it already catalogued.** No walk, no checkpoint,
+  no gone policy: a deepening can change what a connection has READ,
+  never what it has SEEN.
+
+The probe is deliberately **not** a numbered stage of the retrieval
+conveyor: a stage has to leave something behind for its query, and this
+one leaves nothing.
+
+### The quality tier of document text (W6)
+
+Every text processor that ships is local by construction — pdf2json for
+a PDF's text layer, officeparser for OOXML, tesseract for pixels:
+deterministic, free, offline. They are also the **floor**. A PDF whose
+layout carries meaning (a table, a two-column paper, a form) comes out
+of a text-layer dump as prose soup, and reconstructing document
+structure is a model's job.
+
+`EVIDENCE_PARSER_REMOTE` is the first platform processor allowed to make
+a network call, and it is the operator's explicit decision four times
+over: the flag, the URL, the media types it may take
+(`EVIDENCE_PARSER_REMOTE_MEDIA_TYPES`, default PDF only), and the
+private-host opt-in when the service runs inside their network. It sits
+FIRST in the adapter registry, so for the types they named it wins and
+for everything else the local floor is untouched; with the flag off it
+accepts nothing, and first-match dispatch over an adapter that accepts
+nothing is the same list without it.
+
+**The contract is ours, not a vendor's** — one endpoint, JSON in, JSON
+out:
+
+```
+POST <EVIDENCE_PARSER_REMOTE_URL>   { mediaType, profile?, contentBase64 }
+200                                 { text } | { markdown } | { content }
+```
+
+Docling speaks multipart, not this, so a real parser needs a small shim
+in front of it. That is deliberate: a ten-line shim the operator owns is
+a smaller surface than a matrix of vendor protocols in platform code,
+and it is the seam where they add their own redaction before bytes
+leave. The URL and the profile ride the adapter's fingerprint (pointing
+at a different parser re-parses instead of serving the old text); the
+bearer never does. A failure is a **run** failure, never a quiet
+fallthrough to the local adapter — "the good parser was down so the
+tables became soup" is exactly the silence this plane refuses.
+
+## Who may see it (W5) — the membership plane
+
+Personal connections needed no work: a connection owned by a user writes
+`scope: ['user:<id>']` on its asset, its document, its episode and every
+fact derived from them, and the 0055 / 0093 fence does the rest. An ORG
+connection is the hard half, and it is what G6 designed steps 3–5 for —
+with, at last, a real membership source.
+
+**A connector that knows its own ACL says so.** `principals()` streams
+the groups a source has and the accounts in them; an item names the
+groups that may see it in `acl.groups`. The engine turns the first into
+Zanzibar-style relation tuples (`external_principal`, migration 0169)
+and the second into `team:<connection>:<group>` tags on every row the
+item produces.
+
+**An account nobody has linked is nobody.** The walk records every
+account it saw as an `external_identity`, unlinked. An unlinked account
+grants no visibility at all — the only automatic link is an address that
+another identity in this tenant is ALREADY linked by, which follows a
+link an operator once made rather than inventing one. Everything else is
+`POST /v1/admin/source-connections/:id/principals/link`. Guessing who
+someone is by display name is how an ACL mirror leaks, so it does not.
+
+**Revocation is a timestamp, and it moves the epoch.** A membership that
+ends is stamped, never deleted (a bitemporal store has to be able to
+answer "was she a member in March?"), and every write moves the tenant's
+`scope_epoch`. Every cached expansion of a membership keys on that
+counter, so a stale expansion cannot survive the write that invalidated
+it — the new-enemy problem, named in the G6 design and closed here.
+
+**The read side.** The fences (`scopeFenceSql`, `visibleUnderScope`) are
+synchronous, deep inside SQL builders, so the expansion is resolved ONCE
+per request by the API-key guard and left in the request context. A miss
+— a background job, an unwarmed context, the flag off — falls back to
+the single `user:<id>` tag, which is narrower: a miss can hide rows,
+never reveal them. Tenant-wide authority (an M2M credential) is the
+tenant boundary itself and carries no scope clause.
+
+**What is not built.** One row carries ONE group: an item shared with
+two groups is written for the first, because the AND-set shape cannot
+express an OR of clauses and guessing wider is the failure this plane
+exists to prevent. Share-up through staging (step 4's real work) and
+group nesting beyond the tuple walk's own depth cap are follow-ups. An
+ACL too large to mirror is a sync ERROR, never a truncation — fewer tags
+is more access.
+
+Two flags, and the order matters: `SOURCE_PRINCIPALS` writes the tags,
+`SCOPE_TAGS_ENABLED` reads them. With the first on and the second off
+the tags are written and ignored, which is the safe order to switch them
+on in.
+
+| Kind | `principals()` | Groups | The item's `acl` |
+|---|---|---|---|
+| **`gitlab`** | `/members/all` — the inherited member list, so a person who is a member through a parent group is one here too; a blocked or deactivated account is not a reader | one: `members`. GitLab's own model is finer (project, group and ancestor memberships, each at an access level) but every one of them can read every issue and every file, which is the only question the fence asks | `config.membersOnly: true` = a private project: every row is written for `team:<connection>:members`. Absent = the project is public, and a public project IS tenant-global |
+
 ## Writing a connector (platform code)
 
 ```ts
@@ -661,6 +842,9 @@ interface Connector {
   readonly configExample?: Record<string, unknown>;  // what the admin form pre-fills — keys with example values, never secrets
   readonly credentialHint?: string;                  // one line on what `credential` is, when the connector takes one
   readonly oauth?: { provider; scopes };             // runs as a connected account (W4): `credential` arrives as a fresh access token
+  principals?(ctx): AsyncIterable<                   // the source's own ACL (W5): who may see what this connection reads
+    | { type: 'group'; group: string; title? }
+    | { type: 'member'; group: string; account: { externalId, handle?, displayName?, email? } }>;
 }
 ```
 
@@ -689,6 +873,11 @@ pack may only name it.
 | `SOURCE_KIND_GMAIL`, `SOURCE_KIND_IMAP` | `0` | the `gmail` and `imap` mail connectors (W4.6); `gmail` needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GOOGLE_CLIENT_ID` (the Drive app, one more scope); `imap` takes the password as the credential |
 | `SOURCE_KIND_SLACK`, `SOURCE_KIND_TELEGRAM` | `0` | the `slack` and `telegram` chat connectors (W4.7); `slack` takes a connected workspace (`SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SLACK_CLIENT_ID`) or a bot token; `telegram` takes the bot token. `SOURCE_TELEGRAM_API_BASE` points the Bot API at a fake (dev/test only) |
 | `SOURCE_KIND_GITHUB` | `0` | the `github` forge connector (W4.8): one repository's issues, pull requests and docs over the API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITHUB_CLIENT_ID`, else a token is the credential |
+| `SOURCE_KIND_GITLAB` | `0` | the `gitlab` forge connector (W4.9): one project's issues, merge requests and docs over the v4 API; a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_GITLAB_CLIENT_ID` (and `SOURCE_OAUTH_GITLAB_LOGIN_URL` for a self-managed instance), else a token is the credential |
+| `SOURCE_PRINCIPALS` | `0` | the membership plane (W5): an org connection's `principals()` runs after each sync, its groups and accounts land as identities and tuples, and an item's `acl.groups` become `team:` tags on the rows it produces. The read half is `SCOPE_TAGS_ENABLED` |
+| `SOURCE_PROGRESSIVE` | `0` | progressive indexing (W6): a query that matches a manifest-only catalogue row counts a hit and queues that row's fetch; `SOURCE_DEEPEN_PER_QUERY` (default 3) bounds how many per query |
+| `SOURCE_LINKED` | `0` | the linked lane (W7): a `mode: 'linked'` connection is asked at query time instead of walked, and its hits ride beside the ranking, each anchored to the tool observation the call wrote. Needs `TOOL_OBSERVATIONS_ENABLED` too; `SOURCE_LINKED_PER_QUERY` (default 5) bounds each |
+| `EVIDENCE_PARSER_REMOTE` | `0` | the quality tier of document text (W6): a parser service for the media types `EVIDENCE_PARSER_REMOTE_MEDIA_TYPES` names, at `EVIDENCE_PARSER_REMOTE_URL`, first in the adapter registry |
 | `SOURCE_KIND_BITRIX24`, `SOURCE_KIND_KOMMO` | `0` | the `bitrix24` and `kommo` connectors (W4.2b): a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_BITRIX24_CLIENT_ID` / `SOURCE_OAUTH_KOMMO_CLIENT_ID` (W4.3b; `_LOGIN_URL` = a portal's origin / `https://www.amocrm.ru`); an inbound webhook URL / a long-lived token needs no app |
 | `SOURCE_KIND_SALESFORCE` | `0` | the `salesforce` connector (W4.2c); a connected account needs `SOURCE_OAUTH_CLIENT` + `SOURCE_OAUTH_SALESFORCE_CLIENT_ID` (`SOURCE_OAUTH_SALESFORCE_LOGIN_URL` for a sandbox / My Domain login host), a JWT bearer needs neither |
 | `SOURCE_KIND_REST_RECORDS` | `0` | the config-driven `rest_records` connector for any JSON list API (W4.2b′) |

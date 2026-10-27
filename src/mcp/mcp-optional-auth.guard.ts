@@ -31,8 +31,15 @@ export class McpOptionalAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<{
       body?: unknown;
+      headers?: Record<string, unknown>;
       mcpAnonymous?: boolean;
     }>();
+    // The opening is for callers who presented NOTHING. One that sent a
+    // credential and had it refused — a mistyped key, an expired OAuth
+    // token — gets the 401: served anonymously instead, a bad key looked
+    // like a working connection with two tools, and an expired token was
+    // never refreshed, because a client refreshes on 401, not on 200.
+    const presented = Boolean(request.headers?.authorization);
     try {
       const ok = await this.apiKey.canActivate(context);
       if (ok) {
@@ -40,12 +47,12 @@ export class McpOptionalAuthGuard implements CanActivate {
         return true;
       }
       // A guard that returns false without throwing is a refusal too.
-      if (!isAnonymousJsonRpc(request.body)) return false;
+      if (presented || !isAnonymousJsonRpc(request.body)) return false;
     } catch (err) {
       // Re-thrown unchanged for anything an anonymous caller may not
       // have: the 401 carries the auth challenge, and that challenge is
       // how an OAuth client learns where to authenticate.
-      if (!isAnonymousJsonRpc(request.body)) throw err;
+      if (presented || !isAnonymousJsonRpc(request.body)) throw err;
     }
     request.mcpAnonymous = true;
     return true;

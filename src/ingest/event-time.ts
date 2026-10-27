@@ -582,7 +582,13 @@ function factStart(
       emittedAt: said.toISOString().slice(0, 10),
       scheduled: !occurred,
     });
-    return { validFrom: occurred ? at : said, objectMeta: { date: day } };
+    // A stated day that IS the day it was said adds no precision beyond
+    // the turn's own instant — and its midnight would let a change made
+    // later that day show in an asOf earlier that day (a PR merged at 14:00
+    // answering "how was it at 11:27"). An earlier day starts at its
+    // midnight; a later day (scheduled) starts when it was said.
+    const sameDay = day === said.toISOString().slice(0, 10);
+    return { validFrom: occurred && !sameDay ? at : said, objectMeta: { date: day } };
   }
   return { validFrom: factValidFrom(f, emittedAt, opts) };
 }

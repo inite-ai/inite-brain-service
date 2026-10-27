@@ -105,7 +105,7 @@ export function registerCodeMemoryReadTools(opts: {
     {
       title: 'Semantically recall code-memory across the codebase',
       description:
-        'Find recorded design decisions / rationale / invariants / gotchas by NL topic ("why do we resolve facts through one gateway?"), across ALL code anchors — a semantic search over code-memory, vs `why` which reads one known anchor. Returns matches with their code anchor + kind, ranked by relevance.',
+        'Find recorded design decisions / rationale / invariants / gotchas by NL topic ("why do we resolve facts through one gateway?"), across ALL code anchors — a semantic search over code-memory, rather than one known anchor. Returns matches with their code anchor + kind, ranked by relevance.',
       inputSchema: {
         query: z.string().describe('Natural-language topic to recall the "why" for'),
         limit: z.number().int().min(1).max(50).optional(),

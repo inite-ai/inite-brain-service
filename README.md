@@ -7,17 +7,17 @@
 <h1 align="center">INITE Brain</h1>
 
 <p align="center">
-  <b>Open-source memory for AI agents.</b><br>
-  Facts, conversations, events and their evidence — connected across sessions.<br>
-  Temporal history, domain memory models and grounded answers over REST and MCP.
+  <b>Open-source memory for AI agents: a bitemporal knowledge graph with provenance, over MCP and REST.</b>
 </p>
 
 <p align="center">
   <a href="https://github.com/inite-ai/inite-brain-service/actions/workflows/ci.yml"><img src="https://github.com/inite-ai/inite-brain-service/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/inite-ai/inite-brain-service/releases/latest"><img src="https://img.shields.io/github/v/release/inite-ai/inite-brain-service?sort=semver&label=release&color=8b5cf6" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg" alt="License: AGPL-3.0-or-later"></a>
+  <a href="https://hub.docker.com/r/mikefluff/inite-brain-service"><img src="https://img.shields.io/docker/pulls/mikefluff/inite-brain-service" alt="Docker pulls"></a>
+  <a href="https://hub.docker.com/r/mikefluff/inite-brain-service/tags"><img src="https://img.shields.io/badge/image-arm64%20%7C%20amd64-2496ed.svg" alt="Image: arm64 | amd64"></a>
   <a href="https://github.com/inite-ai/inite-brain-service/stargazers"><img src="https://img.shields.io/github/stars/inite-ai/inite-brain-service?style=flat" alt="Stars"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome"></a>
-  <img src="https://img.shields.io/badge/TypeScript-3178c6.svg" alt="TypeScript">
   <img src="https://img.shields.io/badge/MCP-native-ffb938.svg" alt="MCP native">
 </p>
 
@@ -30,12 +30,83 @@
 
 <p align="center">
   <a href="https://brain.inite.ai">Website</a> ·
+  <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#domain-packs">Domain Packs</a> ·
-  <a href="#quick-start">Quick start</a> ·
+  <a href="#getting-started">Getting started</a> ·
   <a href="https://brain.inite.ai/en/docs">Docs</a> ·
-  <a href="AGENTS.md">Agent guide</a>
+  <a href="docs/agents-using-brain.md">Agent guide</a>
 </p>
+
+## Quick start
+
+Needs Docker with Compose v2, `openssl`, and an OpenAI API key (the default
+model configuration). Runs the released image (`linux/amd64` and
+`linux/arm64`) with SurrealDB; no clone, no build.
+
+```bash
+: "${OPENAI_API_KEY:?export OPENAI_API_KEY first}"
+mkdir inite-brain && cd inite-brain
+curl -fsSLO https://raw.githubusercontent.com/inite-ai/inite-brain-service/main/docker-compose.quickstart.yml
+BRAIN_KEY="brain_$(openssl rand -hex 24)"
+KEY_HASH="$(printf %s "$BRAIN_KEY" | openssl dgst -sha256 -r | cut -d' ' -f1)"
+cat > .env <<EOF
+BRAIN_VERSION=2.4
+OPENAI_API_KEY=$OPENAI_API_KEY
+BRAIN_API_KEYS='[{"keyHash":"sha256:$KEY_HASH","companyId":"co_demo","scopes":["brain:read","brain:write"]}]'
+SURREALDB_PASSWORD=$(openssl rand -hex 24)
+SURREALDB_SCOPED_PASS=$(openssl rand -hex 24)
+FORGET_HMAC_KEY=$(openssl rand -hex 32)
+EOF
+docker compose -f docker-compose.quickstart.yml up -d --wait
+export BRAIN_URL=http://localhost:3030 BRAIN_KEY
+curl "$BRAIN_URL/health"
+echo "API key (shown once, only its hash is stored): $BRAIN_KEY"
+```
+
+Then [remember something and ask about it](#remember-something-then-ask-about-it),
+or point an MCP client at `http://localhost:3030/mcp` with
+`Authorization: Bearer $BRAIN_KEY`. `BRAIN_VERSION` takes `X.Y` (newest patch
+of that release) or `vX.Y.Z`; `:latest` is overwritten by the main-branch
+deploy. The first start downloads the local ONNX models into a volume, so the
+first write can take a few minutes; later ones do not. Hosted
+service, running from source, and production:
+[Getting started](#getting-started).
+
+## Why not Mem0, Zep or Letta?
+
+- **Mem0** is quicker to adopt: an add/search API, a managed platform and many
+  framework integrations. Brain asks for more up front (a tenant, scoped keys,
+  `userId` on personal memory) and in exchange keeps both valid time and
+  knowledge time on every fact. A conflicting write supersedes the earlier
+  fact or is parked as `COMPETING`; it does not silently overwrite.
+- **Zep (Graphiti)** is the closest design: Graphiti is also a temporal
+  knowledge graph, and you can embed it as a Python library over a graph
+  database. Choose it if you want memory inside your own process. Brain is a
+  service: a separate database per tenant, API keys scoped to read, write and
+  admin, PII controls, and GDPR `forget_entity` with tombstones.
+- **Letta** is an agent runtime in which the agent edits its own memory. Use
+  it when you want the agent loop and its memory in one server. Brain is
+  memory only: the agent stays in Claude Code, Cursor, Codex or your own code
+  and reaches Brain over MCP (Streamable HTTP, or the stdio shim
+  [`@inite/brain-mcp`](clients/brain-mcp/README.md)).
+- **Answers can abstain.** `synthesize` ends each claim with the id of the
+  fact it rests on, a verifier checks the support, and strict mode returns no
+  answer rather than an unsupported one. Each fact keeps a pointer to the
+  conversation or document it came from.
+- **No borrowed benchmark numbers.** We do not set our memory-accuracy results
+  against other systems' self-reported scores, which mostly use lenient
+  judges. How we measure: [docs/eval-protocol.md](docs/eval-protocol.md).
+
+**Part of the INITE Triad:** Brain verifies the tokens
+[INITE Auth](https://github.com/inite-ai/inite-auth-service) issues, as
+[INITE Billing](https://github.com/inite-ai/inite-billing-service) does; the
+contract between them is
+[the Triad contract](https://github.com/inite-ai/inite-triad/blob/main/docs/compatibility.md).
+Run all three with one compose file:
+[inite-ai/inite-triad](https://github.com/inite-ai/inite-triad).
+
+## What Brain is
 
 Brain gives an agent memory between conversations: what was said, what changed,
 which entities are involved, and what supports an answer. A bitemporal graph
@@ -180,7 +251,7 @@ Full authoring, signing and installation commands:
 [MCP pack tools](docs/mcp-pack-tools.md) ·
 [pack evaluation](test/eval/domain-packs/README.md).
 
-## Quick start
+## Getting started
 
 ### Use the hosted service
 
@@ -201,7 +272,7 @@ Keys can also be issued over the API by any credential you already hold —
 `POST /v1/keys/{id}/revoke` takes it back. The same endpoints work on a
 self-hosted deployment, so the env-var key below is only ever a bootstrap.
 
-### Run locally
+### Run from source
 
 Prerequisites: **Node.js 22**, **pnpm 10** and **Docker Compose**. The default
 model configuration needs an OpenAI API key. Local embeddings and alternative
@@ -339,7 +410,7 @@ export BRAIN_API_KEY="brain_..."
 gemini extensions install https://github.com/inite-ai/inite-brain-service
 ```
 
-MCP server, the six skills, and [AGENTS.md](AGENTS.md) loaded as context.
+MCP server, the six skills, and the [agent memory guide](docs/agents-using-brain.md) loaded as context.
 The key stays in your environment — the manifest references
 `${BRAIN_API_KEY}` and Gemini expands it at connect time.
 
@@ -417,7 +488,7 @@ MCP sampling when the client supports it. See the
 | Remember engineering rationale | `record_decision`, `why`, `recall_decisions` |
 | Find out what you just connected to | `workspace_status` |
 
-Read [AGENTS.md](AGENTS.md) for memory semantics and the
+Read the [agent memory guide](docs/agents-using-brain.md) for memory semantics and the
 [skills guide](skills/README.md) for reusable agent workflows.
 Synthesis keeps fact references in `citations` and other evidence references
 (episodes, fragments, scenes and beliefs) in `evidenceCitations`; preserve both
@@ -556,7 +627,7 @@ Next.js, React and Tailwind CSS.
 
 | Task | Read |
 | --- | --- |
-| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](AGENTS.md) |
+| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](docs/agents-using-brain.md) |
 | Understand memory | [Architecture](docs/architecture.md), [Data model](docs/data-model.md), [Bitemporal semantics](docs/bitemporal-semantics.md), [Retrieval profiles](docs/architecture-manifest.md) |
 | Inspect provenance and access | [Fact provenance](docs/fact-provenance-api.md), [User profiles](docs/user-profile-api.md), [Source trust](docs/source-reputation.md), [ABAC](docs/abac.md) |
 | Extend | [Domain Packs](docs/domain-packs.md), [Document pipeline](docs/document-pipeline.md), [MCP pack tools](docs/mcp-pack-tools.md) |
@@ -564,6 +635,28 @@ Next.js, React and Tailwind CSS.
 | Evaluate | [Protocol](docs/eval-protocol.md), [Methodology](docs/eval-methodology.md), [Harness](docs/eval.md) |
 
 ## Contributing
+
+### Contribute with an AI agent
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/inite-ai/inite-brain-service)
+
+You don't need to be an engineer. Open the repo (Codespaces above gives a
+ready environment with SurrealDB running), start your coding agent and
+describe the idea in plain words:
+
+- **Claude Code:** `/contribute` — it restates the idea, writes a short spec,
+  builds it with tests, runs the gates and opens a PR. `/spec-idea` only files
+  the idea as an issue.
+- **Any other agent** (Cursor, Codex, Copilot, Gemini CLI, Windsurf…): "Read
+  AGENTS.md and help me add …".
+
+[AGENTS.md](AGENTS.md) is the source of truth for agents: commands, zones
+(what is safe to change and what needs a maintainer first) and the idea → PR
+loop. Prefer to just propose? Use the
+[Product idea](https://github.com/inite-ai/inite-brain-service/issues/new?template=product-idea.yml)
+form.
+
+### The workflow
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.

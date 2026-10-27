@@ -2,7 +2,7 @@
   "name": "inite-brain",
   "version": "0.1.0",
   "description": "Persistent, bitemporal memory for Gemini CLI: the MCP tool surface, six skills, and the agent guide loaded as context.",
-  "contextFileName": "AGENTS.md",
+  "contextFileName": "docs/agents-using-brain.md",
   "mcpServers": {
     "brain": {
       "httpUrl": "https://brain.inite.ai/mcp",

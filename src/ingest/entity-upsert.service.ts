@@ -245,12 +245,23 @@ export class EntityUpsertService {
     hint,
     _contextRef,
     incomingFacts = [],
+    prejudged,
+    onStep,
   }: {
     db: Surreal;
     e: { name: string; type: string; canonical?: string | undefined; known?: string | undefined };
     hint: ParticipantHint | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
+    /**
+     * The judge's verdict for this mention, asked ahead (prejudge) while
+     * the other mentions of the same document were being judged too. Used
+     * in place of asking again at step 3 — valid only while nothing was
+     * created since it was asked, which the caller guarantees.
+     */
+    prejudged?: Promise<string | null> | undefined;
+    /** Which rung resolved the mention — `created` means a new entity exists now. */
+    onStep?: ((step: ResolutionStep) => void) | undefined;
   }): Promise<string> {
     // INGEST_CONFUSABLES_CHECK (Tier 3, default off): a homoglyph/mixed-
     // script RISK SIGNAL over the entity name, logged for review. It NEVER
@@ -262,6 +273,7 @@ export class EntityUpsertService {
     // an exact hit, a transliteration key or a judge's verdict cannot be
     // audited, and this ladder is where cross-script identity is decided.
     const resolved = (step: ResolutionStep, entityId: string): string => {
+      onStep?.(step);
       traceArtifact('ingest.entity.resolution', {
         name: e.name,
         type: this.normalizeEntityType(e.type),
@@ -459,12 +471,7 @@ export class EntityUpsertService {
       // The form the entity is known by, not the surface it was mentioned
       // in: the key scans and the judge's name hint work on "Мария
       // Петрова", never on "Марией Петровой".
-      const judged = await this.entityResolver.resolveByName({
-        db,
-        name: e.canonical ?? e.name,
-        type: this.normalizeEntityType(e.type),
-        incomingFacts,
-      });
+      const judged = await (prejudged ?? this.prejudge({ db, e, incomingFacts }));
       if (judged) {
         // A verdict the judge has given is a verdict the ladder should
         // not ask for twice. Stamping the new spelling's key means the
@@ -490,6 +497,40 @@ export class EntityUpsertService {
       externalRefs: {},
     });
     return resolved('created', String(created?.id));
+  }
+
+  /**
+   * Step 3's question — does a near-duplicate of this mention already
+   * exist, per the judge — asked on its own. Read-only (the resolver
+   * scans and judges, it writes nothing), so a commit asks it for every
+   * mention of a document at once instead of one mention after another;
+   * the ladder then consumes the answers in order. Null = no match, the
+   * resolver off, or any failure (the ladder then creates, as it would).
+   */
+  async prejudge(p: {
+    db: Surreal;
+    e: { name: string; type: string; canonical?: string | undefined };
+    incomingFacts?: string[] | undefined;
+  }): Promise<string | null> {
+    if (!this.entityResolver?.isEnabled()) return null;
+    // A mention the deterministic rungs will resolve (exact, alias,
+    // article, transliteration, code alias) never reaches the judge in
+    // the ladder — asking it ahead would only add judge calls.
+    if (
+      (await this.resolveExistingByName(p.db, { name: p.e.canonical ?? p.e.name }).catch(
+        () => null,
+      )) !== null
+    ) {
+      return null;
+    }
+    return this.entityResolver
+      .resolveByName({
+        db: p.db,
+        name: p.e.canonical ?? p.e.name,
+        type: this.normalizeEntityType(p.e.type),
+        incomingFacts: p.incomingFacts ?? [],
+      })
+      .catch(() => null);
   }
 
   /**

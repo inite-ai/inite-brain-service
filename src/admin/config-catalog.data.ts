@@ -28,6 +28,59 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Opt-in gate that allows the local pre-pass to skip the extractor LLM call when intent + mentions + collapse-patterns all hit.',
   },
   {
+    key: 'EXTRACTION_BATCH_WINDOW_SECONDS',
+    category: 'extractor',
+    defaultValue: '20',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How long captures gather before one extract_documents pass reads them: every write of one window asks for the same job.',
+  },
+  {
+    key: 'EXTRACTION_CONVERSATION_SETTLE_SECONDS',
+    category: 'extractor',
+    defaultValue: '120',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "A conversation's turns are read once no turn has arrived on it for this long — the whole stretch in one extraction call instead of a call per turn. Standalone documents do not wait.",
+  },
+  {
+    key: 'EXTRACTION_CONVERSATION_MAX_WAIT_SECONDS',
+    category: 'extractor',
+    defaultValue: '600',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Upper bound on the settle wait: a conversation that never goes quiet is read once its oldest unread turn has waited this long (or once its unread turns fill one group).',
+  },
+  {
+    key: 'EXTRACTION_GROUP_MAX_CHARS',
+    category: 'extractor',
+    defaultValue: '12000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Characters of turn text one extraction call reads. A longer stretch is split; a single turn or document over it is read alone, chunk by chunk.',
+  },
+  {
+    key: 'EXTRACTION_PASS_CONCURRENCY',
+    category: 'extractor',
+    defaultValue: '4',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Memory scopes (users, and the tenant's shared memory) one extract_documents pass reads at once. Within a scope documents are read in the order they were said, each group committed before the next is read — the extractor supersedes what the memory already holds, so a later document must see an earlier one's facts. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.",
+  },
+  {
+    key: 'EXTRACTION_GROUP_MAX_DOCS',
+    category: 'extractor',
+    defaultValue: '16',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description: 'Turns one extraction call reads at most.',
+  },
+  {
     key: 'EXTRACTOR_SC_PASSES',
     category: 'extractor',
     defaultValue: '3',
@@ -1342,7 +1395,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Processing tier for the calls nobody is waiting on — scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — extraction, search, synthesis — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
+      'Processing tier for the calls nobody is waiting on — the background extraction of captured documents, scene building, belief promotion, the composers, the dream jobs, strategy distillation, code indexing. `flex` is the SAME model at the Batch price (half) in exchange for slower service and an occasional 429 when capacity is short, which is not charged; `auto` falls back to standard on a retry. Unset (default) = the standard tier and a byte-identical request. The request path — search, synthesis, and an explicit sync ingest — never asks for it: there latency is the product. Probed 2026-09-23: gpt-5.6-luna, gpt-6-luna and gpt-6-sol all accept it.',
   },
   {
     key: 'OPENAI_BASE_URL',
@@ -1539,7 +1592,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. Steps 3-5 (ABAC widen / share-up staging / revocation tokens) are a follow-up.',
+      'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. W5 (step 3) added the READ half of group tags: a user-bound principal is fenced by the tags they HOLD (their own, plus every `team:` group the membership plane expanded for them — resolved once per request by the guard), and tenant-wide authority (an M2M credential, a background job) is the tenant boundary itself and carries no scope clause at all. Group tags only exist when SOURCE_PRINCIPALS wrote them, so with that off this is still the single-tag parity above. Steps 4-5 (share-up staging beyond one group per row) remain a follow-up.',
   },
   {
     key: 'PRIVACY_SEGMENT_USER_FENCE',
@@ -2135,6 +2188,151 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
+  },
+  {
+    key: 'SOURCE_LINKED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The linked lane (source plane, W7): a connection in `mode: 'linked'` is never walked and never catalogued — its connector's `search()` is called at QUERY time and the hits ride beside the ranking in the search response's `linked` section, never mixed into `results` (another system's opinion is not this brain's memory, and mixing them would make a citation mean two things). Every call writes a content-free `tool_observation` (0111) and the hits carry its ref, so a document made of them — and every fact derived from that document — points back at the call that produced it; a hit whose observation could not be written is NOT served, which is why this also needs TOOL_OBSERVATIONS_ENABLED. Bounded because it is a network call on the query path: one round per connection (25 connections at most), `SOURCE_LINKED_PER_QUERY` hits each, an 8s deadline, and every failure named rather than a failed search. A connector without `search()` says so by name. Off (default) = no connector is ever asked, no observation written, no `linked` section — byte-identical.",
+  },
+  {
+    key: 'SOURCE_LINKED_PER_QUERY',
+    category: 'pipeline',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Hits per linked connection per query (default 5, hard cap 25). The bound on how much of another system’s opinion rides along with an answer.',
+  },
+  {
+    key: 'SOURCE_PROGRESSIVE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Progressive indexing (source plane, W6 — doctrine 5, "manifest always, content by policy"): a connection whose `contentPolicy` is `manifest` walks a whole drive for the price of a listing and reads nothing, until a query matches one of its catalogue rows by TITLE or PATH — then that row alone is fetched and ingested as a `source_sync` job with a `deepen` payload (`ranBy: deepen`), and the NEXT query sees the content. The probe runs after retrieval, off the answer\'s path, never changes the answer it rode in on, and never throws: a search must not fail because a catalogue read did. A hit is not a read — `hitCount` on the row is the evidence that reading would have been worth it, and only SOURCE_DEEPEN_PER_QUERY rows per query are actually fetched, so a flood of queries against a million-item drive costs counter updates, not a million fetches. A deepening reads only what the walk already catalogued: no walk, no checkpoint, no gone policy. Off (default) = no probe ever runs, no hit is ever counted — byte-identical.',
+  },
+  {
+    key: 'SOURCE_DEEPEN_PER_QUERY',
+    category: 'pipeline',
+    defaultValue: '3',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How many catalogue rows one query may send for deepening under SOURCE_PROGRESSIVE (default 3, hard cap 20). The bound that keeps "every query probes the catalogue" from meaning "every query fetches the internet".',
+  },
+  {
+    key: 'SOURCE_PRINCIPALS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The membership plane (source plane, W5 — G6 steps 3–5): after every sync of an ORG connection (one with no owning user), the connector's `principals()` walk runs and its groups and accounts land as `external_identity` rows and `external_principal` tuples (migration 0169), and an item's `acl.groups` become `team:<connection>:<group>` tags on the document, asset, episode and derived facts it produces. An external account NOBODY has linked to a brain user grants no visibility at all — the link is an operator's decision (`POST .../principals/link`) or an address another linked identity already carries, never a guess. Revocation is a timestamp and moves the tenant's `scope_epoch`, so a cached expansion cannot outlive the change that invalidated it (the new-enemy problem). An ACL too large to mirror is a sync ERROR, never a truncation. The READ half is SCOPE_TAGS_ENABLED: with this on and that off, tags are written and ignored — the safe order to switch the two on in. Off (default) = no `principals()` is ever called, no tuple is ever written, every org connection's rows stay tenant-global — byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The quality tier of document text (evidence plane, W6): a document-understanding SERVICE (docling, marker, unstructured, a vendor's) as the first platform processor allowed to make a network call. Every text adapter that ships is local by construction — pdf2json for a PDF's text layer, officeparser for OOXML, tesseract for pixels — and they are also the FLOOR: a PDF whose layout carries meaning comes out of a text-layer dump as prose soup. The remote adapter sits FIRST in the registry, so for the media types the operator named (EVIDENCE_PARSER_REMOTE_MEDIA_TYPES, default PDF) it wins, and for everything else the local one is untouched. The contract is ours, not a vendor's — one endpoint, `POST { mediaType, profile?, contentBase64 }` → `{ text | markdown | content }`, which a small shim the operator owns puts in front of the real parser (and where they add their own redaction before bytes leave). Every call goes through the egress guard; the bearer never appears in an error; a failure is a RUN failure, never a quiet fallthrough to the local adapter. Off (default), or the URL unset = the adapter accepts nothing and the registry is byte-identical to the local-only one.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'The endpoint EVIDENCE_PARSER_REMOTE posts to. Unset = the adapter is off however the flag reads. It rides the adapter fingerprint: pointing at a different parser forks the idempotency key, so a representation made by the old one is never served as the new one.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_TOKEN',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The bearer the parser service expects, when it wants one. A credential, not a knob: it never rides the fingerprint and never appears in an error message.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_MEDIA_TYPES',
+    category: 'pipeline',
+    defaultValue: 'application/pdf',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'What the operator lets the parser service see, comma-separated. Unset = `application/pdf` only: the format whose local floor is furthest from its ceiling. A type not named here goes to the local adapter exactly as before.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_PROFILE',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "A label passed to the service when it has modes (docling's pipeline, a model name). It changes the OUTPUT, so it rides the adapter fingerprint: flipping it re-parses instead of serving a representation made under the old mode.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_ALLOW_PRIVATE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The parser service runs inside the operator's own network: the connection half of the egress double opt-in for it (the other half is SOURCE_EGRESS_ALLOW_PRIVATE). Either alone changes nothing.",
+  },
+  {
+    key: 'SOURCE_KIND_GITLAB',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `gitlab` source connector (source plane, W4.9 — the other forge): one GitLab project over the v4 API, as a connected GitLab account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GITLAB_CLIENT_ID) or with an access token that has `read_api` on it. Two shapes of the same project (code_memory): `gitlab_issues` — every issue AND merge request as one conversation (the description + every note, each speaking as its author, `updated_at` the revision) through the mention door, GitLab's own activity notes dropped and an issue #5 kept apart from a merge request !5; `gitlab_docs` — the text files of the default branch (or `ref`) from the recursive tree listing, the blob id the revision, judged by the same media table as a folder. Read-only. A self-managed instance is reached with `config.baseUrl` (+ `allowPrivate` for a host inside the network); connecting an ACCOUNT there is SOURCE_OAUTH_GITLAB_LOGIN_URL. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The application id of the GitLab OAuth application the brain connects accounts through (gitlab.com/-/user_settings/applications, or Admin → Applications on a self-managed instance; the brain's callback URL as the redirect URI; the `read_api` scope). Standard authorization code with PKCE; the refresh token ROTATES on every use, which the engine handles. Unset = GitLab is 'not configured' — a token can still be pasted as the credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The secret of the GitLab application named by SOURCE_OAUTH_GITLAB_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_LOGIN_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The self-managed GitLab the brain connects accounts on ('https://gitlab.acme.com'): its origin replaces gitlab.com on the authorize, token, identity AND API URLs together — an application registered on one instance issues tokens only that instance honours. Public https only. Unset = gitlab.com. A project on an instance the brain reads with a pasted token needs no flag: `config.baseUrl` on the connection names it.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitLab counterpart (one origin for the OAuth endpoints and /api/v4). A self-managed deployment is SOURCE_OAUTH_GITLAB_LOGIN_URL or a connection's `config.baseUrl`, not this.",
   },
   {
     key: 'SOURCE_KIND_SLACK',

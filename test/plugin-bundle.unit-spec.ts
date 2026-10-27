@@ -45,27 +45,39 @@ describe('claude-plugin marketplace', () => {
 
 describe('plugin manifest', () => {
   it('points every component path at a file that exists', () => {
-    for (const key of ['mcpServers', 'hooks'] as const) {
+    for (const key of ['mcpServers', 'icon'] as const) {
       const rel = manifest[key] as string;
       expect(rel.startsWith('./')).toBe(true);
-      expect(() => readFileSync(join(PLUGIN, rel), 'utf8')).not.toThrow();
+      expect(() => readFileSync(join(PLUGIN, rel))).not.toThrow();
     }
   });
 
-  it('registers the MCP server against the configured base URL, not a hardcoded host', () => {
-    const mcp = readJson(join(PLUGIN, '.mcp.json')) as {
-      brain: { type: string; url: string; headers: Record<string, string> };
-    };
-    expect(mcp.brain.type).toBe('http');
-    // Self-hosters change base_url and everything else must follow.
-    expect(mcp.brain.url).toBe('${user_config.base_url}/mcp');
-    expect(mcp.brain.headers.Authorization).toBe('Bearer ${user_config.api_key}');
+  // hooks/hooks.json is loaded by convention; naming it in the manifest
+  // as well makes the loader report a duplicate hooks file.
+  it('does not re-list the conventional hooks file', () => {
+    expect(manifest.hooks).toBeUndefined();
+    expect(() => readFileSync(join(PLUGIN, 'hooks/hooks.json'), 'utf8')).not.toThrow();
   });
 
-  it('marks the API key sensitive, so it lands in the keychain and not in a config file', () => {
+  it('names the privacy policy the directory listing shows', () => {
+    expect(manifest.privacyPolicyUrl).toBe('https://brain.inite.ai/en/privacy');
+  });
+
+  // The MCP server signs in with OAuth (lazy auth): a literal URL is what
+  // the directory matches against the registered connector, and a
+  // user_config template is not supported on every surface the plugin is
+  // listed on. No header: a key there would bypass the sign-in.
+  it('registers the hosted MCP endpoint, signed in with OAuth rather than a key', () => {
+    const mcp = readJson(join(PLUGIN, '.mcp.json')) as {
+      brain: { type: string; url: string; headers?: Record<string, string> };
+    };
+    expect(mcp.brain).toEqual({ type: 'http', url: 'https://brain.inite.ai/mcp' });
+  });
+
+  it('keeps the API key optional and sensitive — only the session hooks use it', () => {
     const cfg = manifest.userConfig as Record<string, { sensitive?: boolean; required?: boolean }>;
     expect(cfg.api_key?.sensitive).toBe(true);
-    expect(cfg.api_key?.required).toBe(true);
+    expect(cfg.api_key?.required).toBe(false);
   });
 });
 
