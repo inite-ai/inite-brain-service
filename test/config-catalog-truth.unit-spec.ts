@@ -29,6 +29,7 @@ function walk(dir: string): string[] {
 const FILES = walk(SRC).filter(
   (f) =>
     !f.endsWith('config-catalog.data.ts') &&
+    !f.includes('/config-catalog/') &&
     !f.endsWith('env-validation.ts') &&
     !f.endsWith('known-boolean-flags.ts'),
 );
