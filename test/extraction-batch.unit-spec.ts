@@ -180,3 +180,64 @@ describe('ExtractionBatchService pass', () => {
     expect(h.peak()).toBe(1);
   });
 });
+
+describe('ExtractionBatchService — a failed group is read in halves', () => {
+  it('a group whose read times out is read as halves, down to what fits', async () => {
+    const ids = ['a', 'b', 'c', 'd'].map((x) => `source_document:${x}`);
+    const docs = new Map(
+      ids.map((id, i) => [
+        id,
+        {
+          id,
+          occurredAt: new Date(Date.UTC(2026, 8, 26, 10, i)),
+          chunkCount: 1,
+          meta: { conversationId: 'conv-1' },
+          status: 'indexing',
+        },
+      ]),
+    );
+    const reads: number[] = [];
+    let listed = false;
+    const pass = new ExtractionBatchService(
+      {
+        getById: async (_c: string, id: string) => docs.get(id) ?? null,
+        getChunks: async () => [{ seq: 0, text: 'x', charStart: 0, charEnd: 1 }],
+        setStatus: async () => undefined,
+      } as never,
+      {
+        listAwaitingRuns: async () => {
+          if (listed) return [];
+          listed = true;
+          return ids.map((docId) => ({ docId, arrivedAt: new Date(0) }));
+        },
+      } as never,
+      {
+        runGeneral: async () => {
+          reads.push(1);
+          return { status: 'succeeded' };
+        },
+        runGeneralGroup: async (p: { docs: unknown[] }) => {
+          reads.push(p.docs.length);
+          // The battery's failure: a long group times out, its halves fit.
+          if (p.docs.length > 2) throw new Error('Request timed out.');
+          return { status: 'succeeded' };
+        },
+      } as never,
+      {
+        commitIfRunsSettled: async () => ({
+          committed: true,
+          deferred: false,
+          entityIds: [],
+          factIds: [],
+          edgeIds: [],
+        }),
+      } as never,
+    );
+    expect(await pass.runPass('co', { force: true })).toMatchObject({
+      read: 4,
+      failed: 0,
+      committed: 4,
+    });
+    expect(reads).toEqual([4, 2, 2]);
+  });
+});

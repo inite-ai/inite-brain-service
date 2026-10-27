@@ -63,9 +63,30 @@ function buildClient(config: ConfigService, apiKey: string): OpenAI {
         }
       : undefined;
   const modelPrefix = config.get<string>('OPENAI_MODEL_PREFIX', '');
-  if (!modelPrefix && !fallback) return primary;
-  routeChat(primary, { client: primary, modelPrefix }, fallback);
+  if (modelPrefix || fallback) routeChat(primary, { client: primary, modelPrefix }, fallback);
+  withOfflineTimeout(
+    primary,
+    parseInt(config.get<string>('OPENAI_OFFLINE_TIMEOUT_MS', '180000'), 10),
+  );
   return primary;
+}
+
+/**
+ * A flex-tier call gets its own timeout. Flex is served when capacity is
+ * free and OpenAI documents it as slow, yet it ran under the 30 s budget
+ * sized for request-path calls: on the battery stand (prod parity) 63 of
+ * 68 memory-fitness documents failed extraction — every group of 13–14
+ * long turns timed out four times and was dropped as a "transient LLM
+ * failure" (2026-10-27). A caller's own `timeout` still wins.
+ */
+export function withOfflineTimeout(target: OpenAI, timeoutMs: number): void {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
+  const completions = target.chat.completions as unknown as { create: ChatCreate };
+  const inner = completions.create.bind(target.chat.completions);
+  completions.create = (body, opts) =>
+    body.service_tier === 'flex'
+      ? inner(body, { timeout: timeoutMs, ...(opts as Record<string, unknown> | undefined) })
+      : inner(body, opts);
 }
 
 /**
