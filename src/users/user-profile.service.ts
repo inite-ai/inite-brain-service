@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
@@ -185,6 +186,8 @@ export class UserProfileService {
     const fence = derivedVersionFence(derivedVersion);
     const worldClause = `(derivedVersion IS NONE OR ${fence.clause.replace(/^AND\s+/, '')})`;
 
+    // Trust circles: an agent acting in a circle sees only its circle's part.
+    const profileTags = scopeFenceSql(userId, 'profileScopeTag');
     const clauses = [
       // Audit 2026-08-21: STRICT user scope — a profile asserts facts
       // OF this user, and a tenant-global row is any knowledge about
@@ -194,7 +197,7 @@ export class UserProfileService {
       // the user's own derived memory is lost by the strict filter.
       // Global rows return only with an explicit subject/entity
       // binding — the documented v2.
-      `userId = $scopeUserId`,
+      `userId = $scopeUserId ${profileTags.clause}`.trim(),
       worldClause,
       // Lifecycle "actual now" closure — copied from the search
       // where-builder (incl. the future-dated-supersede gap rule).
@@ -210,6 +213,7 @@ export class UserProfileService {
       scopeUserId: userId,
       fetchCap: FETCH_CAP,
       ...fence.params,
+      ...profileTags.params,
     };
     // Multilingual Tier 1: MULTILINGUAL_SOFT_LANG_FILTER turns the hard
     // same-language exclusion into a RANKING preference. The caller-supplied

@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
@@ -208,7 +209,10 @@ export class MemoryContextService {
           remembered: [],
         });
         if (ids.length === 0) return false;
-        const userGate = p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+        // Fenced like the extractor's other reads: in a circle, only what
+        // was said in it counts as in use (trust circles §3.7).
+        const tags = scopeFenceSql(p.userId, 'memInUseScopeTag');
+        const userGate = `${p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${tags.clause}`;
         const [open, used] = await db.query<[Array<unknown>, Array<unknown>]>(
           `SELECT VALUE id FROM knowledge_fact
              WHERE entityId IN $ids AND retractedAt IS NONE AND ${userGate}
@@ -221,7 +225,7 @@ export class MemoryContextService {
                                    WHERE entityId IN $ids AND retractedAt IS NONE AND ${userGate})
                AND verifiedUseCount + confirmedCount > 0
              LIMIT 1;`,
-          { ids: ids.map(recordRef), u: p.userId },
+          { ids: ids.map(recordRef), u: p.userId, ...tags.params },
         );
         return (open ?? []).length > 0 || (used ?? []).length > 0;
       });
@@ -233,7 +237,11 @@ export class MemoryContextService {
 
   private async recentTurns(db: Surreal, p: MemoryContextInput): Promise<MemoryTurn[]> {
     if (!p.conversationId) return [];
-    const userGate = p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+    // Trust circles §3.7: what the extractor is shown is a read like any
+    // other — fenced to the circle being extracted, or another circle's
+    // memory could be copied into this one's facts.
+    const tags = scopeFenceSql(p.userId, 'memTurnScopeTag');
+    const userGate = `${p.userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${tags.clause}`;
     const [rows] = await db.query<
       [Array<{ speaker?: string | null; text: string; occurredAt: unknown; messageId: string }>]
     >(
@@ -248,6 +256,7 @@ export class MemoryContextService {
         u: p.userId,
         k: MEMORY_RECENT_TURNS,
         before: p.before instanceof Date ? p.before.toISOString() : p.before,
+        ...tags.params,
       },
     );
     return (rows ?? [])
@@ -355,7 +364,8 @@ export class MemoryContextService {
     if (entities.length === 0) return [];
     const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
-    const userGate = userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+    const tags = scopeFenceSql(userId, 'memFactScopeTag');
+    const userGate = `${userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${tags.clause}`;
     const [rows] = await db.query<
       [
         Array<{
@@ -373,7 +383,13 @@ export class MemoryContextService {
         WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
           AND ${userGate}${saidBy ? ` AND ${SAID_AT('recordedAt')} <= type::datetime($said)` : ''}
         ORDER BY validFrom DESC LIMIT $k`,
-      { ids: ids.map(recordRef), u: userId, said: saidBy, k: MEMORY_FACTS_PER_ENTITY * ids.length },
+      {
+        ids: ids.map(recordRef),
+        u: userId,
+        said: saidBy,
+        k: MEMORY_FACTS_PER_ENTITY * ids.length,
+        ...tags.params,
+      },
     );
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];
@@ -421,7 +437,8 @@ export class MemoryContextService {
     if (entities.length === 0) return [];
     const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
-    const userGate = userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+    const tags = scopeFenceSql(userId, 'memEdgeScopeTag');
+    const userGate = `${userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${tags.clause}`;
     const [rows] = await db.query<
       [
         Array<{
@@ -440,7 +457,13 @@ export class MemoryContextService {
          FROM knowledge_edge
         WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}${saidBy ? ` AND ${SAID_AT('createdAt')} <= type::datetime($said)` : ''}
         ORDER BY createdAt DESC LIMIT $k`,
-      { ids: ids.map(recordRef), u: userId, said: saidBy, k: MEMORY_EDGES_PER_ENTITY * ids.length },
+      {
+        ids: ids.map(recordRef),
+        u: userId,
+        said: saidBy,
+        k: MEMORY_EDGES_PER_ENTITY * ids.length,
+        ...tags.params,
+      },
     );
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];

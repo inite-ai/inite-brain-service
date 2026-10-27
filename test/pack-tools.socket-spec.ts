@@ -561,7 +561,7 @@ describe('packIds fence (McpService.buildServer)', () => {
   };
 
   function service(bindings: PackToolBinding[]): McpService {
-    const reader = { installedPackTools: async () => bindings };
+    const reader = { isActive: async () => false, installedPackTools: async () => bindings };
     return new McpService(
       {} as never,
       {} as never,

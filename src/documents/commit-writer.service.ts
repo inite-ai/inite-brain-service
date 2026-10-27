@@ -1,6 +1,8 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { actingCircleTags, runInCircle, runOutsideCircle } from '../auth/circle-scope';
+import { lookupUserEntity } from '../ingest/user-entity.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
@@ -75,18 +77,23 @@ export class CommitWriterService {
     /** Aligned with factsToWrite; [] falls back to per-fact embedding. */
     embeddings: number[][];
   }): Promise<WriteMergedResult> {
-    return this.surreal.withCompany(p.companyId, async (db) => {
-      const entityIds = await this.resolveEntities(db, p);
-      const turns = await this.commitTurns(db, p.companyId, p.doc);
-      const facts = await this.writeFacts(db, {
-        ...p,
-        entityIds,
-        turns,
-        entityTypes: new Map(p.merge.entities.map((me) => [me.key, me.type])),
-      });
-      const relations = await this.writeRelations(db, { ...p, entityIds });
-      return { entityIds, facts, relations };
-    });
+    // The commit runs in the circle the document was said in — from a job
+    // (batch, sweeper, relearn) as much as from a request: every scope the
+    // writers below stamp then carries it (trust circles §3.4).
+    return runInCircle(p.doc.circles ?? [], () =>
+      this.surreal.withCompany(p.companyId, async (db) => {
+        const entityIds = await this.resolveEntities(db, p);
+        const turns = await this.commitTurns(db, p.companyId, p.doc);
+        const facts = await this.writeFacts(db, {
+          ...p,
+          entityIds,
+          turns,
+          entityTypes: new Map(p.merge.entities.map((me) => [me.key, me.type])),
+        });
+        const relations = await this.writeRelations(db, { ...p, entityIds });
+        return { entityIds, facts, relations };
+      }),
+    );
   }
 
   private async resolveEntities(
@@ -166,6 +173,8 @@ export class CommitWriterService {
     // The speaker's session timezone rides the internal document channel
     // (mention-via-document); a document posted directly has none.
     const timeOpts = resolveEventTimeOpts(internalMetaString(p.doc.meta, 'timezone'));
+    // Trust circles §3.8: what may leave the circle by default. Resolved once.
+    const shareTarget = await this.portableShareTarget(db, p.doc);
     for (const [i, mf] of p.factsToWrite.entries()) {
       const entityId = p.entityIds.get(mf.entityKey);
       if (!entityId) {
@@ -220,11 +229,38 @@ export class CommitWriterService {
             }),
           { predicate: mf.predicate, entityId },
         );
+        const factId = result?.factId ? String(result.factId) : null;
         outcomes.push({
           fact: mf,
-          factId: result?.factId ? String(result.factId) : null,
+          factId,
           outcome: result?.outcome ? String(result.outcome) : null,
         });
+        if (
+          factId &&
+          shareTarget &&
+          mf.predicate === 'instruction' &&
+          !isPortable(mf, entityId, shareTarget)
+        ) {
+          this.logger.log(
+            `[brain.commit.share] ${factId} stayed in its circle: on ${idTailOf(entityId)}, not the person's ${shareTarget.ownEntityId}`,
+          );
+        }
+        if (factId && shareTarget && isPortable(mf, entityId, shareTarget)) {
+          await this.shareOutOfCircle(db, {
+            companyId: p.companyId,
+            entityId,
+            mf,
+            factId,
+            validFrom,
+            validUntil,
+            expectedUntil,
+            objectMeta,
+            source: this.factSource(p.doc, mf, episodeOf(p.turns, mf)),
+            userId: p.doc.userId,
+            embedding: p.embeddings[i],
+            circles: shareTarget.circles,
+          });
+        }
       } catch (err) {
         this.logger.warn(
           `[brain.commit.fact] predicate=${mf.predicate} entity=${entityId} failed: ${(err as Error).message}`,
@@ -245,7 +281,9 @@ export class CommitWriterService {
    * capture is idempotent), which is how its facts point at them.
    */
   async captureDocumentTurns(companyId: string, doc: StoredDocument): Promise<void> {
-    await this.surreal.withCompany(companyId, (db) => this.captureTurns(db, companyId, doc));
+    await runInCircle(doc.circles ?? [], () =>
+      this.surreal.withCompany(companyId, (db) => this.captureTurns(db, companyId, doc)),
+    );
   }
 
   /**
@@ -393,6 +431,94 @@ export class CommitWriterService {
    * ABAC `source.meta.*` rules can match at read time (sanitized —
    * snake_case keys, short scalars, ≤16 entries).
    */
+  /**
+   * Trust circles §3.8 — the default share. Inside a circle, for a person's
+   * own memory, the instructions on how to treat that person (the core
+   * `instruction` predicate on their own entity: "never bring up weight",
+   * "no messages before 9") are portable: every agent acting for them must
+   * honour them. Everything else stays in the circle. Null = nothing may
+   * leave (no circle, no person, or no entity of theirs yet).
+   */
+  private async portableShareTarget(
+    db: Surreal,
+    doc: StoredDocument,
+  ): Promise<{ ownEntityId: string; circles: readonly string[] } | null> {
+    const circles = actingCircleTags();
+    if (circles.length === 0) return null;
+    if (!doc.userId) {
+      this.logger.log(`[brain.commit.share] ${doc.id}: no person on the document — nothing shared`);
+      return null;
+    }
+    const own = await lookupUserEntity(db, doc.userId);
+    if (!own) {
+      this.logger.log(
+        `[brain.commit.share] ${doc.id}: no entity for the person yet — nothing shared`,
+      );
+      return null;
+    }
+    return { ownEntityId: idTailOf(String(own.id)), circles };
+  }
+
+  /**
+   * Write the share copy: the same fact, out of the circle, saying where it
+   * came from and on what basis — never a re-tag of the original, which
+   * keeps its circle and its history. A failure leaves the instruction in
+   * its circle only: narrower, never wider.
+   */
+  private async shareOutOfCircle(
+    db: Surreal,
+    p: {
+      companyId: string;
+      entityId: string;
+      mf: MergedFact;
+      factId: string;
+      validFrom: Date;
+      validUntil: Date | undefined;
+      expectedUntil: Date | undefined;
+      objectMeta: Record<string, unknown> | undefined;
+      source: Record<string, unknown>;
+      userId: string | undefined;
+      embedding: number[] | undefined;
+      circles: readonly string[];
+    },
+  ): Promise<void> {
+    const meta = (p.source.meta as Record<string, unknown> | undefined) ?? {};
+    this.logger.log(
+      `[brain.commit.share] ${p.factId}: instruction shared out of ${p.circles.join(',')}`,
+    );
+    try {
+      await runOutsideCircle(() =>
+        this.factResolver.resolve(db, {
+          companyId: p.companyId,
+          entityId: p.entityId,
+          predicate: p.mf.predicate,
+          object: p.mf.object,
+          confidence: p.mf.confidence,
+          validFrom: p.validFrom,
+          validUntil: p.validUntil,
+          expectedUntil: p.expectedUntil,
+          objectMeta: p.objectMeta,
+          source: {
+            ...p.source,
+            meta: {
+              ...meta,
+              sharedFrom: p.factId,
+              sharedFromCircles: [...p.circles],
+              shareBasis: 'default:portable_instruction',
+            },
+          },
+          entropy: p.mf.entropy,
+          precomputedEmbedding: p.embedding,
+          userId: p.userId,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[brain.commit.share] ${p.factId} stayed in its circle: ${(err as Error).message}`,
+      );
+    }
+  }
+
   private factSource(
     doc: StoredDocument,
     mf: MergedFact,
@@ -561,4 +687,10 @@ async function capturedTurnIds(
     ids.push(id);
   }
   return ids;
+}
+
+/** The default share rule (trust circles §3.8): an instruction about the person, on their own entity. */
+function isPortable(mf: MergedFact, entityId: string, target: { ownEntityId: string }): boolean {
+  // Compared by record-id tail: the two sources render the id differently.
+  return mf.predicate === 'instruction' && idTailOf(entityId) === target.ownEntityId;
 }

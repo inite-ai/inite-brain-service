@@ -42,6 +42,9 @@ export class PackToolsReaderService {
     CACHE_CAP,
   );
   private readonly inFlight = new Map<string, Promise<PackToolBinding[]>>();
+  private readonly activeCache = new LRUCache<string, { ids: Set<string>; loadedAt: number }>(
+    CACHE_CAP,
+  );
 
   constructor(private readonly surreal: SurrealService) {}
 
@@ -68,9 +71,31 @@ export class PackToolsReaderService {
     return load;
   }
 
+  /**
+   * Whether a pack is installed and active — for the built-in tools a pack
+   * switches on (relationship_context). Same TTL and invalidation as the
+   * bindings; a failed read says no, and the tool is simply not listed.
+   */
+  async isActive(companyId: string, packId: string): Promise<boolean> {
+    const cached = this.activeCache.get(companyId);
+    if (cached && Date.now() - cached.loadedAt < ttlMs()) return cached.ids.has(packId);
+    try {
+      const ids = await this.surreal.withCompany(companyId, (db) =>
+        queryRows<string>(db, `SELECT VALUE packId FROM domain_pack WHERE status = 'active'`),
+      );
+      const set = new Set(ids.map(String));
+      this.activeCache.set(companyId, { ids: set, loadedAt: Date.now() });
+      return set.has(packId);
+    } catch (e) {
+      this.logger.warn(`active packs unreadable for ${companyId}: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
   /** Called by DomainPackInstallService next to registry.invalidate. */
   invalidate(companyId: string): void {
     this.cache.delete(companyId);
+    this.activeCache.delete(companyId);
   }
 
   private async loadFresh(companyId: string): Promise<PackToolBinding[]> {

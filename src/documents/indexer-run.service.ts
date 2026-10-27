@@ -494,6 +494,7 @@ export function groupDocOf(doc: StoredDocument, text: string): GroupDoc {
     occurredAt: doc.occurredAt,
     chunkCount: doc.chunkCount,
     userId: doc.userId,
+    ...(doc.circles?.length ? { circleKey: doc.circles.join(',') } : {}),
     conversationId: internalMetaString(doc.meta, 'conversationId'),
     speakerName: speaker?.name,
     speakerIsUser: isUserEntityRef(speaker, doc.userId) || undefined,

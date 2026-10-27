@@ -1,3 +1,4 @@
+import { runInCircle } from '../auth/circle-scope';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
@@ -322,7 +323,8 @@ export class ExtractionBatchService implements OnModuleInit {
     // cannot replace them. Scopes are independent and read concurrently.
     const byScope = new Map<string, GroupDoc[][]>();
     for (const group of groups) {
-      const key = group[0]?.userId ?? '';
+      // One memory scope = one user in one circle (trust circles §3.4).
+      const key = `${group[0]?.userId ?? ''}\x1e${group[0]?.circleKey ?? ''}`;
       byScope.set(key, [...(byScope.get(key) ?? []), group]);
     }
     const limiter = new Semaphore(passConcurrency());
@@ -371,7 +373,10 @@ export class ExtractionBatchService implements OnModuleInit {
       // A group is read as deep as its deepest turn.
       const depth = group.some((g) => page.depthOf.get(g.id) === 'full') ? 'full' : 'single';
       this.metrics?.depth(depth, group.length);
-      const r = await this.readGroup(ctx, { group, depth }, page);
+      // Read inside the circle the group was said in: the extractor's view
+      // of memory (memory-context) is then fenced to it (trust circles §3.7).
+      const circles = (group[0]?.circleKey ?? '').split(',').filter(Boolean);
+      const r = await runInCircle(circles, () => this.readGroup(ctx, { group, depth }, page));
       if (!r.ok) {
         out.failed += r.members.length;
         continue;

@@ -1,0 +1,279 @@
+# Memory batteries, A/B, on GitHub runners instead of a laptop.
+#
+# The mechanical batteries (memory-fitness, state-transitions,
+# relationship — see their READMEs under test/eval/) drive a LIVE brain.
+# Production measures main; a branch needs a stand of its own, and
+# multi-service stacks on a developer's machine are off the table. Every
+# (arm × battery × sample) gets its own runner, one SurrealDB and one
+# brain, with the production enablement flags read from deploy-brain.yml
+# of the SAME ref:
+#
+#   base — inputs.base_ref (default main), or the PR's base
+#   head — the ref this workflow is dispatched on, or the PR's head
+#
+# WRITE ONCE, ASK MANY. Writing a corpus is most of a battery's cost
+# (extraction on every turn, scene and belief builds); asking is the
+# cheap part. The memory a battery writes is a pure function of the
+# write-side code, the flags and the corpus, so after the write half
+# (BATTERY_PHASE=ingest, test/eval/phase.ts) the stand's databases are
+# exported and cached under that key. A later run with the same key —
+# the base arm almost always, both arms when only reading code changed —
+# imports the snapshot in seconds and only asks. The snapshot is taken
+# BEFORE any question: asking leaves answer-cache rows behind.
+#
+# The key covers all of src/ for now: the scene composer imports search
+# internals, so "write-side code" cannot be cut along directory lines
+# yet. Each sample index is its own snapshot, so repeats still sample
+# extraction, not one frozen extraction asked three times.
+#
+# Two triggers: a manual dispatch (only once this file is on main —
+# GitHub dispatches workflows from the default branch), and the label
+# `run-batteries` on a pull request, which runs the PR's own copy.
+#
+# Parity caveats, stated once: the enablement block and the brain
+# service's compose-level behaviour flags are production's (until
+# 2026-10-27 the compose flags were not, and mentions took the legacy
+# direct write path instead of the document pipeline); admin-panel
+# settings are not, and the
+# decision-plane lanes stay inert without TYPESAFE_API_KEY. Both arms
+# share every caveat.
+name: Memory batteries (A/B)
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: 'Baseline ref (the head is the ref you dispatch on)'
+        default: 'main'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: batteries-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: ${{ matrix.arm }} · ${{ matrix.battery }} #${{ matrix.sample }}
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-batteries'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [base, head]
+        battery: [memory-fitness, state-transitions, relationship]
+        sample: [1]
+        include:
+          - { arm: base, battery: relationship, sample: 2 }
+          - { arm: base, battery: relationship, sample: 3 }
+          - { arm: head, battery: relationship, sample: 2 }
+          - { arm: head, battery: relationship, sample: 3 }
+    env:
+      BATTERY: ${{ matrix.battery }}
+      SAMPLE: ${{ matrix.sample }}
+      SURREAL: docker exec -i stand-surreal /surreal
+    steps:
+      - name: Start SurrealDB
+        # Same image the e2e suites pin (test/global-setup.ts).
+        run: |
+          docker run -d --name stand-surreal -p 8001:8000 surrealdb/surrealdb:v3.2.4 \
+            start --user root --pass root rocksdb:/tmp/stand.db
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8001/health && break; sleep 1; done
+
+      - name: Resolve the arm's ref
+        id: ref
+        env:
+          ARM: ${{ matrix.arm }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "$ARM" = base ]; then echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"; else echo "ref=$HEAD_REF" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      # The batteries themselves come from the head: a battery added on a
+      # branch must be able to measure main too.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: harness
+
+      - name: Production enablement flags
+        # The literal heredoc deploy-brain.yml writes to enablement.env,
+        # taken from this arm's own ref.
+        run: |
+          awk '/tee "\$\{PROJECT_DIR\}\/enablement.env" > \/dev\/null << .EOF./{on=1;next} on&&/^[[:space:]]*EOF[[:space:]]*$/{exit} on' \
+            .github/workflows/deploy-brain.yml \
+            | sed 's/^[[:space:]]*//' | grep -E '^[A-Z0-9_]+=' > stand.env
+          # The brain service's compose-level behaviour flags too — they
+          # override the enablement file in production, and one of them
+          # decides the write path itself (INGEST_MENTION_VIA_DOCUMENT: a
+          # mention goes through the document pipeline). Secrets (`${…}`)
+          # and infrastructure (URLs, pools, workers, telemetry) stay out.
+          grep -E '^[[:space:]]+- (SEARCH|RETRIEVAL|MULTI_HOP|DOCUMENT|INGEST|REINDEX|MCP_PACK|CHAT_ROUTE|EXTRACTOR|PREDICATE|SYNTHESIZE)_[A-Z0-9_]*=' \
+            .github/workflows/deploy-brain.yml | grep -v '\${' | sed -E 's/^[[:space:]]+- //' >> stand.env
+          echo "[ok] $(wc -l < stand.env) flags"
+          grep -q '^INGEST_MENTION_VIA_DOCUMENT=1' stand.env && echo "[ok] mentions go through the document pipeline, as in production"
+
+      - name: Snapshot key
+        id: key
+        # What the written memory depends on: the arm's code and lockfile,
+        # its flags, and the battery's own corpus and write path. The
+        # relationship corpus is anchored at run time ("two hours ago"), so
+        # its snapshot is good for the day it was written.
+        run: |
+          code=$(git ls-tree -r HEAD src package.json pnpm-lock.yaml | sha256sum | cut -c1-16)
+          flags=$(sha256sum < stand.env | cut -c1-12)
+          # Questions and scorers do not change what is written: editing a probe
+          # must not rebuild the memory it asks.
+          corpus=$( (cd harness && git ls-tree -r HEAD -- "test/eval/$BATTERY" test/eval/phase.ts test/eval/http-brain-client.ts test/eval/long-request.ts) \
+            | grep -vE '/(probes|questions|scorers)\.ts$|/README\.md$' | sha256sum | cut -c1-12)
+          day=""; [ "$BATTERY" = relationship ] && day="-$(date -u +%F)"
+          echo "key=battery-snap-v3-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
+
+      - name: Restore snapshot
+        id: snap
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: snap
+          key: ${{ steps.key.outputs.key }}
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install and build the arm
+        run: |
+          pnpm install --frozen-lockfile --ignore-workspace
+          pnpm build
+
+      - name: Install the harness
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Credentials and run identity
+        # On a hit everything comes from the snapshot: the stand must accept
+        # the same keys for the same tenant, and the ask half must name the
+        # run the write half wrote.
+        run: |
+          mkdir -p snap
+          if [ -f snap/battery.env ]; then echo "[snap] reusing $(grep -c . snap/battery.env) identity lines"; exit 0; fi
+          node -e '
+            const c=require("crypto"),fs=require("fs");
+            const mk=()=>"brain_"+c.randomBytes(24).toString("hex");
+            const h=k=>"sha256:"+c.createHash("sha256").update(k).digest("hex");
+            const co="battery"+c.randomBytes(4).toString("hex");
+            const admin=mk(), reader=mk(), run="b"+Date.now().toString(36);
+            // The relationship battery measures two surfaces: each key acts in
+            // its own trust circle (auth/circle-scope.ts). A server that predates
+            // circles ignores the field, which is the baseline being measured.
+            const rel=process.env.BATTERY==="relationship";
+            fs.writeFileSync("snap/keys.json",JSON.stringify([
+              {keyHash:h(admin),companyId:co,scopes:["brain:read","brain:write","brain:admin","brain:read_pii"],...(rel?{circle:"coach"}:{})},
+              {keyHash:h(reader),companyId:co,scopes:["brain:read"],...(rel?{circle:"assistant"}:{})}]));
+            fs.writeFileSync("snap/battery.env",[
+              `BRAIN_COMPANY_ID=${co}`,`BRAIN_API_KEY=${admin}`,`REL_ASSISTANT_API_KEY=${reader}`,
+              `MEMFIT_RUN_ID=${run}`,`STEV_RUN_ID=${run}`,`REL_RUN_ID=${run}`,
+              `REL_ANCHOR=${new Date().toISOString()}`,""].join("\n"));'
+
+      - name: Import snapshot
+        if: steps.snap.outputs.cache-hit == 'true'
+        run: |
+          set -a; . snap/battery.env; set +a
+          for f in snap/db-*.surql; do
+            db=$(basename "$f" .surql); db=${db#db-}
+            # Computed views recompute on import; their rows in the dump would
+            # collide ("record already exists"), so they are dropped first.
+            node harness/scripts/ci/strip-view-data.mjs "$f" "/tmp/$db.surql"
+            # `surreal import` takes a path, not stdin; the image has no shell.
+            docker cp "/tmp/$db.surql" "stand-surreal:/tmp/$db.surql"
+            $SURREAL import -e http://127.0.0.1:8000 -u root -p root --ns brain --db "$db" "/tmp/$db.surql"
+            echo "[snap] imported $db"
+          done
+
+      - name: Start brain
+        env:
+          OPENAI_API_KEY: ${{ secrets.BRAIN_OPENAI_API_KEY }}
+        run: |
+          set -a; . ./stand.env; set +a
+          BRAIN_API_KEYS="$(cat snap/keys.json)"
+          export PORT=3000 BRAIN_API_KEYS \
+            SURREALDB_URL=ws://127.0.0.1:8001 SURREALDB_USERNAME=root SURREALDB_PASSWORD=root SURREALDB_NAMESPACE=brain \
+            FORGET_HMAC_KEY=battery-hmac-key-must-be-at-least-32-chars THROTTLE_DISABLED=1
+          nohup node dist/main > brain.log 2>&1 &
+          for i in $(seq 1 180); do curl -sf http://127.0.0.1:3000/health >/dev/null && echo "[ok] up after ${i}s" && exit 0; sleep 1; done
+          tail -50 brain.log; exit 1
+
+      - name: Write the corpus
+        if: steps.snap.outputs.cache-hit != 'true'
+        working-directory: harness
+        run: |
+          set -a; . ../snap/battery.env; set +a
+          export BRAIN_BASE_URL=http://127.0.0.1:3000 BATTERY_PHASE=ingest \
+            MEMFIT_REPORT_DIR=../snap/reports STEV_REPORT_DIR=../snap/reports REL_REPORT_DIR=../snap/reports
+          pnpm --ignore-workspace "eval:$BATTERY" 2>&1 | tee ../ingest.log
+
+      - name: Export snapshot
+        if: steps.snap.outputs.cache-hit != 'true'
+        run: |
+          set -a; . snap/battery.env; set +a
+          for db in system "co_${BRAIN_COMPANY_ID}"; do
+            # To a file inside the container: on stdout the CLI's own INFO log
+            # lines land in the dump (the first v1 snapshots were unimportable).
+            $SURREAL export -e http://127.0.0.1:8000 -u root -p root --ns brain --db "$db" "/tmp/export-$db.surql"
+            docker cp "stand-surreal:/tmp/export-$db.surql" "snap/db-$db.surql"
+            echo "[snap] exported $db: $(wc -c < "snap/db-$db.surql") bytes"
+          done
+
+      - name: Save snapshot
+        if: steps.snap.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: snap
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Ask
+        working-directory: harness
+        env:
+          ARM: ${{ matrix.arm }}
+          HIT: ${{ steps.snap.outputs.cache-hit }}
+        run: |
+          set -a; . ../snap/battery.env; set +a
+          export BRAIN_BASE_URL=http://127.0.0.1:3000 BATTERY_PHASE=ask \
+            MEMFIT_REPORT_DIR=../snap/reports STEV_REPORT_DIR=../snap/reports REL_REPORT_DIR=../snap/reports
+          pnpm --ignore-workspace "eval:$BATTERY" 2>&1 | tee ../ask.log || echo "[warn] $BATTERY exited non-zero"
+          mkdir -p ../out && cp ../snap/reports/*.json ../out/ 2>/dev/null || true
+          { echo "### $ARM — $BATTERY #$SAMPLE (snapshot ${HIT:-miss})"; echo '```'; sed -n '/scorecard/,$p' ../ask.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dump the written facts
+        # What extraction wrote, beside what serving answered: a probe that
+        # flips between runs on ONE snapshot is a serving question, and a
+        # probe that fails on every run asks to see the graph.
+        if: always()
+        run: |
+          set -a; . snap/battery.env; set +a
+          mkdir -p out
+          echo "SELECT entityId.canonicalName AS entity, predicate, object, statement, status, userId, scope, source.meta.sharedFrom AS sharedFrom FROM knowledge_fact ORDER BY entity, predicate;" \
+            | $SURREAL sql -e http://127.0.0.1:8000 -u root -p root --ns brain --db "co_${BRAIN_COMPANY_ID}" --hide-welcome --json -l none \
+            > out/facts.json || echo "[warn] facts dump failed"
+          echo "[ok] $(wc -c < out/facts.json) bytes of facts"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: batteries-${{ matrix.arm }}-${{ matrix.battery }}-${{ matrix.sample }}
+          path: |
+            out/
+            *.log
+          retention-days: 14

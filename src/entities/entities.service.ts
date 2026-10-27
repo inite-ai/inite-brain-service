@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -10,6 +11,13 @@ import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
 import { pinUserScope, userReadFence } from '../auth/user-scope';
 import { buildEdgeFence } from '../search/internals/edge-fence';
+import { userEntityKey } from '../ingest/user-entity';
+import {
+  RELATIONSHIP_PREDICATE_PREFIX,
+  shapeRelationshipContext,
+  type RelationshipContext,
+  type RelationshipFactRow,
+} from './relationship-context';
 
 // Centralised SELECT-clause field lists. Adding a new field to a table
 // touches one place here, not every read site. The strings below are
@@ -398,6 +406,67 @@ export class EntitiesService {
   }
 
   /**
+   * The relationship context of one person (relationship-context.ts): their
+   * boundaries and the relationship pack's facts from THEIR memory — rows
+   * whose `userId` is theirs, under the same user and circle fences as the
+   * profile, so an agent bound to a circle reads only what was said in it
+   * (plus what was shared out to every circle). Empty when per-user read
+   * scope is off: there is no "their memory" to read.
+   */
+  async getRelationshipContext({
+    companyId,
+    userId: requested,
+    scopes,
+  }: {
+    companyId: string;
+    userId: string;
+    scopes: BrainScope[];
+  }): Promise<RelationshipContext> {
+    const user = userReadFence(requested);
+    const now = new Date();
+    if (!user.userId) return shapeRelationshipContext({ userId: requested, rows: [], now });
+    const userId = user.userId;
+    const { clauses: active, params: activeParams } = activeFactWhere(null);
+    return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
+      const name = await queryFirst<string>(
+        db,
+        `SELECT VALUE entity.canonicalName FROM entity_external_ref WHERE key = $key LIMIT 1`,
+        { key: userEntityKey(userId) },
+      );
+      const rows = await queryRows<RelationshipFactRow & FactProfileRow>(
+        db,
+        `SELECT ${FACT_PROFILE_FIELDS}, entityId.canonicalName AS about
+           FROM knowledge_fact
+          WHERE userId = $relUser
+            AND (predicate = 'instruction' OR string::starts_with(predicate, $relPrefix))
+            AND ${user.clause}
+            AND ${active.join(' AND ')}
+          ORDER BY validFrom DESC
+          LIMIT 200`,
+        {
+          ...user.params,
+          ...activeParams,
+          relUser: userId,
+          relPrefix: RELATIONSHIP_PREDICATE_PREFIX,
+        },
+      );
+      const rowPolicy = makeRowPolicyFilter({
+        callerScopes: scopes,
+        surface: 'relationship_context',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
+      });
+      const visible = rows.filter((r) => rowPolicy.filter(r));
+      rowPolicy.finish();
+      return shapeRelationshipContext({
+        userId,
+        name: name && name !== userId ? name : undefined,
+        rows: visible,
+        now,
+      });
+    });
+  }
+
+  /**
    * Cheap freshness probe for an entity's active fact set, used by the
    * summarize_entity watermark cache (graphiti-style dual watermark):
    *   - maxRecordedAt — wall-clock: the newest moment brain learned
@@ -499,6 +568,12 @@ export class EntitiesService {
         params.scopeUserId = scopeUserId;
       } else {
         clauses.push(`userId IS NONE`);
+      }
+      // Trust circles: the timeline of a circle's facts is the circle's.
+      const timelineTags = scopeFenceSql(scopeUserId, 'timelineScopeTag');
+      if (timelineTags.clause) {
+        clauses.push(timelineTags.clause.replace(/^AND\s+/, ''));
+        Object.assign(params, timelineTags.params);
       }
       if (since) {
         clauses.push(`recordedAt >= $since`);

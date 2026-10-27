@@ -7,6 +7,7 @@ import {
   IsString,
   Length,
   Max,
+  Matches,
   Min,
 } from 'class-validator';
 import { ISSUABLE_SCOPES } from '../issuable-scopes';
@@ -31,4 +32,9 @@ export class IssueKeyDto {
   @IsString()
   @Length(1, 200)
   userId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9._-]{1,120}$/)
+  circle?: string;
 }

@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../../auth/scope-visibility';
 import type { Surreal } from 'surrealdb';
 import type { FactRow } from './types';
 import { derivedVersionFence, type ReadPin } from '../../episodes/read-pin.service';
@@ -123,8 +124,13 @@ export async function runInsightLegs({
   lexicalRows: FactRow[];
 }> {
   const piiGate = callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-  const userGate = userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE';
-  const userParams = userId ? { scopeUserId: userId } : {};
+  // Trust circles: the scope-tag fence beside the userId gate — a summary
+  // composed inside a circle carries its tag (insight-composer-kernel).
+  const scopeFence = scopeFenceSql(userId, 'insightScopeTag');
+  const userGate = `${
+    userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE'
+  } ${scopeFence.clause}`;
+  const userParams = { ...(userId ? { scopeUserId: userId } : {}), ...scopeFence.params };
   const worldFence = derivedVersionFence(derivedVersion);
   const worldGate = worldFence.clause;
   const worldParams = worldFence.params;

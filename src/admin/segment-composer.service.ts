@@ -3,6 +3,7 @@ import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
+import { withSourceCircles } from '../auth/circle-scope';
 import { scopeForUser } from '../auth/scope-tags';
 import { segmentSessions, type EpisodeRow } from './window-deriver.service';
 
@@ -35,6 +36,7 @@ export interface SegmentRunResult {
 interface SegmentEpisodeRow extends EpisodeRow {
   piiClass?: string[];
   userId?: string;
+  scope?: string[];
 }
 
 /** Pure: sliding windows over one session's time-ordered turns. */
@@ -173,7 +175,10 @@ export class SegmentComposerService {
         // G6 step 1: mirror the per-user scope as a scope tag (0093).
         // A mixed-user window stays tenant-global ([]) — same rule as
         // the userId stamp above (0117's userIds carries the members).
-        scope: scopeForUser(userIds.length === 1 ? userIds[0] : undefined),
+        scope: withSourceCircles(
+          scopeForUser(userIds.length === 1 ? userIds[0] : undefined),
+          w.turns,
+        ),
         embedding: vectors[i],
         recorder: SEGMENT_RECORDER,
         generation,
