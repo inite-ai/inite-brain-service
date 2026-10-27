@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { actingCircleTags, runInCircle, runOutsideCircle } from '../auth/circle-scope';
-import { UserEntityService } from '../ingest/user-entity.service';
+import { lookupUserEntity } from '../ingest/user-entity.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
@@ -66,7 +66,6 @@ export class CommitWriterService {
     private readonly entities: EntityUpsertService,
     private readonly factResolver: FactResolverService,
     @Optional() private readonly episodes?: EpisodeStoreService,
-    @Optional() private readonly users?: UserEntityService,
   ) {}
 
   async writeMerged(p: {
@@ -225,6 +224,16 @@ export class CommitWriterService {
           factId,
           outcome: result?.outcome ? String(result.outcome) : null,
         });
+        if (
+          factId &&
+          shareTarget &&
+          mf.predicate === 'instruction' &&
+          !isPortable(mf, entityId, shareTarget)
+        ) {
+          this.logger.log(
+            `[brain.commit.share] ${factId} stayed in its circle: on ${idTailOf(entityId)}, not the person's ${shareTarget.ownEntityId}`,
+          );
+        }
         if (factId && shareTarget && isPortable(mf, entityId, shareTarget)) {
           await this.shareOutOfCircle(db, {
             companyId: p.companyId,
@@ -401,8 +410,12 @@ export class CommitWriterService {
     doc: StoredDocument,
   ): Promise<{ ownEntityId: string; circles: readonly string[] } | null> {
     const circles = actingCircleTags();
-    if (circles.length === 0 || !doc.userId || !this.users) return null;
-    const own = await this.users.lookup(db, doc.userId);
+    if (circles.length === 0) return null;
+    if (!doc.userId) {
+      this.logger.log(`[brain.commit.share] ${doc.id}: no person on the document — nothing shared`);
+      return null;
+    }
+    const own = await lookupUserEntity(db, doc.userId);
     if (!own) {
       this.logger.log(
         `[brain.commit.share] ${doc.id}: no entity for the person yet — nothing shared`,
