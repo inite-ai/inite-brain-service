@@ -5,7 +5,12 @@
  */
 import { CORPUS_TURNS } from './eval/relationship/corpus';
 import { PROBES } from './eval/relationship/probes';
-import { firstUnqualified, qualifiersFor, sentenceAround } from './eval/relationship/scorers';
+import {
+  firstUnqualified,
+  qualifiersFor,
+  sentenceAround,
+  overdueMiss,
+} from './eval/relationship/scorers';
 
 describe('relationship scorers', () => {
   describe('sentenceAround', () => {
@@ -95,5 +100,29 @@ describe('relationship corpus and probes', () => {
     const checks = new Set(PROBES.map((p) => p.check));
     for (const c of ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'A1'])
       expect(checks.has(c as never)).toBe(true);
+  });
+});
+
+describe('overdueMiss — R4 through relationship_context', () => {
+  const markers = ['jantar', 'dinner'];
+  it('passes when a commitment naming it is overdue', () => {
+    expect(
+      overdueMiss(
+        [
+          { text: 'walk after lunch', overdue: false },
+          { text: 'perguntar como foi o jantar', overdue: true },
+        ],
+        markers,
+      ),
+    ).toBeNull();
+  });
+  it('says what was there instead', () => {
+    expect(overdueMiss([], markers)).toBe('no commitments at all');
+    expect(overdueMiss([{ text: 'ask about the dinner', overdue: false }], markers)).toMatch(
+      /^named but not overdue: ask about the dinner \(due unset\)/,
+    );
+    expect(overdueMiss([{ text: 'walk', overdue: true }], markers)).toBe(
+      'no commitment names it: walk',
+    );
   });
 });

@@ -34,6 +34,7 @@ import {
   SPECIALIST_REF,
   TIMEZONE,
 } from './corpus';
+import { RELATIONSHIP_PACK } from '../../../src/ai/domain-packs/relationship.pack';
 import { PROBES } from './probes';
 import {
   containsAnyOf,
@@ -41,7 +42,9 @@ import {
   firstUnqualified,
   isAbstention,
   missingKeyPhrases,
+  overdueMiss,
   qualifiersFor,
+  type ContextCommitment,
 } from './scorers';
 import type { Check, CorpusTurn, Probe, ProbeResult, Scorecard, Surface, Tally } from './types';
 
@@ -252,6 +255,26 @@ async function ingestCorpus(cfg: Config, brain: HttpBrainClient): Promise<void> 
 }
 
 /** Ask the server to read everything waiting; 404 = it reads on the write path. */
+/**
+ * The relationship pack, installed before the corpus is written so its
+ * vocabulary reaches the extractor and relationship_context is listed —
+ * the stand a relationship tenant runs. Read from src, so the snapshot key
+ * (the src tree) moves with it. A 409 is an install already there.
+ */
+async function installPack(cfg: Config): Promise<void> {
+  if (process.env.REL_INSTALL_PACK === '0') return;
+  const res = await longRequestJson(
+    `${cfg.baseUrl}/v1/admin/packs`,
+    'POST',
+    { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.coachKey}` },
+    { manifest: RELATIONSHIP_PACK },
+  );
+  const ok = (res.status >= 200 && res.status < 300) || res.status === 409;
+  console.error(
+    `[build] relationship pack v${RELATIONSHIP_PACK.version}: ${ok ? `installed (${res.status})` : `HTTP ${res.status} ${JSON.stringify(res.json)} — the stand runs without it`}`,
+  );
+}
+
 async function drainExtraction(cfg: Config): Promise<void> {
   // Can outlive fetch's 300 s header deadline (long-request.ts). Behind a
   // proxy it can also outlive the proxy (Cloudflare answers 524 at 100 s):
@@ -292,6 +315,19 @@ const withReason = (detail: string, reason: string | undefined): string =>
 
 async function askOne(ctx: AskContext, p: Probe): Promise<Verdict> {
   switch (p.kind) {
+    case 'overdue': {
+      if (!ctx.tools.has(p.tool))
+        return { status: 'skipped', detail: `${p.tool} not listed on this stand` };
+      const out = await callTool<{ commitments?: ContextCommitment[] }>(
+        ctx.surfaces[p.surface],
+        p.tool,
+        { userId: ctx.cfg.userId },
+      );
+      const miss = overdueMiss(out.commitments ?? [], p.markers);
+      return miss === null
+        ? { status: 'pass', detail: 'flagged overdue', answer: JSON.stringify(out.commitments) }
+        : { status: 'fail', detail: miss, answer: JSON.stringify(out.commitments ?? []) };
+    }
     case 'requires':
       return ctx.tools.has(p.tool)
         ? { status: 'fail', detail: `${p.tool} is listed but this probe has no scorer yet` }
@@ -461,14 +497,15 @@ async function main(): Promise<void> {
   const coach = await connectMcp(cfg, cfg.coachKey, 'coach');
   const assistant = await connectMcp(cfg, cfg.assistantKey, 'assistant');
   try {
-    const toolList = await withRetry('tools/list', () => assistant.listTools());
-    const tools = new Set(toolList.tools.map((t) => t.name));
-    console.error(`[mcp] connected, ${tools.size} tools visible to the assistant`);
-
     if (!cfg.skipIngest) {
+      await installPack(cfg);
       await ingestCorpus(cfg, brain);
       await drainExtraction(cfg);
     }
+    // Listed after the install: the pack switches relationship_context on.
+    const toolList = await withRetry('tools/list', () => assistant.listTools());
+    const tools = new Set(toolList.tools.map((t) => t.name));
+    console.error(`[mcp] connected, ${tools.size} tools visible to the assistant`);
     if (batteryPhase() === 'ingest') {
       console.log(`relationship: ingested run ${cfg.runId}, nothing asked (BATTERY_PHASE=ingest)`);
       return;

@@ -89,7 +89,19 @@ export interface RequiresProbe extends ProbeBase {
   tool: string;
 }
 
-export type Probe = ExpectProbe | FenceProbe | QualifiedProbe | AbsenceProbe | RequiresProbe;
+/**
+ * R4 read through relationship_context: a commitment whose text carries a
+ * marker comes back flagged overdue. Skipped while the stand does not list
+ * the tool (a tenant without the relationship pack, or a base arm without it).
+ */
+export interface OverdueProbe extends ProbeBase {
+  kind: 'overdue';
+  tool: 'relationship_context';
+  markers: readonly string[];
+}
+
+export type Probe =
+  ExpectProbe | FenceProbe | QualifiedProbe | AbsenceProbe | RequiresProbe | OverdueProbe;
 
 export interface ProbeResult {
   id: string;

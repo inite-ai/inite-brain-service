@@ -12,6 +12,7 @@ export {
   isAbstention,
   missingKeyPhrases,
 } from '../memory-fitness/scorers';
+import { containsAnyOf } from '../memory-fitness/scorers';
 
 /** Words that tell a state as past. */
 export const PAST_QUALIFIERS = [
@@ -145,4 +146,29 @@ export function firstUnqualified(
     }
   }
   return null;
+}
+
+/** A commitment as relationship_context returns it. */
+export interface ContextCommitment {
+  text: string;
+  overdue: boolean;
+  about?: string;
+  due?: string;
+}
+
+/**
+ * R4 through relationship_context: some commitment naming a marker is
+ * flagged overdue. Returns null on a pass, else what was there instead.
+ */
+export function overdueMiss(
+  commitments: readonly ContextCommitment[],
+  markers: readonly string[],
+): string | null {
+  const named = commitments.filter((c) => containsAnyOf(c.text, markers));
+  if (named.some((c) => c.overdue)) return null;
+  if (named.length > 0)
+    return `named but not overdue: ${named.map((c) => `${c.text} (due ${c.due ?? 'unset'})`).join('; ')}`;
+  return commitments.length === 0
+    ? 'no commitments at all'
+    : `no commitment names it: ${commitments.map((c) => c.text).join('; ')}`;
 }

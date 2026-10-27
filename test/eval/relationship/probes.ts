@@ -119,9 +119,11 @@ export const PROBES: readonly Probe[] = [
     id: 'r4-overdue',
     check: 'R4',
     surface: 'coach',
-    kind: 'requires',
+    kind: 'overdue',
     tool: 'relationship_context',
+    // C4, six days back: "depois de amanhã eu te pergunto como foi o jantar".
     prompt: 'relationship_context: the dinner follow-up is flagged overdue',
+    markers: ['jantar', 'dinner', 'aniversário', 'birthday'],
   },
 
   // ── R5 — a guess is not a fact ────────────────────────────────────
