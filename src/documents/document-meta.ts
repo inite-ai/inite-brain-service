@@ -110,8 +110,6 @@ export type InternalDocumentMeta = Partial<Record<InternalDocumentMetaKey, strin
 export const INTERNAL_DOCUMENT_META_MAX_CHARS = SOURCE_META_MAX_VALUE_CHARS;
 
 const RESERVED = new Set<string>(INTERNAL_DOCUMENT_META_KEYS);
-/** Keys that would rewrite the merged object's prototype instead of landing as data. */
-const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /**
  * Build an internal bag, dropping absent entries. A JS object literal
@@ -250,7 +248,15 @@ export function mergeDocumentMeta(
   if (callerMeta === undefined && internal === undefined) return undefined;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(callerMeta ?? {})) {
-    if (!RESERVED.has(key) && !PROTO_KEYS.has(key)) out[key] = value;
+    if (RESERVED.has(key)) continue;
+    // defineProperty, not assignment: a `__proto__` key lands as an own
+    // data property instead of replacing the object's prototype.
+    Object.defineProperty(out, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return Object.assign(out, internal ?? {});
 }

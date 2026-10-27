@@ -49,7 +49,7 @@ describe('CodeQL hardening', () => {
 
   it('a webhook header or query key named __proto__ stays data', () => {
     const req = {
-      headers: { __proto__: 'x', 'X-Sig': 'abc' },
+      headers: JSON.parse('{"__proto__": "x", "X-Sig": "abc"}') as Record<string, string>,
       query: JSON.parse('{"__proto__": "y", "token": "t"}') as Record<string, string>,
       body: {},
       protocol: 'https',
