@@ -13,10 +13,7 @@
       }
     ]
   },
-  "transformIgnorePatterns": [
-    "node_modules/(?!\\.pnpm|jose|any-ascii)",
-    "node_modules/\\.pnpm/(?!jose@|any-ascii@)"
-  ],
+  "transformIgnorePatterns": ["/node_modules/"],
   "//cacheDirectory": "In-repo rather than jest's default os.tmpdir()/jest_<uid>, so CI can persist it across runs with actions/cache \u2014 a tmpdir cache is thrown away with the runner and every CI run re-transpiled all 138 e2e specs from cold. Jest namespaces the directory by config hash internally, so the unit/socket/e2e configs sharing one path do not collide. Gitignored; a stale entry is impossible because jest keys each cached transform on the file's content hash plus the ts-jest and compiler-options fingerprint.",
   "cacheDirectory": "<rootDir>/.jest-cache",
   "testTimeout": 120000,

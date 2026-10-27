@@ -18,10 +18,7 @@
       }
     ]
   },
-  "transformIgnorePatterns": [
-    "node_modules/(?!\\.pnpm|jose|any-ascii)",
-    "node_modules/\\.pnpm/(?!jose@|any-ascii@)"
-  ],
+  "transformIgnorePatterns": ["/node_modules/"],
   "testTimeout": 30000,
   "cacheDirectory": "<rootDir>/.jest-cache",
   "moduleNameMapper": {
