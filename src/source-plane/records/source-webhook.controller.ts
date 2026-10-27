@@ -32,12 +32,13 @@ export class SourceWebhookController {
 
 /** The request as the schemes see it: lower-cased headers, the raw bytes, the parsed body, the URL the vendor called. */
 export function webhookRequestOf(req: RawBodyRequest<Request>): WebhookRequest {
-  const headers: Record<string, string> = {};
+  // Null-prototype maps: a header or query key named `__proto__` stays data.
+  const headers: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [k, v] of Object.entries(req.headers)) {
     if (typeof v === 'string') headers[k.toLowerCase()] = v;
     else if (Array.isArray(v) && v[0] !== undefined) headers[k.toLowerCase()] = v[0];
   }
-  const query: Record<string, string> = {};
+  const query: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [k, v] of Object.entries(req.query ?? {})) {
     if (typeof v === 'string') query[k] = v;
   }

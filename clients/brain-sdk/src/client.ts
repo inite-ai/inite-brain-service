@@ -83,7 +83,7 @@ export class Brain {
 
   constructor(private readonly options: BrainOptions) {
     if (!options.apiKey) throw new Error('brain: apiKey is required');
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(options.baseUrl ?? DEFAULT_BASE);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
 
@@ -229,4 +229,11 @@ export class Brain {
 
 export function createBrain(options: BrainOptions): Brain {
   return new Brain(options);
+}
+
+/** A loop, not `/\/+$/`: that regex is quadratic on a run of slashes (CodeQL js/polynomial-redos). */
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
 }

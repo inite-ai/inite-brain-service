@@ -1,6 +1,6 @@
 {
   // One-click dev environment for INITE Brain (GitHub Codespaces or any
-  // devcontainer-capable editor). Node 22 + pnpm (version pinned by
+  // devcontainer-capable editor). Node 24 + pnpm (version pinned by
   // package.json "packageManager"), dependencies installed, .env copied from
   // .env.example, SurrealDB running on localhost:8000, and Docker-in-Docker
   // so the testcontainers-based e2e suites work exactly as in CI.

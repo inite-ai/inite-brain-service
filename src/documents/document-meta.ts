@@ -248,7 +248,15 @@ export function mergeDocumentMeta(
   if (callerMeta === undefined && internal === undefined) return undefined;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(callerMeta ?? {})) {
-    if (!RESERVED.has(key)) out[key] = value;
+    if (RESERVED.has(key)) continue;
+    // defineProperty, not assignment: a `__proto__` key lands as an own
+    // data property instead of replacing the object's prototype.
+    Object.defineProperty(out, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return Object.assign(out, internal ?? {});
 }

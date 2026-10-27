@@ -1,4 +1,4 @@
-import { computeFaithfulness, meanFaithfulness } from './eval/metrics/faithfulness';
+import { computeFaithfulness, meanFaithfulness, verdictSchema } from './eval/metrics/faithfulness';
 import type { FaithfulnessScore, OpenAiLike } from './eval/metrics/faithfulness';
 
 /**
@@ -177,6 +177,19 @@ describe('computeFaithfulness', () => {
     ]);
   });
 
+  it('reads the keyed verdict shape (c1…cN) the verifier now requests', async () => {
+    const client = stubClient([
+      { content: JSON.stringify({ claims: ['No record of a complaint', 'Maria attended'] }) },
+      { content: JSON.stringify({ c1: 'supported', c2: 'not_supported' }) },
+    ]);
+    const out = await computeFaithfulness(client, {
+      answer: 'There is no record of Maria complaining; she attended.',
+      sourceFacts: [],
+    });
+    expect(out.verifierFailure).toBeUndefined();
+    expect(out.faithfulness).toBe(0.5);
+  });
+
   it('decomposer throws → returns null score', async () => {
     const client = {
       chat: {
@@ -250,5 +263,13 @@ describe('meanFaithfulness', () => {
       },
     ];
     expect(meanFaithfulness(inputs)).toBe(0.5);
+  });
+});
+
+describe('verdictSchema', () => {
+  it('requires exactly one verdict key per claim', () => {
+    const schema = verdictSchema(3) as { required: string[]; properties: Record<string, unknown> };
+    expect(schema.required).toEqual(['c1', 'c2', 'c3']);
+    expect(Object.keys(schema.properties)).toEqual(['c1', 'c2', 'c3']);
   });
 });

@@ -42,6 +42,7 @@ const UNGATED: Record<string, string> = {
   'supply-chain': 'is its own required status check, gated by name on main',
   'real-e2e': 'runs only on manual dispatch with a real OpenAI key',
   'quality-eval': 'runs only on the nightly schedule or manual dispatch',
+  'nightly-alarm': 'files the nightly-red issue after a scheduled failure; never runs on a PR',
 };
 
 /** Top-level job ids, in file order. */
