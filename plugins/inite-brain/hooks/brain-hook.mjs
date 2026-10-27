@@ -219,8 +219,13 @@ async function humanTurns(transcriptPath) {
  * are sent. Lives in tmp because it is worthless after the session ends.
  */
 async function watermarkPath(sessionId) {
-  const dir = join(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), 'inite-brain-hooks');
-  await mkdir(dir, { recursive: true }).catch(() => {});
+  // In the shared tmp dir the folder is per OS user and private, so another
+  // account cannot pre-create it or plant files in it.
+  const uid = typeof process.getuid === 'function' ? `-${process.getuid()}` : '';
+  const dir = process.env.CLAUDE_PLUGIN_DATA
+    ? join(process.env.CLAUDE_PLUGIN_DATA, 'inite-brain-hooks')
+    : join(tmpdir(), `inite-brain-hooks${uid}`);
+  await mkdir(dir, { recursive: true, mode: 0o700 }).catch(() => {});
   return join(dir, `capture-${(sessionId || 'unknown').replace(/[^\w.-]/g, '_')}.txt`);
 }
 

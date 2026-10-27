@@ -88,7 +88,10 @@ const CODE_PATH_RE = /^(?:[\w.@~-]+\/)*([A-Za-z][\w.-]*)\.([A-Za-z][A-Za-z0-9]*)
  * one lowercase letter. "WebhookDispatcher" yes; "Readme" (one hump),
  * "webhookDispatcher" (camelCase), "WEBHOOK" (no lowercase) no.
  */
-const PASCAL_SYMBOL_RE = /^[A-Z][a-z0-9]*(?:[A-Z][A-Za-z0-9]*)+$/;
+// Written without a nested quantifier: `(?:[A-Z][A-Za-z0-9]*)+` matches the
+// same strings but backtracks exponentially (28 capitals took 0.5 s, every
+// two more doubled it — CodeQL js/redos).
+const PASCAL_SYMBOL_RE = /^[A-Z][a-z0-9]*[A-Z][A-Za-z0-9]*$/;
 
 /**
  * Derive the conventional defined-symbol alias for a code file path:
