@@ -44,6 +44,16 @@ export function circleTagsOf(scope: readonly string[] | undefined | null): strin
 
 const jobCircle = new AsyncLocalStorage<readonly string[]>();
 
+/**
+ * Run `fn` acting in NO circle, even inside a request or job that acts in
+ * one — the one way a write leaves its circle, and only for a share act
+ * (trust circles §3.8): a copy written beside the original, carrying where
+ * it came from and why, never a re-tag of the original.
+ */
+export function runOutsideCircle<T>(fn: () => T): T {
+  return jobCircle.run([], fn);
+}
+
 /** Run `fn` acting in the circles named by `tags` (a job's re-entry). */
 export function runInCircle<T>(tags: readonly string[], fn: () => T): T {
   const circles = tags.filter(isCircleTag);
@@ -56,8 +66,10 @@ export function runInCircle<T>(tags: readonly string[], fn: () => T): T {
  * else the request credential's. Empty = no circle (today's behaviour).
  */
 export function actingCircleTags(): readonly string[] {
+  // A job's store wins whenever one is set — including the EMPTY one
+  // runOutsideCircle sets to write a share copy out of the circle.
   const fromJob = jobCircle.getStore();
-  if (fromJob && fromJob.length > 0) return fromJob;
+  if (fromJob !== undefined) return fromJob;
   const id = getRequestContext()?.actingCircle;
   return id ? [circleTag(id)] : [];
 }

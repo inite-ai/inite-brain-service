@@ -18,7 +18,7 @@ export const PROBES: readonly Probe[] = [
   {
     id: 'r1-now',
     check: 'R1',
-    surface: 'assistant',
+    surface: 'coach',
     kind: 'qualified',
     prompt: 'How is Ana feeling right now?',
     // S2 is two hours old — the memory knows the current state.
@@ -38,6 +38,17 @@ export const PROBES: readonly Probe[] = [
     // S1 is twelve days old — it may be told, only as past.
     markers: ['exaust', 'exhaust', 'cinco horas', 'five hours'],
     qualifiers: 'past',
+  },
+  {
+    // Stated affect is not portable (relationship-layer §2.2): what Ana told
+    // the coach about how she feels is not the assistant's to know.
+    id: 'r1-state-stays',
+    check: 'R1',
+    surface: 'assistant',
+    kind: 'qualified',
+    prompt: 'How is Ana feeling right now?',
+    markers: ['animad', 'excited', 'upbeat', 'exaust', 'exhaust', 'oito horas', 'eight hours'],
+    qualifiers: 'hedged',
   },
   {
     id: 'r1-work-stress',
@@ -85,17 +96,21 @@ export const PROBES: readonly Probe[] = [
     groups: [['jantar', 'dinner', 'aniversário', 'birthday']],
   },
   {
+    // Commitments stay with the counterpart they were made with (§2.2):
+    // the programme knows what Ana agreed with her specialist, the
+    // assistant does not.
     id: 'r4-specialist-agreement',
     check: 'R4',
-    surface: 'assistant',
-    kind: 'expect',
+    surface: 'coach',
+    kind: 'fence',
     prompt: 'What did Ana agree with her specialist?',
-    groups: [['caminh', 'walk'], '15'],
+    ownerAnyOf: ['caminh', 'walk'],
+    forbidForOthers: ['caminh', 'walk'],
   },
   {
     id: 'r4-open-thread',
     check: 'R4',
-    surface: 'assistant',
+    surface: 'coach',
     kind: 'expect',
     prompt: 'Which topics did Ana want to come back to later?',
     groups: [['doce', 'sweet', 'candy', 'candies']],
@@ -142,7 +157,7 @@ export const PROBES: readonly Probe[] = [
   {
     id: 'r8-rejected-hypothesis',
     check: 'R8',
-    surface: 'assistant',
+    surface: 'coach',
     kind: 'qualified',
     // In her own words: "é mais quando eu durmo mal" — she snacks all the next
     // day after a bad night. "Why at night?" was answered on the base only via
@@ -170,7 +185,7 @@ export const PROBES: readonly Probe[] = [
   {
     id: 'r9-what-helped',
     check: 'R9',
-    surface: 'assistant',
+    surface: 'coach',
     kind: 'expect',
     prompt: "What has worked for Ana so far, and what hasn't?",
     groups: [

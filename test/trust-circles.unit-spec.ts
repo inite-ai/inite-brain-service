@@ -8,6 +8,7 @@ import {
   circleTag,
   circleTagsOf,
   runInCircle,
+  runOutsideCircle,
   withSourceCircles,
 } from '../src/auth/circle-scope';
 import { heldTagsFor, rememberScopeTags } from '../src/auth/scope-principal';
@@ -49,6 +50,15 @@ describe('trust circles — writes', () => {
     expect(inCircle(undefined, () => scopeForUser('ana'))).toEqual(['user:ana']);
     expect(inCircle('coach', () => scopeForUser('ana'))).toEqual(['user:ana', 'circle:coach']);
     expect(inCircle('coach', () => scopeForUser(undefined))).toEqual(['circle:coach']);
+  });
+
+  it('a share copy is written out of the circle — the only way a write leaves it', () => {
+    expect(inCircle('coach', () => runOutsideCircle(() => scopeForUser('ana')))).toEqual([
+      'user:ana',
+    ]);
+    expect(runInCircle(['circle:coach'], () => runOutsideCircle(() => actingCircleTags()))).toEqual(
+      [],
+    );
   });
 
   it('a derived row inherits every circle of its sources', () => {
