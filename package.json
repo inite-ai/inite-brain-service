@@ -97,7 +97,7 @@
     "chrono-node": "^2.10.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
-    "compromise": "~14.17.0",
+    "compromise": "^14.19.0",
     "helmet": "^8.3.0",
     "jose": "^6.2.13",
     "js-tiktoken": "^1.0.21",

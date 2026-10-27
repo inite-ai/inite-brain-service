@@ -11,10 +11,6 @@ updates:
       backend-minor:
         update-types: ["minor", "patch"]
     ignore:
-      # compromise 14.19 stops seeing the verb in an intention ("thinking of
-      # selling it"), which the transition detector reads (state-transitions).
-      - dependency-name: compromise
-        versions: [">=14.18.0"]
       # The runtime is Node 22 (Dockerfile, CI): types must describe it.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
