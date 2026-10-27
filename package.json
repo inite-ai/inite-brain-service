@@ -107,7 +107,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sharp": "^0.35.5",
-    "surrealdb": "2.0.8",
+    "surrealdb": "^2.1.1",
     "tesseract.js": "7.0.0",
     "yaml": "2.9.1",
     "zod": "^4.6.6"
