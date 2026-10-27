@@ -74,7 +74,7 @@ export function renderMriMarkdown(report: MriReport, pareto?: ParetoReport): str
   for (const [name, d] of Object.entries(report.dimensions)) {
     const detail = d.reason ? `${d.source} — ${d.reason}` : d.source;
     lines.push(
-      `| ${name} | ${d.kind} | ${fmtValue(d)} | ${d.evalGated ? 'yes' : 'no'} | ${detail.replace(/\|/g, '\\|')} |`,
+      `| ${name} | ${d.kind} | ${fmtValue(d)} | ${d.evalGated ? 'yes' : 'no'} | ${detail.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')} |`,
     );
   }
   lines.push('');

@@ -9,11 +9,11 @@
 export function htmlToText(html: string): { title: string | undefined; body: string } {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
   let s = html
-    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
-    .replace(/<title[\s\S]*?<\/title>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head\s*>/gi, ' ')
+    .replace(/<title[\s\S]*?<\/title\s*>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script[^>]*>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style[^>]*>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript[^>]*>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<\/(p|div|li|h[1-6]|tr|br|section|article|header|footer|blockquote|pre)\s*>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -29,16 +29,17 @@ export function htmlToText(html: string): { title: string | undefined; body: str
   };
 }
 
+/** `&amp;` is decoded last: decoding it first turns `&amp;lt;` into `<`. */
 export function decodeHtmlEntities(s: string): string {
   return s
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n: string) => safeCodePoint(Number(n), `&#${n};`))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => safeCodePoint(parseInt(h, 16), `&#x${h};`));
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => safeCodePoint(parseInt(h, 16), `&#x${h};`))
+    .replace(/&amp;/g, '&');
 }
 
 function safeCodePoint(cp: number, whole: string): string {

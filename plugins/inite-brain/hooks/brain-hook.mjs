@@ -19,7 +19,7 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 
 /** Hard ceilings — the mention DTO caps at 16 000 chars server-side. */
@@ -216,11 +216,16 @@ async function humanTurns(transcriptPath) {
 /**
  * PreCompact and SessionEnd both fire for the same session, so capture
  * keeps a per-session watermark: only turns after the last captured one
- * are sent. Lives in tmp because it is worthless after the session ends.
+ * are sent. Lives in a cache dir because it is worthless after the session ends.
  */
 async function watermarkPath(sessionId) {
-  const dir = join(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), 'inite-brain-hooks');
-  await mkdir(dir, { recursive: true }).catch(() => {});
+  // Never the shared OS tmp dir (another account could pre-create the
+  // folder or plant files): the plugin's data dir, else the user's cache.
+  const dir = join(
+    process.env.CLAUDE_PLUGIN_DATA || join(homedir(), '.cache'),
+    'inite-brain-hooks',
+  );
+  await mkdir(dir, { recursive: true, mode: 0o700 }).catch(() => {});
   return join(dir, `capture-${(sessionId || 'unknown').replace(/[^\w.-]/g, '_')}.txt`);
 }
 
