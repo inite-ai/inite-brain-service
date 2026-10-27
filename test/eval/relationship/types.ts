@@ -100,6 +100,17 @@ export interface OverdueProbe extends ProbeBase {
   markers: readonly string[];
 }
 
+/**
+ * The hypothesis lifecycle read through relationship_context: a guess put
+ * to the person sits in the bucket its outcome puts it in.
+ */
+export interface HypothesisProbe extends ProbeBase {
+  kind: 'hypothesis';
+  tool: 'relationship_context';
+  bucket: 'open' | 'confirmed' | 'rejected';
+  markers: readonly string[];
+}
+
 export type Probe =
   ExpectProbe | FenceProbe | QualifiedProbe | AbsenceProbe | RequiresProbe | OverdueProbe;
 

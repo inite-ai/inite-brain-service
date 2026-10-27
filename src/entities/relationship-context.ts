@@ -70,6 +70,15 @@ export interface RelationshipContext {
   state: RelationshipState;
   whatHelped: RelationshipItem[];
   whatDidNotHelp: RelationshipItem[];
+  /**
+   * Guesses put to the person (never facts about them): still open, or
+   * closed by their own answer — a rejected one is not to be put again.
+   */
+  hypotheses: {
+    open: RelationshipItem[];
+    confirmed: RelationshipItem[];
+    rejected: RelationshipItem[];
+  };
 }
 
 const iso = (v: string | Date): string => new Date(v).toISOString();
@@ -124,6 +133,11 @@ export function shapeRelationshipContext(p: {
     state: stateOf(of('stated_affect')[0], now),
     whatHelped: of('helped').map(item),
     whatDidNotHelp: of('did_not_help').map(item),
+    hypotheses: {
+      open: of('hypothesis').map(item),
+      confirmed: of('hypothesis_confirmed').map(item),
+      rejected: of('hypothesis_rejected').map(item),
+    },
   };
 }
 

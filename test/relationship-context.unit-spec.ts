@@ -142,3 +142,38 @@ describe('relationship context', () => {
     expect(ctx.state).toMatchObject({ known: true, factId: 'new' });
   });
 });
+
+describe('relationship context — hypotheses', () => {
+  it('keeps a guess put to the person apart from what they said, by its outcome', () => {
+    const ctx = shapeRelationshipContext({
+      userId: 'ana',
+      now,
+      rows: [
+        {
+          id: 'h:1',
+          predicate: 'relationship__hypothesis',
+          object: 'coach: anxious about work',
+          validFrom: hoursAgo(5),
+        },
+        {
+          id: 'h:2',
+          predicate: 'relationship__hypothesis_rejected',
+          object: 'coach: long meetings',
+          validFrom: hoursAgo(50),
+        },
+        {
+          id: 'h:3',
+          predicate: 'relationship__hypothesis_confirmed',
+          object: 'coach: sleep',
+          validFrom: hoursAgo(60),
+        },
+      ],
+    });
+    expect(ctx.hypotheses).toEqual({
+      open: [{ factId: 'h:1', text: 'coach: anxious about work', since: hoursAgo(5) }],
+      confirmed: [{ factId: 'h:3', text: 'coach: sleep', since: hoursAgo(60) }],
+      rejected: [{ factId: 'h:2', text: 'coach: long meetings', since: hoursAgo(50) }],
+    });
+    expect(ctx.state).toEqual({ known: false });
+  });
+});

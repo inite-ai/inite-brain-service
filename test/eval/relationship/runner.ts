@@ -42,9 +42,11 @@ import {
   firstUnqualified,
   isAbstention,
   missingKeyPhrases,
+  bucketMiss,
   overdueMiss,
   qualifiersFor,
   type ContextCommitment,
+  type ContextItem,
 } from './scorers';
 import type { Check, CorpusTurn, Probe, ProbeResult, Scorecard, Surface, Tally } from './types';
 
@@ -327,6 +329,18 @@ async function askOne(ctx: AskContext, p: Probe): Promise<Verdict> {
       return miss === null
         ? { status: 'pass', detail: 'flagged overdue', answer: JSON.stringify(out.commitments) }
         : { status: 'fail', detail: miss, answer: JSON.stringify(out.commitments ?? []) };
+    }
+    case 'hypothesis': {
+      if (!ctx.tools.has(p.tool))
+        return { status: 'skipped', detail: `${p.tool} not listed on this stand` };
+      const out = await callTool<{
+        hypotheses?: Partial<Record<'open' | 'confirmed' | 'rejected', ContextItem[]>>;
+      }>(ctx.surfaces[p.surface], p.tool, { userId: ctx.cfg.userId });
+      const miss = bucketMiss(out.hypotheses ?? {}, p.bucket, p.markers);
+      const answer = JSON.stringify(out.hypotheses ?? {});
+      return miss === null
+        ? { status: 'pass', detail: `${p.bucket}, as put`, answer }
+        : { status: 'fail', detail: miss, answer };
     }
     case 'requires':
       return ctx.tools.has(p.tool)

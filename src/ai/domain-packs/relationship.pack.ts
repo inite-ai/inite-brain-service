@@ -20,7 +20,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const RELATIONSHIP_PACK: DomainPackManifest = {
   id: 'relationship',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
     'Relationship memory — commitments and who they were made to, open threads, what helped and what did not, tone preferences and self-reported state with its shelf life; read back by relationship_context.',
   predicates: [
@@ -103,6 +103,49 @@ VALUE  the state as said ("exhausted, sleeping about five hours a night"); give 
       piiClass: 'sensitive',
       status: 'active',
     },
+    // The hypothesis lifecycle (relationship layer §1.1): a guess about the
+    // person is never a fact about them (the core R5 rule) — it is a record
+    // that it was PUT to them, and only their answer closes it.
+    {
+      localId: 'hypothesis',
+      displayLabel: 'open hypothesis',
+      description: `TYPE   subject is the person; value is a guess about them that someone PUT TO THEM and they have not answered
+ADMIT  a counterpart asks or suggests something about the person, to the person — "could it be that you
+       snack more after long meetings?", "I think you're anxious about work, right?" — and the person
+       does not confirm or reject it in this conversation
+VALUE  the guess and who made it ("coach: anxious about work"). Never a fact about the person`,
+      datatype: 'string',
+      semantics: 'append_only',
+      decayHalfLifeDays: 30,
+      piiClass: 'sensitive',
+      status: 'active',
+    },
+    {
+      localId: 'hypothesis_confirmed',
+      displayLabel: 'confirmed hypothesis',
+      description: `TYPE   subject is the person; value is a guess put to them that THEY confirmed
+ADMIT  the person agrees with a guess put to them — "yes, that's exactly it"
+VALUE  the guess as confirmed ("coach: snacks more after long meetings"); what the person said in their own
+       words is extracted as its own fact as well`,
+      datatype: 'string',
+      semantics: 'append_only',
+      decayHalfLifeDays: null,
+      piiClass: 'sensitive',
+      status: 'active',
+    },
+    {
+      localId: 'hypothesis_rejected',
+      displayLabel: 'rejected hypothesis',
+      description: `TYPE   subject is the person; value is a guess put to them that THEY rejected
+ADMIT  the person says a guess put to them is wrong — "no, I don't think that's it"
+VALUE  the rejected guess ("coach: snacks more after long meetings") — so nobody puts it to them again;
+       never stated as true about them`,
+      datatype: 'string',
+      semantics: 'append_only',
+      decayHalfLifeDays: null,
+      piiClass: 'sensitive',
+      status: 'active',
+    },
   ],
   extractionProfile: {
     guidance: `Apply this profile to conversations between a person and someone who helps
@@ -115,8 +158,12 @@ person says worked or did not → relationship__helped / relationship__did_not_h
 how they want to be spoken to → relationship__tone_preference; what they say about
 their OWN state → relationship__stated_affect with expectedEnd. A rule about how to
 treat the person ("never talk to me about weight") stays the core instruction
-predicate on the person. Another speaker's guess about the person is never any of
-these.`,
+predicate on the person. Another speaker's guess about the person is never a fact
+about them: when it is PUT TO the person, record it — answered in the conversation,
+as relationship__hypothesis_confirmed or relationship__hypothesis_rejected; left
+unanswered (a shrug, a change of subject), as relationship__hypothesis. When the
+answer comes in a later conversation and the open hypothesis is a KNOWN FACT, the
+outcome lists it in supersedes.`,
     fewShot: [
       // From another domain than any eval corpus — a tutor — so no battery
       // teaches itself to the extractor.
@@ -131,6 +178,14 @@ these.`,
       {
         text: "[Marco] I'm wiped out until the exams are over.",
         note: "entity 'Marco' → relationship__stated_affect='wiped out', expectedEnd = end of the exams.",
+      },
+      {
+        text: "[tutor] Maybe the grammar drills bore you? [Marco] No, it's the hour — I'm tired by nine.",
+        note: "entity 'Marco' → relationship__hypothesis_rejected='tutor: the grammar drills bore him'; and Marco's own words as their own fact (tired by nine in the evening).",
+      },
+      {
+        text: "[tutor] I think you're nervous about the oral exam? [Marco] Whatever. Can we do vocabulary?",
+        note: "entity 'Marco' → relationship__hypothesis='tutor: nervous about the oral exam' — unanswered, so open; nothing about Marco being nervous.",
       },
     ],
   },
@@ -153,6 +208,12 @@ these.`,
       description: 'how the person wants to be spoken to',
       text: '[Marco] Please keep your feedback short and blunt.',
       expect: { facts: [{ predicate: 'tone_preference', objectIncludes: 'short' }] },
+    },
+    {
+      id: 'hypothesis-rejected',
+      description: 'a guess the person rejects is recorded as rejected, never as true',
+      text: "[tutor] Maybe the grammar drills bore you?\n[Marco] No, that's not it at all.",
+      expect: { facts: [{ predicate: 'hypothesis_rejected', objectIncludes: 'grammar' }] },
     },
   ],
 };

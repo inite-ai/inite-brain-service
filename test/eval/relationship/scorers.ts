@@ -172,3 +172,26 @@ export function overdueMiss(
     ? 'no commitments at all'
     : `no commitment names it: ${commitments.map((c) => c.text).join('; ')}`;
 }
+
+/** A hypothesis item as relationship_context returns it. */
+export interface ContextItem {
+  text: string;
+}
+
+/**
+ * A guess sits in the bucket its outcome puts it in — and in no other.
+ * Returns null on a pass, else where it was instead.
+ */
+export function bucketMiss(
+  hypotheses: Partial<Record<'open' | 'confirmed' | 'rejected', readonly ContextItem[]>>,
+  bucket: 'open' | 'confirmed' | 'rejected',
+  markers: readonly string[],
+): string | null {
+  const where = (['open', 'confirmed', 'rejected'] as const).filter((b) =>
+    (hypotheses[b] ?? []).some((h) => containsAnyOf(h.text, markers)),
+  );
+  if (where.length === 1 && where[0] === bucket) return null;
+  return where.length === 0
+    ? 'not recorded as a hypothesis at all'
+    : `found in: ${where.join(', ')}`;
+}

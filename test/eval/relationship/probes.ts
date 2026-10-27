@@ -137,6 +137,30 @@ export const PROBES: readonly Probe[] = [
     qualifiers: 'hedged',
   },
 
+  // ── the hypothesis lifecycle, read through relationship_context ───
+  {
+    id: 'r8-rejected-recorded',
+    check: 'R8',
+    surface: 'coach',
+    kind: 'hypothesis',
+    tool: 'relationship_context',
+    // C2: "reunião longa?" — "Não, acho que não é isso."
+    prompt: 'relationship_context: the long-meetings guess is recorded as rejected',
+    bucket: 'rejected',
+    markers: ['reuni', 'meeting'],
+  },
+  {
+    id: 'r5-guess-open',
+    check: 'R5',
+    surface: 'coach',
+    kind: 'hypothesis',
+    tool: 'relationship_context',
+    // C4: "ansiosa com o trabalho, né?" — "Sei lá. Mudando de assunto…"
+    prompt: 'relationship_context: the anxiety guess is still open, not a fact',
+    bucket: 'open',
+    markers: ['ansios', 'anxious', 'anxiety', 'ansiedade'],
+  },
+
   // ── R6 / R7 — need the relationship surface and voice ─────────────
   {
     id: 'r6-revocation',

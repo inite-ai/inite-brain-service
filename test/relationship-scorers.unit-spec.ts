@@ -9,6 +9,7 @@ import {
   firstUnqualified,
   qualifiersFor,
   sentenceAround,
+  bucketMiss,
   overdueMiss,
 } from './eval/relationship/scorers';
 
@@ -124,5 +125,24 @@ describe('overdueMiss — R4 through relationship_context', () => {
     expect(overdueMiss([{ text: 'walk', overdue: true }], markers)).toBe(
       'no commitment names it: walk',
     );
+  });
+});
+
+describe('bucketMiss — the hypothesis lifecycle', () => {
+  const markers = ['reuni', 'meeting'];
+  it('passes when the guess sits only in its bucket', () => {
+    expect(
+      bucketMiss({ rejected: [{ text: 'coach: long meetings' }] }, 'rejected', markers),
+    ).toBeNull();
+  });
+  it('fails when it is missing, or open as well as closed', () => {
+    expect(bucketMiss({}, 'rejected', markers)).toBe('not recorded as a hypothesis at all');
+    expect(
+      bucketMiss(
+        { open: [{ text: 'reunião longa' }], rejected: [{ text: 'long meetings' }] },
+        'rejected',
+        markers,
+      ),
+    ).toBe('found in: open, rejected');
   });
 });
