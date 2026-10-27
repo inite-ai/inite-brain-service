@@ -54,16 +54,18 @@
     "postcss": "^8.5.31",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5"
   },
   "pnpm": {
     "overrides": {
       "postcss@8": "^8.5.23",
-      "js-yaml@3": "^3.15.1",
-      "js-yaml@4": "^4.3.1",
+      "js-yaml@3": "^3.15.2",
+      "js-yaml@4": "^4.3.2",
       "@babel/core": "^7.29.6",
       "sharp": "^0.35.0",
-      "brace-expansion@1": "^1.1.16"
+      "brace-expansion@1": "^1.1.21",
+      "source-map-js@<1.2.2": "^1.2.2"
     }
   }
 }

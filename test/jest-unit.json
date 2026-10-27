@@ -36,10 +36,10 @@
   ],
   "coverageThreshold": {
     "global": {
-      "statements": 52,
-      "branches": 40,
-      "functions": 45,
-      "lines": 52
+      "statements": 67,
+      "branches": 55,
+      "functions": 62,
+      "lines": 68
     }
   },
   "setupFiles": ["<rootDir>/src/db/record-id-format.ts"]
