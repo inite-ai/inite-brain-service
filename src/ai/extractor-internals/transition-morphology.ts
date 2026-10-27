@@ -115,6 +115,7 @@ interface CjOffset {
   length: number;
 }
 interface CjTerm {
+  text?: string;
   tags?: string[];
   offset?: CjOffset;
 }
@@ -198,8 +199,12 @@ export function findTransitionCandidates(text: string): TransitionCandidate[] {
     const clauseEnd = clauseRow.offset.start + clauseRow.offset.length;
     const clauseTerms = clauseRow.terms ?? [];
     const clauseHypothetical = HYPOTHETICAL_GOVERNOR.test(clauseText);
+    const covered: Array<[number, number]> = [];
     clauseView.verbs().forEach((verbView) => {
       const verbRow = verbView.json({ offset: true })[0];
+      if (verbRow?.offset) {
+        covered.push([verbRow.offset.start, verbRow.offset.start + verbRow.offset.length]);
+      }
       const grammar = verbRow?.verb?.grammar ?? {};
       if (grammar.copula) return; // "was" in "was thinking of quitting"
       const surface = verbView.text();
@@ -239,7 +244,48 @@ export function findTransitionCandidates(text: string): TransitionCandidate[] {
         span: [clauseStart, clauseEnd],
       });
     });
+    out.push(...bareGerunds({ clauseText, clauseTerms, covered, span: [clauseStart, clauseEnd] }));
   });
+  return out;
+}
+
+/**
+ * Gerunds no verb group took in: compromise 14.19 stopped reporting the
+ * governed gerund ("selling" in "thinking about selling my drone") as a
+ * verb group of its own while still tagging it a gerund. Each is a
+ * non-finite mention — present, hypothetical — exactly as the verb-group
+ * pass labeled it before.
+ */
+function bareGerunds(p: {
+  clauseText: string;
+  clauseTerms: CjTerm[];
+  covered: ReadonlyArray<[number, number]>;
+  span: [number, number];
+}): TransitionCandidate[] {
+  const out: TransitionCandidate[] = [];
+  for (const term of p.clauseTerms) {
+    const start = term.offset?.start;
+    if (start === undefined || !(term.tags ?? []).includes('Gerund')) continue;
+    if (p.covered.some(([s, e]) => start >= s && start < e)) continue;
+    const word = (term.text ?? '').replace(/[^\p{L}'-]/gu, '');
+    if (!word) continue;
+    const view = nlp(word) as unknown as CView & { tag(tag: string): void };
+    view.tag('Gerund');
+    const lemma = (view.verbs().conjugate()[0]?.['Infinitive'] ?? word).toLowerCase();
+    const end = start + (term.offset?.length ?? word.length);
+    out.push({
+      clause: p.clauseText,
+      verbLemma: lemma,
+      tense: 'Present',
+      negated: false,
+      hypothetical: true,
+      hasComplement: p.clauseTerms.some(
+        (t) =>
+          (t.offset?.start ?? -1) >= end && (t.tags ?? []).some((tag) => COMPLEMENT_TAGS.has(tag)),
+      ),
+      span: p.span,
+    });
+  }
   return out;
 }
 

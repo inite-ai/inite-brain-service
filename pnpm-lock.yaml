@@ -104,8 +104,8 @@ importers:
         specifier: ^0.15.1
         version: 0.15.1
       compromise:
-        specifier: ~14.17.0
-        version: 14.17.0
+        specifier: ^14.19.0
+        version: 14.19.0
       helmet:
         specifier: ^8.3.0
         version: 8.3.0
@@ -2834,9 +2834,9 @@ packages:
     resolution: {integrity: sha512-6FqVXeETqWPoGcfzrXb37E50NP0LXT8kAMu5ooZayhWWdgEY4lBEEcbQNXtkuKQsGduxiIcI4gOTsxTmuq/bSg==}
     engines: {node: '>= 14'}
 
-  compromise@14.17.0:
-    resolution: {integrity: sha512-zw9iEcts/8tMDASNopMQEs3Pclkx2Xk7XCltAb/oV1LEZcCQpDaalAtFmvuxYo+wnVDsW3H3oT16mw9qVHpkqA==}
-    engines: {node: '>=12.0.0'}
+  compromise@14.19.0:
+    resolution: {integrity: sha512-nA/ClpXt0PaS2Ne389wClhxFBBxV0el3nv6V7XFpoRRQBr8eCnV3Iv4ZY6C5H06UHq1k7bqth73nVc/hv/rrCg==}
+    engines: {node: '>=18'}
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
@@ -3027,8 +3027,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  efrt@2.7.0:
-    resolution: {integrity: sha512-/RInbCy1d4P6Zdfa+TMVsf/ufZVotat5hCw3QXmWtjU+3pFEOvOQ7ibo3aIxyCJw2leIeAMjmPj+1SLJiCpdrQ==}
+  efrt@2.9.0:
+    resolution: {integrity: sha512-ZMAvlcu4AfmtJ4K/0hs0uofVUZPSeLG/w4yOyZawQLl9YEy8iDKIxIIPsUAlS907clC7bgD17e73vi5unwNE/g==}
     engines: {node: '>=12.0.0'}
 
   electron-to-chromium@1.5.438:
@@ -3515,10 +3515,6 @@ packages:
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
-
-  grad-school@0.0.5:
-    resolution: {integrity: sha512-rXunEHF9M9EkMydTBux7+IryYXEZinRk6g8OBOGDBzo/qWJjhTxy86i5q7lQYpCLHN8Sqv1XX3OIOc7ka2gtvQ==}
-    engines: {node: '>=8.0.0'}
 
   guid-typescript@1.0.9:
     resolution: {integrity: sha512-Y8T4vYhEfwJOTbouREvG+3XDsjr8E3kIr7uf+JZ0BYloFsttiHU0WfvANVsR7TxNUJa/WpCnw/Ino/p+DeBhBQ==}
@@ -4941,8 +4937,9 @@ packages:
     resolution: {integrity: sha512-MD8mENgyXMr2mDaDfzP3RWYDSyYQxIIou7HhCiCJiBekrsoDtUG0id3vYnjDfY9ndOEbazFXe13Qw6u/1AB8ew==}
     engines: {node: '>=18'}
 
-  suffix-thumb@5.0.3:
-    resolution: {integrity: sha512-d77avV91FwJkDA0juRQ19XjE1lE1cNCVIWS0ZRicXqdMN28yjO5LltzEkZBNAWS7qHpn37c1fU4PkIJ/rjJQEA==}
+  suffix-thumb@6.0.0:
+    resolution: {integrity: sha512-HsCTMLaupbob5ZG//ZW6PSj446tHT5kSJ1qXS5F/qO2Nt13uAn6ZLPhJQ/H6bN/jVQCb+pcqe2psEwy4Mp5+Vw==}
+    engines: {node: '>=18'}
 
   superagent@10.3.0:
     resolution: {integrity: sha512-B+4Ik7ROgVKrQsXTV0Jwp2u+PXYLSlqtDAhYnkkD+zn3yg8s/zjA2MeGayPoY/KICrbitwneDHrjSotxKL+0XQ==}
@@ -8498,11 +8495,10 @@ snapshots:
       normalize-path: 3.0.0
       readable-stream: 4.7.0
 
-  compromise@14.17.0:
+  compromise@14.19.0:
     dependencies:
-      efrt: 2.7.0
-      grad-school: 0.0.5
-      suffix-thumb: 5.0.3
+      efrt: 2.9.0
+      suffix-thumb: 6.0.0
 
   concat-map@0.0.1: {}
 
@@ -8674,7 +8670,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  efrt@2.7.0: {}
+  efrt@2.9.0: {}
 
   electron-to-chromium@1.5.438: {}
 
@@ -9307,8 +9303,6 @@ snapshots:
   gopd@1.2.0: {}
 
   graceful-fs@4.2.11: {}
-
-  grad-school@0.0.5: {}
 
   guid-typescript@1.0.9: {}
 
@@ -10982,7 +10976,7 @@ snapshots:
     dependencies:
       '@tokenizer/token': 0.3.0
 
-  suffix-thumb@5.0.3: {}
+  suffix-thumb@6.0.0: {}
 
   superagent@10.3.0:
     dependencies:
