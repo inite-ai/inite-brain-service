@@ -1,3 +1,4 @@
+import { actingCircleTags } from '../auth/circle-scope';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { BrainScope } from '../auth/api-key.types';
@@ -159,7 +160,13 @@ export class BeliefsService {
         { rid: tail },
       );
       const belief = rows[0];
-      if (!belief || !beliefVisible(belief, pinUserScope(undefined))) {
+      // Trust circles: beliefs carry no scope tags (see belief-lane) — a
+      // credential acting in a circle reads none of them.
+      if (
+        !belief ||
+        actingCircleTags().length > 0 ||
+        !beliefVisible(belief, pinUserScope(undefined))
+      ) {
         throw new NotFoundException(`Belief ${opts.beliefId} not found`);
       }
       return toWire(belief);
@@ -174,6 +181,7 @@ export class BeliefsService {
    * re-applied in JS fail-closed (out-of-contract rows never serve).
    */
   async listBeliefs(opts: BeliefListOptions): Promise<BeliefsListResult> {
+    if (actingCircleTags().length > 0) return { beliefs: [], found: 0 };
     const scopeUserId = pinUserScope(opts.userId);
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
       const clauses: string[] = [];

@@ -35,7 +35,7 @@
   <a href="#domain-packs">Domain Packs</a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="https://brain.inite.ai/en/docs">Docs</a> ·
-  <a href="AGENTS.md">Agent guide</a>
+  <a href="docs/agents-using-brain.md">Agent guide</a>
 </p>
 
 ## Quick start
@@ -410,7 +410,7 @@ export BRAIN_API_KEY="brain_..."
 gemini extensions install https://github.com/inite-ai/inite-brain-service
 ```
 
-MCP server, the six skills, and [AGENTS.md](AGENTS.md) loaded as context.
+MCP server, the six skills, and the [agent memory guide](docs/agents-using-brain.md) loaded as context.
 The key stays in your environment — the manifest references
 `${BRAIN_API_KEY}` and Gemini expands it at connect time.
 
@@ -488,7 +488,7 @@ MCP sampling when the client supports it. See the
 | Remember engineering rationale | `record_decision`, `why`, `recall_decisions` |
 | Find out what you just connected to | `workspace_status` |
 
-Read [AGENTS.md](AGENTS.md) for memory semantics and the
+Read the [agent memory guide](docs/agents-using-brain.md) for memory semantics and the
 [skills guide](skills/README.md) for reusable agent workflows.
 Synthesis keeps fact references in `citations` and other evidence references
 (episodes, fragments, scenes and beliefs) in `evidenceCitations`; preserve both
@@ -627,7 +627,7 @@ Next.js, React and Tailwind CSS.
 
 | Task | Read |
 | --- | --- |
-| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](AGENTS.md) |
+| Integrate | [Getting started](docs/getting-started.md), [API](docs/api.md), [MCP agent guide](docs/agents-using-brain.md) |
 | Understand memory | [Architecture](docs/architecture.md), [Data model](docs/data-model.md), [Bitemporal semantics](docs/bitemporal-semantics.md), [Retrieval profiles](docs/architecture-manifest.md) |
 | Inspect provenance and access | [Fact provenance](docs/fact-provenance-api.md), [User profiles](docs/user-profile-api.md), [Source trust](docs/source-reputation.md), [ABAC](docs/abac.md) |
 | Extend | [Domain Packs](docs/domain-packs.md), [Document pipeline](docs/document-pipeline.md), [MCP pack tools](docs/mcp-pack-tools.md) |
@@ -635,6 +635,28 @@ Next.js, React and Tailwind CSS.
 | Evaluate | [Protocol](docs/eval-protocol.md), [Methodology](docs/eval-methodology.md), [Harness](docs/eval.md) |
 
 ## Contributing
+
+### Contribute with an AI agent
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/inite-ai/inite-brain-service)
+
+You don't need to be an engineer. Open the repo (Codespaces above gives a
+ready environment with SurrealDB running), start your coding agent and
+describe the idea in plain words:
+
+- **Claude Code:** `/contribute` — it restates the idea, writes a short spec,
+  builds it with tests, runs the gates and opens a PR. `/spec-idea` only files
+  the idea as an issue.
+- **Any other agent** (Cursor, Codex, Copilot, Gemini CLI, Windsurf…): "Read
+  AGENTS.md and help me add …".
+
+[AGENTS.md](AGENTS.md) is the source of truth for agents: commands, zones
+(what is safe to change and what needs a maintainer first) and the idea → PR
+loop. Prefer to just propose? Use the
+[Product idea](https://github.com/inite-ai/inite-brain-service/issues/new?template=product-idea.yml)
+form.
+
+### The workflow
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community guidelines.

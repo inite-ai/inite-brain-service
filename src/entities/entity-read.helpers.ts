@@ -58,7 +58,7 @@ export function blockedPredicates(scopes: BrainScope[]): string[] {
  * valid across the event-time window — byte-for-byte the closure search's
  * where-builder applies. `recordedAt` is deliberately NOT bounded here:
  * the documented per-surface contract (docs/bitemporal-semantics.md,
- * AGENTS.md) promises the profile the same `asOf` closure as search, and
+ * docs/agents-using-brain.md) promises the profile the same `asOf` closure as search, and
  * bounding knowledge time made a BACKDATED fact appear in search and
  * vanish from the profile for the very same `asOf` (round-2 review F11).
  * Knowledge time keeps its own parameter — `recordedAt` below.

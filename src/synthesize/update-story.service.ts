@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
@@ -60,10 +61,16 @@ export class UpdateStoryService {
   }): Promise<Map<string, string>> {
     if (opts.factIds.length === 0) return new Map();
     const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-    const userGate = opts.userId
-      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-      : 'AND userId IS NONE';
-    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
+    // Trust circles: the scope-tag fence beside the userId gate (a circle's rows
+    // only for the circle; inert without one unless SCOPE_TAGS_ENABLED).
+    const scopeFence = scopeFenceSql(opts.userId, 'storyScopeTag');
+    const userGate = `${
+      opts.userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE'
+    } ${scopeFence.clause}`;
+    const userParams = {
+      ...(opts.userId ? { scopeUserId: opts.userId } : {}),
+      ...scopeFence.params,
+    };
     try {
       // Predicate scope-fence + ABAC row verdict (audit 2026-08-13 P0):
       // a superseded ancestor may carry a DIFFERENT predicate than the

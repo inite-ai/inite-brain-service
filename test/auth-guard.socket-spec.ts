@@ -52,6 +52,12 @@ const stubPolicyGate = {
   gate: async () => undefined,
 } as unknown as import('../src/policy/policy-gate.service').PolicyGateService;
 
+// Membership stub: no tuples, so the scope-tag expansion is the user's
+// own tag (and the guard only asks for it under SCOPE_TAGS_ENABLED).
+const stubMembership = {
+  tagsFor: async () => [],
+} as unknown as import('../src/auth/membership.service').MembershipService;
+
 describe('ApiKeyGuard — JWKS verification', () => {
   let jwksServer: http.Server;
   let jwksUrl: string;
@@ -135,7 +141,7 @@ describe('ApiKeyGuard — JWKS verification', () => {
       jwks,
       config as unknown as ConfigService,
     );
-    guard = new ApiKeyGuard(credentials, new Reflector(), stubPolicyGate);
+    guard = new ApiKeyGuard(credentials, new Reflector(), stubPolicyGate, stubMembership);
   });
 
   afterAll(async () => {
@@ -402,7 +408,7 @@ describe('ApiKeyGuard — production with JWKS rejects static keys', () => {
       jwks,
       config as unknown as ConfigService,
     );
-    guard = new ApiKeyGuard(credentials, new Reflector(), stubPolicyGate);
+    guard = new ApiKeyGuard(credentials, new Reflector(), stubPolicyGate, stubMembership);
   });
 
   afterAll(async () => {

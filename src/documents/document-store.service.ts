@@ -1,4 +1,4 @@
-import type { TriageStamp } from './triage';
+import { TRIAGE_VERSION, type TriageStamp } from './triage';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -22,6 +22,8 @@ import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { scopeForUser } from '../auth/scope-tags';
+import { actingCircleTags, circleTagsOf } from '../auth/circle-scope';
+import { MembershipService } from '../auth/membership.service';
 import { chunkDocument, DocumentChunk } from './chunker';
 import {
   mergeDocumentMeta,
@@ -53,12 +55,20 @@ export interface StoredDocument {
    */
   userId?: string | undefined;
   /**
+   * Trust circle tags from the row's scope (auth/circle-scope.ts): the
+   * circle the document was said in. A job that commits it re-enters
+   * that circle, so derived rows stay in it.
+   */
+  circles?: string[] | undefined;
+  /**
    * Operator-supplied document metadata (IngestDocumentDto.meta).
    * Projected onto derived facts' `source.meta` by the commit writer
    * (sanitized) so ABAC source rules can match it — the Zep-style
    * episode-metadata projection.
    */
   meta?: Record<string, unknown>;
+  /** The D1 triage stamp (0167) — what the first cheap read thought of it; absent = not triaged. */
+  triage?: TriageStamp | undefined;
 }
 
 export interface CreateDocumentResult {
@@ -83,6 +93,7 @@ export class DocumentStoreService {
   constructor(
     private readonly surreal: SurrealService,
     @Optional() private readonly metrics?: MetricsService,
+    @Optional() private readonly membership?: MembershipService,
   ) {}
 
   /**
@@ -152,8 +163,17 @@ export class DocumentStoreService {
     // this caller's memory under THAT row's scope). Same-user re-posts
     // still dedupe; two users asserting the same text stay independent
     // origins for corroboration (0050) — scope-local facts anyway.
+    // Trust circles: the same words said in two circles are two documents —
+    // a dedupe across circles would commit one circle's turn under the
+    // other's scope. No circle = the hash exactly as before.
+    const circles = actingCircleTags();
+    if (dto.userId !== undefined) await this.joinCircles(companyId, dto.userId, circles);
     const contentHash =
-      dto.userId === undefined ? sha256Hex(text) : userScopedContentHash(dto.userId, text);
+      circles.length > 0
+        ? sha256Hex(`circle\x1f${circles.join(',')}\x1f${dto.userId ?? ''}\x1f${text}`)
+        : dto.userId === undefined
+          ? sha256Hex(text)
+          : userScopedContentHash(dto.userId, text);
     // G9 write-anomaly signal (one increment per document body stored).
     this.metrics?.countIngestWrite('document');
     const chunks = chunkDocument(text, {
@@ -382,6 +402,26 @@ export class DocumentStoreService {
     );
     return row ? mapDoc(row) : null;
   }
+
+  /**
+   * The person a circle-scoped write is for becomes a member of the
+   * circle, so reading their own memory shows it (trust circles §3.3).
+   * A failure only leaves the person unable to see the row yet — never
+   * someone else able to.
+   */
+  private async joinCircles(
+    companyId: string,
+    userId: string,
+    circles: readonly string[],
+  ): Promise<void> {
+    for (const circle of circles) {
+      try {
+        await this.membership?.joinCircle(companyId, userId, circle);
+      } catch (err) {
+        this.logger.warn(`circle membership for ${circle} failed: ${(err as Error).message}`);
+      }
+    }
+  }
 }
 
 export function sha256Hex(text: string): string {
@@ -424,10 +464,19 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     occurredAt: new Date(row.occurredAt as string | Date),
     status: String(row.status),
     ...(row.userId ? { userId: String(row.userId) } : {}),
+    ...(Array.isArray(row.scope) && circleTagsOf(row.scope as string[]).length > 0
+      ? { circles: circleTagsOf(row.scope as string[]) }
+      : {}),
     ...(row.meta && typeof row.meta === 'object'
       ? { meta: row.meta as Record<string, unknown> }
       : {}),
+    ...(isCurrentTriage(row.triage) ? { triage: row.triage } : {}),
   };
+}
+
+/** A stamp of the current triage version (an older one asked other questions). */
+function isCurrentTriage(v: unknown): v is TriageStamp {
+  return typeof v === 'object' && v !== null && (v as { v?: unknown }).v === TRIAGE_VERSION;
 }
 
 function envInt(key: string, fallback: number): number {

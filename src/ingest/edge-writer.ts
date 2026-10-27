@@ -1,3 +1,5 @@
+import { actingCircleTags } from '../auth/circle-scope';
+import { scopeForUser } from '../auth/scope-tags';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { isUniqueViolation, queryFirst } from '../db/surreal.service';
 
@@ -159,10 +161,15 @@ export async function createEdgeBetween(db: Surreal, p: EdgeWrite): Promise<stri
   const fromRid = new StringRecordId(p.fromEntityId);
   const toRid = new StringRecordId(p.toEntityId);
   const time = edgeTimeContent(p);
+  // Trust circles: an edge stated inside a circle carries its tag. Outside
+  // one the row is written exactly as before (scope left to its default).
+  // Identity stays (in, out, kind, scopeKey): the same relation stated in a
+  // second circle lands on the first one's row — narrower, never wider.
+  const circleScope = actingCircleTags().length > 0 ? scopeForUser(p.userId) : undefined;
   try {
     const edge = await queryFirst<EdgeIdRow>(
       db,
-      `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source, userId: $userId${time.fields} } RETURN AFTER`,
+      `RELATE $from->knowledge_edge->$to CONTENT { kind: $kind, weight: $weight, source: $source, userId: $userId${circleScope ? ', scope: $scope' : ''}${time.fields} } RETURN AFTER`,
       {
         from: fromRid,
         to: toRid,
@@ -170,6 +177,7 @@ export async function createEdgeBetween(db: Surreal, p: EdgeWrite): Promise<stri
         weight: p.weight ?? 1.0,
         source: p.source,
         userId: p.userId,
+        ...(circleScope ? { scope: circleScope } : {}),
         ...time.params,
       },
     );

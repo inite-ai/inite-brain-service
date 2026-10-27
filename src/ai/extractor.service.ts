@@ -84,6 +84,8 @@ export class ExtractorService {
     text: string;
     companyId: string;
     context?: ConversationContext | undefined;
+    /** Self-consistency samples for this read (its depth); default the configured count. */
+    passes?: number | undefined;
   }): Promise<ExtractionResult> {
     return this.read({ ...p, background: true });
   }
@@ -93,8 +95,10 @@ export class ExtractorService {
     companyId: string;
     context?: ConversationContext | undefined;
     background?: boolean | undefined;
+    passes?: number | undefined;
   }): Promise<ExtractionResult> {
     const { text, companyId, context } = p;
+    const scPasses = p.passes ?? this.runner.scPasses;
     // Defence in depth — DTOs already cap at 16K, but MCP and the
     // admin-demo inline body shapes don't pass through class-validator.
     const { value: trimmed, truncated } = clampLlmInputText(text, 'mentionText');
@@ -111,7 +115,7 @@ export class ExtractorService {
       text: trimmed,
       companyId,
       predicateVocabHash: snapshot.versionHash,
-      scPasses: this.runner.scPasses,
+      scPasses,
       // Speaker context changes the extraction (coreference resolution), so
       // it must partition the cache — otherwise the same utterance spoken by
       // two people would collide on one memoised result.
@@ -149,7 +153,7 @@ export class ExtractorService {
       companyId,
       snapshot,
       context,
-      ...(p.background ? { overrides: { tier: offlineServiceTier() } } : {}),
+      ...(p.background ? { overrides: { tier: offlineServiceTier(), scPasses } } : {}),
     });
     if (!result && p.background) {
       throw new Error('extraction produced no usable response (transient LLM failure)');

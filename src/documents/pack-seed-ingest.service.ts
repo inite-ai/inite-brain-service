@@ -170,7 +170,6 @@ export class PackSeedIngestService implements OnModuleInit {
       },
       // Stored content keeps seeds reindexable when the NEXT pack lands.
       storeContent: true,
-      mode: 'sync',
       // With DOCUMENT_MULTI_INDEXER_ENABLED off the routed selection is
       // empty and seeds ride the union generalist pass; on, the pack's
       // own indexer reads its seeds as a dedicated run.

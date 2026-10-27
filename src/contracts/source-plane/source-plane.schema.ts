@@ -132,6 +132,10 @@ export const SourceItemSchema = z.object({
   lastSeenAt: z.string(),
   goneAt: z.string().nullable(),
   lastError: z.string().nullable(),
+  /** Progressive indexing (W6): how often a query matched this row's title or path. */
+  hitCount: z.number().int(),
+  /** Set = the row was fetched on demand after a hit, rather than by a walk. */
+  deepenedAt: z.string().nullable(),
 });
 export type SourceItem = z.infer<typeof SourceItemSchema>;
 
@@ -160,6 +164,16 @@ export const SourceSyncSummarySchema = z.object({
   failed: z.number().int(),
   closed: z.number().int(),
   durationMs: z.number().int(),
+  /** The ACL mirror (W5), when the connection has one and it ran. */
+  principals: z
+    .object({
+      groups: z.number().int(),
+      accounts: z.number().int(),
+      linked: z.number().int(),
+      changed: z.boolean(),
+      epoch: z.number().int(),
+    })
+    .optional(),
   error: z.string().optional(),
 });
 export type SourceSyncSummary = z.infer<typeof SourceSyncSummarySchema>;
@@ -169,6 +183,12 @@ export const SyncNowRequestSchema = z.object({
   full: z.boolean().optional(),
   /** Run inline and return the summary (default: enqueue a job). */
   inline: z.boolean().optional(),
+  /**
+   * Read THESE catalogue rows and nothing else (W6) — no walk, no
+   * checkpoint, no gone policy. The operator's own deepening of a
+   * `manifest` connection, the same thing a retrieval hit schedules.
+   */
+  itemIds: z.array(z.string().min(1).max(200)).max(50).optional(),
 });
 export type SyncNowRequest = z.infer<typeof SyncNowRequestSchema>;
 
@@ -341,6 +361,8 @@ export const SourceConnectorStateSchema = z.object({
   state: z.enum(['ready', 'disabled']),
   /** The env switch that turns it on. */
   flag: z.string(),
+  /** The connector can be ASKED rather than walked (W7): it has a `search()`. */
+  linked: z.boolean().optional(),
 });
 export type SourceConnectorState = z.infer<typeof SourceConnectorStateSchema>;
 
@@ -357,6 +379,10 @@ export const SourceCatalogResponseSchema = z.object({
   egressAllowPrivate: z.boolean(),
   /** SOURCE_WEBHOOKS is on: connections of a vendor with a lane can be given an address (W4.2c). */
   webhooks: z.boolean(),
+  /** SOURCE_PRINCIPALS is on: an org connection mirrors its source's ACL (W5). */
+  principals: z.boolean(),
+  /** SOURCE_LINKED is on: a connection may be asked at query time instead of walked (W7). */
+  linked: z.boolean(),
 });
 export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
 
@@ -855,6 +881,7 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'atlassian',
   'slack',
   'github',
+  'gitlab',
 ]);
 export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 

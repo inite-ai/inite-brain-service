@@ -10,6 +10,14 @@ updates:
     groups:
       backend-minor:
         update-types: ["minor", "patch"]
+    ignore:
+      # The runtime is Node 24 (Dockerfile, CI): types must describe it.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # The Nest 12 line needs @nestjs/core 12 — a framework migration of its
+      # own, not a dependency bump.
+      - dependency-name: "@nestjs/*"
+        update-types: ["version-update:semver-major"]
 
   # Marketing landing + docs + admin UI
   - package-ecosystem: npm

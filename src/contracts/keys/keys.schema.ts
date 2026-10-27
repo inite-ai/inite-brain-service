@@ -30,6 +30,15 @@ export const IssueKeyRequestSchema = z.object({
    * userId when the caller is user-bound.
    */
   userId: z.string().min(1).max(200).optional(),
+  /**
+   * Bind the key to a trust circle: what it writes stays in the circle,
+   * and it reads only that circle's memory (and tenant-global rows).
+   * A caller already bound to a circle can only mint keys for the same one.
+   */
+  circle: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]{1,120}$/)
+    .optional(),
 });
 
 export const ApiKeySummarySchema = z.object({
@@ -39,6 +48,7 @@ export const ApiKeySummarySchema = z.object({
   prefix: z.string(),
   scopes: z.array(z.string()),
   userId: z.string().optional(),
+  circle: z.string().optional(),
   createdAt: z.string().optional(),
   createdBy: z.string().optional(),
   expiresAt: z.string().optional(),

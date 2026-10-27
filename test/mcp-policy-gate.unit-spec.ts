@@ -28,6 +28,7 @@ const stubPolicyGate = {
 // Reader stub — individual tests override the resolved bindings.
 let packBindings: unknown[] = [];
 const stubPackToolsReader = {
+  isActive: async () => false,
   installedPackTools: async () => packBindings,
 };
 

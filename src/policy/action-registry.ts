@@ -37,6 +37,8 @@ export const ACTIONS: Record<string, ActionSpec> = {
     title: 'Entity name autocomplete',
   },
   get_competing_facts: { kind: 'read', family: 'mcp_read', title: 'Competing facts' },
+  // Listed only for a tenant with the relationship pack (relationship-tools.ts).
+  relationship_context: { kind: 'read', family: 'mcp_read', title: 'Relationship context' },
   // Fact read + provenance API (trust surface). Tool-shaped names, not
   // rest.* — a future get_fact MCP tool reuses the same action, the
   // convention REST search / entity reads already follow.

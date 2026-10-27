@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
@@ -88,10 +89,16 @@ export class QueryArcService {
     const topic = extractArcTopic(opts.query);
     const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
     // Fail-closed user scope — same contract as the fact legs (0055).
-    const userGate = opts.userId
-      ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-      : 'AND userId IS NONE';
-    const userParams = opts.userId ? { scopeUserId: opts.userId } : {};
+    // Trust circles: the scope-tag fence beside the userId gate (a circle's rows
+    // only for the circle; inert without one unless SCOPE_TAGS_ENABLED).
+    const scopeFence = scopeFenceSql(opts.userId, 'arcScopeTag');
+    const userGate = `${
+      opts.userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE'
+    } ${scopeFence.clause}`;
+    const userParams = {
+      ...(opts.userId ? { scopeUserId: opts.userId } : {}),
+      ...scopeFence.params,
+    };
     const k = QueryArcService.SCAN_FETCH_CAP;
     try {
       const derivedVersion =

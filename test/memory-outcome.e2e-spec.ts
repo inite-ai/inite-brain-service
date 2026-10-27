@@ -9,9 +9,9 @@
  *       fact_usage.readCount still increments (compat pin);
  *   (d) GDPR entity-forget + user-forget cascade BOTH tables;
  *   (e) master off ⇒ zero rows (byte-identical);
- *   (f) verified-use SERVING (read side): with RETRIEVAL_VERIFIED_USE_RANKING
- *       + SEARCH_VERIFIED_USE_BETA the enriched fact's score breakdown
- *       carries the verifiedUse factor; flags off ⇒ no fragment;
+ *   (f) verified-use SERVING (read side): with RETRIEVAL_VERIFIED_USE_DECAY
+ *       + _RANKING an old fact's verified use is a trace in its activation
+ *       — it is as available as a fresh one; flags off ⇒ it has faded;
  *   (h/i) OUTCOME_TX_WRITES against the REAL pinned server (this IS the
  *       SurrealQL semantics verification for the tx branch — INSERT
  *       IGNORE on deterministic ids, SELECT-from-array-param, FOR loop
@@ -278,52 +278,54 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     expect(await statFor(userFact.factId)).toBeNull();
   });
 
-  it('(f) verified-use serving: the ranking flag surfaces the verifiedUse breakdown factor; flags off ⇒ no fragment', async () => {
+  it('(f) verified-use serving: an old fact verifiably used is available again; flags off ⇒ it has faded', async () => {
     interface WireFact {
       factId: string;
-      breakdown?: { verifiedUse?: { count: number; factor: number } };
+      breakdown?: { decay?: number };
     }
     const factsFor = (body: { results: Array<{ facts: WireFact[] }> }): WireFact[] =>
       body.results.flatMap((r) => r.facts);
 
-    // Seed: one fact + a confirmed vote → memory_outcome_stat row with
-    // confirmedCount 1 ⇒ verifiedUseScore 1 on the read side.
-    const { factId } = await ingestFact('outcome_serving', 'name', 'Verified Serving Subject');
+    // Seed: one fact written 200 days ago + a confirmed vote →
+    // memory_outcome_stat row (confirmedCount 1, lastVerifiedUseAt now).
+    // A predicate the registry does not know fades on the default half-life.
+    const { factId } = await ingestFact(
+      'outcome_serving',
+      'outcome_serving_note',
+      'Verified Serving Subject',
+    );
+    await f.app
+      .get(SurrealService)
+      .withCompany(f.companyId, (db) =>
+        db.query(`UPDATE type::record($id) SET recordedAt = time::now() - 200d`, { id: factId }),
+      );
     await vote(factId, 'helpful');
     await waitFor(
       () => statFor(factId),
       (s) => (s?.confirmedCount ?? 0) >= 1,
     );
-
-    // Flags off (default): the fragment must be absent — byte-identical.
-    const before = await f.http
-      .post('/v1/search')
-      .set(auth())
-      .send({ query: 'Verified Serving Subject', limit: 5 });
-    expect(before.status).toBe(201);
-    const beforeFact = factsFor(before.body).find((x) => x.factId === factId);
-    expect(beforeFact).toBeDefined();
-    expect(beforeFact!.breakdown?.verifiedUse).toBeUndefined();
-
-    process.env.RETRIEVAL_VERIFIED_USE_RANKING = '1';
-    process.env.SEARCH_VERIFIED_USE_BETA = '0.3';
-    try {
-      const after = await f.http
+    const decayOf = async (): Promise<number | undefined> => {
+      const res = await f.http
         .post('/v1/search')
         .set(auth())
         .send({ query: 'Verified Serving Subject', limit: 5 });
-      expect(after.status).toBe(201);
-      const served = factsFor(after.body).find((x) => x.factId === factId);
-      expect(served).toBeDefined();
-      // The "because" fragment: attached score + the saturating factor
-      // (1 + 0.3·log1p(1)/log1p(10) ≈ 1.0867 at the default saturation).
-      expect(served!.breakdown?.verifiedUse).toBeDefined();
-      expect(served!.breakdown!.verifiedUse!.count).toBeGreaterThanOrEqual(1);
-      expect(served!.breakdown!.verifiedUse!.factor).toBeGreaterThan(1);
-      expect(served!.breakdown!.verifiedUse!.factor).toBeLessThanOrEqual(1.3);
+      expect(res.status).toBe(201);
+      return factsFor(res.body).find((x) => x.factId === factId)?.breakdown?.decay;
+    };
+
+    // Flags off: the use is not attached — the fact has faded.
+    const before = await decayOf();
+    expect(before).toBeLessThan(1);
+
+    process.env.RETRIEVAL_VERIFIED_USE_DECAY = '1';
+    process.env.RETRIEVAL_VERIFIED_USE_RANKING = '1';
+    try {
+      const after = await decayOf();
+      // The verified use just now is a fresh trace: fully available.
+      expect(after).toBe(1);
     } finally {
+      delete process.env.RETRIEVAL_VERIFIED_USE_DECAY;
       delete process.env.RETRIEVAL_VERIFIED_USE_RANKING;
-      delete process.env.SEARCH_VERIFIED_USE_BETA;
     }
   });
 

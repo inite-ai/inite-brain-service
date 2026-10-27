@@ -17,6 +17,25 @@ export interface UserEntity {
 }
 
 /**
+ * The user's own entity, read in the caller's session. A plain function as
+ * well as the service method, so a writer can read it without depending on
+ * this service (the commit writer's default share, trust circles §3.8).
+ */
+export async function lookupUserEntity(db: Surreal, userId: string): Promise<UserEntity | null> {
+  const row = await queryFirst<{ id: unknown; canonicalName: string; mergedInto: unknown }>(
+    db,
+    `SELECT entity.id AS id, entity.canonicalName AS canonicalName, entity.mergedInto AS mergedInto
+       FROM entity_external_ref WHERE key = $key LIMIT 1`,
+    { key: userEntityKey(userId) },
+  );
+  if (!row?.id) return null;
+  // A merged identity is read through to its survivor, like `known`.
+  const id = String(row.mergedInto ?? row.id);
+  const name = String(row.canonicalName ?? userId);
+  return { id, name, named: name !== userId };
+}
+
+/**
  * The one reader of "who is this user in the memory" (user-entity.ts):
  * the ingest paths ask it to put the user among a turn's participants,
  * the extractor's memory context pins the user's entity as known, and
@@ -35,17 +54,7 @@ export class UserEntityService {
 
   /** The user's own entity, or null when no turn of theirs has minted it yet. */
   async lookup(db: Surreal, userId: string): Promise<UserEntity | null> {
-    const row = await queryFirst<{ id: unknown; canonicalName: string; mergedInto: unknown }>(
-      db,
-      `SELECT entity.id AS id, entity.canonicalName AS canonicalName, entity.mergedInto AS mergedInto
-         FROM entity_external_ref WHERE key = $key LIMIT 1`,
-      { key: userEntityKey(userId) },
-    );
-    if (!row?.id) return null;
-    // A merged identity is read through to its survivor, like `known`.
-    const id = String(row.mergedInto ?? row.id);
-    const name = String(row.canonicalName ?? userId);
-    return { id, name, named: name !== userId };
+    return lookupUserEntity(db, userId);
   }
 
   /** `lookup` in its own session; null on any failure — identity is an enrichment. */

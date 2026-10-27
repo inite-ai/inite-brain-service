@@ -80,3 +80,39 @@ export function tokenWords(
   if (g.refreshable) return a.refreshable
   return g.accessExpiresAt ? fill(a.notRefreshable, { at: stamp(g.accessExpiresAt) }) : a.noExpiry
 }
+
+/**
+ * The word and the hint for one shape of a kind. A conversation says so
+ * where the kind has both shapes (a forge: issues, and the docs of the
+ * tree); a kind whose only text is a conversation (a mailbox, a
+ * channel) keeps its own `document` word, which already reads
+ * "Messages".
+ */
+export function shapeWords(
+  s: {
+    document: string
+    documentHint: string
+    conversation: string
+    conversationHint: string
+    binary: string
+    binaryHint: string
+  },
+  shape: 'document' | 'conversation' | 'binary',
+): { title: string; hint: string } {
+  if (shape === 'binary') return { title: s.binary, hint: s.binaryHint }
+  if (shape === 'conversation' && s.conversation.length > 0) {
+    return { title: s.conversation, hint: s.conversationHint }
+  }
+  return { title: s.document, hint: s.documentHint }
+}
+
+/** The noun a shape goes by in a label or a table row ("documents", "conversations", "files"). */
+export function shapeNoun(
+  words: { document: string; binary: string; structure: string; conversation: string },
+  shape: string,
+): string {
+  if (shape === 'binary') return words.binary
+  if (shape === 'structure') return words.structure
+  if (shape === 'conversation') return words.conversation
+  return words.document
+}

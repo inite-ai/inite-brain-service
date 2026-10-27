@@ -34,6 +34,8 @@ export interface EpisodeTurnRow {
   occurredAt: Date | string;
   piiClass?: string[];
   userId?: string;
+  /** The turn's scope tags — derivers fold its trust circle into what they build. */
+  scope?: string[];
 }
 
 export interface EpisodeQuoteRow {
@@ -141,7 +143,7 @@ export class EpisodeReadStoreService {
    */
   async conversationTurnsRaw(db: EpisodeDb, conversationId: string): Promise<EpisodeTurnRow[]> {
     const [rows] = await db.query<[EpisodeTurnRow[]]>(
-      `SELECT id, speaker, text, occurredAt, piiClass, userId FROM episode
+      `SELECT id, speaker, text, occurredAt, piiClass, userId, scope FROM episode
         WHERE conversationId = $conv ORDER BY occurredAt ASC LIMIT ${CONVERSATION_TURNS_CAP}`,
       { conv: conversationId },
     );
@@ -313,11 +315,16 @@ export class EpisodeReadStoreService {
     db?: EpisodeDb | undefined;
   }): Promise<EpisodeQuoteRow[]> {
     return this.run(opts.companyId, opts.db, async (db) => {
+      // The asker's own waiting documents and the tenant's, newest first:
+      // a backlog of other scopes (a source import) must not crowd out
+      // what this user just said.
       const [runs] = await db.query<[Array<{ docId: unknown; ep?: unknown }>]>(
-        `SELECT docId, docId.meta.episodeId AS ep FROM indexer_run
+        `SELECT docId, docId.meta.episodeId AS ep, createdAt FROM indexer_run
           WHERE packId = $pack AND status IN ['pending', 'running'] AND external != true
+            AND ${opts.userId ? '(docId.userId IS NONE OR docId.userId = $scopeUserId)' : 'docId.userId IS NONE'}
+          ORDER BY createdAt DESC
           LIMIT ${PENDING_DOCS_CAP}`,
-        { pack: GENERAL_INDEXER_ID },
+        { pack: GENERAL_INDEXER_ID, ...this.userParams(opts.userId) },
       );
       if (!runs || runs.length === 0) return [];
       const ids = runs

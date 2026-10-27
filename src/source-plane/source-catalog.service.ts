@@ -8,7 +8,9 @@ import {
 import {
   sourceEgressAllowPrivate,
   sourceFsRoots,
+  sourceLinkedEnabled,
   sourceMcpOAuthEnabled,
+  sourcePrincipalsEnabled,
   sourceWebhooksEnabled,
 } from '../common/source-plane-flags';
 import { SurrealService, queryRows } from '../db/surreal.service';
@@ -85,6 +87,8 @@ export class SourceCatalogService {
       fsRoots: sourceFsRoots(),
       egressAllowPrivate: sourceEgressAllowPrivate(),
       webhooks: sourceWebhooksEnabled(),
+      principals: sourcePrincipalsEnabled(),
+      linked: sourceLinkedEnabled(),
     };
   }
 
@@ -222,5 +226,6 @@ function describeConnector(c: Connector): SourceConnectorState {
     kind: c.kind,
     state: c.enabled === undefined || c.enabled() ? 'ready' : 'disabled',
     flag: `SOURCE_KIND_${c.kind.toUpperCase()}`,
+    ...(typeof c.search === 'function' ? { linked: true } : {}),
   };
 }

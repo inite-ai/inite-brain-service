@@ -1,12 +1,12 @@
 /**
- * Verified-use successor signals in scoring (memory_outcome_stat, 0107 —
- * Brain v2 review gap #7) + tenant-aware decay resolution.
+ * Verified use in scoring (memory_outcome_stat, 0107) as the fact's
+ * activation (search/internals/activation.ts) + tenant-aware decay
+ * resolution.
  *
- * THE regression this wave exists for: under the legacy usage signals,
- * retrieval alone extends a memory's life (lastReadAt restarts the decay
- * clock on every surfacing). Under verifiedUseDecay the anchor moves
- * ONLY on a verified use — a fact that keeps being retrieved but never
- * verified decays exactly like its never-read twin.
+ * Retrieval alone never extends a memory's life: a fact that keeps being
+ * retrieved but never verifiably used fades exactly like its never-read
+ * twin; each verified use is a trace of its own, so recency and frequency
+ * both keep a fact available.
  *
  * Deterministic harness cloned from usage-decay.unit-spec.ts: the probe
  * predicate is absent from CORE_PREDICATES so legacy policyFor falls
@@ -36,116 +36,68 @@ function row(over: Partial<FusedRow> = {}): FusedRow {
   } as FusedRow;
 }
 
-describe('scoreRows — verified-use decay anchor', () => {
+const act = (ageDays: number, halfLifeDays = 60): number =>
+  (1 + ageDays / (halfLifeDays / 3)) ** -0.5;
+
+describe('scoreRows — verified use is activation', () => {
   it('REGRESSION PIN: retrieval alone never extends life — a much-read but never-verified fact scores identically to its never-read twin', () => {
-    // verifiedUseDecay=on / legacy decay=off at the pipeline level means:
-    // lastReadAt is NOT attached (legacy enrichment off) and
-    // lastVerifiedUseAt is absent (no verified use recorded). Scoring is
-    // attachment-driven, so the 120-day-old fact decays from recordedAt
-    // exactly like the twin — 0.25 at half-life 60.
     const ranked = scoreRows({ rows: [row(), row()], now: NOW });
-    const neverRead = ranked[0]!;
-    const muchReadNeverVerified = ranked[1]!;
-    expect(muchReadNeverVerified.score).toBe(neverRead.score);
-    expect(muchReadNeverVerified.breakdown.decay).toBeCloseTo(0.25, 2);
+    expect(ranked[1]!.score).toBe(ranked[0]!.score);
+    // 120 days, half-life 60: the power-law trace of its creation alone.
+    expect(ranked[0]!.breakdown.decay).toBeCloseTo(act(120), 10);
   });
 
-  it('an attached lastVerifiedUseAt moves the decay anchor', () => {
-    const ranked = scoreRows({
+  it('an unused fact weighs one half at one half-life, with a heavier tail than the exponential', () => {
+    const [atHalfLife] = scoreRows({
+      rows: [row({ recordedAt: new Date(NOW - 60 * DAY).toISOString() })],
+      now: NOW,
+    });
+    expect(atHalfLife!.breakdown.decay).toBeCloseTo(0.5, 10);
+    const [old] = scoreRows({ rows: [row()], now: NOW });
+    expect(old!.breakdown.decay).toBeGreaterThan(Math.exp((-Math.LN2 * 120) / 60));
+  });
+
+  it('a recent verified use makes an old fact available again', () => {
+    const [stale, verified] = scoreRows({
       rows: [row(), row({ lastVerifiedUseAt: new Date(NOW - DAY).toISOString() })],
       now: NOW,
     });
-    const stale = ranked[0]!;
-    const verified = ranked[1]!;
-    expect(stale.breakdown.decay).toBeCloseTo(0.25, 2);
-    expect(verified.breakdown.decay).toBeGreaterThan(0.95);
-    expect(verified.score).toBeGreaterThan(stale.score);
+    expect(verified!.breakdown.decay).toBe(1);
+    expect(verified!.score).toBeGreaterThan(stale!.score);
   });
 
-  it('a lastVerifiedUseAt older than recordedAt never penalizes', () => {
-    const ranked = scoreRows({
+  it('frequency counts: many old uses keep a fact warmer than one', () => {
+    const lastUse = new Date(NOW - 90 * DAY).toISOString();
+    const [once, often] = scoreRows({
+      rows: [
+        row({ lastVerifiedUseAt: lastUse, verifiedUseScore: 1 }),
+        row({ lastVerifiedUseAt: lastUse, verifiedUseScore: 6 }),
+      ],
+      now: NOW,
+    });
+    expect(once!.breakdown.decay).toBeCloseTo(act(120) + act(90), 10);
+    expect(often!.breakdown.decay).toBeGreaterThan(once!.breakdown.decay);
+  });
+
+  it('never above a fresh fact, and a use older than the fact never penalizes', () => {
+    const [fresh, withOldUse] = scoreRows({
       rows: [
         row({ recordedAt: new Date(NOW).toISOString() }),
         row({
           recordedAt: new Date(NOW).toISOString(),
           lastVerifiedUseAt: new Date(NOW - 30 * DAY).toISOString(),
+          verifiedUseScore: 40,
         }),
       ],
       now: NOW,
     });
-    expect(ranked[1]!.score).toBe(ranked[0]!.score);
+    expect(fresh!.breakdown.decay).toBe(1);
+    expect(withOldUse!.score).toBe(fresh!.score);
   });
 
-  it('both anchors attached → monotone max of the two', () => {
-    const readTs = new Date(NOW - 10 * DAY).toISOString();
-    const verifiedTs = new Date(NOW - DAY).toISOString();
-    const [readOnly, verifiedOnly, both] = scoreRows({
-      rows: [
-        row({ lastReadAt: readTs }),
-        row({ lastVerifiedUseAt: verifiedTs }),
-        row({ lastReadAt: readTs, lastVerifiedUseAt: verifiedTs }),
-      ],
-      now: NOW,
-    });
-    // The joint anchor equals the fresher of the two (verified, 1d ago).
-    expect(both!.breakdown.decay).toBe(verifiedOnly!.breakdown.decay);
-    expect(both!.breakdown.decay).toBeGreaterThan(readOnly!.breakdown.decay);
-  });
-});
-
-describe('scoreRows — verified-use ranking factor', () => {
-  it('beta 0 → factor exactly 1.0 and no breakdown fragment, score present or not', () => {
-    const rows = [row(), row({ verifiedUseScore: 50 })];
-    const base = scoreRows({ rows, now: NOW });
-    const flagged = scoreRows({ rows, now: NOW, verifiedUseBeta: 0 });
-    expect(flagged.map((s) => s.score)).toEqual(base.map((s) => s.score));
-    for (const s of [...base, ...flagged]) {
-      expect(s.breakdown.verifiedUse).toBeUndefined();
-    }
-  });
-
-  it('score 0 / absent is factor exactly 1 at ANY beta (no breakdown)', () => {
-    const ranked = scoreRows({
-      rows: [row(), row({ verifiedUseScore: 0 })],
-      now: NOW,
-      verifiedUseBeta: 5,
-    });
-    const baseline = scoreRows({ rows: [row()], now: NOW })[0]!;
-    expect(ranked[0]!.score).toBe(baseline.score);
-    expect(ranked[1]!.score).toBe(baseline.score);
-    expect(ranked[0]!.breakdown.verifiedUse).toBeUndefined();
-    expect(ranked[1]!.breakdown.verifiedUse).toBeUndefined();
-  });
-
-  it('a verified fact outranks its identical never-verified twin, with the "because" fragment', () => {
-    const ranked = scoreRows({
-      rows: [row({ verifiedUseScore: 4 }), row()],
-      now: NOW,
-      verifiedUseBeta: 0.5,
-    });
-    const verified = ranked[0]!;
-    const plain = ranked[1]!;
-    expect(verified.score).toBeGreaterThan(plain.score);
-    expect(verified.breakdown.verifiedUse).toMatchObject({ count: 4 });
-    expect(verified.breakdown.verifiedUse!.factor).toBeGreaterThan(1);
-    // The factor is exactly the multiplier applied to finalScore.
-    expect(verified.breakdown.finalScore).toBeCloseTo(
-      plain.breakdown.finalScore * verified.breakdown.verifiedUse!.factor,
-      10,
-    );
-  });
-
-  it('saturation caps the boost: factor never exceeds 1 + beta', () => {
-    const beta = 0.5;
-    const ranked = scoreRows({
-      rows: [row({ verifiedUseScore: 10 }), row({ verifiedUseScore: 100_000 })],
-      now: NOW,
-      verifiedUseBeta: beta,
-      verifiedUseSaturation: 10,
-    });
-    expect(ranked[0]!.breakdown.verifiedUse!.factor).toBeCloseTo(1 + beta, 5);
-    expect(ranked[1]!.breakdown.verifiedUse!.factor).toBeCloseTo(1 + beta, 10);
-    expect(ranked[1]!.breakdown.verifiedUse!.factor).toBeLessThanOrEqual(1 + beta);
+  it('carries no separate verified-use multiplier (frequency is in the activation)', () => {
+    const [scored] = scoreRows({ rows: [row({ verifiedUseScore: 50 })], now: NOW });
+    expect('verifiedUse' in scored!.breakdown).toBe(false);
   });
 });
 
@@ -156,15 +108,15 @@ describe('scoreRows — tenant-aware decay resolution (policyResolver)', () => {
       now: NOW,
       policyResolver: () => ({ decayHalfLifeDays: 30 }),
     })[0]!;
-    // 120 days at half-life 30 → 0.0625.
-    expect(scored.breakdown.decay).toBeCloseTo(Math.exp((-Math.LN2 * 120) / 30), 10);
+    expect(scored.breakdown.decay).toBeCloseTo(act(120, 30), 10);
+    expect(scored.breakdown.decay).toBeLessThan(act(120, 60));
   });
 
   it('resolver null → legacy code-seed path (60d default), byte-identical', () => {
     const legacy = scoreRows({ rows: [row()], now: NOW })[0]!;
     const explicit = scoreRows({ rows: [row()], now: NOW, policyResolver: null })[0]!;
     expect(explicit.score).toBe(legacy.score);
-    expect(explicit.breakdown.decay).toBeCloseTo(Math.exp((-Math.LN2 * 120) / 60), 10);
+    expect(explicit.breakdown.decay).toBeCloseTo(act(120), 10);
   });
 
   it('a registry miss falls back to the 60d default inside the resolver = legacy-identical', () => {

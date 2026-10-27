@@ -61,7 +61,7 @@ function service(): McpService {
     none,
     none,
     { enforceAction: () => undefined, enforceToolAction: () => undefined } as never,
-    { installedPackTools: async () => [packBinding] } as never,
+    { isActive: async () => false, installedPackTools: async () => [packBinding] } as never,
     {} as never, // packToolProxy — present, so external tools register
     undefined,
     undefined,

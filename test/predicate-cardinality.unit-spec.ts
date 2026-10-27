@@ -169,4 +169,25 @@ describe('PredicateRegistryService.canonicalize — who decides a proposed predi
     expect(judge.classify).not.toHaveBeenCalled();
     expect(svc.policyFor('co', 'runs_on').semantics).toBe('single_active');
   });
+
+  it('concurrent coinages of one predicate register it once — one classification, one row', async () => {
+    const { svc, judge, inserted } = make('single_active');
+    const [a, b, c] = await Promise.all([
+      svc.canonicalize('co', 'queue_owner', { text: 'queue_owner: Ana' }),
+      svc.canonicalize('co', 'queue_owner', { text: 'queue_owner: Ana' }),
+      svc.canonicalize('co', 'queue_owner', { text: 'queue_owner: Rui' }),
+    ]);
+    expect(inserted).toHaveLength(1);
+    expect(judge.classify).toHaveBeenCalledTimes(1);
+    expect(a!.kind).toBe('proposed');
+    expect([b, c]).toEqual([
+      { kind: 'matched', canonicalId: 'queue_owner' },
+      { kind: 'matched', canonicalId: 'queue_owner' },
+    ]);
+    // Settled: the next coinage is a plain match, not a wait.
+    expect(await svc.canonicalize('co', 'queue_owner', { text: 'x' })).toEqual({
+      kind: 'matched',
+      canonicalId: 'queue_owner',
+    });
+  });
 });

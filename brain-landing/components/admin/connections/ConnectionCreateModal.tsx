@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Laptop, Loader2, Plug, Server } from 'lucide-react';
 import { Field, Modal, inputCls } from '../policies/ui';
 import {
@@ -13,7 +13,7 @@ import {
   type SourceDeletePolicy,
   type SourceSchedule,
 } from '../../../lib/contracts/admin-source-connections';
-import { PROXY, errorMessage, fill, type ConnectionsT } from './shared';
+import { errorMessage, fill, PROXY, shapeNoun, shapeWords, type ConnectionsT } from './shared';
 import { AccountPicker } from './create/AccountPicker';
 import { ConnectorFields } from './create/ConnectorFields';
 import { DbEntitiesFields } from './create/DbEntitiesFields';
@@ -70,10 +70,11 @@ export function ConnectionCreateModal({
 }) {
   const f = t.form;
   const choices = useMemo(() => shapeChoices(card), [card]);
-  const [shape, setShape] = useState<ShapeChoice | null>(choices.length > 0 ? 'document' : null);
+  const [shape, setShape] = useState<ShapeChoice | null>(choices[0] ?? null);
   // The entry the form is built on: same connector for every shape, so the
   // fields are the same; policies are read per entry at submit.
-  const entry = useMemo(() => entriesFor(card, shape)[0] ?? card.entries[0]!, [card, shape]);
+  const targetEntries = useMemo(() => entriesFor(card, shape), [card, shape]);
+  const entry = useMemo(() => targetEntries[0] ?? card.entries[0]!, [targetEntries, card]);
   const form = useMemo(() => formFor(entry), [entry]);
   const canChoose = entry.hosts.length > 1;
   const [step, setStep] = useState<Step>('where');
@@ -93,6 +94,14 @@ export function ConnectionCreateModal({
     entry.defaults.contentPolicy === 'manifest' ? 'manifest' : 'content',
   );
   const [deletePolicy, setDeletePolicy] = useState<SourceDeletePolicy>(entry.defaults.deletePolicy);
+  // W7: a source that keeps its own index can be ASKED instead of
+  // walked. Offered only when the deployment allows it AND the
+  // connector actually has a `search()` — a linked connection of a
+  // connector that cannot answer is a connection that never answers.
+  const linkable =
+    catalog.linked === true &&
+    catalog.connectors.some((c) => c.kind === entry.connector && c.linked === true);
+  const [mode, setMode] = useState<'synced' | 'linked'>('synced');
   const [fetchBudget, setFetchBudget] = useState('');
   const [ownerUserId, setOwnerUserId] = useState('');
   const [vertical, setVertical] = useState(entry.packId);
@@ -100,15 +109,32 @@ export function ConnectionCreateModal({
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
 
+  // A kind with two halves (a forge: its threads, its tree) carries a
+  // schedule and a delete policy PER half — a thread list is walked
+  // hourly, a tree every four hours. The shape is chosen after these
+  // states are seeded, so the entry's own defaults are re-adopted when
+  // it changes; an operator who then picks differently keeps their pick
+  // until the shape moves again.
+  const defaultsKey = `${entry.packId}/${entry.sourceId}`;
+  const seeded = useRef(defaultsKey);
+  useEffect(() => {
+    if (seeded.current === defaultsKey) return;
+    seeded.current = defaultsKey;
+    setSchedule(entry.defaults.schedule);
+    setTake(entry.defaults.contentPolicy === 'manifest' ? 'manifest' : 'content');
+    setDeletePolicy(entry.defaults.deletePolicy);
+  }, [defaultsKey, entry]);
+
   const ctx: FormContext = useMemo(
     () => ({
       host,
       entry,
+      shapes: targetEntries.map((e) => e.shape),
       fsRoots: catalog.fsRoots,
       egressAllowPrivate: catalog.egressAllowPrivate,
       ...(host === 'agent' && AGENT_ID.test(agentId.trim()) ? { agentId: agentId.trim() } : {}),
     }),
-    [host, entry, catalog, agentId],
+    [host, entry, targetEntries, catalog, agentId],
   );
   const errors: Record<string, FieldError> = useMemo(
     () => (form && json === null ? validate(form, values, ctx, secret) : {}),
@@ -149,7 +175,7 @@ export function ConnectionCreateModal({
     setBusy(true);
     setError(null);
     try {
-      const targets = entriesFor(card, shape);
+      const targets = targetEntries;
       const created: SourceConnection[] = [];
       for (const target of targets) {
         const body: Record<string, unknown> = {
@@ -169,7 +195,9 @@ export function ConnectionCreateModal({
                     ...(records.endpoints ? { endpoints: records.endpoints } : {}),
                   }
                 : config,
-          schedule,
+          // A linked connection is never walked: it has no schedule.
+          mode,
+          schedule: mode === 'linked' ? 'manual' : schedule,
           // "Content" means text for a document entry and bytes for a
           // binary one; "catalogue only" is manifest for both.
           contentPolicy:
@@ -180,7 +208,7 @@ export function ConnectionCreateModal({
         if (label.trim()) {
           body.label =
             targets.length > 1
-              ? `${label.trim()} · ${target.shape === 'binary' ? f.shape.binary : f.shape.document}`
+              ? `${label.trim()} · ${shapeNoun(f.shape, target.shape)}`
               : label.trim();
         }
         const credential = form ? credentialFrom(form, secret) : undefined;
@@ -206,7 +234,6 @@ export function ConnectionCreateModal({
     records,
     agentId,
     assembledConfig,
-    card,
     deletePolicy,
     f,
     fetchBudget,
@@ -216,9 +243,10 @@ export function ConnectionCreateModal({
     onCreated,
     ownerUserId,
     schedule,
+    mode,
     secret,
-    shape,
     take,
+    targetEntries,
     vertical,
   ]);
 
@@ -304,14 +332,11 @@ export function ConnectionCreateModal({
           <div className="mb-4">
             <Cards<ShapeChoice>
               title={t.kinds.whatsInside}
-              value={shape ?? 'document'}
+              value={shape ?? choices[0] ?? 'document'}
               options={choices.map((c) => ({
                 value: c,
-                title: c === 'both' ? t.kinds.both : kind.shapes[c],
-                body:
-                  c === 'both'
-                    ? t.kinds.bothHint
-                    : kind.shapes[c === 'binary' ? 'binaryHint' : 'documentHint'],
+                title: c === 'both' ? t.kinds.both : shapeWords(kind.shapes, c).title,
+                body: c === 'both' ? t.kinds.bothHint : shapeWords(kind.shapes, c).hint,
               }))}
               onChange={setShape}
               columns={3}
@@ -342,6 +367,22 @@ export function ConnectionCreateModal({
 
         {step === 'sync' && (
           <div className="space-y-4">
+            {linkable && (
+              <Cards<'synced' | 'linked'>
+                title={f.mode.title}
+                value={mode}
+                options={[
+                  { value: 'synced', title: f.mode.synced.title, body: f.mode.synced.body },
+                  { value: 'linked', title: f.mode.linked.title, body: f.mode.linked.body },
+                ]}
+                onChange={setMode}
+                columns={2}
+              />
+            )}
+            {mode === 'linked' ? (
+              <p className="text-[11px] text-[var(--text-muted)]">{f.mode.linkedHint}</p>
+            ) : (
+              <>
             <Cards<SourceSchedule>
               title={f.schedule.title}
               value={schedule}
@@ -413,6 +454,8 @@ export function ConnectionCreateModal({
                 </Field>
               </div>
             </details>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+import { actingCircleTags } from '../auth/circle-scope';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { queryRows, retryOnUniqueViolation } from '../db/surreal.service';
@@ -1161,6 +1162,9 @@ export class FactResolverService {
       if (c.entropy !== undefined) f.entropy = c.entropy;
       if (c.userId !== undefined) f.user_id = c.userId;
       if (c.derivedVersion !== undefined) f.derived_version = c.derivedVersion;
+      // 0172: resolution is circle-local — the write's own circle (trust circles §3.6).
+      const circles = actingCircleTags();
+      if (circles.length > 0) f.circles = [...circles];
       return f;
     });
     const cfg = {
@@ -1367,7 +1371,7 @@ export class FactResolverService {
             $reject_threshold, $margin_for_supersede,
             $lang, $script, $entropy, $user_id, $derived_version,
             $predicate_alias, $slot_similarity,
-            $tiebreak_window_ms, $update_cue
+            $tiebreak_window_ms, $update_cue, $circles
          )`,
           {
             eid: idTailOf(p.entityId),
@@ -1388,6 +1392,8 @@ export class FactResolverService {
             // this call (flag off / direct path / non-bitemporal).
             tiebreak_window_ms: p.tiebreakWindowMs,
             update_cue: p.updateCue,
+            // 0172: resolution is circle-local (trust circles §3.6); none = [].
+            circles: [...actingCircleTags()],
             w_confidence: this.conflict.weights.confidence,
             w_source_trust: this.conflict.weights.sourceTrust,
             w_recency: this.conflict.weights.recency,

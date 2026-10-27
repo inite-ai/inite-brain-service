@@ -1,3 +1,4 @@
+import { runInCircle } from '../auth/circle-scope';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
@@ -5,16 +6,21 @@ import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candida
 import { CandidateCommitService } from './candidate-commit.service';
 import { CandidateStoreService } from './candidate-store.service';
 import { DocumentStoreService, StoredDocument } from './document-store.service';
+import type { DocumentChunk } from './chunker';
 import { internalMetaString } from './document-meta';
-import {
-  planExtractionGroups,
-  releaseSettled,
-  renderGroup,
-  type GroupDoc,
-} from './extraction-group';
+import { planExtractionGroups, releaseSettled, type GroupDoc } from './extraction-group';
 import { MemoryContextService } from '../ingest/memory-context.service';
 import { DecisionService } from '../ai/decisions/decision.service';
-import { triageText } from './triage';
+import { triageText, type TriageStamp } from './triage';
+import {
+  PRIORITY,
+  askOf,
+  isUrgent,
+  readDepth,
+  triageFloor,
+  type ReadAsk,
+  type ReadDepth,
+} from './read-depth';
 import { ExtractionMetrics } from './extraction.metrics';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { Semaphore } from '../common/semaphore';
@@ -30,6 +36,14 @@ import { IndexerRunService, groupDocOf } from './indexer-run.service';
  * one conversation, oldest first, a size budget — extraction-group.ts),
  * one extraction call per group on the offline tier, and commits the
  * documents in the order they were said.
+ *
+ * Read on demand, not on arrival (read-depth.ts): every waiting text is
+ * first triaged (D1, one cheap decision request). A correction, a change,
+ * an instruction, a self-identification, notable text or text naming an
+ * entity in use is read at once and in full; the rest is kept raw —
+ * served from its raw turns — until something asks for it: an answer that
+ * cites it (read in full, ahead of the rest), or the nightly idle budget
+ * (one sample, most salient first).
  *
  * A failed group fails its runs; the pass then schedules a backed-off
  * retry pass (which also lists failed runs) — the document stays
@@ -89,6 +103,33 @@ export class ExtractionBatchService implements OnModuleInit {
     });
   }
 
+  /**
+   * The idle budget (§4.2 T-6): reopen the most salient of the deferred
+   * backlog — text kept raw that is not noise — up to the tenant's nightly
+   * budget, and ask for a pass. Each is read with one sample; what an
+   * answer needs meanwhile is read at once, in full, by the answer's own
+   * promotion. Returns how many reads were reopened.
+   */
+  async readDeferred(companyId: string): Promise<number> {
+    const budget = idleBudget();
+    if (budget === 0) return 0;
+    const docIds = await this.candidates.listDeferred(companyId, {
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+      floor: triageFloor(),
+      limit: budget,
+    });
+    const reopened = await this.candidates.promote(companyId, {
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+      priority: PRIORITY.idle,
+      target: { docIds },
+    });
+    this.metrics?.promoted('idle', reopened);
+    if (reopened > 0) await this.schedule(companyId, { delayMs: 1000 });
+    return reopened;
+  }
+
   private async handle(ctx: JobContext): Promise<Record<string, unknown>> {
     return this.runPass(ctx.companyId, {
       retry: Number(ctx.payload?.retry ?? 0) || 0,
@@ -109,7 +150,7 @@ export class ExtractionBatchService implements OnModuleInit {
       /** Read every waiting conversation now, quiet or not (an operator drain). */
       force?: boolean;
     } = {},
-  ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+  ): Promise<PassOutcome> {
     return this.exclusive(companyId, opts.force === true, () => this.pass(companyId, opts));
   }
 
@@ -121,11 +162,11 @@ export class ExtractionBatchService implements OnModuleInit {
    * commits. A scheduled pass that finds another replica holding the
    * tenant steps back and asks again later; a drain waits for it.
    */
-  private async exclusive<T extends { retry: number }>(
+  private async exclusive(
     companyId: string,
     wait: boolean,
-    body: () => Promise<T & { read: number; failed: number; committed: number }>,
-  ): Promise<T & { read: number; failed: number; committed: number }> {
+    body: () => Promise<PassOutcome>,
+  ): Promise<PassOutcome> {
     const previous = this.running.get(companyId) ?? Promise.resolve();
     let release!: () => void;
     const mine = new Promise<void>((r) => (release = r));
@@ -138,11 +179,7 @@ export class ExtractionBatchService implements OnModuleInit {
       while (this.lease && !(await this.lease.tryAcquire(name, LEASE_TTL_SECONDS))) {
         if (!wait || Date.now() > deadline) {
           await this.schedule(companyId, { delayMs: LEASE_TTL_SECONDS * 1000 });
-          return { read: 0, failed: 0, committed: 0, retry: 0 } as T & {
-            read: number;
-            failed: number;
-            committed: number;
-          };
+          return { read: 0, failed: 0, committed: 0, retry: 0 };
         }
         await new Promise((r) => setTimeout(r, 5000));
       }
@@ -157,7 +194,7 @@ export class ExtractionBatchService implements OnModuleInit {
   private async pass(
     companyId: string,
     opts: { retry?: number; abortSignal?: AbortSignal | undefined; force?: boolean },
-  ): Promise<{ read: number; failed: number; committed: number; retry: number }> {
+  ): Promise<PassOutcome> {
     const retry = opts.retry ?? 0;
     // A drain reads until nothing is left; a scheduled pass stops within
     // its job lease and a fresh pass continues.
@@ -184,16 +221,13 @@ export class ExtractionBatchService implements OnModuleInit {
         await this.schedule(ctx.companyId, { delayMs: 1000 });
         break;
       }
-      const waiting = (
-        await this.candidates.listAwaitingRuns(ctx.companyId, {
-          packId: GENERAL_INDEXER_ID,
-          packVersion: GENERAL_INDEXER_VERSION,
-          includeFailed: retry > 0,
-          limit: PASS_DOCS + attempted.size,
-        })
-      )
-        .filter((w) => !attempted.has(w.docId))
-        .slice(0, PASS_DOCS);
+      const waiting = await this.candidates.listAwaitingRuns(ctx.companyId, {
+        packId: GENERAL_INDEXER_ID,
+        packVersion: GENERAL_INDEXER_VERSION,
+        includeFailed: retry > 0,
+        limit: PASS_DOCS,
+        exclude: [...attempted],
+      });
       if (waiting.length === 0) break;
       for (const w of waiting) attempted.add(w.docId);
       const outcome = await this.readDocuments(ctx, waiting, opts.force === true);
@@ -229,33 +263,59 @@ export class ExtractionBatchService implements OnModuleInit {
    */
   private async readDocuments(
     ctx: PassContext,
-    waiting: Array<{ docId: string; arrivedAt: Date }>,
+    waiting: Array<{ docId: string; arrivedAt: Date; priority: number }>,
     force: boolean,
   ): Promise<{ read: number; failed: number; committed: number; nextAt?: Date }> {
+    const arrived = new Map(waiting.map((w) => [w.docId, w.arrivedAt]));
+    const priority = new Map(waiting.map((w) => [w.docId, w.priority]));
+    // The page is loaded at once (bounded), in its listed order.
+    const loader = new Semaphore(LOAD_CONCURRENCY);
+    const loaded = await Promise.all(
+      waiting.map(({ docId }) =>
+        loader.run(async () => {
+          const doc = await this.store.getById(ctx.companyId, docId);
+          if (!doc) return null;
+          return { doc, chunks: await this.store.getChunks(ctx.companyId, docId) };
+        }),
+      ),
+    );
     const docs: StoredDocument[] = [];
     const texts = new Map<string, string>();
-    const arrived = new Map(waiting.map((w) => [w.docId, w.arrivedAt]));
-    for (const { docId } of waiting) {
-      const doc = await this.store.getById(ctx.companyId, docId);
-      if (!doc) continue;
-      const chunks = await this.store.getChunks(ctx.companyId, docId);
-      docs.push(doc);
-      texts.set(docId, chunks.map((c) => c.text).join('\n'));
+    const chunksOf = new Map<string, DocumentChunk[]>();
+    for (const l of loaded) {
+      if (!l) continue;
+      docs.push(l.doc);
+      chunksOf.set(l.doc.id, l.chunks);
+      texts.set(l.doc.id, l.chunks.map((c) => c.text).join('\n'));
     }
+    // D1: what the first cheap read makes of every text not yet triaged.
+    const stamps = await this.triageWaiting(ctx.companyId, docs, texts);
+    const floor = triageFloor();
     const byId = new Map(docs.map((d) => [d.id, d]));
     const candidates = docs.map((d) => ({
       ...groupDocOf(d, texts.get(d.id) ?? ''),
       arrivedAt: arrived.get(d.id),
+      // Read now: something asked for it, or it changes what the memory
+      // holds or how it answers.
+      urgent: askedOf(d, priority) !== undefined || isUrgent([stamps.get(d.id)], floor),
       // A re-read aimed at one question reads its turn alone.
-      ...(internalMetaString(d.meta, 'focusQuestion')
-        ? { chunkCount: Number.MAX_SAFE_INTEGER }
-        : {}),
+      solo: !!internalMetaString(d.meta, 'focusQuestion'),
     }));
     const budget = groupBudget();
     const { ready, nextAt } = force
       ? { ready: candidates, nextAt: undefined }
       : releaseSettled(candidates, new Date(), { ...settleRule(), maxChars: budget.maxChars });
-    const groups = planExtractionGroups(ready, budget);
+    // Each turn's own depth: what is kept raw never joins a group, so a
+    // conversation's extraction reads only the turns worth reading.
+    const depthOf = new Map<string, ReadDepth>();
+    for (const g of ready) {
+      depthOf.set(g.id, await this.depthOfDoc(ctx.companyId, g, { byId, stamps, priority, floor }));
+    }
+    const toRead = ready.filter((g) => depthOf.get(g.id) !== 'raw');
+    const kept = ready.filter((g) => depthOf.get(g.id) === 'raw');
+    this.metrics?.depth('raw', kept.length);
+    await this.keepRaw(ctx.companyId, kept, byId);
+    const groups = planExtractionGroups(toRead, budget);
     // One memory scope reads in the order it was told, each group committed
     // before the next is read: the extractor reads a document against what
     // the memory already holds and supersedes it by handle (known facts),
@@ -263,13 +323,24 @@ export class ExtractionBatchService implements OnModuleInit {
     // cannot replace them. Scopes are independent and read concurrently.
     const byScope = new Map<string, GroupDoc[][]>();
     for (const group of groups) {
-      const key = group[0]?.userId ?? '';
+      // One memory scope = one user in one circle (trust circles §3.4).
+      const key = `${group[0]?.userId ?? ''}\x1e${group[0]?.circleKey ?? ''}`;
       byScope.set(key, [...(byScope.get(key) ?? []), group]);
     }
     const limiter = new Semaphore(passConcurrency());
     const outcomes = await Promise.all(
       [...byScope.values()].map((scoped) =>
-        limiter.run(() => this.readScope(ctx, scoped, { byId, texts })),
+        limiter.run(() =>
+          this.readScope(ctx, scoped, {
+            byId,
+            texts,
+            chunksOf,
+            depthOf,
+            stamps,
+            priority,
+            floor,
+          }),
+        ),
       ),
     );
     const sum = (k: 'read' | 'failed' | 'committed') => outcomes.reduce((n, o) => n + o[k], 0);
@@ -285,16 +356,27 @@ export class ExtractionBatchService implements OnModuleInit {
   private async readScope(
     ctx: PassContext,
     groups: GroupDoc[][],
-    page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
+    page: Page,
   ): Promise<{ read: number; failed: number; committed: number }> {
     const out = { read: 0, failed: 0, committed: 0 };
     const first = (g: GroupDoc[]) => g[0]?.occurredAt.getTime() ?? 0;
-    for (const group of [...groups].sort((a, b) => first(a) - first(b))) {
+    const urgent = (g: GroupDoc[]) => (g.some((d) => d.urgent) ? 1 : 0);
+    // What something asked for or what is urgent first, then in the order
+    // it was said (a text is read against what was said before it, so the
+    // order is not what keeps a later value from being replaced).
+    const ordered = [...groups].sort((a, b) => urgent(b) - urgent(a) || first(a) - first(b));
+    for (const group of ordered) {
       // Past the budget the rest waits for the next pass (still pending),
       // so a pass never outlives its job lease by more than one group.
       if (ctx.abortSignal?.aborted || Date.now() > ctx.deadline) break;
       await ctx.renew();
-      const r = await this.readGroup(ctx, group, page);
+      // A group is read as deep as its deepest turn.
+      const depth = group.some((g) => page.depthOf.get(g.id) === 'full') ? 'full' : 'single';
+      this.metrics?.depth(depth, group.length);
+      // Read inside the circle the group was said in: the extractor's view
+      // of memory (memory-context) is then fenced to it (trust circles §3.7).
+      const circles = (group[0]?.circleKey ?? '').split(',').filter(Boolean);
+      const r = await runInCircle(circles, () => this.readGroup(ctx, { group, depth }, page));
       if (!r.ok) {
         out.failed += r.members.length;
         continue;
@@ -305,25 +387,24 @@ export class ExtractionBatchService implements OnModuleInit {
     return out;
   }
 
-  /** One group's read (with its shadow triage beside it). Never throws. */
+  /** One group's read, at its depth. Never throws. */
   private async readGroup(
     ctx: PassContext,
-    group: GroupDoc[],
-    page: { byId: Map<string, StoredDocument>; texts: Map<string, string> },
+    { group, depth }: { group: GroupDoc[]; depth: Exclude<ReadDepth, 'raw'> },
+    page: Page,
   ): Promise<{ ok: boolean; members: StoredDocument[] }> {
     const members = group.map((g) => page.byId.get(g.id) as StoredDocument);
     const { texts } = page;
-    // D1 triage, in shadow: stamped beside the read, deciding nothing.
-    const triaged = this.triage(ctx.companyId, group);
     try {
       if (members.length === 1) {
         const doc = members[0] as StoredDocument;
-        const chunks = await this.store.getChunks(ctx.companyId, doc.id);
+        const chunks = page.chunksOf.get(doc.id) ?? [];
         await this.runs.runGeneral({
           companyId: ctx.companyId,
           doc,
           chunks,
           background: true,
+          depth,
           ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
         });
       } else {
@@ -331,6 +412,7 @@ export class ExtractionBatchService implements OnModuleInit {
           companyId: ctx.companyId,
           docs: members,
           texts,
+          depth,
           ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
         });
       }
@@ -345,8 +427,6 @@ export class ExtractionBatchService implements OnModuleInit {
         `extract_documents ${ctx.companyId}: a group of ${members.length} failed: ${(err as Error).message}`,
       );
       return { ok: false, members };
-    } finally {
-      await triaged;
     }
   }
 
@@ -392,22 +472,87 @@ export class ExtractionBatchService implements OnModuleInit {
   }
 
   /**
-   * The D1 stamp for a group (triage.ts), on every member document — the
-   * group is one text, it gets one judgement. Shadow: nothing reads it for
-   * a decision yet. Never throws; a failed or skipped triage stamps nothing.
+   * D1 for every waiting text not yet triaged (triage.ts), off the write
+   * path: a standalone document on its own, a conversation as its unread
+   * turns rendered together (a turn alone — "yes, let's" — says nothing;
+   * the judge reads what the extractor will read). A conversation that
+   * gained a turn is judged again as a whole. Returns the stamp of every
+   * document that has one; a failed or disabled triage stamps nothing
+   * (and nothing unstamped is ever left raw).
    */
-  private async triage(companyId: string, group: GroupDoc[]): Promise<void> {
-    try {
-      const text = group.length === 1 ? (group[0]?.text ?? '') : renderGroup(group).text;
-      const stamp = await triageText(this.decisions, text);
-      if (stamp)
-        await this.store.setTriage(
-          companyId,
-          group.map((d) => d.id),
-          stamp,
-        );
-    } catch (e) {
-      this.logger.warn(`triage failed (${companyId}): ${(e as Error).message}`);
+  private async triageWaiting(
+    companyId: string,
+    docs: StoredDocument[],
+    texts: Map<string, string>,
+  ): Promise<Map<string, TriageStamp>> {
+    const stamps = new Map<string, TriageStamp>();
+    for (const d of docs) if (d.triage) stamps.set(d.id, d.triage);
+    const unstamped = docs.filter((d) => !stamps.has(d.id));
+    if (unstamped.length === 0 || !this.decisions?.enabled('triage')) return stamps;
+    const limiter = new Semaphore(TRIAGE_CONCURRENCY);
+    await Promise.all(
+      unstamped.map((doc) =>
+        limiter.run(async () => {
+          try {
+            const stamp = await triageText(
+              this.decisions,
+              texts.get(doc.id) ?? '',
+              conversationBefore(doc, docs, texts),
+            );
+            if (!stamp) return;
+            await this.store.setTriage(companyId, [doc.id], stamp);
+            stamps.set(doc.id, stamp);
+          } catch (e) {
+            this.logger.warn(`triage failed (${companyId}): ${(e as Error).message}`);
+          }
+        }),
+      ),
+    );
+    return stamps;
+  }
+
+  /**
+   * How deep one turn is read (read-depth.ts): its triage, what asked for
+   * it, and — only when that would leave it shallow — whether it names an
+   * entity the memory is using now.
+   */
+  private async depthOfDoc(
+    companyId: string,
+    g: GroupDoc,
+    page: Pick<Page, 'byId' | 'stamps' | 'priority' | 'floor'>,
+  ): Promise<ReadDepth> {
+    const doc = page.byId.get(g.id) as StoredDocument;
+    const signals = {
+      stamps: [page.stamps.get(g.id)],
+      asked: askedOf(doc, page.priority),
+      hot: false,
+      floor: page.floor,
+    };
+    const depth = readDepth(signals);
+    if (depth === 'full' || !this.memory) return depth;
+    const hot = await this.memory.inUse({ companyId, text: g.text, userId: doc.userId });
+    return hot ? readDepth({ ...signals, hot }) : depth;
+  }
+
+  /**
+   * Keep turns raw (depth `raw`): their runs close as `skipped` with the
+   * depth recorded, the documents stay remembered and served from their
+   * raw turns, and any later need reopens them (CandidateStoreService.
+   * promote). No extraction runs.
+   */
+  private async keepRaw(
+    companyId: string,
+    kept: GroupDoc[],
+    byId: Map<string, StoredDocument>,
+  ): Promise<void> {
+    for (const g of kept) {
+      const doc = byId.get(g.id) as StoredDocument;
+      try {
+        await this.runs.keepRaw({ companyId, doc });
+        await this.store.setStatus({ companyId, docId: doc.id, status: 'indexed' });
+      } catch (e) {
+        this.logger.warn(`keep-raw of ${doc.id} failed: ${(e as Error).message}`);
+      }
     }
   }
 }
@@ -442,10 +587,76 @@ function settleRule(): { settleMs: number; maxWaitMs: number } {
   };
 }
 
+/**
+ * EXTRACTION_IDLE_BUDGET_DOCS: deferred documents the nightly idle pass
+ * reads per tenant (default 64; 0 = read only on demand).
+ */
+function idleBudget(): number {
+  const n = Number(process.env.EXTRACTION_IDLE_BUDGET_DOCS);
+  return Number.isInteger(n) && n >= 0 ? n : 64;
+}
+
 /** EXTRACTION_PASS_CONCURRENCY: memory scopes one pass reads at once (default 4). */
 function passConcurrency(): number {
   const n = Number(process.env.EXTRACTION_PASS_CONCURRENCY);
   return Number.isInteger(n) && n > 0 ? n : 4;
+}
+
+/** What one pass did. */
+type PassOutcome = {
+  read: number;
+  failed: number;
+  committed: number;
+  retry: number;
+};
+
+/** One loaded page of waiting documents. */
+interface Page {
+  byId: Map<string, StoredDocument>;
+  texts: Map<string, string>;
+  chunksOf: Map<string, DocumentChunk[]>;
+  /** How deep each turn to read is read (read-depth.ts). */
+  depthOf: Map<string, ReadDepth>;
+  /** D1 stamps, per document. */
+  stamps: Map<string, TriageStamp>;
+  /** The waiting run's priority (0168), per document. */
+  priority: Map<string, number>;
+  floor: number;
+}
+
+/**
+ * What asked for this read: its run's priority (an answer that cited it, a
+ * correction beside it, the idle budget — 0168), or a re-read aimed at a
+ * question (always an answer's).
+ */
+function askedOf(doc: StoredDocument, priority: Map<string, number>): ReadAsk | undefined {
+  if (internalMetaString(doc.meta, 'focusQuestion')) return 'answer';
+  return askOf(priority.get(doc.id) ?? 0);
+}
+
+/**
+ * What a turn's conversation said before it, among the documents waiting
+ * with it — the context its triage reads it in. Empty for a standalone
+ * document.
+ */
+function conversationBefore(
+  doc: StoredDocument,
+  docs: StoredDocument[],
+  texts: Map<string, string>,
+): string {
+  const conversationId = internalMetaString(doc.meta, 'conversationId');
+  if (!conversationId) return '';
+  return docs
+    .filter(
+      (d) =>
+        d.id !== doc.id &&
+        (d.userId ?? '') === (doc.userId ?? '') &&
+        internalMetaString(d.meta, 'conversationId') === conversationId &&
+        d.occurredAt.getTime() <= doc.occurredAt.getTime(),
+    )
+    .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())
+    .map((d) => texts.get(d.id) ?? '')
+    .join('\n');
 }
 
 /** What one pass carries down to its reads. */
@@ -463,6 +674,10 @@ const LEASE_TTL_SECONDS = 120;
 /** How long a drain waits for another replica's pass to finish. */
 const LEASE_WAIT_MS = 60 * 60_000;
 
+/** Triage requests in flight at once. */
+const TRIAGE_CONCURRENCY = 8;
+/** Documents of a page loaded at once. */
+const LOAD_CONCURRENCY = 8;
 /** Documents one page of a pass lists. */
 const PASS_DOCS = 64;
 /** A pass stops taking pages after this (the job lease is 15 minutes). */

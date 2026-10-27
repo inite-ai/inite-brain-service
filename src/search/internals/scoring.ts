@@ -6,6 +6,7 @@
 import { policyFor } from '../../ingest/conflict-resolver';
 import type { FusedRow, ScoredRow, EntityBucket } from './types';
 import { diversityKey } from './diversity-key';
+import { activationDecay } from './activation';
 
 // Low-value "chatter" predicates. `said` is the extractor's residual class
 // (a bare attributed utterance — "Hey Mel!", "That's great!") and, in a long
@@ -118,26 +119,6 @@ export interface ScoreRowsOptions {
    */
   usageSaturation?: number;
   /**
-   * Verified-use successor ranking (0107 outcome telemetry, Brain v2
-   * gap #7). β scales the row's verifiedUseScore (verifiedUseCount +
-   * confirmedCount from memory_outcome_stat) into ranking via the same
-   * saturating squash as the G8 usage factor
-   * (`× (1 + β·squash(score))`) — the same multiplicative shape over a
-   * VERIFIED signal instead of the self-reinforcing readCount. The
-   * score reaches the scorer only when RETRIEVAL_VERIFIED_USE_RANKING
-   * attached it (enrichWithOutcomeStats); β defaults 0 → factor exactly
-   * 1.0 → byte-identical ranking, and a fact with no verified use
-   * (score absent/0) is unaffected at ANY β.
-   */
-  verifiedUseBeta?: number;
-  /**
-   * Verified-use saturation constant: the verifiedUseScore at which the
-   * squash reaches ~1.0 (boost ceiling `1 + verifiedUseBeta`). Defaults
-   * to VERIFIED_USE_SATURATION_DEFAULT (10 — verified outcomes are far
-   * rarer than raw reads, so the knee sits below the usage one).
-   */
-  verifiedUseSaturation?: number;
-  /**
    * Tenant-aware decay resolution (profile tenantDecayPolicy): when
    * set, decay half-lives resolve through this registry-backed lookup
    * (PredicateRegistryService.policyFor partially applied with the
@@ -214,67 +195,33 @@ function usageFactorFor(
 }
 
 /**
- * Default verifiedUseScore at which the verified-use squash saturates
- * (~1.0). Verified outcomes (verifier-supported / user-confirmed) are
- * far rarer than raw retrievals, so the knee sits below
- * USAGE_SATURATION_DEFAULT. Matches the SEARCH_VERIFIED_USE_SATURATION
- * catalog default.
+ * The activation input of one row (activation.ts): its age, and the
+ * verified uses attached to it (0107 — the count under
+ * RETRIEVAL_VERIFIED_USE_RANKING, the last use's time under
+ * RETRIEVAL_VERIFIED_USE_DECAY) or the legacy last-retrieval stamp
+ * (SEARCH_USAGE_DECAY_ENABLED). An unenriched row fades from recordedAt
+ * alone. Kept out of the scoreRows map arrow for the seam complexity
+ * budget.
  */
-const VERIFIED_USE_SATURATION_DEFAULT = 10;
-
-/**
- * Verified-use factor for one row, plus its conditional breakdown
- * fragment — the usageFactorFor clone over verifiedUseScore (0107),
- * reusing the same saturating squash. Returns the multiplier applied to
- * finalScore and the `verifiedUse` breakdown entry (empty object when
- * the factor is exactly 1.0, so unaffected rows stay byte-identical).
- * Ceiling `1 + beta` by the squash clamp.
- */
-function verifiedUseFactorFor(
-  row: { verifiedUseScore?: number },
-  verifiedUseBeta: number,
-  verifiedUseSaturation: number,
-): {
-  verifiedUseFactor: number;
-  verifiedUseBreakdown: { verifiedUse: { count: number; factor: number } } | object;
-} {
-  const count =
-    typeof row.verifiedUseScore === 'number' && row.verifiedUseScore > 0 ? row.verifiedUseScore : 0;
-  const verifiedUseFactor =
-    verifiedUseBeta > 0 && count > 0
-      ? 1 + verifiedUseBeta * usageSquash(count, verifiedUseSaturation)
-      : 1;
-  return {
-    verifiedUseFactor,
-    verifiedUseBreakdown:
-      verifiedUseFactor !== 1 ? { verifiedUse: { count, factor: verifiedUseFactor } } : {},
-  };
-}
-
-/**
- * Decay anchor — attachment-driven max over recordedAt and the usage /
- * verified-use stamps present on the row:
- *   * lastReadAt (LEGACY SEARCH_USAGE_DECAY_ENABLED → enrichWithUsage):
- *     restarts the clock at the most recent RETRIEVAL — the
- *     self-reinforcing signal (prefer RETRIEVAL_VERIFIED_USE_DECAY);
- *   * lastVerifiedUseAt (RETRIEVAL_VERIFIED_USE_DECAY →
- *     enrichWithOutcomeStats, 0107): restarts it at the most recent
- *     VERIFIED use — legacy off + this on means retrieval alone NEVER
- *     extends a memory's life, only verified use does;
- *   * both attached → max of both (monotone: adding an anchor can only
- *     keep a row at least as fresh).
- * Unenriched rows decay from recordedAt exactly as before, so either
- * flag off is byte-identical on its axis. Kept out of the scoreRows map
- * arrow for the seam complexity budget (the usageFactorFor idiom).
- */
-function freshAnchorFor(row: {
-  recordedAt: string;
-  lastReadAt?: string;
-  lastVerifiedUseAt?: string;
-}): number {
-  const readMs = row.lastReadAt ? new Date(row.lastReadAt).getTime() : -Infinity;
-  const verifiedMs = row.lastVerifiedUseAt ? new Date(row.lastVerifiedUseAt).getTime() : -Infinity;
-  return Math.max(new Date(row.recordedAt).getTime(), readMs, verifiedMs);
+function activationOf(
+  row: {
+    recordedAt: string;
+    lastReadAt?: string;
+    lastVerifiedUseAt?: string;
+    verifiedUseScore?: number;
+  },
+  now: number,
+  halfLifeDays: number,
+): number {
+  const daysSince = (iso: string | undefined): number | undefined =>
+    iso ? (now - new Date(iso).getTime()) / 86_400_000 : undefined;
+  return activationDecay({
+    ageDays: daysSince(row.recordedAt) ?? 0,
+    halfLifeDays,
+    uses: row.verifiedUseScore,
+    lastUseDays: daysSince(row.lastVerifiedUseAt),
+    lastReadDays: daysSince(row.lastReadAt),
+  });
 }
 
 /**
@@ -363,8 +310,6 @@ export function scoreRows({
   salienceScoring = false,
   usageBeta = 0,
   usageSaturation = USAGE_SATURATION_DEFAULT,
-  verifiedUseBeta = 0,
-  verifiedUseSaturation = VERIFIED_USE_SATURATION_DEFAULT,
   policyResolver = null,
   langBoost = null,
 }: ScoreRowsOptions): ScoredRow[] {
@@ -408,14 +353,11 @@ export function scoreRows({
     // decay/chatter treatment. Alias-less rows are byte-identical.
     const canonPredicate = row.predicateAlias ?? row.predicate;
     const policy = resolvePolicy(canonPredicate);
-    // Decay anchor: max(recordedAt, [lastReadAt], [lastVerifiedUseAt])
-    // — attachment-driven; see freshAnchorFor for the full doctrine.
-    const freshAnchor = freshAnchorFor(row);
-    const ageDays = (now - freshAnchor) / 86_400_000;
+    // How available the fact is from its history of use (activation.ts):
+    // written, then every verified use, each a power-law trace. No
+    // half-life (a state, an instruction) = it does not fade.
     const decay =
-      policy.decayHalfLifeDays === null
-        ? 1
-        : Math.exp((-Math.LN2 * ageDays) / policy.decayHalfLifeDays);
+      policy.decayHalfLifeDays === null ? 1 : activationOf(row, now, policy.decayHalfLifeDays);
     const calibratedConfidence = calibrator ? calibrator.calibrate(row.confidence) : row.confidence;
 
     // fact_trust (Phase 5): the write-time snapshot ladder. Multiplicative
@@ -462,14 +404,6 @@ export function scoreRows({
     // strength gate. Either off, or a fact search never surfaced → 1.0 →
     // byte-identical ranking.
     const { usageFactor, usageBreakdown } = usageFactorFor(row, usageBeta, usageSaturation);
-    // Verified-use successor factor (0107): the same shape over the
-    // verified signal — attached only under RETRIEVAL_VERIFIED_USE_RANKING,
-    // β > 0 is the strength gate. Either off, or no verified use → 1.0.
-    const { verifiedUseFactor, verifiedUseBreakdown } = verifiedUseFactorFor(
-      row,
-      verifiedUseBeta,
-      verifiedUseSaturation,
-    );
     const { langFactor, langBreakdown } = langFactorFor(row.lang);
     const finalScore =
       row.fusedScore *
@@ -483,7 +417,6 @@ export function scoreRows({
       timeRange *
       salienceFactor *
       usageFactor *
-      verifiedUseFactor *
       langFactor;
     return {
       row,
@@ -499,7 +432,6 @@ export function scoreRows({
         ...(salienceFactor !== 1 ? { salience: salienceFactor } : {}),
         ...langBreakdown,
         ...usageBreakdown,
-        ...verifiedUseBreakdown,
         factTrust,
         finalScore,
         stages: row.stages ?? [],

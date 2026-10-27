@@ -23,6 +23,8 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { HttpBrainClient } from '../http-brain-client';
+import { longRequestJson } from '../long-request';
+import { batteryPhase, loadBuilds, saveBuilds } from '../phase';
 import {
   CORPUS_TURNS,
   CORPUS_VERTICAL,
@@ -113,7 +115,7 @@ function loadConfig(): Config {
     userId: process.env.MEMFIT_USER_ID ?? 'memfit-agent',
     runId: process.env.MEMFIT_RUN_ID ?? `mf${Date.now().toString(36)}`,
     guardrails: guardrailsRaw,
-    skipIngest: process.env.MEMFIT_SKIP_INGEST === '1',
+    skipIngest: process.env.MEMFIT_SKIP_INGEST === '1' || batteryPhase() === 'ask',
     reportDir: process.env.MEMFIT_REPORT_DIR ?? join('var', 'memory-fitness'),
   };
 }
@@ -168,17 +170,14 @@ async function restRaw<T>(
   path: string,
   body?: unknown,
 ): Promise<RestResult<T>> {
-  const res = await fetch(`${cfg.baseUrl}${path}`, {
+  // Admin builds can outlive fetch's 300 s header deadline (long-request.ts).
+  const res = await longRequestJson(
+    `${cfg.baseUrl}${path}`,
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${cfg.apiKey}`,
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const ct = res.headers.get('content-type') ?? '';
-  if (!ct.includes('application/json')) return { status: res.status, json: null };
-  return { status: res.status, json: (await res.json()) as T };
+    { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+    body,
+  );
+  return { status: res.status, json: res.json as T | null };
 }
 
 // ── MCP ─────────────────────────────────────────────────────────────
@@ -823,13 +822,22 @@ async function main(): Promise<void> {
     const tools = new Set(toolList.tools.map((t) => t.name));
     console.error(`[mcp] connected, ${tools.size} tools visible`);
 
-    let builds: Record<string, string> = { scenes: 'skipped: MEMFIT_SKIP_INGEST' };
+    let builds: Record<string, string> = loadBuilds(cfg.reportDir, cfg.runId) ?? {
+      scenes: 'skipped: MEMFIT_SKIP_INGEST',
+    };
     if (!cfg.skipIngest) {
       await ingestCorpus(cfg, brain);
       await drainExtraction(cfg);
       await recordDirectFacts(cfg, mcp);
       await recordScopedFacts(cfg, mcp);
       builds = await runBuilds(cfg);
+      saveBuilds(cfg.reportDir, cfg.runId, builds);
+    }
+    if (batteryPhase() === 'ingest') {
+      console.log(
+        `memory-fitness: ingested run ${cfg.runId}, nothing asked (BATTERY_PHASE=ingest)`,
+      );
+      return;
     }
 
     const questions = await askAll({ cfg, mcp, tools, builds });

@@ -70,7 +70,25 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      "Memory scopes (users, and the tenant's shared memory) one extract_documents pass reads at once. Within a scope documents are read in the order they were said, each group committed before the next is read — the extractor supersedes what the memory already holds, so a later document must see an earlier one's facts. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.",
+      "Memory scopes (users, and the tenant's shared memory) one extract_documents pass reads at once. Within a scope groups are read one after another, what something asked for first, then in the order they were said — each committed before the next is read, and each read against what was said before it. The LLM concurrency cap (OPENAI_CONCURRENCY) still bounds the calls.",
+  },
+  {
+    key: 'EXTRACTION_TRIAGE_FLOOR',
+    category: 'extractor',
+    defaultValue: '0.5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Probability at or above which a D1 triage question (durable, change, correction, instruction, identity) counts as yes when deciding how deep captured text is read (documents/read-depth.ts): only a change, correction, instruction or identity, notable text, or text naming an entity in use is read when it arrives (in full); the rest is kept raw — served from its turns — and read when an answer cites it, a correction lands beside it, or the nightly idle budget (EXTRACTION_IDLE_BUDGET_DOCS) reaches it. Default = the decision boundary; to be fitted on labelled corpora to the declared gate recall.',
+  },
+  {
+    key: 'EXTRACTION_IDLE_BUDGET_DOCS',
+    category: 'extractor',
+    defaultValue: '64',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Deferred documents the nightly idle pass reads per tenant, one sample each, most salient first (by the triage stamps). Text is read on demand: only what is urgent, notable, in use or asked for is read when it arrives; routine text is kept raw — served from its turns — until an answer cites it, a correction lands beside it, or this budget reaches it. 0 = read only on demand.',
   },
   {
     key: 'EXTRACTION_GROUP_MAX_DOCS',
@@ -1592,7 +1610,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. Steps 3-5 (ABAC widen / share-up staging / revocation tokens) are a follow-up.',
+      'G6 hierarchical scope-tag fence (migration 0093). When on, the scope-tag visibility evaluator runs as an ADDITIONAL AND-fence alongside the untouched migration-0055 userId filter at every per-user read seam (episode L0 reads, fact search legs, get-fact/provenance) — a row must pass BOTH. Composed with AND it can only narrow, never open, what userId filtering already returns; for current single-tag data (every row scope is [] or [user:<id>]) the two fences keep provably identical row sets, so enabling it changes nothing (the parity property that makes it safe to ship on). Fail-closed: a record scope with an unparseable or unknown-namespace tag is hidden from a scoped principal. Off (default) → the scope column is written by backfill/ingest but never read for filtering; enforcement is byte-identical pre-0093. W5 (step 3) added the READ half of group tags: a user-bound principal is fenced by the tags they HOLD (their own, plus every `team:` group the membership plane expanded for them — resolved once per request by the guard), and tenant-wide authority (an M2M credential, a background job) is the tenant boundary itself and carries no scope clause at all. Group tags only exist when SOURCE_PRINCIPALS wrote them, so with that off this is still the single-tag parity above. Steps 4-5 (share-up staging beyond one group per row) remain a follow-up.',
   },
   {
     key: 'PRIVACY_SEGMENT_USER_FENCE',
@@ -2190,6 +2208,151 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
       'Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitHub (github.com OAuth + api.github.com) counterpart. A GitHub Enterprise deployment is named per connection (`config.baseUrl`), not here.',
   },
   {
+    key: 'SOURCE_LINKED',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The linked lane (source plane, W7): a connection in `mode: 'linked'` is never walked and never catalogued — its connector's `search()` is called at QUERY time and the hits ride beside the ranking in the search response's `linked` section, never mixed into `results` (another system's opinion is not this brain's memory, and mixing them would make a citation mean two things). Every call writes a content-free `tool_observation` (0111) and the hits carry its ref, so a document made of them — and every fact derived from that document — points back at the call that produced it; a hit whose observation could not be written is NOT served, which is why this also needs TOOL_OBSERVATIONS_ENABLED. Bounded because it is a network call on the query path: one round per connection (25 connections at most), `SOURCE_LINKED_PER_QUERY` hits each, an 8s deadline, and every failure named rather than a failed search. A connector without `search()` says so by name. Off (default) = no connector is ever asked, no observation written, no `linked` section — byte-identical.",
+  },
+  {
+    key: 'SOURCE_LINKED_PER_QUERY',
+    category: 'pipeline',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Hits per linked connection per query (default 5, hard cap 25). The bound on how much of another system’s opinion rides along with an answer.',
+  },
+  {
+    key: 'SOURCE_PROGRESSIVE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Progressive indexing (source plane, W6 — doctrine 5, "manifest always, content by policy"): a connection whose `contentPolicy` is `manifest` walks a whole drive for the price of a listing and reads nothing, until a query matches one of its catalogue rows by TITLE or PATH — then that row alone is fetched and ingested as a `source_sync` job with a `deepen` payload (`ranBy: deepen`), and the NEXT query sees the content. The probe runs after retrieval, off the answer\'s path, never changes the answer it rode in on, and never throws: a search must not fail because a catalogue read did. A hit is not a read — `hitCount` on the row is the evidence that reading would have been worth it, and only SOURCE_DEEPEN_PER_QUERY rows per query are actually fetched, so a flood of queries against a million-item drive costs counter updates, not a million fetches. A deepening reads only what the walk already catalogued: no walk, no checkpoint, no gone policy. Off (default) = no probe ever runs, no hit is ever counted — byte-identical.',
+  },
+  {
+    key: 'SOURCE_DEEPEN_PER_QUERY',
+    category: 'pipeline',
+    defaultValue: '3',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How many catalogue rows one query may send for deepening under SOURCE_PROGRESSIVE (default 3, hard cap 20). The bound that keeps "every query probes the catalogue" from meaning "every query fetches the internet".',
+  },
+  {
+    key: 'SOURCE_PRINCIPALS',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The membership plane (source plane, W5 — G6 steps 3–5): after every sync of an ORG connection (one with no owning user), the connector's `principals()` walk runs and its groups and accounts land as `external_identity` rows and `external_principal` tuples (migration 0169), and an item's `acl.groups` become `team:<connection>:<group>` tags on the document, asset, episode and derived facts it produces. An external account NOBODY has linked to a brain user grants no visibility at all — the link is an operator's decision (`POST .../principals/link`) or an address another linked identity already carries, never a guess. Revocation is a timestamp and moves the tenant's `scope_epoch`, so a cached expansion cannot outlive the change that invalidated it (the new-enemy problem). An ACL too large to mirror is a sync ERROR, never a truncation. The READ half is SCOPE_TAGS_ENABLED: with this on and that off, tags are written and ignored — the safe order to switch the two on in. Off (default) = no `principals()` is ever called, no tuple is ever written, every org connection's rows stay tenant-global — byte-identical.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The quality tier of document text (evidence plane, W6): a document-understanding SERVICE (docling, marker, unstructured, a vendor's) as the first platform processor allowed to make a network call. Every text adapter that ships is local by construction — pdf2json for a PDF's text layer, officeparser for OOXML, tesseract for pixels — and they are also the FLOOR: a PDF whose layout carries meaning comes out of a text-layer dump as prose soup. The remote adapter sits FIRST in the registry, so for the media types the operator named (EVIDENCE_PARSER_REMOTE_MEDIA_TYPES, default PDF) it wins, and for everything else the local one is untouched. The contract is ours, not a vendor's — one endpoint, `POST { mediaType, profile?, contentBase64 }` → `{ text | markdown | content }`, which a small shim the operator owns puts in front of the real parser (and where they add their own redaction before bytes leave). Every call goes through the egress guard; the bearer never appears in an error; a failure is a RUN failure, never a quiet fallthrough to the local adapter. Off (default), or the URL unset = the adapter accepts nothing and the registry is byte-identical to the local-only one.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'The endpoint EVIDENCE_PARSER_REMOTE posts to. Unset = the adapter is off however the flag reads. It rides the adapter fingerprint: pointing at a different parser forks the idempotency key, so a representation made by the old one is never served as the new one.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_TOKEN',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description:
+      'The bearer the parser service expects, when it wants one. A credential, not a knob: it never rides the fingerprint and never appears in an error message.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_MEDIA_TYPES',
+    category: 'pipeline',
+    defaultValue: 'application/pdf',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'What the operator lets the parser service see, comma-separated. Unset = `application/pdf` only: the format whose local floor is furthest from its ceiling. A type not named here goes to the local adapter exactly as before.',
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_PROFILE',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "A label passed to the service when it has modes (docling's pipeline, a model name). It changes the OUTPUT, so it rides the adapter fingerprint: flipping it re-parses instead of serving a representation made under the old mode.",
+  },
+  {
+    key: 'EVIDENCE_PARSER_REMOTE_ALLOW_PRIVATE',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The parser service runs inside the operator's own network: the connection half of the egress double opt-in for it (the other half is SOURCE_EGRESS_ALLOW_PRIVATE). Either alone changes nothing.",
+  },
+  {
+    key: 'SOURCE_KIND_GITLAB',
+    category: 'pipeline',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      "The `gitlab` source connector (source plane, W4.9 — the other forge): one GitLab project over the v4 API, as a connected GitLab account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GITLAB_CLIENT_ID) or with an access token that has `read_api` on it. Two shapes of the same project (code_memory): `gitlab_issues` — every issue AND merge request as one conversation (the description + every note, each speaking as its author, `updated_at` the revision) through the mention door, GitLab's own activity notes dropped and an issue #5 kept apart from a merge request !5; `gitlab_docs` — the text files of the default branch (or `ref`) from the recursive tree listing, the blob id the revision, judged by the same media table as a folder. Read-only. A self-managed instance is reached with `config.baseUrl` (+ `allowPrivate` for a host inside the network); connecting an ACCOUNT there is SOURCE_OAUTH_GITLAB_LOGIN_URL. Off (default) = 'not installed' — byte-identical.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_CLIENT_ID',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The application id of the GitLab OAuth application the brain connects accounts through (gitlab.com/-/user_settings/applications, or Admin → Applications on a self-managed instance; the brain's callback URL as the redirect URI; the `read_api` scope). Standard authorization code with PKCE; the refresh token ROTATES on every use, which the engine handles. Unset = GitLab is 'not configured' — a token can still be pasted as the credential.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_CLIENT_SECRET',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    secret: true,
+    description: 'The secret of the GitLab application named by SOURCE_OAUTH_GITLAB_CLIENT_ID.',
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_LOGIN_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The self-managed GitLab the brain connects accounts on ('https://gitlab.acme.com'): its origin replaces gitlab.com on the authorize, token, identity AND API URLs together — an application registered on one instance issues tokens only that instance honours. Public https only. Unset = gitlab.com. A project on an instance the brain reads with a pasted token needs no flag: `config.baseUrl` on the connection names it.",
+  },
+  {
+    key: 'SOURCE_OAUTH_GITLAB_BASE_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "Dev/test only — see SOURCE_OAUTH_GOOGLE_BASE_URL; the GitLab counterpart (one origin for the OAuth endpoints and /api/v4). A self-managed deployment is SOURCE_OAUTH_GITLAB_LOGIN_URL or a connection's `config.baseUrl`, not this.",
+  },
+  {
     key: 'SOURCE_KIND_SLACK',
     category: 'pipeline',
     defaultValue: '0',
@@ -2778,7 +2941,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Verified-use successor decay (profile field verifiedUseDecay; 0107 outcome telemetry, Brain v2 gap #7): attach memory_outcome_stat.lastVerifiedUseAt to fused candidates so the decay clock restarts at the last VERIFIED use (verifier-supported / user-confirmed) — not at mere retrieval. With SEARCH_USAGE_DECAY_ENABLED off and this on, surfacing a fact never extends its life; both on = max of both anchors. Needs OUTCOME_TELEMETRY_ENABLED writers to have accrued stats. Default off = byte-identical.',
+      "Verified-use activation, time (profile field verifiedUseDecay; 0107 outcome telemetry): attach memory_outcome_stat.lastVerifiedUseAt to fused candidates — the last VERIFIED use (verifier-supported / user-confirmed) is a trace in the fact's ACT-R activation (search/internals/activation.ts: every event a power-law trace, d = 0.5, the predicate half-life sets the scale). Mere retrieval is not a use. Needs OUTCOME_TELEMETRY_ENABLED writers to have accrued stats. Off = the fact fades from its creation.",
   },
   {
     key: 'RETRIEVAL_VERIFIED_USE_RANKING',
@@ -2787,7 +2950,7 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Verified-use successor ranking (profile field verifiedUseRanking; 0107): attach verifiedUseScore (memory_outcome_stat verifiedUseCount + confirmedCount) and fold it into ranking as a bounded saturating multiplier (× (1 + SEARCH_VERIFIED_USE_BETA·squash(score))) — the G8 shape over a VERIFIED signal instead of the self-reinforcing readCount. Needs SEARCH_VERIFIED_USE_BETA > 0 and OUTCOME_TELEMETRY_ENABLED writers for data. Default off = byte-identical.',
+      "Verified-use activation, count (profile field verifiedUseRanking; 0107): attach verifiedUseScore (memory_outcome_stat verifiedUseCount + confirmedCount) — how many verified uses the fact's ACT-R activation sums (search/internals/activation.ts), so a fact used often stays available though its last use is old. A VERIFIED signal, never the self-reinforcing readCount. Needs OUTCOME_TELEMETRY_ENABLED writers for data. Off = one use when a last-use time is attached.",
   },
   {
     key: 'RETRIEVAL_TENANT_DECAY',
@@ -2797,24 +2960,6 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Tenant-aware read-time decay (profile field tenantDecayPolicy): scoring resolves decay half-lives through the per-tenant knowledge_predicate registry lookup already warmed for the row fence (zero extra IO) instead of the legacy code-seed policyFor — an operator-set decayHalfLifeDays on a tenant predicate actually shapes read-time decay. Registry absent / predicate miss falls back to the seed / 60-day default = legacy-identical. Default off = byte-identical.',
-  },
-  {
-    key: 'SEARCH_VERIFIED_USE_BETA',
-    category: 'search',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: false,
-    description:
-      'Strength of the verified-use ranking factor: factor = 1 + β·squash(verifiedUseScore), same multiplicative shape as SEARCH_USAGE_BETA. 0 (default) = off (factor 1.0, byte-identical ranking). Only takes effect with RETRIEVAL_VERIFIED_USE_RANKING on and outcome telemetry having accrued verified events. Start small, e.g. 0.1.',
-  },
-  {
-    key: 'SEARCH_VERIFIED_USE_SATURATION',
-    category: 'search',
-    defaultValue: '10',
-    runtimeMutable: true,
-    isBooleanFlag: false,
-    description:
-      'verifiedUseScore at which the verified-use squash saturates (~1.0), so the boost ceiling is 1 + SEARCH_VERIFIED_USE_BETA. log1p-shaped. Positive integer; default 10 — verified outcomes are far rarer than raw reads, so the knee sits lower than SEARCH_USAGE_SATURATION.',
   },
   {
     key: 'SEARCH_USAGE_BETA',

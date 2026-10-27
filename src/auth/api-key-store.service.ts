@@ -36,6 +36,7 @@ export interface ApiKeySummary {
   prefix: string;
   scopes: string[];
   userId?: string;
+  circle?: string;
   createdAt?: string;
   createdBy?: string;
   expiresAt?: string;
@@ -48,6 +49,7 @@ export interface IssueKeyInput {
   name: string;
   scopes: BrainScope[];
   userId?: string;
+  circle?: string;
   policyNames?: string[];
   expiresAt?: Date;
   createdBy?: string;
@@ -68,6 +70,7 @@ interface ApiKeyRow {
   scopes?: string[];
   policyNames?: string[];
   userId?: string;
+  circle?: string;
   createdBy?: string;
   createdAt?: string;
   expiresAt?: string;
@@ -139,6 +142,7 @@ export class ApiKeyStoreService {
       scopes: input.scopes,
       policyNames: input.policyNames ?? undefined,
       userId: input.userId ?? undefined,
+      circle: input.circle ?? undefined,
       createdBy: input.createdBy ?? undefined,
       expiresAt: input.expiresAt ?? undefined,
     };
@@ -245,6 +249,7 @@ export class ApiKeyStoreService {
     if (row.name) record.name = row.name;
     if (row.userId) record.userId = row.userId;
     if (row.policyNames?.length) record.policyNames = row.policyNames;
+    if (row.circle) record.circle = row.circle;
     return record;
   }
 
@@ -259,6 +264,7 @@ export class ApiKeyStoreService {
     // become `undefined`, so each one is assigned only when present.
     const userId = isoOrUndefined(row.userId);
     if (userId !== undefined) summary.userId = userId;
+    if (row.circle) summary.circle = row.circle;
     const createdAt = isoOrUndefined(row.createdAt);
     if (createdAt !== undefined) summary.createdAt = createdAt;
     const createdBy = isoOrUndefined(row.createdBy);

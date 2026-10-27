@@ -1,3 +1,4 @@
+import { withSourceCircles } from '../auth/circle-scope';
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { RecordId, StringRecordId, type Surreal } from 'surrealdb';
@@ -449,7 +450,7 @@ export class SceneComposerService {
         piiClass: fold.piiClass,
         userId: fold.userId,
         userIds: fold.userIds,
-        scope: scopeForUser(fold.userId),
+        scope: withSourceCircles(scopeForUser(fold.userId), scene),
         sceneLabel: renderSceneLabel(scene).slice(0, SCENE_LABEL_MAX),
         conversationIds: [conversationId],
         occurredFrom: new Date(first.occurredAt as string),

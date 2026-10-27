@@ -22,6 +22,7 @@ with one row per document.
 | [Getting started](getting-started.md) | Run Brain locally in five commands, seed an ApiKey, smoke test. |
 | [Migration guide](migration-guide.md) | Wire a vertical into Brain via the `@inite/knowledge` SDK. |
 | [API reference](api.md) | Every v1 endpoint with notes + auth scopes, grouped by area. |
+| [Using Brain as agent memory](agents-using-brain.md) | For AI agents consuming Brain over MCP: connect, tool surface, memory semantics, common mistakes. (Contributor instructions for agents live in the root [AGENTS.md](../AGENTS.md).) |
 | [OpenAPI 3.1 spec](openapi.json) | Machine-readable platform surface. Generated — regenerate with `pnpm openapi:build`, never edit by hand. |
 
 ## Understand it

@@ -1,3 +1,4 @@
+import { actingCircleTags } from '../auth/circle-scope';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
@@ -40,6 +41,9 @@ export class DigestLaneService {
      *  caller, no user gate (M2M reads the whole tenant today). */
     userId?: string | undefined;
   }): Promise<string[]> {
+    // Trust circles §3.5: a digest folds whole conversations and carries no
+    // scope tags — acting in a circle, the lane serves none.
+    if (actingCircleTags().length > 0) return [];
     try {
       const derivedVersion =
         (await this.readPin?.resolveRead(opts.companyId)) ?? ReadPinService.bootstrapRead();

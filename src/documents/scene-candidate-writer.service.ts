@@ -34,8 +34,10 @@ export { PACK_SCENE_PROJECTOR, packDeltaField, packSceneVersion };
  * packSceneScopeStamp fold (userId + the 0093 scope tag + the 0117
  * userIds membership set). Exported pure for unit tests.
  */
-export function sceneScopeStamp(doc: Pick<StoredDocument, 'userId'>): Record<string, unknown> {
-  return packSceneScopeStamp(doc.userId);
+export function sceneScopeStamp(
+  doc: Pick<StoredDocument, 'userId' | 'circles'>,
+): Record<string, unknown> {
+  return packSceneScopeStamp(doc.userId, doc.circles ?? []);
 }
 
 /** One run's projection outcome (observability + tests). */

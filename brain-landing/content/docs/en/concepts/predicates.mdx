@@ -1,6 +1,6 @@
 # Predicate vocabulary
 
-A predicate is the verb of a fact — `name`, `email`, `tier`, `complained_about`. Brain governs how facts are merged via per-predicate policies declared up front, not inferred at ingest time. The vocabulary is defined in `inite-ecosystem/core/capabilities/knowledge.yaml`.
+A predicate is the verb of a fact — `name`, `email`, `tier`, `complained_about`. Brain governs how facts are merged via per-predicate policies declared up front, not inferred at ingest time. The core vocabulary is seeded from `src/ai/predicate-registry-internals/core-seed.ts`; each tenant's live registry adds the predicates of its installed Domain Packs.
 
 ## Three semantic modes
 

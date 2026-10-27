@@ -55,11 +55,24 @@ export interface RequestContext {
    */
   authUserId?: string;
   /**
+   * The scope tags the request's principal holds, expanded once by the
+   * guard (G6 step 3) so the synchronous read fences never have to.
+   * Absent = nothing was resolved, and the fences fall back to the
+   * single `user:<id>` tag — narrower, never wider.
+   */
+  scopeTags?: import('../auth/scope-principal').ScopeTagMemo;
+  /**
    * Acting client (agent) identity from the token (`act`/`client_id`),
    * stamped by ApiKeyGuard. Fact ingest attributes writes to it via
    * source.meta.actor — provenance without signature threading.
    */
   authActorId?: string;
+  /**
+   * The circle the credential acts in (trust circles, auth/circle-scope.ts),
+   * stamped by ApiKeyGuard from the key's `circle`. Writes are scoped to it
+   * and reads are bound to it. Absent = no circle, today's behaviour.
+   */
+  actingCircle?: string;
   /**
    * Per-tenant retrieval profile, resolved once by ApiKeyGuard next to
    * brainAuth. Entry points hand it down by argument; the ALS slot

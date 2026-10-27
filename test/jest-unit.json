@@ -9,9 +9,16 @@
   "testPathIgnorePatterns": ["/node_modules/", "/.claude/worktrees/"],
   "modulePathIgnorePatterns": ["/.claude/worktrees/"],
   "transform": {
-    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": { "allowJs": true } }]
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "allowJs": true
+        }
+      }
+    ]
   },
-  "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose|any-ascii)", "node_modules/\\.pnpm/(?!jose@|any-ascii@)"],
+  "transformIgnorePatterns": ["/node_modules/"],
   "testTimeout": 30000,
   "cacheDirectory": "<rootDir>/.jest-cache",
   "moduleNameMapper": {
@@ -34,5 +41,6 @@
       "functions": 45,
       "lines": 52
     }
-  }
+  },
+  "setupFiles": ["<rootDir>/src/db/record-id-format.ts"]
 }

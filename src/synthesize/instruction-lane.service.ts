@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -53,9 +54,11 @@ export class InstructionLaneService {
   }): Promise<string[]> {
     try {
       const piiGate = opts.callerScopes.includes('brain:read_pii') ? '' : 'AND piiClass IS NONE';
-      const userGate = opts.userId
-        ? 'AND (userId IS NONE OR userId = $scopeUserId)'
-        : 'AND userId IS NONE';
+      // Trust circles: the scope-tag fence beside the userId gate.
+      const scopeFence = scopeFenceSql(opts.userId, 'instructionScopeTag');
+      const userGate = `${
+        opts.userId ? 'AND (userId IS NONE OR userId = $scopeUserId)' : 'AND userId IS NONE'
+      } ${scopeFence.clause}`;
       const rows = await this.surreal.withCompany(opts.companyId, async (db) => {
         const [res] = await db.query<[InstructionRow[]]>(
           `SELECT id, predicate, object, validFrom, source, trustSnapshot, corroboration, userId
@@ -69,6 +72,7 @@ export class InstructionLaneService {
             predicate: INSTRUCTION_PREDICATE,
             k: INSTRUCTION_TOP_K * 2,
             ...(opts.userId ? { scopeUserId: opts.userId } : {}),
+            ...scopeFence.params,
           },
         );
         return res ?? [];

@@ -52,6 +52,9 @@ import { getActiveRetrievalProfile, resolveSearchTuning } from './retrieval-prof
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { MemoryOutcomeService } from '../outcomes/memory-outcome.service';
 import { outcomeRetrievedEventsEnabled } from '../common/outcome-flags';
+import { SourceSyncQueueService } from '../source-plane/source-sync-queue.service';
+import { SourceLinkedService } from '../source-plane/source-linked.service';
+import type { LinkedSourceResult } from '../contracts/search/search.schema';
 
 export type { SearchHit } from './search.types';
 export type { GraphRetrieveHit } from './internals/graph-retrieve';
@@ -159,6 +162,14 @@ export class SearchService {
     // positional unit constructions omit it; double-gated at the call
     // site (OUTCOME_RETRIEVED_EVENTS) and inside the service (master).
     @Optional() private readonly outcomes?: MemoryOutcomeService,
+    // Ninth: progressive indexing (W6). A query that matched a
+    // manifest-only catalogue row schedules that row's deepening —
+    // fire-and-forget, off the answer's path, gated twice. Optional so
+    // positional unit constructions omit it.
+    @Optional() private readonly deepening?: SourceSyncQueueService,
+    // Tenth: the linked lane (W7) — sources asked at query time rather
+    // than walked. Optional so positional unit constructions omit it.
+    @Optional() private readonly linked?: SourceLinkedService,
   ) {}
 
   /**
@@ -374,7 +385,11 @@ export class SearchService {
     companyId: string,
     dto: SearchDto,
     callerScopes: string[],
-  ): Promise<{ results: SearchHit[]; degraded?: SearchDegradation[] }> {
+  ): Promise<{
+    results: SearchHit[];
+    degraded?: SearchDegradation[];
+    linked?: LinkedSourceResult[];
+  }> {
     // Defence-in-depth clamp. SearchDto.@MaxLength catches caller-direct
     // requests, but multi-hop / synthesize / admin-demo / mcp call this
     // method with raw shapes that may bypass class-validator. Clamping
@@ -486,6 +501,17 @@ export class SearchService {
           event: 'retrieved' as const,
         })),
       });
+    }
+    // The linked lane (W7): sources that keep their own index are ASKED,
+    // never walked — and their answers ride BESIDE the ranking, never
+    // inside it. Another system's opinion is not this brain's memory,
+    // and mixing the two would make a citation mean two different
+    // things. Awaited, because a caller cannot use what arrives after
+    // the response; bounded and failure-swallowing, because a lane that
+    // can fail a search is a lane an operator turns off.
+    if (this.linked?.enabled()) {
+      const lane = await this.linked.search(companyId, dto.query, limit);
+      if (lane.results.length > 0) return { ...out, linked: lane.results };
     }
     return out;
   }
@@ -632,6 +658,15 @@ export class SearchService {
       }
     }
 
+    // Progressive indexing (W6) — deliberately NOT a numbered conveyor
+    // stage: a stage has to leave something behind for this query, and
+    // this leaves nothing. It matches the CATALOGUE of a manifest-only
+    // connection against the question and queues the best rows for a
+    // real fetch, so the NEXT question has content where this one found
+    // only a filename. Blocking a search on a network fetch of an
+    // unknown file is not a trade anyone asked for.
+    void this.deepening?.probeAndQueue(ctx.companyId, ctx.dto.query).catch(() => undefined);
+
     // 2. Identity-merge re-attribution + scope/ABAC row filter. One
     // filter instance covers the whole pipeline (fusion + edge
     // expansion) so the decision summary aggregates once.
@@ -679,13 +714,6 @@ export class SearchService {
       // Multilingual Tier 1: same-language ranking boost, only in softBoost
       // mode (soft flag on + high-confidence query language). Null → 1.0.
       langBoost: softBoost && langFilter ? { lang: langFilter } : null,
-      // Verified-use successor ranking (0107): the per-tenant profile
-      // flag gates, the deployment knobs set strength/saturation.
-      verifiedUse: {
-        beta: ctx.tuning.verifiedUseBeta,
-        saturation: ctx.tuning.verifiedUseSaturation,
-        rankingOn: ctx.profile.verifiedUseRanking,
-      },
       // Tenant-aware decay (profile.tenantDecayPolicy): reuse the
       // registry lookup already resolved for the row fence — zero extra
       // IO, one snapshot read per query. Registry absent (positional

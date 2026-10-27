@@ -53,6 +53,9 @@ describe('Phase 4 v2 dialogue extraction prompt', () => {
     expect(open).toMatch(/ENUMERATE/);
     expect(open).toMatch(/ATTRIBUTE TO THE ACTOR/);
     expect(open).toMatch(/when in doubt, EXTRACT/i);
+    // a guess about the addressee is not a fact about them (relationship R5)
+    expect(open).toMatch(/A GUESS OR A QUESTION ABOUT SOMEONE ELSE IS NOT A FACT ABOUT THEM/);
+    expect(open).not.toMatch(/kids_like = "dinosaurs"/);
     // and explicitly names the catch-alls it must avoid
     expect(open).toMatch(/interacted_with/);
     expect(open).toMatch(/preference/);

@@ -13,6 +13,7 @@
  * Pure module — importable from services and pure internals alike.
  */
 
+import { scopeFenceSql } from './scope-visibility';
 import { ForbiddenException } from '@nestjs/common';
 import { getRequestContext } from '../common/request-context';
 import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
@@ -53,11 +54,14 @@ export function userReadFence(requested: string | undefined): {
   params: Record<string, unknown>;
 } {
   const userId = readSurfaceUserScopeEnabled() ? pinUserScope(requested) : undefined;
+  // Trust circles: the scope-tag fence rides along — a circle's rows only
+  // for the circle (inert without one unless SCOPE_TAGS_ENABLED).
+  const tags = scopeFenceSql(userId, 'readScopeTag');
   return userId === undefined
-    ? { userId, clause: 'userId IS NONE', params: {} }
+    ? { userId, clause: `userId IS NONE ${tags.clause}`.trim(), params: { ...tags.params } }
     : {
         userId,
-        clause: '(userId IS NONE OR userId = $scopeUserId)',
-        params: { scopeUserId: userId },
+        clause: `(userId IS NONE OR userId = $scopeUserId) ${tags.clause}`.trim(),
+        params: { scopeUserId: userId, ...tags.params },
       };
 }

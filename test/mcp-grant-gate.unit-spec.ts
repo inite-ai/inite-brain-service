@@ -19,7 +19,7 @@ const stubPolicyGate = {
   enforceAction: () => undefined,
   enforceToolAction: () => undefined,
 };
-const stubPackToolsReader = { installedPackTools: async () => [] };
+const stubPackToolsReader = { isActive: async () => false, installedPackTools: async () => [] };
 
 function service(): McpService {
   return new McpService(

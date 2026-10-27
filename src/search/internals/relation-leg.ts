@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../../auth/scope-visibility';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { buildEdgeFence } from './edge-fence';
 import { buildLexMatchLeg } from './lex-leg';
@@ -59,12 +60,14 @@ export async function runRelationLeg(opts: {
 }): Promise<FactRow[]> {
   const { db, queryText, userId, asOf, fetchK } = opts;
   const lex = buildLexMatchLeg({ fields: ['canonicalName'], topic: queryText, mode: 'or_terms' });
-  const entityScope = userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE';
+  const entityTags = scopeFenceSql(userId, 'relEntityScopeTag');
+  const entityScope =
+    `${userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${entityTags.clause}`.trim();
   const [named] = await db.query<[Array<{ id: unknown; score: number }>]>(
     `SELECT id, ${lex.score} AS score FROM knowledge_entity
       WHERE ${lex.where} AND mergedInto IS NONE AND ${entityScope}
       ORDER BY score DESC LIMIT $n`,
-    { ...lex.params, u: userId, n: NAMED_ENTITY_CAP },
+    { ...lex.params, u: userId, n: NAMED_ENTITY_CAP, ...entityTags.params },
   );
   const nameScore = new Map((named ?? []).map((r) => [String(r.id), r.score ?? 0]));
   if (nameScore.size === 0) return [];

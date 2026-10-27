@@ -215,10 +215,16 @@ function harness(
       return rows.filter((r) => r.documentId).length;
     },
   } as unknown as SourceItemEffectsService;
+  // The ACL mirror is off in these suites: a connector without
+  // principals() (and the flag off) never reaches it.
+  const principals = {
+    sync: async () => null,
+  } as unknown as import('../src/source-plane/source-principals.service').SourcePrincipalsService;
   const svc = new SourceSyncService(
     connections,
     catalogue as unknown as SourceItemService,
     effects,
+    principals,
   );
   return {
     svc,
