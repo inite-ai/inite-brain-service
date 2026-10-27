@@ -1467,6 +1467,13 @@ export const CONFIG_CATALOG: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
   },
   {
+    key: 'OPENAI_OFFLINE_TIMEOUT_MS',
+    category: 'auth',
+    defaultValue: '180000',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+  },
+  {
     key: 'OPENAI_MAX_RETRIES',
     category: 'auth',
     defaultValue: '3',
