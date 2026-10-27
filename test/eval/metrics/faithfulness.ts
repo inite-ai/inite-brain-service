@@ -113,7 +113,7 @@ Verdicts:
 
 Be strict. A claim that adds a date, location, or value not in the facts is at most "partial".
 
-Return strictly the JSON shape requested. Verdicts in the same order as input claims.`;
+Return strictly the JSON shape requested: one verdict per claim id (c1, c2, …).`;
 
 export async function computeFaithfulness(
   client: OpenAiLike,
@@ -214,6 +214,25 @@ async function decomposeClaims(
   }
 }
 
+/**
+ * One required key per claim (`c1`…`cN`) instead of a positional array.
+ * With an array the model merged or dropped verdicts on refusal answers
+ * ("there is no record of …") and the nightly quality gate read that as a
+ * verifier failure every night from 2026-08-04 (`length_mismatch` on the
+ * false-premise scenarios). Strict structured output cannot omit a
+ * required key, so the count is guaranteed.
+ */
+export function verdictSchema(claimCount: number): Record<string, unknown> {
+  const keys = Array.from({ length: claimCount }, (_, i) => `c${i + 1}`);
+  const verdict = { type: 'string', enum: ['supported', 'partial', 'not_supported'] };
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: Object.fromEntries(keys.map((k) => [k, verdict])),
+    required: keys,
+  };
+}
+
 interface VerifyClaimsOutcome {
   verdicts: Array<'supported' | 'partial' | 'not_supported'>;
   failure?: NonNullable<FaithfulnessScore['verifierFailure']>;
@@ -230,7 +249,7 @@ async function verifyClaims(
     sourceFacts.length > 0
       ? sourceFacts.map((f) => `[${f.factId}] ${f.predicate}: ${f.object}`).join('\n')
       : '(no source facts)';
-  const numbered = claims.map((c, i) => `${i + 1}. ${c}`).join('\n');
+  const numbered = claims.map((c, i) => `c${i + 1}. ${c}`).join('\n');
   try {
     const res = await client.chat.completions.create({
       model,
@@ -243,24 +262,7 @@ async function verifyClaims(
       ],
       response_format: {
         type: 'json_schema',
-        json_schema: {
-          name: 'claim_verdicts',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              verdicts: {
-                type: 'array',
-                items: {
-                  type: 'string',
-                  enum: ['supported', 'partial', 'not_supported'],
-                },
-              },
-            },
-            required: ['verdicts'],
-          },
-        },
+        json_schema: { name: 'claim_verdicts', strict: true, schema: verdictSchema(claims.length) },
       },
       max_completion_tokens: 256,
       temperature: 0,
@@ -277,7 +279,10 @@ async function verifyClaims(
         },
       };
     }
-    const parsed = JSON.parse(content) as { verdicts?: unknown };
+    const parsed = JSON.parse(content) as { verdicts?: unknown } & Record<string, unknown>;
+    if (parsed.verdicts === undefined && claims.every((_, i) => `c${i + 1}` in parsed)) {
+      parsed.verdicts = claims.map((_, i) => parsed[`c${i + 1}`]);
+    }
     if (!Array.isArray(parsed.verdicts)) {
       return {
         verdicts: claims.map(() => 'not_supported'),

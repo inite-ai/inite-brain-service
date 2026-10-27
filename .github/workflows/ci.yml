@@ -201,8 +201,9 @@ jobs:
       # 403 specs: auth guard, calibration, CAS job-claim, conflict-explainer,
       # chat-router gates, …
       # --coverage activates the coverageThreshold floor in jest-unit.json
-      # (an all-src ratchet: statements/lines 52%, branches 40%, functions
-      # 45% — a few points under the current ~57/45/50/58 to prevent
+      # (an all-src ratchet: statements 67%, lines 68%, branches 55%,
+      # functions 62% — two points under the 2026-10-27 measurement
+      # 69/57/64/70, raised from the original 52/40/45/52, to prevent
       # backslide without brittleness; the threshold is inert without
       # --coverage, so local `pnpm test:unit` stays fast). Unit-only
       # coverage — the e2e suite carries additional real path coverage
@@ -428,6 +429,13 @@ jobs:
       - name: pnpm audit (high+ blocks)
         run: pnpm audit --audit-level=high --ignore-workspace
 
+      # The landing app has its own lockfile, so the root audit never saw
+      # it: on 2026-10-27 it carried 6 high advisories nobody was gated on.
+      # `pnpm audit` reads the lockfile, no install needed.
+      - name: pnpm audit brain-landing (high+ blocks)
+        working-directory: brain-landing
+        run: pnpm audit --audit-level=high
+
   # ---------------------------------------------------------------------
   # Image build + smoke, and on main the PUBLISH.
   #
@@ -523,16 +531,29 @@ jobs:
             -e OPENAI_API_KEY=sk-ci-stub \
             -e BRAIN_API_KEYS='[]' \
             -e FORGET_HMAC_KEY=ci-hmac-key-must-be-at-least-32-chars \
+            -e OTEL_ENABLED=1 \
+            -e OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
             inite-brain-service:ci
-          for i in $(seq 1 30); do
-            if curl -fs http://localhost:3030/health >/dev/null; then
-              echo "service healthy"
+          # Tracing on, as in prod: an OTel version mismatch (#772) threw
+          # on every span, the image never became ready and prod rolled
+          # back — while this smoke, run without OTel, was green. The
+          # exporter endpoint is unreachable on purpose; exporting may
+          # fail, creating spans must not.
+          for i in $(seq 1 60); do
+            if curl -fs http://localhost:3030/ready >/dev/null; then
+              echo "service ready"
               curl -s http://localhost:3030/health
+              curl -fs http://localhost:3030/health >/dev/null
+              sleep 2
+              if docker logs brain 2>&1 | grep -E "is not a function"; then
+                echo "service is up but tracing throws"
+                exit 1
+              fi
               exit 0
             fi
             sleep 1
           done
-          echo "service did not become healthy"
+          echo "service did not become ready"
           docker logs brain
           exit 1
 
@@ -716,3 +737,32 @@ jobs:
           # snapshot — no ratchet. eval:diff blocks on regressions beyond
           # per-metric tolerances; improvements never block.
           pnpm eval:diff test/eval/golden-baseline.json .eval-current/report.json
+
+  # A red nightly used to be silent: quality-eval failed every night from
+  # 2026-08-04 to 2026-10-27 and nobody looked. On a scheduled failure this
+  # opens (or comments on) one tracking issue, so red is a notification.
+  nightly-alarm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [quality-eval, supply-chain]
+    if: always() && github.event_name == 'schedule' && (needs.quality-eval.result == 'failure' || needs.supply-chain.result == 'failure')
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the nightly-red issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QE: ${{ needs.quality-eval.result }}
+          SC: ${{ needs.supply-chain.result }}
+        run: |
+          set -euo pipefail
+          body="Nightly CI failed: quality-eval=$QE, supply-chain=$SC. Run: $RUN_URL"
+          gh label create nightly-red --color B60205 --description "Scheduled CI failed" 2>/dev/null || true
+          n=$(gh issue list --label nightly-red --state open --json number -q '.[0].number')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body "$body"
+          else
+            gh issue create --title "Nightly CI is red" --label nightly-red --body "$body"
+          fi
