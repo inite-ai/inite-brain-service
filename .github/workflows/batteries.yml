@@ -30,8 +30,11 @@
 # GitHub dispatches workflows from the default branch), and the label
 # `run-batteries` on a pull request, which runs the PR's own copy.
 #
-# Parity caveats, stated once: the enablement block is production's,
-# the compose-level env and admin-panel settings are not, and the
+# Parity caveats, stated once: the enablement block and the brain
+# service's compose-level behaviour flags are production's (until
+# 2026-10-27 the compose flags were not, and mentions took the legacy
+# direct write path instead of the document pipeline); admin-panel
+# settings are not, and the
 # decision-plane lanes stay inert without TYPESAFE_API_KEY. Both arms
 # share every caveat.
 name: Memory batteries (A/B)
@@ -109,7 +112,15 @@ jobs:
           awk '/tee "\$\{PROJECT_DIR\}\/enablement.env" > \/dev\/null << .EOF./{on=1;next} on&&/^[[:space:]]*EOF[[:space:]]*$/{exit} on' \
             .github/workflows/deploy-brain.yml \
             | sed 's/^[[:space:]]*//' | grep -E '^[A-Z0-9_]+=' > stand.env
+          # The brain service's compose-level behaviour flags too — they
+          # override the enablement file in production, and one of them
+          # decides the write path itself (INGEST_MENTION_VIA_DOCUMENT: a
+          # mention goes through the document pipeline). Secrets (`${…}`)
+          # and infrastructure (URLs, pools, workers, telemetry) stay out.
+          grep -E '^[[:space:]]+- (SEARCH|RETRIEVAL|MULTI_HOP|DOCUMENT|INGEST|REINDEX|MCP_PACK|CHAT_ROUTE|EXTRACTOR|PREDICATE|SYNTHESIZE)_[A-Z0-9_]*=' \
+            .github/workflows/deploy-brain.yml | grep -v '\${' | sed -E 's/^[[:space:]]+- //' >> stand.env
           echo "[ok] $(wc -l < stand.env) flags"
+          grep -q '^INGEST_MENTION_VIA_DOCUMENT=1' stand.env && echo "[ok] mentions go through the document pipeline, as in production"
 
       - name: Snapshot key
         id: key

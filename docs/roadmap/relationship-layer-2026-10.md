@@ -29,7 +29,12 @@ Decisions taken (2026-10-25):
 | Read surface             | pack-declared tool + `brain://relationship/<userId>` resource for session-start injection     |
 | Voice signal             | arousal/energy axes only, no discrete emotion labels; calibration gate before release         |
 
-Status: concept. Nothing here is built. Literature cited in the source
+Status (2026-10-27): step 1 built on feat/trust-circles-agents — the R5
+extraction fix, the `relationship` pack (0.2.0: commitments, open threads,
+what helped, tone, stated affect, the hypothesis lifecycle),
+`relationship_context` + `brain://relationship/<userId>`, and the trust
+circles that keep the coach's line out of the assistant's reads
+([trust-circles-2026-10.md](trust-circles-2026-10.md)). Literature cited in the source
 discussion (ES-MemEval, RECALLbot, Memoria, APEX-MEM, EmoMem, CAMA) has
 not been verified by us — check every reference before it goes into a
 pitch.
@@ -77,7 +82,12 @@ What this changes:
 - **Belief confirmation lifecycle** becomes part of step 1: a belief may
   carry `putToPerson: at`, and only the person's answer promotes it to a
   fact or weakens it. Brain's beliefs today are promoted by a pass, not
-  by the person.
+  by the person. _Built as pack facts, not beliefs:_ a guess put to the
+  person is `relationship__hypothesis` (open) until their answer makes it
+  `hypothesis_confirmed` or `hypothesis_rejected` (a later answer
+  supersedes the open one); what they said in their own words is its own
+  fact. The belief plane stays out — it has no scope column, so it
+  cannot live in a circle.
 - **Counterparts can be human.** A specialist recording what was agreed
   is a counterpart with commitments, like an agent.
 - **Languages are PT + EN**, not RU + EN.

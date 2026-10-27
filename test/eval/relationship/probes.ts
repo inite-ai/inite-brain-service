@@ -167,7 +167,8 @@ export const PROBES: readonly Probe[] = [
     check: 'R6',
     surface: 'assistant',
     kind: 'requires',
-    tool: 'relationship_context',
+    // The share's revocation (trust circles §3.8) — not built yet.
+    tool: 'revoke_share',
     prompt: 'after Ana revokes sharing, the weight boundary is gone from the assistant',
   },
   {
@@ -175,7 +176,8 @@ export const PROBES: readonly Probe[] = [
     check: 'R7',
     surface: 'coach',
     kind: 'requires',
-    tool: 'relationship_context',
+    // Voice affect (relationship layer §2.4) — design-only until the coach's go.
+    tool: 'observe_voice',
     prompt: 'with voice affect off, no voice-derived row exists',
   },
 

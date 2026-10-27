@@ -28,8 +28,11 @@ request and from the jobs that commit its documents; derived scenes,
 segments, insights and pack scenes inherit their sources' circles; the
 extraction context, the answer cache and every synthesize lane with a
 `scope` column are fenced; beliefs and digests (no `scope` column) serve
-nothing under a circle. What is not built yet: sharing (§3.8), the asker
-as the agent (§3.2), the `relationship` pack.
+nothing under a circle. The default share (§3.8): an `instruction` on the
+person's own entity is copied out of the circle with `sharedFrom` and its
+basis, so every agent honours a boundary. What is not built yet: explicit
+share acts with consent and revocation (§3.8), the asker as the agent
+(§3.2).
 
 ---
 
