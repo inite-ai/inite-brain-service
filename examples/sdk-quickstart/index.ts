@@ -39,17 +39,19 @@ async function main(): Promise<void> {
   const rememberResult = await brain.remember(story);
   console.log('Remember result:', JSON.stringify(rememberResult, null, 2));
 
-  // Extraction runs in the background. When running against a live Brain service,
-  // we pause briefly to allow entity and claim extraction to finish.
-  console.log('\nWaiting for background extraction to settle...');
-  await sleep(2000);
+  // The write returns at receipt (`pending: true`); extraction runs in the
+  // background and usually takes tens of seconds. Ask until the memory has it.
+  const question = 'Where does Maria Vance live and what does she do?';
+  console.log('\nWaiting for background extraction (up to 3 minutes)...');
+  let hits = await brain.recall(question);
+  for (let waited = 0; hits.length === 0 && waited < 180_000; waited += 5000) {
+    await sleep(5000);
+    hits = await brain.recall(question);
+  }
 
   // Step 2: Recall facts using hybrid search
   console.log('\n--- Step 2: Recall ---');
-  const question = 'Where does Maria Vance live and what does she do?';
   console.log(`Recall query: "${question}"\n`);
-
-  const hits = await brain.recall(question);
   console.log(`Found ${hits.length} recall hit(s):`);
   for (const hit of hits) {
     console.log(
@@ -75,7 +77,10 @@ async function main(): Promise<void> {
   if (entityId) {
     console.log(`Fetching timeline for entity: ${entityId}\n`);
     const timeline = await brain.timeline(entityId);
-    console.log(`Timeline events (${timeline.events.length}):`, JSON.stringify(timeline.events, null, 2));
+    console.log(
+      `Timeline events (${timeline.events.length}):`,
+      JSON.stringify(timeline.events, null, 2),
+    );
   } else {
     console.log('No entity ID returned from recall to inspect timeline.');
   }
