@@ -38,6 +38,8 @@ and the [OpenAPI document](https://brain.inite.ai/openapi.json) generates
 whatever you need for the long tail. What belongs in a hand-written
 client is the handful of calls an agent makes in a loop.
 
+For a self-contained, runnable example demonstrating these calls against a live Brain instance, see [`examples/sdk-quickstart`](../../examples/sdk-quickstart).
+
 ## 2. Tools, for any framework
 
 ```ts
