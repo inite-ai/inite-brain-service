@@ -172,8 +172,11 @@ The belief plane needs a sensitivity column before affect touches it.
 
 ### 2.5 The read surface
 
-One pack-declared MCP tool, `relationship_context(userId, purpose)`,
-counterpart implied by the credential. It returns a brief with citations:
+One MCP tool, `relationship_context(userId)` — built in, listed only for a
+tenant with the `relationship` pack (a pack-declared query tool cannot read
+the core `instruction` predicate, by design); the counterpart and purpose
+are the credential's circle (trust circles §3.3). Built 2026-10-27, with
+the resource `brain://relationship/<userId>`. It returns a brief with citations:
 
 ```json
 {

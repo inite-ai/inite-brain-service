@@ -80,5 +80,46 @@
         "note": "entity 'Marco' → relationship__stated_affect='wiped out', expectedEnd = end of the exams."
       }
     ]
-  }
+  },
+  "evalFixtures": [
+    {
+      "id": "commitment",
+      "description": "a counterpart's promise is the counterpart's commitment",
+      "text": "[tutor] On Friday I'll send you three listening exercises.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "commitment",
+            "objectIncludes": "listening"
+          }
+        ]
+      }
+    },
+    {
+      "id": "helped",
+      "description": "what the person says worked",
+      "text": "[Marco] Shadowing the podcast really helped me.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "helped",
+            "objectIncludes": "shadowing"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tone",
+      "description": "how the person wants to be spoken to",
+      "text": "[Marco] Please keep your feedback short and blunt.",
+      "expect": {
+        "facts": [
+          {
+            "predicate": "tone_preference",
+            "objectIncludes": "short"
+          }
+        ]
+      }
+    }
+  ]
 }

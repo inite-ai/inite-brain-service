@@ -32,9 +32,12 @@ const stubEmbedder = {
 
 // Pack-tools reader — flag off in unit tests, but buildServer still
 // holds the dep; an empty read keeps the pre-pack surface identical.
-const stubPackToolsReader = { installedPackTools: async () => [] };
+const stubPackToolsReader = { isActive: async () => false, installedPackTools: async () => [] };
 
-function buildWithScopes(scopes: BrainScope[]): Promise<McpServer> {
+function buildWithScopes(
+  scopes: BrainScope[],
+  reader: object = stubPackToolsReader,
+): Promise<McpServer> {
   const svc = new McpService(
     {} as never,
     {} as never,
@@ -53,7 +56,7 @@ function buildWithScopes(scopes: BrainScope[]): Promise<McpServer> {
     {} as never,
     {} as never, // feedback
     {} as never, // policyGate — unused without a policy context
-    stubPackToolsReader as never,
+    reader as never,
     {} as never, // packToolProxy — no external tools in these fixtures
   );
   return svc.buildServer('co_test', scopes);
@@ -464,5 +467,20 @@ describe('retract_fact — caller scopes reach FactsService', () => {
 
     expect(captured).toHaveLength(1);
     expect((captured[0] as { callerScopes?: unknown }).callerScopes).toEqual(scopes);
+  });
+});
+
+describe('McpService.buildServer — relationship_context', () => {
+  it('is listed, with its resource, only for a tenant with the relationship pack', async () => {
+    const without = await buildWithScopes(['brain:read']);
+    expect(toolNames(without)).not.toContain('relationship_context');
+    expect(resourceNames(without)).not.toContain('relationship-context');
+
+    const withPack = await buildWithScopes(['brain:read'], {
+      isActive: async (_c: string, packId: string) => packId === 'relationship',
+      installedPackTools: async () => [],
+    });
+    expect(toolNames(withPack)).toContain('relationship_context');
+    expect(resourceNames(withPack)).toContain('relationship-context');
   });
 });

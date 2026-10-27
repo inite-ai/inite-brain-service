@@ -33,7 +33,7 @@ function service(): McpService {
     none,
     none,
     { enforceAction: () => undefined, enforceToolAction: () => undefined } as never,
-    { installedPackTools: async () => [] } as never,
+    { isActive: async () => false, installedPackTools: async () => [] } as never,
     none,
     undefined,
     undefined,

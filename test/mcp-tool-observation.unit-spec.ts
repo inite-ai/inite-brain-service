@@ -184,7 +184,7 @@ describe('MCP tool-observation wrapper ordering', () => {
         cacheStats: () => ({ provider: 'openai:text-embedding-3-small' }),
         getDimensions: () => 1536,
       };
-      const stubReader = { installedPackTools: async () => [] };
+      const stubReader = { isActive: async () => false, installedPackTools: async () => [] };
       const build = () =>
         new McpService(
           {} as never,
