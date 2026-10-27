@@ -41,5 +41,6 @@
       "functions": 45,
       "lines": 52
     }
-  }
+  },
+  "setupFiles": ["<rootDir>/src/db/record-id-format.ts"]
 }

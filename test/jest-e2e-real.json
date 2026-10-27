@@ -24,5 +24,6 @@
     "^@inite/knowledge$": "<rootDir>/../inite-shared/packages/knowledge/src/index.ts"
   },
   "testPathIgnorePatterns": ["/node_modules/", "/.claude/worktrees/"],
-  "modulePathIgnorePatterns": ["/.claude/worktrees/"]
+  "modulePathIgnorePatterns": ["/.claude/worktrees/"],
+  "setupFiles": ["<rootDir>/src/db/record-id-format.ts"]
 }

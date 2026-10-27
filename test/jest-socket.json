@@ -23,5 +23,6 @@
   "cacheDirectory": "<rootDir>/.jest-cache",
   "moduleNameMapper": {
     "^@/(.*)$": "<rootDir>/src/$1"
-  }
+  },
+  "setupFiles": ["<rootDir>/src/db/record-id-format.ts"]
 }
