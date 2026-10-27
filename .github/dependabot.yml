@@ -11,12 +11,6 @@ updates:
       backend-minor:
         update-types: ["minor", "patch"]
     ignore:
-      # surrealdb 2.0.9+ renders a record id whose tail starts with a digit
-      # escaped (`memory_episode:⟨45de…⟩`). Brain compares and stores ids as
-      # strings throughout (String(id), id tails, commitRef) — moving to it
-      # needs an audit of every such site, not a minor bump.
-      - dependency-name: surrealdb
-        versions: [">=2.0.9"]
       # compromise 14.19 stops seeing the verb in an intention ("thinking of
       # selling it"), which the transition detector reads (state-transitions).
       - dependency-name: compromise
