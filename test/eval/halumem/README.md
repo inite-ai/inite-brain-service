@@ -5,7 +5,7 @@ memory **per operation**, not only end to end:
 
 - **extraction**: what the memory wrote from a session, against the session's
   gold memory points. It is scored on four numbers: recall (integrity),
-  precision (accuracy), F1, and whether *interference* points (things the user
+  precision (accuracy), F1, and whether _interference_ points (things the user
   said that must not become memory) were kept out;
 - **update**: when a gold point updates an earlier one, whether a search for it
   returns the new value (Correct) or keeps the old one (Omission), or returns
@@ -38,13 +38,13 @@ the run fails instead of judging with nothing.
 The runner measures brain against brain, `main` vs a branch on the same slice. The
 paper's own setup (a `gpt-4o` judge, a Mem0-style answerer) is not reproduced.
 
-| Step | Here |
-|---|---|
-| add | each session is one chat document (`POST /v1/ingest/document`, the user's own `userId`) |
-| extracted memories | what the document committed, rendered `Entity — predicate: object` |
-| update probe | `POST /v1/search` for the new point, `limit: 10`, rendered `YYYY-MM-DD: Entity — predicate: object` |
-| QA | brain's own answer (`POST /v1/synthesize`, strict guardrails); an abstention is answered as "I don't know", which is what Memory Boundary questions reward |
-| judge | HaluMem's four judge prompts, verbatim, on `gpt-6-luna` (`HALUMEM_JUDGE_MODEL`) |
+| Step               | Here                                                                                                                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| add                | each session is one chat document (`POST /v1/ingest/document`, the user's own `userId`), `mode: 'async'` by default: the runner waits until the document's status is `committed` before probing it |
+| extracted memories | what the document committed (the `commitRef`s of its committed candidates), rendered `Entity — predicate: object`                                                                                  |
+| update probe       | `POST /v1/search` for the new point, `limit: 10`, rendered `YYYY-MM-DD: Entity — predicate: object`                                                                                                |
+| QA                 | brain's own answer (`POST /v1/synthesize`, strict guardrails); an abstention is answered as "I don't know", which is what Memory Boundary questions reward                                         |
+| judge              | HaluMem's four judge prompts, verbatim, on `gpt-6-luna` (`HALUMEM_JUDGE_MODEL`)                                                                                                                    |
 
 The judge only has to be the same on both arms of an A/B, so it runs on the cheap
 model brain itself runs on. The judges are lenient LLM judges (0/1/2 scores,
@@ -54,7 +54,12 @@ number from this harness.
 **The stand has to run the production flags**, not the defaults. On defaults,
 extraction F1 read 59.7%; on production flags it read 86.3%. Source the
 `enablement.env` heredoc from `.github/workflows/deploy-brain.yml`, and add
-`EMBEDDER_PROVIDER=bge-m3`.
+`EMBEDDER_PROVIDER=bge-m3`. Async ingest needs `DOCUMENT_MULTI_INDEXER_ENABLED=1` and
+the job worker running.
+
+The scorecard reports the median time per session to the write's
+acknowledgement and to the document being fully processed. Async is
+meant to separate those two numbers.
 
 ## Running
 
@@ -66,16 +71,18 @@ HALUMEM_USERS=2 HALUMEM_SESSIONS=10 \
 pnpm eval:halumem
 ```
 
-| Env | Default | |
-|---|---|---|
-| `HALUMEM_USERS` / `HALUMEM_SESSIONS` | 2 / 10 | the slice: the first N users, and the first M sessions of each, in order (0 = all) |
-| `HALUMEM_CONCURRENCY` | 2 | users in parallel (sessions of one user always run in order) |
-| `HALUMEM_JUDGE_CONCURRENCY` | 8 | judge calls in parallel |
-| `HALUMEM_JUDGE_MODEL` | `gpt-6-luna` | |
-| `HALUMEM_OPENAI_BASE_URL` | | an OpenAI-compatible endpoint for the judge |
-| `HALUMEM_RUN_ID` | generated | a re-run with the same id resumes; finished users are skipped |
-| `HALUMEM_SYSTEM_FILE` | | judge an existing `halumem-system-*.jsonl` again, with no stand |
-| `HALUMEM_REPORT_DIR` | `var/halumem` | |
+| Env                                  | Default       |                                                                                    |
+| ------------------------------------ | ------------- | ---------------------------------------------------------------------------------- |
+| `HALUMEM_USERS` / `HALUMEM_SESSIONS` | 2 / 10        | the slice: the first N users, and the first M sessions of each, in order (0 = all) |
+| `HALUMEM_CONCURRENCY`                | 2             | users in parallel (sessions of one user always run in order)                       |
+| `HALUMEM_JUDGE_CONCURRENCY`          | 8             | judge calls in parallel                                                            |
+| `HALUMEM_JUDGE_MODEL`                | `gpt-6-luna`  |                                                                                    |
+| `HALUMEM_INGEST`                     | `async`       | `sync` writes with the synchronous document path                                   |
+| `HALUMEM_SETTLE_TIMEOUT_MS`          | 900000        | longest wait for one async document to be processed                                |
+| `HALUMEM_OPENAI_BASE_URL`            |               | an OpenAI-compatible endpoint for the judge                                        |
+| `HALUMEM_RUN_ID`                     | generated     | a re-run with the same id resumes; finished users are skipped                      |
+| `HALUMEM_SYSTEM_FILE`                |               | judge an existing `halumem-system-*.jsonl` again, with no stand                    |
+| `HALUMEM_REPORT_DIR`                 | `var/halumem` |                                                                                    |
 
 Scale: HaluMem-Medium has 20 users, 1,387 sessions, 60k turns, 15k memory points
 and 3.5k questions. The whole set means about 40k judge calls, so start from a
