@@ -11,8 +11,8 @@ disagree, this file wins (and please fix the other one).
 ## What this is
 
 INITE Brain is a bitemporal, per-tenant knowledge-graph memory service for AI
-agents, served over MCP (Streamable HTTP) and REST, on SurrealDB. NestJS 11 +
-TypeScript, pnpm, Node 22. Also in the repo: the landing/admin app
+agents, served over MCP (Streamable HTTP) and REST, on SurrealDB. NestJS 12 +
+TypeScript, pnpm, Node 24 (≥24.9: Jest runs Nest 12 ESM via `--experimental-vm-modules`). Also in the repo: the landing/admin app
 (`brain-landing/`, Next.js), npm clients (`clients/*`), the agent skills
 (`skills/`) and the Claude Code plugin (`plugins/inite-brain/`).
 
@@ -92,11 +92,11 @@ approves the design before code.
 ## Setup
 
 **One click:** [Open in GitHub Codespaces](https://codespaces.new/inite-ai/inite-brain-service)
-— `.devcontainer/` gives Node 22, pnpm 10, deps installed, a `.env` copied from
+— `.devcontainer/` gives Node 24, pnpm 10, deps installed, a `.env` copied from
 `.env.example`, SurrealDB running on `localhost:8000` and Docker-in-Docker for
 the e2e suites.
 
-**Local** (Node 22, pnpm 10 via `corepack enable`, Docker for SurrealDB):
+**Local** (Node 24.9+, pnpm 10 via `corepack enable`, Docker for SurrealDB):
 
 ```bash
 pnpm install --frozen-lockfile
