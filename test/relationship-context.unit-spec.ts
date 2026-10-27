@@ -177,3 +177,34 @@ describe('relationship context — hypotheses', () => {
     expect(ctx.state).toEqual({ known: false });
   });
 });
+
+describe('relationship context — when a commitment falls due', () => {
+  it('reads the day it is for, owed through the end of that day', () => {
+    const ctx = shapeRelationshipContext({
+      userId: 'ana',
+      now,
+      rows: [
+        // said six days ago, for four days ago
+        {
+          id: 'c:past',
+          predicate: 'relationship__commitment',
+          object: 'ask how the dinner went',
+          validFrom: hoursAgo(144),
+          scheduledDay: '2026-10-23',
+        },
+        // for today: not overdue until today is over
+        {
+          id: 'c:today',
+          predicate: 'relationship__commitment',
+          object: 'send the plan',
+          validFrom: hoursAgo(30),
+          scheduledDay: '2026-10-27',
+        },
+      ],
+    });
+    expect(ctx.commitments.map((c) => [c.factId, c.overdue, c.due])).toEqual([
+      ['c:past', true, '2026-10-24T00:00:00.000Z'],
+      ['c:today', false, '2026-10-28T00:00:00.000Z'],
+    ]);
+  });
+});

@@ -161,7 +161,8 @@ treat the person ("never talk to me about weight") stays the core instruction
 predicate on the person. Another speaker's guess about the person is never a fact
 about them: when it is PUT TO the person, record it — answered in the conversation,
 as relationship__hypothesis_confirmed or relationship__hypothesis_rejected; left
-unanswered (a shrug, a change of subject), as relationship__hypothesis. When the
+unanswered (a shrug, a change of subject), as relationship__hypothesis — one or the
+other, never both for the same guess. When the
 answer comes in a later conversation and the open hypothesis is a KNOWN FACT, the
 outcome lists it in supersedes.`,
     fewShot: [

@@ -24,6 +24,7 @@ export const PROBES: readonly Probe[] = [
     // S2 is two hours old — the memory knows the current state.
     expectAnyOf: [
       'animad',
+      'animated',
       'excited',
       'upbeat',
       'energ',

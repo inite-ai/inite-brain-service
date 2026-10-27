@@ -435,7 +435,7 @@ export class EntitiesService {
       );
       const rows = await queryRows<RelationshipFactRow & FactProfileRow>(
         db,
-        `SELECT ${FACT_PROFILE_FIELDS}, entityId.canonicalName AS about
+        `SELECT ${FACT_PROFILE_FIELDS}, objectMeta.date AS scheduledDay, entityId.canonicalName AS about
            FROM knowledge_fact
           WHERE userId = $relUser
             AND (predicate = 'instruction' OR string::starts_with(predicate, $relPrefix))
