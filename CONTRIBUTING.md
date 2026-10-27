@@ -96,7 +96,7 @@ If your migration changes a column type or drops a field, you also need:
 ### 3. No new dependencies without justification
 
 Cold-start budget is tight — BGE-M3 already lugs ~150MB of ONNX, and
-`onnxruntime-node` is the reason the Dockerfile is `node:22-slim` and not
+`onnxruntime-node` is the reason the Dockerfile is `node:24-slim` and not
 `alpine`. A new top-level dep needs:
 
 - A one-sentence reason in the PR description.

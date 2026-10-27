@@ -3,7 +3,7 @@
 # (SURREALDB_URL=ws://localhost:8000) works unchanged inside it.
 services:
   app:
-    image: mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm
+    image: mcr.microsoft.com/devcontainers/typescript-node:24-bookworm
     command: sleep infinity
     volumes:
       - ../..:/workspaces:cached

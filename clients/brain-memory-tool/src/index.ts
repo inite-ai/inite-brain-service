@@ -65,7 +65,7 @@ export class BrainMemory {
 
   constructor(private readonly options: BrainMemoryOptions) {
     if (!options.apiKey) throw new Error('brain memory: apiKey is required');
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(options.baseUrl ?? DEFAULT_BASE);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
 
@@ -226,3 +226,10 @@ export function createBrainMemory(options: BrainMemoryOptions): BrainMemory {
  * — that combination is the point of the memory tool.
  */
 export const MEMORY_TOOL_DEFINITION = { type: 'memory_20250818', name: 'memory' } as const;
+
+/** A loop, not `/\/+$/`: that regex is quadratic on a run of slashes (CodeQL js/polynomial-redos). */
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
