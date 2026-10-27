@@ -122,7 +122,7 @@ jobs:
           flags=$(sha256sum < stand.env | cut -c1-12)
           corpus=$( (cd harness && git ls-tree -r HEAD "test/eval/$BATTERY" test/eval/phase.ts test/eval/http-brain-client.ts test/eval/long-request.ts) | sha256sum | cut -c1-12)
           day=""; [ "$BATTERY" = relationship ] && day="-$(date -u +%F)"
-          echo "key=battery-snap-v1-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
+          echo "key=battery-snap-v2-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
 
       - name: Restore snapshot
         id: snap
@@ -207,7 +207,10 @@ jobs:
         run: |
           set -a; . snap/battery.env; set +a
           for db in system "co_${BRAIN_COMPANY_ID}"; do
-            $SURREAL export -e http://127.0.0.1:8000 -u root -p root --ns brain --db "$db" > "snap/db-$db.surql"
+            # To a file inside the container: on stdout the CLI's own INFO log
+            # lines land in the dump (the first v1 snapshots were unimportable).
+            $SURREAL export -e http://127.0.0.1:8000 -u root -p root --ns brain --db "$db" "/tmp/export-$db.surql"
+            docker cp "stand-surreal:/tmp/export-$db.surql" "snap/db-$db.surql"
             echo "[snap] exported $db: $(wc -c < "snap/db-$db.surql") bytes"
           done
 
