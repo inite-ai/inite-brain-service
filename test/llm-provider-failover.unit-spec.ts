@@ -83,9 +83,16 @@ describe('LLM provider failover', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('without a fallback configured the client is the plain SDK client', () => {
+  it('without a fallback configured a call reaches the SDK once, body untouched', async () => {
+    const { calls } = stubCreate(() => ({ ok: true }));
     const client = createOpenAiClient(config({ OPENAI_API_KEY: 'sk' }))!;
-    expect(Object.prototype.hasOwnProperty.call(client.chat.completions, 'create')).toBe(false);
+    await (client.chat.completions.create as unknown as Create)({
+      model: 'gpt-6-luna',
+      messages: [],
+    });
+    expect(calls).toEqual([
+      { baseURL: 'https://api.openai.com/v1', model: 'gpt-6-luna', tier: undefined },
+    ]);
   });
 
   it('a namespaced id is the same reasoning model', () => {
