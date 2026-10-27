@@ -237,6 +237,19 @@ jobs:
           mkdir -p ../out && cp ../snap/reports/*.json ../out/ 2>/dev/null || true
           { echo "### $ARM — $BATTERY #$SAMPLE (snapshot ${HIT:-miss})"; echo '```'; sed -n '/scorecard/,$p' ../ask.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Dump the written facts
+        # What extraction wrote, beside what serving answered: a probe that
+        # flips between runs on ONE snapshot is a serving question, and a
+        # probe that fails on every run asks to see the graph.
+        if: always()
+        run: |
+          set -a; . snap/battery.env; set +a
+          mkdir -p out
+          echo "SELECT entityId.canonicalName AS entity, predicate, object, statement, status, userId FROM knowledge_fact ORDER BY entity, predicate;" \
+            | $SURREAL sql -e http://127.0.0.1:8000 -u root -p root --ns brain --db "co_${BRAIN_COMPANY_ID}" --hide-welcome --json -l none \
+            > out/facts.json || echo "[warn] facts dump failed"
+          echo "[ok] $(wc -c < out/facts.json) bytes of facts"
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
