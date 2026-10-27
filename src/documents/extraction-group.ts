@@ -28,6 +28,8 @@ export interface GroupDoc {
   occurredAt: Date;
   chunkCount: number;
   userId?: string | undefined;
+  /** The trust circle(s) the document was said in; documents of different circles never share a read. */
+  circleKey?: string | undefined;
   /** The conversation the document is a turn of; absent = a standalone document. */
   conversationId?: string | undefined;
   speakerName?: string | undefined;
@@ -53,7 +55,7 @@ export interface GroupBudget {
 export function planExtractionGroups(docs: GroupDoc[], budget: GroupBudget): GroupDoc[][] {
   const byKey = new Map<string, GroupDoc[]>();
   for (const d of [...docs].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
-    const key = `${d.userId ?? ''}\x1e${d.conversationId ?? ''}`;
+    const key = `${d.userId ?? ''}\x1e${d.circleKey ?? ''}\x1e${d.conversationId ?? ''}`;
     const list = byKey.get(key) ?? [];
     list.push(d);
     byKey.set(key, list);

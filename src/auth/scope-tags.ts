@@ -19,6 +19,7 @@
  * services, pure internals, and SQL-fragment builders alike.
  */
 import { ambientWriteScope } from './write-scope';
+import { CIRCLE_NAMESPACE, actingCircleTags } from './circle-scope';
 
 /** Active namespace: a single end-user's slice of the tenant (0055). */
 export const USER_NAMESPACE = 'user';
@@ -36,6 +37,7 @@ export const KNOWN_NAMESPACES: ReadonlySet<string> = new Set([
   USER_NAMESPACE,
   ORG_NAMESPACE,
   TEAM_NAMESPACE,
+  CIRCLE_NAMESPACE,
 ]);
 
 export interface ParsedTag {
@@ -75,11 +77,16 @@ export function parseTag(tag: string): ParsedTag | null {
  * org/team extension of later steps has one call site to widen.
  */
 export function scopeForUser(userId: string | undefined): string[] {
-  if (userId) return [userTag(userId)];
+  // Trust circles: a write made while acting in a circle carries its tag
+  // beside whatever else the row is scoped to — one more element of the
+  // AND-set, so it can only narrow who reads the row (circle-scope.ts).
+  const circles = actingCircleTags();
+  if (userId) return [userTag(userId), ...circles];
   // Step 3: an ingest may declare the scope its tenant-global writes
   // belong to (an org connection's group). A user-attributed write is
   // never widened by it — the user's own tag still wins above.
-  return [...(ambientWriteScope() ?? [])];
+  const ambient = ambientWriteScope() ?? [];
+  return [...ambient, ...circles.filter((c) => !ambient.includes(c))];
 }
 
 /**

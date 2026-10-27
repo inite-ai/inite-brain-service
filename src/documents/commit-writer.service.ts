@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { runInCircle } from '../auth/circle-scope';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
 import { createEdgeBetween } from '../ingest/edge-writer';
@@ -75,13 +76,18 @@ export class CommitWriterService {
     /** Aligned with factsToWrite; [] falls back to per-fact embedding. */
     embeddings: number[][];
   }): Promise<WriteMergedResult> {
-    return this.surreal.withCompany(p.companyId, async (db) => {
-      const entityIds = await this.resolveEntities(db, p);
-      const turns = await this.captureTurns(db, p.companyId, p.doc);
-      const facts = await this.writeFacts(db, { ...p, entityIds, turns });
-      const relations = await this.writeRelations(db, { ...p, entityIds });
-      return { entityIds, facts, relations };
-    });
+    // The commit runs in the circle the document was said in — from a job
+    // (batch, sweeper, relearn) as much as from a request: every scope the
+    // writers below stamp then carries it (trust circles §3.4).
+    return runInCircle(p.doc.circles ?? [], () =>
+      this.surreal.withCompany(p.companyId, async (db) => {
+        const entityIds = await this.resolveEntities(db, p);
+        const turns = await this.captureTurns(db, p.companyId, p.doc);
+        const facts = await this.writeFacts(db, { ...p, entityIds, turns });
+        const relations = await this.writeRelations(db, { ...p, entityIds });
+        return { entityIds, facts, relations };
+      }),
+    );
   }
 
   private async resolveEntities(
@@ -234,7 +240,9 @@ export class CommitWriterService {
    * capture is idempotent), which is how its facts point at them.
    */
   async captureDocumentTurns(companyId: string, doc: StoredDocument): Promise<void> {
-    await this.surreal.withCompany(companyId, (db) => this.captureTurns(db, companyId, doc));
+    await runInCircle(doc.circles ?? [], () =>
+      this.surreal.withCompany(companyId, (db) => this.captureTurns(db, companyId, doc)),
+    );
   }
 
   /**

@@ -21,8 +21,15 @@ relationship is the circle {person, counterpart}. Its §2.2 "consent
 bound to purpose" is implemented by this document; its plan's step 2
 points here.
 
-Status: concept, grounded in the code at `origin/main` 03f1c684.
-Nothing here is built.
+Status (2026-10-27): **step 1 built** (feat/trust-circles-agents) — a
+credential bound to a circle (`circle` on a BRAIN_API_KEYS entry or a
+stored key, migration 0171) writes into it and reads only it, from a
+request and from the jobs that commit its documents; derived scenes,
+segments, insights and pack scenes inherit their sources' circles; the
+extraction context, the answer cache and every synthesize lane with a
+`scope` column are fenced; beliefs and digests (no `scope` column) serve
+nothing under a circle. What is not built yet: sharing (§3.8), the asker
+as the agent (§3.2), the `relationship` pack.
 
 ---
 

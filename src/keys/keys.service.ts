@@ -18,6 +18,8 @@ export interface IssueRequest {
   scopes: string[];
   expiresInDays?: number;
   userId?: string;
+  /** Trust circle to bind the key to (auth/circle-scope.ts). */
+  circle?: string;
 }
 
 /**
@@ -73,6 +75,19 @@ export class KeysService {
     };
     const userId = this.resolveUserBinding(auth, request.userId);
     if (userId !== undefined) input.userId = userId;
+    // A circle narrows, so anyone may bind a new key to one — except out of
+    // the circle they act in themselves: that would be a way out of it.
+    if (
+      auth.circle !== undefined &&
+      request.circle !== undefined &&
+      request.circle !== auth.circle
+    ) {
+      throw new BadRequestException(
+        'A key bound to a circle can only issue keys for the same circle.',
+      );
+    }
+    const circle = request.circle ?? auth.circle;
+    if (circle !== undefined) input.circle = circle;
     if (request.expiresInDays !== undefined) {
       input.expiresAt = new Date(Date.now() + request.expiresInDays * 86_400_000);
     }

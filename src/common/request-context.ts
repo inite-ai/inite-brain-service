@@ -68,6 +68,12 @@ export interface RequestContext {
    */
   authActorId?: string;
   /**
+   * The circle the credential acts in (trust circles, auth/circle-scope.ts),
+   * stamped by ApiKeyGuard from the key's `circle`. Writes are scoped to it
+   * and reads are bound to it. Absent = no circle, today's behaviour.
+   */
+  actingCircle?: string;
+  /**
    * Per-tenant retrieval profile, resolved once by ApiKeyGuard next to
    * brainAuth. Entry points hand it down by argument; the ALS slot
    * exists so old no-argument call sites resolve the same object

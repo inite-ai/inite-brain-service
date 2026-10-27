@@ -1,3 +1,4 @@
+import { actingCircleTags } from '../auth/circle-scope';
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
@@ -118,6 +119,10 @@ export class BeliefLaneService {
     // Fence 2 (D4): an unscoped request serves NO beliefs — checked
     // before any IO so the off-path issues zero queries.
     if (opts.userId === undefined) return EMPTY_RESULT;
+    // Trust circles §3.5: semantic_belief has no scope column, so a belief
+    // cannot say which circle it was learned in — acting in a circle, the
+    // lane serves none rather than one learned somewhere else.
+    if (actingCircleTags().length > 0) return EMPTY_RESULT;
     const userId = opts.userId;
     const fetchK = Math.max(BELIEF_LANE_TOP_K * 3, 9);
     try {

@@ -125,7 +125,7 @@ jobs:
           corpus=$( (cd harness && git ls-tree -r HEAD -- "test/eval/$BATTERY" test/eval/phase.ts test/eval/http-brain-client.ts test/eval/long-request.ts) \
             | grep -vE '/(probes|questions|scorers)\.ts$|/README\.md$' | sha256sum | cut -c1-12)
           day=""; [ "$BATTERY" = relationship ] && day="-$(date -u +%F)"
-          echo "key=battery-snap-v2-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
+          echo "key=battery-snap-v3-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
 
       - name: Restore snapshot
         id: snap
@@ -163,9 +163,13 @@ jobs:
             const h=k=>"sha256:"+c.createHash("sha256").update(k).digest("hex");
             const co="battery"+c.randomBytes(4).toString("hex");
             const admin=mk(), reader=mk(), run="b"+Date.now().toString(36);
+            // The relationship battery measures two surfaces: each key acts in
+            // its own trust circle (auth/circle-scope.ts). A server that predates
+            // circles ignores the field, which is the baseline being measured.
+            const rel=process.env.BATTERY==="relationship";
             fs.writeFileSync("snap/keys.json",JSON.stringify([
-              {keyHash:h(admin),companyId:co,scopes:["brain:read","brain:write","brain:admin","brain:read_pii"]},
-              {keyHash:h(reader),companyId:co,scopes:["brain:read"]}]));
+              {keyHash:h(admin),companyId:co,scopes:["brain:read","brain:write","brain:admin","brain:read_pii"],...(rel?{circle:"coach"}:{})},
+              {keyHash:h(reader),companyId:co,scopes:["brain:read"],...(rel?{circle:"assistant"}:{})}]));
             fs.writeFileSync("snap/battery.env",[
               `BRAIN_COMPANY_ID=${co}`,`BRAIN_API_KEY=${admin}`,`REL_ASSISTANT_API_KEY=${reader}`,
               `MEMFIT_RUN_ID=${run}`,`STEV_RUN_ID=${run}`,`REL_RUN_ID=${run}`,

@@ -18,6 +18,7 @@
 import { envFlagEnabled } from '../common/env-validation';
 import { getRequestContext } from '../common/request-context';
 import { heldTagsFor } from './scope-principal';
+import { actingCircleTags, circleTagsOf } from './circle-scope';
 import { parseTag, userTag } from './scope-tags';
 
 /**
@@ -35,6 +36,16 @@ export type PrincipalScope = typeof TENANT_WIDE | readonly string[];
 /** Whether the scope-tag fence is active. Read per-call (runtime-mutable). */
 export function scopeTagsEnabled(): boolean {
   return envFlagEnabled(process.env.SCOPE_TAGS_ENABLED);
+}
+
+/**
+ * Whether the scope-tag fence applies to THIS request: the tenant-wide
+ * flag, or a credential acting in a circle. A circle's privacy must not
+ * hang on an operator flag — a deployment with SCOPE_TAGS_ENABLED off
+ * still keeps one circle's rows from another (trust circles §3.2).
+ */
+export function scopeFenceActive(): boolean {
+  return scopeTagsEnabled() || actingCircleTags().length > 0;
 }
 
 /**
@@ -64,7 +75,13 @@ export function visibleUnderScope(
   if (recordScope.length === 0) return true;
   // Tenant-wide authority: sees the whole tenant, malformed tags included
   // (it already does today, with no userId fence) — preserves parity.
-  if (principal === TENANT_WIDE) return true;
+  if (principal === TENANT_WIDE) {
+    // Trust circles §3.2: tenant-wide authority acting in a circle still
+    // does not read other circles. Only the rows of circles it is not
+    // acting in are hidden; everything it saw before, it still sees.
+    const acting = actingCircleTags();
+    return acting.length === 0 || circleTagsOf(recordScope).every((t) => acting.includes(t));
+  }
   // Scoped principal: satisfy the AND-set, failing closed on any tag we
   // cannot parse or whose namespace we do not recognize.
   for (const tag of recordScope) {
@@ -115,8 +132,17 @@ export function scopeFenceSql(
   userId: string | undefined,
   param = 'principalScopeTag',
 ): { clause: string; params: Record<string, unknown> } {
-  if (!scopeTagsEnabled()) return { clause: '', params: {} };
+  if (!scopeFenceActive()) return { clause: '', params: {} };
   const scoped = userId ?? getRequestContext()?.authUserId;
+  if (!scoped && actingCircleTags().length > 0) {
+    // A credential bound to a circle is never tenant-wide: asking about no
+    // one in particular, it still reads only the tenant-global rows and its
+    // own circle's (trust circles §3.2).
+    return {
+      clause: `AND (scope = [] OR scope ALLINSIDE $${param})`,
+      params: { [param]: [...actingCircleTags()] },
+    };
+  }
   if (!scoped) {
     // Tenant-wide authority (an M2M credential, a background job) IS the
     // tenant boundary — no scope clause, the same answer

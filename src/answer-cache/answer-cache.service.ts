@@ -1,3 +1,4 @@
+import { actingCircleTags } from '../auth/circle-scope';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
@@ -664,7 +665,10 @@ export class AnswerCacheService {
     // Rights partition the key (round-2 audit F1, half b): a
     // `brain:read_media` answer and a `brain:read` answer to the same
     // question are different answers, so they can never share an entry.
-    const scopeHash = computeScopeHash(opts.callerScopes);
+    // Trust circles partition it too: two agents of one user acting in
+    // different circles read different memory, so they never share an
+    // answer (a coach's answer must not be served to the assistant).
+    const scopeHash = computeScopeHash([...opts.callerScopes, ...actingCircleTags()]);
     return {
       key: computeCacheKey({
         companyId: opts.companyId,

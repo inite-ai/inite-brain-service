@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -499,6 +500,12 @@ export class EntitiesService {
         params.scopeUserId = scopeUserId;
       } else {
         clauses.push(`userId IS NONE`);
+      }
+      // Trust circles: the timeline of a circle's facts is the circle's.
+      const timelineTags = scopeFenceSql(scopeUserId, 'timelineScopeTag');
+      if (timelineTags.clause) {
+        clauses.push(timelineTags.clause.replace(/^AND\s+/, ''));
+        Object.assign(params, timelineTags.params);
       }
       if (since) {
         clauses.push(`recordedAt >= $since`);

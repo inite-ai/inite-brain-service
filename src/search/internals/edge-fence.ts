@@ -1,3 +1,4 @@
+import { scopeFenceSql } from '../../auth/scope-visibility';
 /**
  * Shared policy fence for knowledge_edge reads (graph research 2026-08,
  * action 1). Before this, none of the hot-path edge queries filtered
@@ -45,15 +46,19 @@ export interface EdgeFence {
  * held at T. Without `asOf` the fence is the current state, as before.
  */
 export function buildEdgeFence(userId?: string, asOf?: string | Date): EdgeFence {
+  // Trust circles: the scope-tag fence beside the userId one (edge-writer
+  // stamps a circle's tag on edges stated inside it).
+  const tags = scopeFenceSql(userId, 'edgeScopeTag');
+  const tagParams = tags.params as Record<string, string | Date>;
   const scoped = userId
     ? {
-        scopeCond: '(userId IS NONE OR userId = $edgeScopeUserId)',
-        params: { edgeScopeUserId: userId } as Record<string, string | Date>,
+        scopeCond: `(userId IS NONE OR userId = $edgeScopeUserId) ${tags.clause}`.trim(),
+        params: { edgeScopeUserId: userId, ...tagParams } as Record<string, string | Date>,
         allowsPeer: (peerUserId: unknown) => peerUserId == null || peerUserId === userId,
       }
     : {
-        scopeCond: 'userId IS NONE',
-        params: {} as Record<string, string | Date>,
+        scopeCond: `userId IS NONE ${tags.clause}`.trim(),
+        params: { ...tagParams } as Record<string, string | Date>,
         allowsPeer: (peerUserId: unknown) => peerUserId == null,
       };
   if (asOf === undefined) {

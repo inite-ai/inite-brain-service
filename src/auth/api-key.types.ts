@@ -86,6 +86,13 @@ export interface ApiKeyRecord {
    * candidates as another integration's identity.
    */
   packIds?: string[];
+  /**
+   * The trust circle this credential acts in (auth/circle-scope.ts) —
+   * from the `circle` field of a BRAIN_API_KEYS entry or of a stored key.
+   * Its writes are scoped to the circle and its reads bound to it.
+   * Absent = no circle: the credential behaves exactly as before.
+   */
+  circle?: string;
 }
 
 export interface AuthenticatedRequest {
@@ -97,6 +104,8 @@ export interface AuthenticatedRequest {
     userId?: string;
     /** Acting client (agent) identity; see ApiKeyRecord.actorId. */
     actorId?: string;
+    /** Trust circle the credential acts in; see ApiKeyRecord.circle. */
+    circle?: string;
     /** RFC 9396 MCP grant; see ApiKeyRecord.mcpGrantedActions. */
     mcpGrantedActions?: string[];
     /** Per-pack binding of an indexer key; absent = all external packs. */
