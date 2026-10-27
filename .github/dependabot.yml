@@ -21,7 +21,7 @@ updates:
       # selling it"), which the transition detector reads (state-transitions).
       - dependency-name: compromise
         versions: [">=14.18.0"]
-      # The runtime is Node 22 (Dockerfile, CI): types must describe it.
+      # The runtime is Node 24 (Dockerfile, CI): types must describe it.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
       # The Nest 12 line needs @nestjs/core 12 — a framework migration of its

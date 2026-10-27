@@ -1,4 +1,4 @@
-# node:22-slim (Debian-based, glibc) — NOT alpine.
+# node:24-slim (Debian-based, glibc) — NOT alpine.
 #
 # Why: `onnxruntime-node` (transitive dep of @xenova/transformers,
 # used by LocalNerService + IntentClassifierService) ships precompiled
@@ -29,10 +29,10 @@
 # republish can't silently change the build under us — reproducible
 # images + an auditable bump. Refresh both FROMs together with the new
 # manifest-list digest from:
-#   docker buildx imagetools inspect node:22-slim   # → Digest:
+#   docker buildx imagetools inspect node:24-slim   # → Digest:
 # (use the top-level multi-arch manifest digest, which resolves per-arch).
 
-FROM node:22-slim@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4 AS builder
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS builder
 
 WORKDIR /app
 
@@ -55,7 +55,7 @@ RUN pnpm build
 
 # ── Runtime ──────────────────────────────────────────────────────────────
 # Same digest pin as the builder stage above (keep them in lockstep).
-FROM node:22-slim@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 
 # wget is preinstalled on node:22-alpine but NOT on -slim (Debian).
 # The deploy workflow's docker-compose healthcheck shells `wget -qO-

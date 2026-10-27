@@ -1,16 +1,19 @@
 {
-  "moduleFileExtensions": [
-    "js",
-    "json",
-    "ts"
-  ],
+  "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": "test/.*\\.real-e2e-spec\\.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": { "allowJs": true } }]
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "allowJs": true
+        }
+      }
+    ]
   },
-  "transformIgnorePatterns": ["node_modules/(?!\\.pnpm|jose|any-ascii)", "node_modules/\\.pnpm/(?!jose@|any-ascii@)"],
+  "transformIgnorePatterns": ["/node_modules/"],
   "testTimeout": 180000,
   "cacheDirectory": "<rootDir>/.jest-cache",
   "forceExit": true,
@@ -20,11 +23,6 @@
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@inite/knowledge$": "<rootDir>/../inite-shared/packages/knowledge/src/index.ts"
   },
-  "testPathIgnorePatterns": [
-    "/node_modules/",
-    "/.claude/worktrees/"
-  ],
-  "modulePathIgnorePatterns": [
-    "/.claude/worktrees/"
-  ]
+  "testPathIgnorePatterns": ["/node_modules/", "/.claude/worktrees/"],
+  "modulePathIgnorePatterns": ["/.claude/worktrees/"]
 }
