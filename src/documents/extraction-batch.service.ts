@@ -376,15 +376,51 @@ export class ExtractionBatchService implements OnModuleInit {
       // Read inside the circle the group was said in: the extractor's view
       // of memory (memory-context) is then fenced to it (trust circles §3.7).
       const circles = (group[0]?.circleKey ?? '').split(',').filter(Boolean);
-      const r = await runInCircle(circles, () => this.readGroup(ctx, { group, depth }, page));
-      if (!r.ok) {
-        out.failed += r.members.length;
-        continue;
-      }
-      out.read += r.members.length;
-      out.committed += await this.commitInOrder(ctx.companyId, r.members);
+      const r = await runInCircle(circles, () => this.readSplitting(ctx, { group, depth }, page));
+      out.failed += r.failed.length;
+      out.read += r.read.length;
+      if (r.read.length > 0) out.committed += await this.commitInOrder(ctx.companyId, r.read);
     }
     return out;
+  }
+
+  /**
+   * Read a group; if the read fails, read its halves, down to single turns.
+   * A group of 13–14 long turns timed out on every attempt while its halves
+   * fit (battery stand, 2026-10-27), and a retry pass rebuilt the same
+   * group and failed the same way. Halving stops at the pass deadline:
+   * what is left fails and waits for the retry pass.
+   */
+  private async readSplitting(
+    ctx: PassContext,
+    { group, depth }: { group: GroupDoc[]; depth: Exclude<ReadDepth, 'raw'> },
+    page: Page,
+  ): Promise<{ read: StoredDocument[]; failed: StoredDocument[] }> {
+    const r = await this.withLeaseHeartbeat(ctx, () => this.readGroup(ctx, { group, depth }, page));
+    if (r.ok) return { read: r.members, failed: [] };
+    const tooLate = ctx.abortSignal?.aborted || Date.now() > ctx.deadline;
+    if (group.length < 2 || tooLate) return { read: [], failed: r.members };
+    const mid = Math.ceil(group.length / 2);
+    this.logger.log(
+      `extract_documents ${ctx.companyId}: reading the failed group of ${group.length} as ${mid} + ${group.length - mid}`,
+    );
+    const first = await this.readSplitting(ctx, { group: group.slice(0, mid), depth }, page);
+    const second = await this.readSplitting(ctx, { group: group.slice(mid), depth }, page);
+    return { read: [...first.read, ...second.read], failed: [...first.failed, ...second.failed] };
+  }
+
+  /**
+   * Keep the pass lease alive while one read runs: the lease (120 s) was
+   * only renewed between groups, and a flex-tier read may take longer.
+   */
+  private async withLeaseHeartbeat<T>(ctx: PassContext, fn: () => Promise<T>): Promise<T> {
+    const timer = setInterval(() => void ctx.renew().catch(() => undefined), LEASE_HEARTBEAT_MS);
+    timer.unref?.();
+    try {
+      return await fn();
+    } finally {
+      clearInterval(timer);
+    }
   }
 
   /** One group's read, at its depth. Never throws. */
@@ -665,12 +701,14 @@ interface PassContext {
   abortSignal?: AbortSignal | undefined;
   /** Epoch ms after which no further group is started. */
   deadline: number;
-  /** Renew the tenant's pass lease (before each group). */
+  /** Renew the tenant's pass lease (before each group, and while one is read). */
   renew: () => Promise<void>;
 }
 
 /** The tenant's pass lease: renewed before every group, so a crashed holder frees it within this. */
 const LEASE_TTL_SECONDS = 120;
+/** Lease renewal while one read is in flight. */
+const LEASE_HEARTBEAT_MS = 45_000;
 /** How long a drain waits for another replica's pass to finish. */
 const LEASE_WAIT_MS = 60 * 60_000;
 
