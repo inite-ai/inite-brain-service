@@ -120,7 +120,10 @@ jobs:
         run: |
           code=$(git ls-tree -r HEAD src package.json pnpm-lock.yaml | sha256sum | cut -c1-16)
           flags=$(sha256sum < stand.env | cut -c1-12)
-          corpus=$( (cd harness && git ls-tree -r HEAD "test/eval/$BATTERY" test/eval/phase.ts test/eval/http-brain-client.ts test/eval/long-request.ts) | sha256sum | cut -c1-12)
+          # Questions and scorers do not change what is written: editing a probe
+          # must not rebuild the memory it asks.
+          corpus=$( (cd harness && git ls-tree -r HEAD -- "test/eval/$BATTERY" test/eval/phase.ts test/eval/http-brain-client.ts test/eval/long-request.ts) \
+            | grep -vE '/(probes|questions|scorers)\.ts$|/README\.md$' | sha256sum | cut -c1-12)
           day=""; [ "$BATTERY" = relationship ] && day="-$(date -u +%F)"
           echo "key=battery-snap-v2-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
 

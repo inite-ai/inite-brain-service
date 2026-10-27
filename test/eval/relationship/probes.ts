@@ -144,7 +144,11 @@ export const PROBES: readonly Probe[] = [
     check: 'R8',
     surface: 'assistant',
     kind: 'qualified',
-    prompt: 'Why does Ana snack at night?',
+    // In her own words: "é mais quando eu durmo mal" — she snacks all the next
+    // day after a bad night. "Why at night?" was answered on the base only via
+    // the coach's own inference ("o sono parece ser a chave") stored as a fact
+    // about Ana — the very thing R5 forbids — so the probe rewarded it.
+    prompt: 'According to Ana herself, what makes her snack more?',
     expectAnyOf: ['sono', 'sleep', 'dorm', 'durmo'],
     // The rejected claim is "LONG meetings → night snacking". A bare
     // "meeting" also matches a true fact from c1 ("skipped lunch because of
