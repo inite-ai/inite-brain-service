@@ -138,11 +138,62 @@ export function shapeRelationshipContext(p: {
     state: stateOf(of('stated_affect')[0], now),
     whatHelped: of('helped').map(item),
     whatDidNotHelp: of('did_not_help').map(item),
-    hypotheses: {
-      open: of('hypothesis').map(item),
-      confirmed: of('hypothesis_confirmed').map(item),
-      rejected: of('hypothesis_rejected').map(item),
-    },
+    hypotheses: hypothesesOf(of),
+  };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Words every hypothesis row carries whatever it is about. */
+const HYPOTHESIS_FILLER = new Set([
+  'coach',
+  'coach’s',
+  "coach's",
+  'hypothesis',
+  'hypothesized',
+  'hypothesizes',
+  'that',
+]);
+
+function contentWords(text: string): Set<string> {
+  const words = text.toLowerCase().match(/[\p{L}\p{N}’']+/gu) ?? [];
+  return new Set(words.filter((w) => w.length >= 4 && !HYPOTHESIS_FILLER.has(w)));
+}
+
+/** Most of the open guess's words are in the closing row: the same guess, answered. */
+function sameGuess(open: Set<string>, closing: Set<string>): boolean {
+  if (open.size === 0) return false;
+  let shared = 0;
+  for (const w of open) if (closing.has(w)) shared++;
+  return shared / open.size >= 0.6;
+}
+
+/**
+ * A guess the person answered is not open any more. Extraction writes the
+ * guess and its answer as separate rows, often from one conversation, so
+ * the battery saw the same "snacks more at night on meeting days" both
+ * open and rejected (r8, 2026-10-27) and an agent reading `open` would put
+ * a rejected guess again. An open row stays only when no confirmation or
+ * rejection says the same thing — or when it was raised again more than a
+ * day after that answer.
+ */
+function hypothesesOf(
+  of: (predicate: string) => RelationshipFactRow[],
+): RelationshipContext['hypotheses'] {
+  const confirmed = of('hypothesis_confirmed');
+  const rejected = of('hypothesis_rejected');
+  const closings = [...confirmed, ...rejected].map((r) => ({
+    words: contentWords(r.object),
+    at: new Date(r.validFrom).getTime(),
+  }));
+  const open = of('hypothesis').filter((r) => {
+    const words = contentWords(r.object);
+    const at = new Date(r.validFrom).getTime();
+    return !closings.some((c) => sameGuess(words, c.words) && at - c.at <= DAY_MS);
+  });
+  return {
+    open: open.map(item),
+    confirmed: confirmed.map(item),
+    rejected: rejected.map(item),
   };
 }
 

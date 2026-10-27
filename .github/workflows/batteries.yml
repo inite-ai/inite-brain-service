@@ -67,12 +67,9 @@ jobs:
       matrix:
         arm: [base, head]
         battery: [memory-fitness, state-transitions, relationship]
-        sample: [1]
-        include:
-          - { arm: base, battery: relationship, sample: 2 }
-          - { arm: base, battery: relationship, sample: 3 }
-          - { arm: head, battery: relationship, sample: 2 }
-          - { arm: head, battery: relationship, sample: 3 }
+        # Three samples of every battery: one memory-fitness sample moves
+        # ±2–3 of 32 on the same code, so the summary job compares ranges.
+        sample: [1, 2, 3]
     env:
       BATTERY: ${{ matrix.battery }}
       SAMPLE: ${{ matrix.sample }}
@@ -277,3 +274,20 @@ jobs:
             out/
             *.log
           retention-days: 14
+
+  summary:
+    name: summary (mean ± range)
+    needs: run
+    if: always() && needs.run.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: batteries-*
+          path: artifacts
+      - name: Mean and range per battery and arm
+        run: node scripts/ci/battery-summary.mjs artifacts >> "$GITHUB_STEP_SUMMARY"

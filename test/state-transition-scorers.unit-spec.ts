@@ -14,6 +14,7 @@ import {
   type BeliefLike,
   type HistoryEvent,
 } from './eval/state-transitions/scorers';
+import { SCENARIOS } from './eval/state-transitions/scenarios';
 
 describe('state-transition scorers', () => {
   describe('belief matcher', () => {
@@ -252,5 +253,30 @@ describe('state-transition scorers', () => {
         'fail',
       );
     });
+  });
+});
+
+describe('serve markers read negations the way models phrase them', () => {
+  it('s01: "own no motorcycle" is the disposed state', () => {
+    const s01 = SCENARIOS.flatMap((s) => s.checks).find((c) => c.id === 's01-serve');
+    expect(s01?.kind).toBe('serve');
+    if (s01?.kind !== 'serve') return;
+    expect(scoreServe('No—you currently own no motorcycle.', undefined, s01).status).toBe('pass');
+  });
+
+  it('s04: a curly apostrophe still matches the authored marker', () => {
+    const s04 = SCENARIOS.flatMap((s) => s.checks).find((c) => c.id === 's04-serve');
+    if (s04?.kind !== 'serve') throw new Error('s04-serve missing');
+    expect(
+      scoreServe('No, you don’t have an active Spotify subscription.', undefined, s04).status,
+    ).toBe('pass');
+  });
+
+  it('a decline still is not a pass', () => {
+    const s04 = SCENARIOS.flatMap((s) => s.checks).find((c) => c.id === 's04-serve');
+    if (s04?.kind !== 'serve') throw new Error('s04-serve missing');
+    expect(
+      scoreServe("I don't have information about your subscriptions.", undefined, s04).status,
+    ).toBe('fail');
   });
 });
