@@ -73,8 +73,6 @@ A real run against `https://brain.inite.ai` (ids are your tenant's own; long JSO
 
 ```text
 🧠 INITE Brain TypeScript SDK Quickstart
-Connecting to: https://brain.inite.ai
-User scope: quickstart-demo-user
 
 --- Step 1: Remember ---
 Input text:

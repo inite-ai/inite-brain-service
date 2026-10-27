@@ -26,9 +26,9 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log('🧠 INITE Brain TypeScript SDK Quickstart');
-  console.log(`Connecting to: ${baseUrl}`);
-  console.log(`User scope: ${userId}\n`);
+  // Configuration comes from the environment and is not echoed: the same
+  // environment holds the key.
+  console.log('🧠 INITE Brain TypeScript SDK Quickstart\n');
 
   // Step 1: Remember facts about a made-up person
   console.log('--- Step 1: Remember ---');
