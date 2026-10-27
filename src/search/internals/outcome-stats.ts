@@ -10,11 +10,10 @@ import type { FactRow } from './types';
  * outcome rollup only moves on VERIFIED use (verifier-supported /
  * user-confirmed), which is what these fields feed:
  *
- *   * lastVerifiedUseAt (profile verifiedUseDecay) — the decay clock
- *     may restart at the last VERIFIED use;
+ *   * lastVerifiedUseAt (profile verifiedUseDecay) — the last VERIFIED
+ *     use, a trace in the fact's activation (activation.ts);
  *   * verifiedUseScore  (profile verifiedUseRanking) — verifiedUseCount
- *     + confirmedCount, feeding the saturating ranking factor
- *     (SEARCH_VERIFIED_USE_BETA).
+ *     + confirmedCount, the number of verified uses it sums.
  *
  * Mirrors enrichWithUsage exactly: ONE batched indexed query for the
  * fused candidate set (subjectId carries a single-field UNIQUE index —

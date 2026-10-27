@@ -208,7 +208,6 @@ export class RecordsDoorService {
         ...d.meta,
       },
       storeContent: true,
-      mode: 'sync',
       // The render goes to the pack (external mode: no in-process
       // extraction, the candidates below are its facts); a prose field
       // goes to the general pipeline.

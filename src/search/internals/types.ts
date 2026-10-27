@@ -138,7 +138,7 @@ export interface FactRow {
    * Verified-use successor signal (migration 0107): verifiedUseCount +
    * confirmedCount from memory_outcome_stat, attached by
    * enrichWithOutcomeStats when profile.verifiedUseRanking is on.
-   * Absent → treated as 0 → verifiedUseFactor exactly 1.0.
+   * Absent → one use when lastVerifiedUseAt is attached, none otherwise (activation.ts).
    */
   verifiedUseScore?: number;
   /**
@@ -216,19 +216,6 @@ export interface ScoreBreakdown {
   usage?: {
     readCount: number;
     usageFactor: number;
-  };
-  /**
-   * Verified-use successor ranking (0107): the "because" decomposition
-   * of the verified-use signal — the attached verifiedUseScore
-   * (verifiedUseCount + confirmedCount) and the multiplicative
-   * `1 + β·squash(score)` term it produced. Omitted when the factor is
-   * exactly 1.0 (RETRIEVAL_VERIFIED_USE_RANKING off,
-   * SEARCH_VERIFIED_USE_BETA 0, or no verified use recorded) so
-   * unaffected rows stay byte-identical.
-   */
-  verifiedUse?: {
-    count: number;
-    factor: number;
   };
   /**
    * Source-reputation track, Phase 5: the "because" decomposition of the

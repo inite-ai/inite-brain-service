@@ -5,6 +5,7 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { ExtractorRunnerService } from '../ai/extractor-runner.service';
 import { ExtractorCacheService } from '../ai/extractor-cache.service';
 import type { ExtractionResult } from '../ai/extractor-internals/types';
+import { offlineServiceTier } from '../ai/openai-client';
 import { filterSnapshotForPack } from './snapshot-filter';
 
 export interface DedicatedRunOptions {
@@ -46,6 +47,12 @@ export class DedicatedExtractorService {
     companyId: string;
     packId: string;
     options?: DedicatedRunOptions | undefined;
+    /**
+     * A queued read nobody is waiting on: the offline tier, and a failed
+     * call throws (the run fails and its job retries) instead of reading
+     * as a document with nothing in it.
+     */
+    background?: boolean;
   }): Promise<ExtractionResult> {
     const { value: trimmed } = clampLlmInputText(p.text, 'mentionText');
     if (!trimmed) return { entities: [], facts: [], edges: [] };
@@ -84,9 +91,13 @@ export class DedicatedExtractorService {
       snapshot,
       overrides: {
         ...(p.options?.model !== undefined ? { model: p.options.model } : {}),
+        ...(p.background ? { tier: offlineServiceTier() } : {}),
         scPasses,
       },
     });
+    if (!result && p.background) {
+      throw new Error('extraction produced no usable response (transient LLM failure)');
+    }
     if (!result) {
       // Transient LLM failure — same no-cache contract as the union path.
       traceArtifact('indexer.dedicated.llm_failure_uncached', {
