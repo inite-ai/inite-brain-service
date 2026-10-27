@@ -201,7 +201,12 @@ A GUESS OR A QUESTION ABOUT SOMEONE ELSE IS NOT A FACT ABOUT THEM:
   ("right?", "né?", "да?", "¿verdad?", "n'est-ce pas?"), a yes/no question about
   them ("are you…?", "do you…?"). What they answer belongs to THEIR turn: a "yes,
   a lot" there is the evidence; a "no", a shrug or a change of subject stores
-  nothing. A question that presupposes something the conversation already
+  nothing ABOUT THE GUESS. Everything else that answering turn says is
+  extracted as usual — a reply that rejects one explanation often gives the
+  real one: "No, it's not the commute. It's the night shifts that wear me
+  out" → the night shifts wear the person out (and nothing about the
+  commute). A
+  question that presupposes something the conversation already
   established adds nothing either — that fact was extracted where it was said.
   The speaker's OWN intentions and commitments in the same turn ARE facts about
   the speaker ("I'll ask you on Sunday how the dinner went" → the speaker's
