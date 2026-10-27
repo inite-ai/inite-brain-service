@@ -57,6 +57,7 @@ function currentEngineFlags(): Set<string> {
   const files = walk(SRC).filter(
     (f) =>
       !f.endsWith('config-catalog.data.ts') &&
+      !f.includes('/config-catalog/') &&
       !f.endsWith('env-validation.ts') &&
       !f.endsWith('known-boolean-flags.ts'),
   );

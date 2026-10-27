@@ -52,7 +52,10 @@ const stripProse = (text: string): string =>
 function callersOf(resolver: string): string[] {
   const call = new RegExp(`\\b${resolver}\\s*\\(`);
   return walk(SRC)
-    .filter((f) => f !== SERVICE && !f.endsWith('config-catalog.data.ts'))
+    .filter(
+      (f) =>
+        f !== SERVICE && !f.endsWith('config-catalog.data.ts') && !f.includes('/config-catalog/'),
+    )
     .filter((f) => call.test(stripProse(readFileSync(f, 'utf8'))))
     .map((f) => f.slice(SRC.length + 1));
 }

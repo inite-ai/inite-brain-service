@@ -226,7 +226,7 @@ export function e23SigningSecretNotReadable(ctx: Ctx): Verdict {
   }
   return fail(
     'GET /v1/admin/config returns EVIDENCE_SIGNED_URL_SECRET VERBATIM — the catalog entry ' +
-      '(src/admin/config-catalog.data.ts) omits `secret: true`, unlike OPENAI_API_KEY. Any ' +
+      '(src/admin/config-catalog/) omits `secret: true`, unlike OPENAI_API_KEY. Any ' +
       'brain:admin key can read the HMAC key that signs raw-evidence URLs and forge tokens ' +
       `over any asset in reach (observed ${value.length} plaintext characters).`,
   );
