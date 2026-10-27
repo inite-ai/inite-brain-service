@@ -70,8 +70,8 @@ describe('which JSON-RPC messages may be served without a key', () => {
 });
 
 describe('the optional-auth guard', () => {
-  const ctx = (body: unknown): ExecutionContext => {
-    const req: Record<string, unknown> = { body };
+  const ctx = (body: unknown, headers: Record<string, string> = {}): ExecutionContext => {
+    const req: Record<string, unknown> = { body, headers };
     return {
       switchToHttp: () => ({ getRequest: () => req }),
     } as unknown as ExecutionContext;
@@ -112,10 +112,79 @@ describe('the optional-auth guard', () => {
     expect(c.switchToHttp().getRequest<{ mcpAnonymous?: boolean }>().mcpAnonymous).toBe(true);
   });
 
+  // A refused credential is a 401, never a quiet downgrade: a mistyped key
+  // must not look like a working two-tool connection, and an expired
+  // token must reach the 401 its client refreshes on.
+  it('RE-THROWS for a presented-but-refused credential, even on initialize', async () => {
+    const boom = new UnauthorizedException('Invalid API key');
+    const g = guardWith({
+      canActivate: async () => {
+        throw boom;
+      },
+    });
+    await expect(
+      g.canActivate(ctx({ method: 'initialize' }, { authorization: 'Bearer brain_typo' })),
+    ).rejects.toBe(boom);
+  });
+
   it('a guard that returns false without throwing is still a refusal', async () => {
     const g = guardWith({ canActivate: async () => false });
     await expect(
       g.canActivate(ctx({ method: 'tools/call', params: { name: 'ingest_fact' } })),
     ).resolves.toBe(false);
+  });
+});
+
+describe('the anonymous tool list — lazy authentication', () => {
+  // A client starts sign-in when a tools/call comes back 401, and it only
+  // calls tools it saw listed. Two public tools alone meant no client ever
+  // reached the challenge.
+  async function publicServer() {
+    const { McpService } = await import('../src/mcp/mcp.service');
+    const none = {} as never;
+    const svc = new McpService(
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+    );
+    return svc.buildPublicServer('https://brain.example') as unknown as {
+      _registeredTools: Record<string, { handler: (...a: unknown[]) => unknown }>;
+    };
+  }
+
+  it('lists the memory tools beside the public ones', async () => {
+    const names = Object.keys((await publicServer())._registeredTools);
+    for (const name of PUBLIC_TOOL_NAMES) expect(names).toContain(name);
+    expect(names).toEqual(
+      expect.arrayContaining(['search_knowledge', 'synthesize', 'record_fact']),
+    );
+    // Admin-scoped tools are not what the challenge asks for.
+    expect(names).not.toContain('forget_entity');
+  });
+
+  it('every listed memory tool is gated by the guard and refuses on its own', async () => {
+    const tools = (await publicServer())._registeredTools;
+    const gated = Object.keys(tools).filter((n) => !PUBLIC_TOOL_NAMES.includes(n));
+    expect(gated.length).toBeGreaterThan(5);
+    for (const name of gated) {
+      expect(isAnonymousJsonRpc({ method: 'tools/call', params: { name } })).toBe(false);
+      expect(() => tools[name]!.handler({}, {})).toThrow(UnauthorizedException);
+    }
   });
 });

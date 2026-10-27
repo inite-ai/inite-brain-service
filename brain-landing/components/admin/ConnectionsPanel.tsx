@@ -251,6 +251,7 @@ export function ConnectionsPanel() {
                     connection={selected}
                     entry={selectedEntry}
                     webhooksOn={catalog?.webhooks === true}
+                    principalsOn={catalog?.principals === true}
                     t={t}
                     onClose={() => setSelectedId(null)}
                     onChanged={reload}

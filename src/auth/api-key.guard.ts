@@ -12,11 +12,14 @@ import { CredentialResolverService } from './credential-resolver.service';
 import { PolicyGateService } from '../policy/policy-gate.service';
 import { POLICY_ACTION_KEY } from '../policy/action-registry';
 import { getRequestContext } from '../common/request-context';
-import { resourceMetadataUrl } from './resource-metadata';
+import { CHALLENGE_SCOPE, resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { PLATFORM_TENANT_SCOPE } from './tenant-scope';
 import { resolveRetrievalProfileFor } from '../search/retrieval-profile';
+import { MembershipService } from './membership.service';
+import { rememberScopeTags } from './scope-principal';
+import { scopeTagsEnabled } from './scope-visibility';
 
 /**
  * Tenant override (BRAIN_TENANT_OVERRIDE_ENABLED, default off): a
@@ -63,7 +66,10 @@ function unauthorized(context: ExecutionContext, message: string): UnauthorizedE
   const res = typeof httpCtx.getResponse === 'function' ? httpCtx.getResponse() : undefined;
   const metadata = resourceMetadataUrl(req);
   if (metadata && typeof res?.setHeader === 'function') {
-    res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadata}"`);
+    res.setHeader(
+      'WWW-Authenticate',
+      `Bearer resource_metadata="${metadata}", scope="${CHALLENGE_SCOPE}"`,
+    );
   }
   return new UnauthorizedException(message);
 }
@@ -72,10 +78,12 @@ function unauthorized(context: ExecutionContext, message: string): UnauthorizedE
 export class ApiKeyGuard implements CanActivate {
   private readonly logger = new Logger(ApiKeyGuard.name);
 
+  // eslint-disable-next-line max-params
   constructor(
     private readonly credentials: CredentialResolverService,
     private readonly reflector: Reflector,
     private readonly policyGate: PolicyGateService,
+    private readonly membership: MembershipService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -154,6 +162,12 @@ export class ApiKeyGuard implements CanActivate {
       if (store) store.retrievalProfile = retrievalProfile;
     }
 
+    // The scope tags this user holds — resolved ONCE, here, because the
+    // read fences below are synchronous (scope-principal.ts). Inert
+    // unless SCOPE_TAGS_ENABLED, and a failure to resolve leaves the
+    // fences on the single `user:` tag, which is narrower.
+    await this.warmScopeTags(companyId, record.userId);
+
     (request as AuthenticatedRequest).brainAuth = {
       companyId,
       scopes: record.scopes,
@@ -167,6 +181,17 @@ export class ApiKeyGuard implements CanActivate {
       ...(policy ? { policy } : {}),
     };
     return true;
+  }
+
+  private async warmScopeTags(companyId: string, userId: string | undefined): Promise<void> {
+    if (!userId || !scopeTagsEnabled()) return;
+    try {
+      rememberScopeTags(userId, await this.membership.tagsFor(companyId, userId));
+    } catch (e) {
+      // A membership lookup that fails must not fail the request AND
+      // must not widen it: the fences stay on the single user tag.
+      this.logger.warn(`scope-tag expansion failed for ${userId}: ${(e as Error).message}`);
+    }
   }
 }
 

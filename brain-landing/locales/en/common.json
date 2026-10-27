@@ -276,7 +276,8 @@
         "github": "GitHub",
         "license": "License",
         "contributing": "Contributing",
-        "security": "Security"
+        "security": "Security",
+        "privacy": "Privacy"
       },
       "resources": {
         "title": "Resources",
@@ -789,8 +790,10 @@
           "revision": "revision",
           "size": "size",
           "lastSeen": "last seen",
-          "error": "error"
+          "error": "error",
+          "hits": "Hits"
         },
+        "deepened": "read on demand at {at}",
         "empty": "Nothing catalogued yet — run a sync.",
         "prev": "previous",
         "next": "next",
@@ -937,7 +940,10 @@
           "closed": "closed",
           "retracted": "{status}"
         },
-        "driftHint": "read at an older revision than the catalogue now holds — the drift sweep marks it stale on its next pass"
+        "driftHint": "read at an older revision than the catalogue now holds — the drift sweep marks it stale on its next pass",
+        "readNow": "Read it now",
+        "readHint": "This connection only catalogues. Reading fetches THIS row and nothing else — the same deepening a query schedules.",
+        "readAlready": "read on demand at {at}"
       },
       "agents": {
         "title": "Local agents",
@@ -1209,7 +1215,7 @@
             },
             "since": {
               "label": "Since",
-              "hint": "Issues entry: the first walk reads what changed after this date (YYYY-MM-DD). Default: 180 days back."
+              "hint": "The first walk reads what changed after this date (YYYY-MM-DD). Default: 180 days back."
             },
             "includePullRequests": {
               "label": "Include pull requests",
@@ -1217,15 +1223,15 @@
             },
             "labels": {
               "label": "Labels",
-              "hint": "Issues entry: only issues carrying every one of these labels, one per line. Empty = all."
+              "hint": "Only issues carrying every one of these labels, one per line. Empty = all."
             },
             "paths": {
               "label": "Only under these paths",
-              "hint": "Docs entry: path prefixes (docs/, adr/), one per line. Empty = the whole tree."
+              "hint": "Path prefixes (docs/, adr/), one per line. Empty = the whole tree."
             },
             "ref": {
               "label": "Branch or tag",
-              "hint": "Docs entry; empty = the repository’s default branch."
+              "hint": "Empty = the repository’s default branch."
             },
             "baseUrl": {
               "label": "GitHub Enterprise API",
@@ -1233,7 +1239,7 @@
             },
             "extensions": {
               "label": "Extensions",
-              "hint": "Docs entry: which files are text. Empty = the standard table (md, txt, adoc, rst, code, …)."
+              "hint": "Which files are text. Empty = the standard table (md, txt, adoc, rst, code, …)."
             },
             "maxItems": {
               "label": "Max issues per run",
@@ -1241,15 +1247,65 @@
             },
             "maxFiles": {
               "label": "Max files",
-              "hint": "Docs entry. Default 5000."
+              "hint": "Default 5000."
             },
             "maxFileBytes": {
               "label": "Max file size (bytes)",
-              "hint": "Docs entry. Default 1 MB."
+              "hint": "Default 1 MB."
             },
             "allowPrivate": {
               "label": "Allow private hosts",
               "hint": "A GitHub Enterprise host inside your network — the deployment already opted in."
+            }
+          },
+          "gitlab": {
+            "project": {
+              "label": "Project",
+              "hint": "group/name (nested groups too) or the numeric id — the project the token or the connected account can read."
+            },
+            "since": {
+              "label": "Since",
+              "hint": "The first walk reads what changed after this date (YYYY-MM-DD). Default: 180 days back."
+            },
+            "includeMergeRequests": {
+              "label": "Include merge requests",
+              "hint": "GitLab numbers issues and merge requests separately and lists them apart; off reads issues only."
+            },
+            "labels": {
+              "label": "Labels",
+              "hint": "Only threads carrying every one of these labels, one per line. Empty = all."
+            },
+            "paths": {
+              "label": "Only under these paths",
+              "hint": "Path prefixes (docs/, adr/), one per line. Empty = the whole tree."
+            },
+            "ref": {
+              "label": "Branch or tag",
+              "hint": "Empty = the project’s default branch."
+            },
+            "baseUrl": {
+              "label": "Self-managed GitLab",
+              "hint": "https://gitlab.example.com (the /api/v4 suffix is optional) — empty for gitlab.com."
+            },
+            "extensions": {
+              "label": "Extensions",
+              "hint": "Which files are text. Empty = the standard table (md, txt, adoc, rst, code, …)."
+            },
+            "maxItems": {
+              "label": "Max threads per run",
+              "hint": "Issues and merge requests share the cap, newest change first. Default 1000."
+            },
+            "maxFiles": {
+              "label": "Max files",
+              "hint": "Default 5000."
+            },
+            "maxFileBytes": {
+              "label": "Max file size (bytes)",
+              "hint": "A GitLab tree entry carries no size, so the cap is applied when the file arrives. Default 1 MB."
+            },
+            "allowPrivate": {
+              "label": "Allow private hosts",
+              "hint": "A self-managed GitLab inside your network — the deployment already opted in."
             }
           },
           "slack": {
@@ -1620,6 +1676,18 @@
             "body": "Docs, sites, archives."
           }
         },
+        "mode": {
+          "title": "How does the brain get it?",
+          "synced": {
+            "title": "Copy it",
+            "body": "walk the source on a schedule, catalogue what is there and read what changed"
+          },
+          "linked": {
+            "title": "Ask it",
+            "body": "never walked, never copied — the source keeps its index and is asked at query time"
+          },
+          "linkedHint": "A linked connection has no schedule, no catalogue and no content policy: nothing is stored. Its answers ride beside the ranking, each anchored to the call that produced it."
+        },
         "content": {
           "title": "What to take",
           "text": {
@@ -1660,7 +1728,7 @@
           "document": "documents",
           "binary": "files",
           "structure": "records",
-          "conversation": "messages"
+          "conversation": "conversations"
         }
       },
       "kinds": {
@@ -1670,6 +1738,8 @@
           "shapes": {
             "document": "Text documents",
             "documentHint": "markdown, text, csv, json, yaml, html, code",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": "PDFs, Word / Excel / PowerPoint, .eml mail, images"
           }
@@ -1680,6 +1750,8 @@
           "shapes": {
             "document": "Pages",
             "documentHint": "HTML reduced to text, plain text, JSON",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": "PDFs and office documents the sitemap lists"
           }
@@ -1690,6 +1762,8 @@
           "shapes": {
             "document": "Pages",
             "documentHint": "pages and database rows as text",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1700,6 +1774,8 @@
           "shapes": {
             "document": "Messages",
             "documentHint": "each message one turn of its thread",
+            "conversation": "Messages",
+            "conversationHint": "",
             "binary": "Attachments",
             "binaryHint": "PDFs and office documents on the same messages"
           }
@@ -1710,6 +1786,8 @@
           "shapes": {
             "document": "Messages",
             "documentHint": "each message one turn of its thread",
+            "conversation": "Messages",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1720,6 +1798,20 @@
           "shapes": {
             "document": "Docs",
             "documentHint": "README, docs/**, ADRs, changelogs",
+            "conversation": "Issues and pull requests",
+            "conversationHint": "every thread as a conversation: the body and every comment",
+            "binary": "",
+            "binaryHint": ""
+          }
+        },
+        "gitlab": {
+          "title": "GitLab project",
+          "body": "One project over the API, no clone — every issue and merge request as a conversation (description and notes), and the text documents of its tree.",
+          "shapes": {
+            "document": "Docs",
+            "documentHint": "README, docs/**, ADRs, changelogs",
+            "conversation": "Issues and merge requests",
+            "conversationHint": "every thread as a conversation: the description and every note",
             "binary": "",
             "binaryHint": ""
           }
@@ -1730,6 +1822,8 @@
           "shapes": {
             "document": "Messages",
             "documentHint": "each message one turn of its channel or thread",
+            "conversation": "Messages",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1740,6 +1834,8 @@
           "shapes": {
             "document": "Messages",
             "documentHint": "each message one turn of its chat or topic",
+            "conversation": "Messages",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1750,6 +1846,8 @@
           "shapes": {
             "document": "Pages",
             "documentHint": "pages and blog posts as text",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1760,6 +1858,8 @@
           "shapes": {
             "document": "Text documents",
             "documentHint": "markdown, text, csv, json, yaml, html",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": "PDFs, office documents, mail, images"
           }
@@ -1770,6 +1870,8 @@
           "shapes": {
             "document": "Text resources",
             "documentHint": "text and JSON resources",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Blob resources",
             "binaryHint": "PDFs, office documents, images"
           }
@@ -1780,6 +1882,8 @@
           "shapes": {
             "document": "Documents",
             "documentHint": "",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": ""
           }
@@ -1790,6 +1894,8 @@
           "shapes": {
             "document": "Text documents",
             "documentHint": "markdown, text, csv, json, html; Docs / Sheets / Slides as text",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": "PDFs, Word / Excel / PowerPoint, images"
           }
@@ -1800,6 +1906,8 @@
           "shapes": {
             "document": "Text documents",
             "documentHint": "markdown, text, csv, json, html",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": "PDFs, Word / Excel / PowerPoint, mail, images"
           }
@@ -1810,6 +1918,8 @@
           "shapes": {
             "document": "Text documents",
             "documentHint": "markdown, text, csv, json, html",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": "PDFs, Word / Excel / PowerPoint, mail, images"
           }
@@ -1820,6 +1930,8 @@
           "shapes": {
             "document": "Records",
             "documentHint": "deals, persons, organizations",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1830,6 +1942,8 @@
           "shapes": {
             "document": "Records",
             "documentHint": "rows of the tables and views you name",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "",
             "binaryHint": ""
           }
@@ -1840,6 +1954,8 @@
           "shapes": {
             "document": "Documents",
             "documentHint": "",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": ""
           }
@@ -1850,12 +1966,14 @@
           "shapes": {
             "document": "Documents",
             "documentHint": "",
+            "conversation": "",
+            "conversationHint": "",
             "binary": "Files",
             "binaryHint": ""
           }
         },
         "both": "Both",
-        "bothHint": "two connections over the same place — one for documents, one for files",
+        "bothHint": "two connections over the same place, one per shape",
         "whatsInside": "What's in it?",
         "viaPack": "via {packId}",
         "status": {
@@ -2010,6 +2128,20 @@
         },
         "flagOff": "The webhook lane is off on this brain — set SOURCE_WEBHOOKS=1 (and SOURCE_CREDENTIAL_ENCRYPTION_KEY).",
         "unsupported": "This connector has no webhook lane."
+      },
+      "principals": {
+        "title": "Who may see this",
+        "subtitle": "The accounts this source knows and the groups they are in. An account nobody has linked grants no visibility at all — say who it is, and that person holds the groups it is in. Unlinking takes them back.",
+        "epoch": "epoch {epoch}",
+        "empty": "No accounts yet — the ACL is read on each sync.",
+        "account": "Account",
+        "groups": "Groups",
+        "user": "Is",
+        "userPlaceholder": "brain user id",
+        "link": "Link",
+        "unlink": "Unlink",
+        "byOperator": "linked by an operator",
+        "byEmail": "matched an address already linked"
       }
     },
     "marketplace": {
@@ -2333,11 +2465,7 @@
     "subtitle": "Connect Claude Code, ChatGPT, Cursor and your own code to the same graph. What one of them writes, the next one recalls — because the workspace comes from the key, not from the app that happens to be open.",
     "hubLabel": "Your memory",
     "hubTitle": "One graph",
-    "hubItems": [
-      "Facts & beliefs",
-      "Episodes & scenes",
-      "Sources & evidence"
-    ],
+    "hubItems": ["Facts & beliefs", "Episodes & scenes", "Sources & evidence"],
     "sdkLabel": "Your app",
     "clientsLabel": "Clients you connect",
     "surfaceLabel": "One surface",

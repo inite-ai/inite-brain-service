@@ -169,8 +169,8 @@ refuses to lie and we measured how often").
 
 ## 4. Worth stealing
 
-1. **AGENTS.md for agents** *(shipped with this analysis — see root
-   [AGENTS.md](../../AGENTS.md))*: an imperative, mistake-oriented guide
+1. **AGENTS.md for agents** *(shipped with this analysis as the root AGENTS.md; now
+   [docs/agents-using-brain.md](../agents-using-brain.md))*: an imperative, mistake-oriented guide
    written for the consuming agent, not the human integrator. Cheap, high
    distribution value.
 2. **Response-reuse tier (their T2) → fovea cascade.** An entity-aware
@@ -199,7 +199,7 @@ refuses to lie and we measured how often").
 
 Concrete next steps: (a) response-reuse cache prototype behind a default-off
 flag, measured as a cost tier on the LME stand; (b) L3 escalation lane build
-(already the top fovea candidate); (c) spans migration draft; (d) AGENTS.md
+(already the top fovea candidate); (c) spans migration draft; (d) AGENTS.md (now docs/agents-using-brain.md)
 shipped now; (e) a public one-pager contrasting our published protocol with
 unbenchmarked "promises" — without naming names.
 

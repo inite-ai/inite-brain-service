@@ -1,0 +1,127 @@
+# INITE Brain Privacy Policy
+
+**Effective:** 16 October 2026
+
+This policy covers the hosted INITE Brain service at `brain.inite.ai`: its API, its MCP endpoint (`brain.inite.ai/mcp`), the web app, and the INITE Brain integrations for Claude (connector, Claude Code plugin and Claude Desktop extension). The rest of INITE's websites are covered by the [INITE privacy policy](https://inite.ai/en/privacy). If you run INITE Brain yourself from the open-source code, you are the operator and this policy does not apply to your deployment.
+
+## 1. Who is responsible
+
+The controller is **inite LLC** (trading as INITE), a Wyoming limited liability company, 1621 Central Ave, Cheyenne, WY 82001, USA.
+
+When an organization connects INITE Brain to its own systems and puts its own people's or customers' data into it, that organization decides what goes in. For that content INITE acts as a **processor** on the organization's behalf.
+
+Contact: **privacy@inite.ai** for privacy requests, **security@inite.ai** for security reports.
+
+## 2. What INITE Brain stores
+
+INITE Brain is a memory service. It keeps what you or your tools send it, so that it can answer questions about it later.
+
+- **Conversation turns and messages** that a client sends for remembering: the text, who said it, when, and the conversation and user identifiers.
+- **Documents** you ingest, stored as normalized text in chunks. Original files are not kept, only a pointer and a content hash. A client can ask for the hash alone to be kept.
+- **Facts and entities** derived from that material: who and what it mentions, the statements made about them, when each was true and when it was recorded, and links back to the source turn or document.
+- **Embeddings.** These are numeric representations of text, used for search.
+- **Account and access data:**
+  - your user identifier from INITE's sign-in service;
+  - your workspace name;
+  - API keys, stored only as a SHA-256 hash;
+  - the scopes each credential has.
+- **Connector credentials** for systems you connect (for example Google Drive, Slack or a CRM). They are encrypted at rest with AES-256-GCM, and access tokens are never shown back.
+- **Tool-call records:** which tool was called, when, whether it succeeded, how long it took, digests of its input and output, and a sanitized excerpt of up to 512 characters. Kept for 30 days.
+- **Feedback** you give on answers, including any reason you type.
+- **An audit trail** of changes to facts and entities.
+
+Email addresses, phone numbers and payment card numbers found in incoming text are **masked automatically** before storage. Other personal details, such as names, are stored as written, because remembering them is the point of the service.
+
+We do not use your memory to train AI models, and we do not sell it.
+
+### What INITE Brain receives from Claude
+
+When you connect INITE Brain to Claude, it does **not** read your Claude conversations, chat history or files. It receives:
+
+- the arguments of the INITE Brain tools that Claude calls (for example a search query, or a fact Claude was asked to record);
+- the identity your sign-in grants.
+
+The optional **Claude Code plugin** does more, and only while its settings are on:
+
+- **Capture:** it sends your own messages from a session (never the model's replies) when the session is compacted or ends.
+- **Recall:** it looks up each prompt you type, to recall relevant memory.
+
+Both can be turned off in the plugin's settings.
+
+## 3. How it is used
+
+- To store your memory and answer questions about it: searching, extracting facts, resolving conflicting facts, and writing cited answers.
+- To run, secure and debug the service.
+- To meter usage where a paid plan applies.
+
+The legal bases, for users in the EU, EEA and UK, are:
+
+- **performance of our contract** with you or your organization;
+- **legitimate interests** in operating and securing the service;
+- **your consent**, where you connect a third-party system.
+
+## 4. Who processes it for us
+
+| Processor | What it receives | Why |
+|---|---|---|
+| **OpenAI** | Text being remembered or asked about | Language models that extract facts, rank results and write answers |
+| **OpenRouter** | Text being remembered or asked about | Embeddings; smaller models that check extractions and answers; fallback when OpenAI is unavailable |
+| **INITE sign-in service** (auth.inite.ai, operated by INITE) | Your account identity | Sign-in and credentials |
+| **INITE billing** (operated by INITE) | Your workspace identifier | Plan and entitlement checks |
+| **Systems you connect** | What the connector reads or writes, as you configure it | Only when you connect them |
+
+Some processing never leaves our server: name recognition, OCR, monitoring, logs and metrics.
+
+The service runs on servers in the **United States** (San Francisco region). If you are outside the US, your data is transferred there. Where the law requires it, transfers rely on appropriate safeguards such as standard contractual clauses.
+
+## 5. How long it is kept
+
+- **Your memory** (turns, documents, facts, embeddings) is kept until you delete it or close your workspace.
+- **Document text** can be given an expiry date. After that date the text is removed and only the document's header and hash remain.
+- **Pending fact candidates** expire after 7 days; decided ones are removed after 30.
+- **Tool-call records** and usage outcomes: 30 days.
+- **Operational logs** 14 days, **traces** 7 days, **metrics** 30 days.
+
+## 6. Your rights and how to delete
+
+You can access, export, correct and delete your data.
+
+**Export.** `GET /v1/episodes/export` returns your stored turns as NDJSON.
+
+**Correct.** Record the corrected fact. The old one is closed but kept in history.
+
+**Retract.** `retract_fact` closes a fact while keeping an auditable record. This is not deletion.
+
+**Delete.**
+- `forget_entity` permanently deletes a person or thing, together with its facts, links, source turns and embeddings, in one step. What remains is a tombstone holding a keyed hash of the identifier, the reason, and the time, with no content.
+- `POST /v1/users/<id>/forget` deletes everything held for one user. Content you shared with your whole workspace stays until the workspace removes it.
+
+**Close a workspace.** Email privacy@inite.ai.
+
+You can also object to or restrict processing, withdraw consent, and complain to your data protection authority. Write to privacy@inite.ai. We answer within the time the law requires, for example one month under the GDPR. If your organization put your data into INITE Brain, we may forward your request to it.
+
+## 7. Security
+
+- **Workspace isolation.** Each workspace has its own database, and every request is limited to its workspace and, where a user is named, to that user.
+- **Scoped credentials.** Credentials carry scopes, so a read-only key cannot write. Access to rows marked as personal data, and to media, needs separate scopes.
+- **Encryption.** Traffic is encrypted with TLS. Secrets and connector tokens are encrypted at rest.
+
+## 8. Cookies
+
+The web app at `brain.inite.ai` sets only first-party cookies that are needed to sign you in:
+
+| Cookie | Lifetime |
+|---|---|
+| `access_token` | until the session token expires, at most 8 hours |
+| `refresh_token` | 7 days |
+| `oauth_state`, `oauth_code_verifier`, `oauth_return_url` | 10 minutes, during sign-in only |
+
+There are no analytics or advertising cookies.
+
+## 9. Children
+
+INITE Brain is not directed at children under 16 and we do not knowingly collect their data.
+
+## 10. Changes
+
+We will post changes here and update the effective date. For material changes affecting workspaces, we will also notify the account owner by email.

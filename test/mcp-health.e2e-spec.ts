@@ -101,12 +101,15 @@ describe('MCP endpoint without a tenant in the path', () => {
     });
     expect(res.status).toBe(401);
     // The 401 names the discovery document, so a client can self-onboard.
-    expect(String(res.headers['www-authenticate'] ?? '')).toContain(
-      '/.well-known/oauth-protected-resource',
-    );
+    // Claude requires its `resource` to equal the URL entered — `/mcp`.
+    const challenge = String(res.headers['www-authenticate'] ?? '');
+    expect(challenge).toContain('/.well-known/oauth-protected-resource/mcp"');
+    expect(challenge).toContain('scope="brain:read brain:write"');
   });
 
-  it('lists only the public tools to an anonymous caller', async () => {
+  // Lazy authentication: a client calls only tools it saw listed, and the
+  // 401 on that call is what starts its sign-in.
+  it('lists the memory tools to an anonymous caller, beside the public ones', async () => {
     const res = await f.http
       .post('/mcp')
       .set({ Accept: 'application/json, text/event-stream' })
@@ -122,7 +125,9 @@ describe('MCP endpoint without a tenant in the path', () => {
         )
       : res.body;
     const names = (body.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(['about_brain', 'how_to_connect']);
-    expect(names).not.toContain('search_knowledge');
+    expect(names).toEqual(
+      expect.arrayContaining(['about_brain', 'how_to_connect', 'search_knowledge', 'record_fact']),
+    );
+    expect(names).not.toContain('forget_entity');
   });
 });

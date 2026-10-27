@@ -83,6 +83,13 @@ export type FormValues = Record<string, FormValue>;
 export interface FormContext {
   host: 'server' | 'agent';
   entry: SourceCatalogEntry;
+  /**
+   * The shapes this flow will create connections for — one, or both
+   * halves of a kind that has two ("Both" on a forge). A field that
+   * belongs to one half is shown while any chosen shape wants it;
+   * absent = just `entry.shape`.
+   */
+  shapes?: readonly string[];
   fsRoots: string[];
   egressAllowPrivate: boolean;
   /** The agent the connection will run on (its check-in names what it offers). */
@@ -606,15 +613,33 @@ const TELEGRAM: ConnectorForm = {
   credential: { kind: 'single', required: () => true, shown: () => true, label: 'botToken' },
 };
 
-/** GitHub (W4.8): one repository over the API — the same form for its issues and its docs. */
+/**
+ * A forge asks two different questions of the same repository, and the
+ * shape chosen on the card decides which: a thread walk (since, labels,
+ * which kinds of thread) or a tree walk (paths, ref, what counts as
+ * text). A field of the other half is not "advanced", it is inert —
+ * so it is not shown at all.
+ */
+const forShape = (ctx: FormContext, shape: string): boolean =>
+  (ctx.shapes ?? [ctx.entry.shape]).includes(shape);
+const threads = (f: FieldSpec): FieldSpec => ({
+  ...f,
+  when: (_v, ctx) => forShape(ctx, 'conversation'),
+});
+const treeFiles = (f: FieldSpec): FieldSpec => ({
+  ...f,
+  when: (_v, ctx) => forShape(ctx, 'document'),
+});
+
+/** GitHub (W4.8): one repository over the API — its issues, or the docs of its tree. */
 const GITHUB: ConnectorForm = {
   fields: [
     { key: 'repo', type: 'text', required: true, mono: true, placeholder: 'acme/handbook' },
-    { key: 'since', type: 'text', mono: true, placeholder: '2026-01-01' },
-    { key: 'includePullRequests', type: 'boolean', default: true },
-    { key: 'labels', type: 'list', mono: true, placeholder: 'bug\nneeds-decision' },
-    { key: 'paths', type: 'list', mono: true, placeholder: 'docs/\nadr/' },
-    { key: 'ref', type: 'text', mono: true, advanced: true, placeholder: 'main' },
+    threads({ key: 'since', type: 'text', mono: true, placeholder: '2026-01-01' }),
+    threads({ key: 'includePullRequests', type: 'boolean', default: true }),
+    threads({ key: 'labels', type: 'list', mono: true, placeholder: 'bug\nneeds-decision' }),
+    treeFiles({ key: 'paths', type: 'list', mono: true, placeholder: 'docs/\nadr/' }),
+    treeFiles({ key: 'ref', type: 'text', mono: true, advanced: true, placeholder: 'main' }),
     {
       key: 'baseUrl',
       type: 'url',
@@ -622,10 +647,35 @@ const GITHUB: ConnectorForm = {
       advanced: true,
       placeholder: 'https://ghe.acme.test/api/v3',
     },
-    { key: 'extensions', type: 'list', mono: true, advanced: true },
-    { key: 'maxItems', type: 'number', min: 1, advanced: true },
-    { key: 'maxFiles', type: 'number', min: 1, advanced: true },
-    { key: 'maxFileBytes', type: 'number', min: 1, advanced: true },
+    treeFiles({ key: 'extensions', type: 'list', mono: true, advanced: true }),
+    threads({ key: 'maxItems', type: 'number', min: 1, advanced: true }),
+    treeFiles({ key: 'maxFiles', type: 'number', min: 1, advanced: true }),
+    treeFiles({ key: 'maxFileBytes', type: 'number', min: 1, advanced: true }),
+    allowPrivate,
+  ],
+  credential: { kind: 'oauth', alternative: 'token' },
+};
+
+/** GitLab (W4.9): one project over the v4 API — its threads, or the docs of its tree. */
+const GITLAB: ConnectorForm = {
+  fields: [
+    { key: 'project', type: 'text', required: true, mono: true, placeholder: 'acme/handbook' },
+    threads({ key: 'since', type: 'text', mono: true, placeholder: '2026-01-01' }),
+    threads({ key: 'includeMergeRequests', type: 'boolean', default: true }),
+    threads({ key: 'labels', type: 'list', mono: true, placeholder: 'bug\nneeds-decision' }),
+    treeFiles({ key: 'paths', type: 'list', mono: true, placeholder: 'docs/\nadr/' }),
+    treeFiles({ key: 'ref', type: 'text', mono: true, advanced: true, placeholder: 'main' }),
+    {
+      key: 'baseUrl',
+      type: 'url',
+      mono: true,
+      advanced: true,
+      placeholder: 'https://gitlab.acme.test',
+    },
+    treeFiles({ key: 'extensions', type: 'list', mono: true, advanced: true }),
+    threads({ key: 'maxItems', type: 'number', min: 1, advanced: true }),
+    treeFiles({ key: 'maxFiles', type: 'number', min: 1, advanced: true }),
+    treeFiles({ key: 'maxFileBytes', type: 'number', min: 1, advanced: true }),
     allowPrivate,
   ],
   credential: { kind: 'oauth', alternative: 'token' },
@@ -666,6 +716,8 @@ export function formFor(entry: SourceCatalogEntry): ConnectorForm | null {
       return IMAP;
     case 'github':
       return GITHUB;
+    case 'gitlab':
+      return GITLAB;
     case 'slack':
       return SLACK;
     case 'telegram':

@@ -124,3 +124,64 @@ export function sourceWebhooksEnabled(): boolean {
 export function sourceMcpOAuthEnabled(): boolean {
   return envFlagEnabled(process.env.SOURCE_MCP_OAUTH);
 }
+
+/**
+ * SOURCE_PRINCIPALS — the membership walk (W5, G6 steps 3–5): an org
+ * connection's `principals()` runs after a sync, its groups and accounts
+ * land as `external_identity` rows and `external_principal` tuples, and
+ * an item's `acl.groups` become `team:` tags on the rows it produces.
+ * Off (default) ⇒ no connector's `principals()` is ever called, no tuple
+ * is ever written and every org connection's rows stay tenant-global —
+ * byte-identical to before. The READ half is `SCOPE_TAGS_ENABLED`: with
+ * this on and that off, tags are written and ignored (which is the safe
+ * order to switch them on in). Read at call time.
+ */
+export function sourcePrincipalsEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_PRINCIPALS);
+}
+
+/**
+ * SOURCE_PROGRESSIVE — progressive indexing (W6): a connection whose
+ * `contentPolicy` is `manifest` catalogues everything and reads nothing
+ * until a query matches one of its rows, and then that row alone is
+ * fetched and ingested (a `source_sync` job with a `deepen` payload).
+ * Off (default) ⇒ no probe ever runs, no hit is ever counted, a
+ * manifest connection stays a catalogue — byte-identical. Read at call
+ * time.
+ */
+export function sourceProgressiveEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_PROGRESSIVE);
+}
+
+/**
+ * SOURCE_DEEPEN_PER_QUERY — how many catalogue rows one query may send
+ * for deepening (default 3). The bound that keeps "every query probes
+ * the catalogue" from meaning "every query fetches the internet": a hit
+ * is counted for every match, but only the best few are read.
+ */
+export function sourceDeepenPerQuery(): number {
+  const raw = Number(process.env.SOURCE_DEEPEN_PER_QUERY);
+  if (!Number.isFinite(raw) || raw < 0) return 3;
+  return Math.min(Math.trunc(raw), 20);
+}
+
+/**
+ * SOURCE_LINKED — the linked lane (W7): a connection in `mode: 'linked'`
+ * is never walked and never catalogued; instead its connector's
+ * `search()` is called at query time and the hits are returned beside
+ * the answer, each anchored to the `tool_observation` the call wrote.
+ * Off (default) ⇒ no connector is ever asked, no observation is ever
+ * written, and a search response carries no `linked` section —
+ * byte-identical. It also needs TOOL_OBSERVATIONS_ENABLED: a hit that
+ * nothing can cite is not served. Read at call time.
+ */
+export function sourceLinkedEnabled(): boolean {
+  return envFlagEnabled(process.env.SOURCE_LINKED);
+}
+
+/** SOURCE_LINKED_PER_QUERY — hits per linked connection per query (default 5, hard cap 25). */
+export function sourceLinkedPerQuery(): number {
+  const raw = Number(process.env.SOURCE_LINKED_PER_QUERY);
+  if (!Number.isFinite(raw) || raw < 1) return 5;
+  return Math.min(Math.trunc(raw), 25);
+}

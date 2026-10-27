@@ -27,6 +27,8 @@ import { registerOnboardingTools } from './onboarding-tools';
 import { registerPublicTools } from './public-tools';
 import { registerMetaTools, type CatalogueEntry } from './meta-tools';
 import { registerChatGptTools } from './chatgpt-tools';
+import { applyToolAnnotations } from './tool-annotations';
+import { registerGatedCatalogue } from './gated-catalogue';
 import { CHATGPT_TOOLS, META_TOOLS, resolveToolProfile, type ToolProfile } from './tool-profiles';
 import { WorkspaceStatusService } from './workspace-status.service';
 import { SourcesService } from '../sources/sources.service';
@@ -557,15 +559,20 @@ export class McpService {
    * tenant, loads policy, reads packs and binds every memory tool; a
    * "public mode" flag threaded through it would be one boolean between
    * an anonymous caller and the whole graph. This builds a separate
-   * server whose only registered tools are the public ones, so the
+   * server whose only working tools are the public ones, so the
    * fence is the absence of the code rather than a branch inside it.
+   * The memory tools are listed beside them as refusals with no service
+   * behind them (gated-catalogue.ts) — listing is what lets a client
+   * reach the 401 that starts its sign-in.
    */
   buildPublicServer(baseUrl: string): McpServer {
     const server = new McpServer({
       name: 'inite-brain-service',
       version: MCP_SERVER_VERSION,
     });
+    applyToolAnnotations(server);
     registerPublicTools({ server, options: { baseUrl } });
+    registerGatedCatalogue(server);
     return server;
   }
 
@@ -672,6 +679,10 @@ export class McpService {
     if (toolObservationsEnabled()) {
       this.applyToolObservation(server, companyId);
     }
+    // Applied AFTER every gate = OUTERMOST at registration, so the
+    // config each inner wrapper and the SDK see already carries the
+    // hints (and the catalogue run_tool lists from carries the title).
+    applyToolAnnotations(server, packToolKinds);
     registerReadTools({
       server,
       companyId,

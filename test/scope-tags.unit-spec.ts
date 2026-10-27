@@ -144,11 +144,13 @@ describe('scopeFenceSql — flag-gated SQL mirror of the userId filter', () => {
       clause: 'AND (scope = [] OR scope = [$principalScopeTag])',
       params: { principalScopeTag: 'user:user_a' },
     });
-    // No scoped user → tenant-global only (mirrors `userId IS NONE`).
-    expect(scopeFenceSql(undefined)).toEqual({
-      clause: 'AND scope = []',
-      params: {},
-    });
+    // No scoped user and no user-bound token → TENANT-WIDE authority,
+    // the tenant boundary itself: no scope clause at all (step 3). For
+    // step-1 data this selects exactly what `AND scope = []` did — an
+    // ownerless row's scope WAS always `[]` — and it keeps parity with
+    // the userId fence once an org connection writes `team:` tags on
+    // ownerless rows.
+    expect(scopeFenceSql(undefined)).toEqual({ clause: '', params: {} });
   });
 
   it('honors a custom bound-parameter name', () => {

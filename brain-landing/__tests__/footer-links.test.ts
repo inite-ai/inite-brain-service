@@ -19,7 +19,7 @@ import { LANGS } from '@/lib/i18n'
 import { DOCS_PAGES } from '@/lib/docs-nav'
 
 /** Locale-prefixed routes that exist without being a doc page. */
-const STATIC_ROUTES = new Set(['', '/docs', '/blog'])
+const STATIC_ROUTES = new Set(['', '/docs', '/blog', '/privacy'])
 
 function internalHrefs(lang: (typeof LANGS)[number]): string[] {
   return footerColumns(lang)

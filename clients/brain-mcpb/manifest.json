@@ -1,0 +1,73 @@
+{
+  "manifest_version": "0.3",
+  "name": "inite-brain",
+  "display_name": "INITE Brain",
+  "version": "0.2.0",
+  "description": "Persistent, bitemporal memory for Claude: search, answer from and record facts in your INITE Brain workspace.",
+  "long_description": "INITE Brain is a knowledge-graph memory. This extension connects Claude Desktop to your Brain workspace with an API key: Claude can search what the workspace remembers, get cited answers, see how a fact changed over time and record new facts — each one traceable to the conversation it came from. The workspace comes from the key, so there is nothing else to configure. If you would rather sign in than paste a key, add https://brain.inite.ai/mcp as a connector instead (Settings → Connectors).",
+  "author": {
+    "name": "INITE",
+    "email": "info@inite.ai",
+    "url": "https://inite.ai"
+  },
+  "homepage": "https://brain.inite.ai",
+  "documentation": "https://brain.inite.ai/en/docs/mcp/setup",
+  "support": "https://github.com/inite-ai/inite-brain-service/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/inite-ai/inite-brain-service"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "BRAIN_API_KEY": "${user_config.api_key}",
+        "BRAIN_MCP_URL": "${user_config.base_url}/mcp"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Brain API key",
+      "description": "Issue one at https://brain.inite.ai/en/app/keys — it starts with brain_ and is shown once.",
+      "sensitive": true,
+      "required": true
+    },
+    "base_url": {
+      "type": "string",
+      "title": "Brain base URL",
+      "description": "Change only for a self-hosted deployment.",
+      "default": "https://brain.inite.ai",
+      "required": false
+    }
+  },
+  "tools_generated": true,
+  "keywords": [
+    "memory",
+    "knowledge-graph",
+    "bitemporal",
+    "rag",
+    "mcp"
+  ],
+  "license": "AGPL-3.0-or-later",
+  "privacy_policies": [
+    "https://inite.ai/en/privacy"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

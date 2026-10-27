@@ -17,6 +17,7 @@
  */
 import { envFlagEnabled } from '../common/env-validation';
 import { getRequestContext } from '../common/request-context';
+import { heldTagsFor } from './scope-principal';
 import { parseTag, userTag } from './scope-tags';
 
 /**
@@ -86,7 +87,10 @@ export function visibleUnderScope(
  */
 export function principalScopeTags(): PrincipalScope {
   const authUserId = getRequestContext()?.authUserId;
-  return authUserId ? [userTag(authUserId)] : TENANT_WIDE;
+  // Step 3: a user may hold group tags as well as their own. The
+  // expansion was resolved once by the guard; unresolved falls back to
+  // the single tag, which is narrower.
+  return authUserId ? heldTagsFor(authUserId) : TENANT_WIDE;
 }
 
 /**
@@ -112,12 +116,33 @@ export function scopeFenceSql(
   param = 'principalScopeTag',
 ): { clause: string; params: Record<string, unknown> } {
   if (!scopeTagsEnabled()) return { clause: '', params: {} };
-  if (!userId) {
-    // No scoped user → tenant-global only, mirroring `userId IS NONE`.
-    return { clause: 'AND scope = []', params: {} };
+  const scoped = userId ?? getRequestContext()?.authUserId;
+  if (!scoped) {
+    // Tenant-wide authority (an M2M credential, a background job) IS the
+    // tenant boundary — no scope clause, the same answer
+    // `visibleUnderScope` gives TENANT_WIDE. Before step 3 this branch
+    // said `scope = []`, which for step-1 data selected exactly the same
+    // rows (`userId IS NONE` ⟹ `scope = []`); once an org connection
+    // writes `team:` tags on ownerless rows the two stop agreeing, and
+    // the one that keeps parity with the userId fence is this.
+    return { clause: '', params: {} };
+  }
+  // A user-bound token that asserted no userId is still that user: the
+  // groups they hold are theirs whether or not they named themselves.
+  const held = heldTagsFor(scoped);
+  // One tag: the step-1 equality, kept exactly as it was (the parity
+  // property the flag shipped on). Several: the record's AND-set must
+  // be a SUBSET of what the principal holds — `[]` is handled by the
+  // first branch, and a record tag the principal lacks fails the whole
+  // clause, so a malformed or unknown tag still hides its row.
+  if (held.length <= 1) {
+    return {
+      clause: `AND (scope = [] OR scope = [$${param}])`,
+      params: { [param]: held[0] ?? userTag(scoped) },
+    };
   }
   return {
-    clause: `AND (scope = [] OR scope = [$${param}])`,
-    params: { [param]: userTag(userId) },
+    clause: `AND (scope = [] OR scope ALLINSIDE $${param})`,
+    params: { [param]: [...held] },
   };
 }
