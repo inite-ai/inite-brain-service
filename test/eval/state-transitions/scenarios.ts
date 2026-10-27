@@ -87,7 +87,18 @@ export const SCENARIOS: Scenario[] = [
         // from being misread as abstention. No forbid list: 'Kawasaki'
         // in the answer is honest history ("you sold the Kawasaki"),
         // and there is no scoreable "Ninja-as-yours" phrase to forbid.
-        expectAnyOf: ['sold', 'no longer', 'do not own', "don't own", 'not own', 'no bike'],
+        // 'own no' / 'no motorcycle': "you currently own no motorcycle" is
+        // the same truth without the verb negated (a false fail 2026-10-27).
+        expectAnyOf: [
+          'sold',
+          'no longer',
+          'do not own',
+          "don't own",
+          'not own',
+          'own no',
+          'no bike',
+          'no motorcycle',
+        ],
       },
       {
         kind: 'belief',
@@ -231,7 +242,17 @@ export const SCENARIOS: Scenario[] = [
         query: 'Do I have an active Spotify subscription?',
         // Both spellings; 'no longer' / 'no subscription' cover answers
         // that negate without the verb. Bare 'no' banned (see header).
-        expectAnyOf: ['cancelled', 'canceled', 'no longer', 'no subscription'],
+        // "no music subscription" / "don't have an active" negate with a
+        // word between (a false fail 2026-10-27).
+        expectAnyOf: [
+          'cancelled',
+          'canceled',
+          'no longer',
+          'no subscription',
+          'no music subscription',
+          "don't have an active",
+          'do not have an active',
+        ],
       },
       {
         kind: 'provenance',

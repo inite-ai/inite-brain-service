@@ -6,7 +6,12 @@
  */
 import { ABSTAIN_RE } from '../abstain';
 
-const norm = (s: string): string => s.toLowerCase();
+/**
+ * Lowercase and fold typographic apostrophes to ASCII: models answer
+ * "you don’t have…" with U+2019, and a marker authored as "don't" must
+ * still match it (s04 failed on exactly that, 2026-10-27).
+ */
+const norm = (s: string): string => s.toLowerCase().replace(/[\u2018\u2019\u02bc]/g, "'");
 
 /** Case-insensitive: does `text` contain at least one of `needles`? */
 export function containsAnyOf(text: string, needles: readonly string[]): boolean {

@@ -178,6 +178,40 @@ describe('relationship context — hypotheses', () => {
   });
 });
 
+describe('relationship context — an answered guess is not open', () => {
+  const rows = (openAt: string) => [
+    {
+      id: 'h:open',
+      predicate: 'relationship__hypothesis',
+      object: 'Coach hypothesizes that Ana snacks more at night on days with long meetings',
+      validFrom: openAt,
+    },
+    {
+      id: 'h:rej',
+      predicate: 'relationship__hypothesis_rejected',
+      object: "Coach's hypothesis that Ana snacks more at night on days with long meetings",
+      validFrom: hoursAgo(5),
+    },
+    {
+      id: 'h:other',
+      predicate: 'relationship__hypothesis',
+      object: 'Coach hypothesized that Ana is anxious about work',
+      validFrom: hoursAgo(5),
+    },
+  ];
+
+  it('drops the open row its own rejection repeats (battery r8, 2026-10-27)', () => {
+    const ctx = shapeRelationshipContext({ userId: 'ana', now, rows: rows(hoursAgo(5)) });
+    expect(ctx.hypotheses.open.map((h) => h.factId)).toEqual(['h:other']);
+    expect(ctx.hypotheses.rejected.map((h) => h.factId)).toEqual(['h:rej']);
+  });
+
+  it('keeps a guess raised again more than a day after it was answered', () => {
+    const ctx = shapeRelationshipContext({ userId: 'ana', now, rows: rows(hoursAhead(30)) });
+    expect(ctx.hypotheses.open.map((h) => h.factId).sort()).toEqual(['h:open', 'h:other']);
+  });
+});
+
 describe('relationship context — when a commitment falls due', () => {
   it('reads the day it is for, owed through the end of that day', () => {
     const ctx = shapeRelationshipContext({
