@@ -27,6 +27,11 @@ export interface RelationshipFactRow {
   expectedUntil?: string | Date | null;
   /** The entity the fact is about — who promised, for a commitment. */
   about?: string | null;
+  /**
+   * The day the value refers to, as the extractor resolved it
+   * (`objectMeta.date`) — for a commitment, the day it is for.
+   */
+  scheduledDay?: string | null;
 }
 
 export interface RelationshipItem {
@@ -111,11 +116,11 @@ export function shapeRelationshipContext(p: {
   const now = p.now.getTime();
 
   const commitments = of('commitment').map((r): RelationshipCommitment => {
-    const due = r.expectedUntil ? iso(r.expectedUntil) : undefined;
+    const due = dueOf(r);
     return {
       ...item(r),
-      ...(due ? { due } : {}),
-      overdue: due !== undefined && new Date(due).getTime() < now,
+      ...(due ? { due: due.toISOString() } : {}),
+      overdue: due !== undefined && due.getTime() < now,
     };
   });
   // What is owed comes first.
@@ -139,6 +144,20 @@ export function shapeRelationshipContext(p: {
       rejected: of('hypothesis_rejected').map(item),
     },
   };
+}
+
+/**
+ * When a commitment falls due: the expectation the extractor gave it, else
+ * the end of the day it is for ("on Thursday I'll ask" is owed through
+ * Thursday). A day that is not after the promise is when it was made, not
+ * when it is for.
+ */
+function dueOf(r: RelationshipFactRow): Date | undefined {
+  if (r.expectedUntil) return new Date(r.expectedUntil);
+  const day = r.scheduledDay ? new Date(`${r.scheduledDay}T00:00:00Z`) : undefined;
+  if (!day || Number.isNaN(day.getTime())) return undefined;
+  const endOfDay = new Date(day.getTime() + 24 * 3600_000);
+  return endOfDay.getTime() > new Date(r.validFrom).getTime() ? endOfDay : undefined;
 }
 
 /**

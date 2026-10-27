@@ -112,7 +112,13 @@ export interface HypothesisProbe extends ProbeBase {
 }
 
 export type Probe =
-  ExpectProbe | FenceProbe | QualifiedProbe | AbsenceProbe | RequiresProbe | OverdueProbe;
+  | ExpectProbe
+  | FenceProbe
+  | QualifiedProbe
+  | AbsenceProbe
+  | RequiresProbe
+  | OverdueProbe
+  | HypothesisProbe;
 
 export interface ProbeResult {
   id: string;
