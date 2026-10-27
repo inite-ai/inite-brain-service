@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.5.0](https://github.com/inite-ai/inite-brain-service/compare/v2.4.0...v2.5.0) (2026-10-27)
+
+
+### Features
+
+* **auth:** the membership plane — an org connection mirrors its source's ACL, and a group becomes a scope tag (W5, G6 steps 3–5) ([#669](https://github.com/inite-ai/inite-brain-service/issues/669)) ([c2e0828](https://github.com/inite-ai/inite-brain-service/commit/c2e082834496551b63c604f0cf8d584fc1f115ae))
+* **examples:** a runnable TypeScript SDK quickstart ([#750](https://github.com/inite-ai/inite-brain-service/issues/750)) ([#781](https://github.com/inite-ai/inite-brain-service/issues/781)) ([912f0c2](https://github.com/inite-ai/inite-brain-service/commit/912f0c2cfded76ea14c01b2f36ec9684384d8475))
+* **extraction:** read on demand — triage, depth, promotion and ACT-R activation ([#714](https://github.com/inite-ai/inite-brain-service/issues/714)) ([52fb87d](https://github.com/inite-ai/inite-brain-service/commit/52fb87d999fd44d6fb330225bcdf410503b38e16))
+* Nest 12 on Node 24 ([#779](https://github.com/inite-ai/inite-brain-service/issues/779)) ([d4d72d0](https://github.com/inite-ai/inite-brain-service/commit/d4d72d05289055617b1ba72d26f5b804b3f3f250))
+* **source-plane:** progressive indexing, and the quality tier of document text (W6) ([#670](https://github.com/inite-ai/inite-brain-service/issues/670)) ([87d8320](https://github.com/inite-ai/inite-brain-service/commit/87d8320a6ed74a3adec881ce997f9c4cc992813e))
+* **source-plane:** the linked lane — a source that keeps its own index is asked, not copied (W7) ([#671](https://github.com/inite-ai/inite-brain-service/issues/671)) ([03f1c68](https://github.com/inite-ai/inite-brain-service/commit/03f1c684326b12560345e22a1ac98d8ab45d4bb6))
+* **source-plane:** the other forge — a GitLab project over the v4 API, its issues and merge requests as conversations (W4.9) ([#667](https://github.com/inite-ai/inite-brain-service/issues/667)) ([b9e8f04](https://github.com/inite-ai/inite-brain-service/commit/b9e8f047d4397bcfe1241e8c743c047978f4e1a2))
+* the relationship layer and trust circles, step 1 ([#766](https://github.com/inite-ai/inite-brain-service/issues/766)) ([2bd98c3](https://github.com/inite-ai/inite-brain-service/commit/2bd98c3d2ecec41d02ed8b97b322f89d6e1bc7f6))
+
+
+### Bug Fixes
+
+* **ci:** the client publish workflow runs — one pnpm version, from packageManager ([#751](https://github.com/inite-ai/inite-brain-service/issues/751)) ([bff99f6](https://github.com/inite-ai/inite-brain-service/commit/bff99f6781a4c0b86b5aa3f6adbb2820bb5c909f))
+* **deps:** clear the three high advisories that turned every CI run red ([#767](https://github.com/inite-ai/inite-brain-service/issues/767)) ([7624402](https://github.com/inite-ai/inite-brain-service/commit/762440213f6324363ec7682aac67493c36c4e687))
+* **deps:** main installs and boots again — lockfile duplicates and the OpenTelemetry core cap ([#776](https://github.com/inite-ai/inite-brain-service/issues/776)) ([4a2197d](https://github.com/inite-ai/inite-brain-service/commit/4a2197dba4078ae040323655ae642e50ac894f35))
+* **release:** the version bump reaches the landing copy of the openapi document ([#742](https://github.com/inite-ai/inite-brain-service/issues/742)) ([f66e079](https://github.com/inite-ai/inite-brain-service/commit/f66e0797d0806ac0a36a543ab91bd5c5ef60ffd2))
+
 ## [2.4.0](https://github.com/inite-ai/inite-brain-service/compare/v2.3.0...v2.4.0) (2026-10-16)
 
 
