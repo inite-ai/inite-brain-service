@@ -380,6 +380,12 @@ jobs:
           EVIDENCE_QUARANTINE=1
           EVIDENCE_RAW_READ_ENABLED=1
           EVIDENCE_FRAGMENT_CITATIONS=1
+          # An uploaded PDF's extracted text goes through the ordinary
+          # document pipeline, so it yields facts — off, a PDF gave
+          # fragments for retrieval and never one fact (flag audit #788).
+          # Its vectors make the fragment lane's dense leg non-empty.
+          EVIDENCE_DOCUMENT_BRIDGE=1
+          EVIDENCE_FRAGMENT_EMBEDDINGS=1
           # ── Provenance DAG ──
           PROVENANCE_SUMMARY_EPISODE_STAMP=1
           PROVENANCE_RECURSIVE_CLOSURE=1
@@ -489,6 +495,13 @@ jobs:
           CONFLICT_SLOT_CANONICALIZATION=1
           INGEST_ARTICLE_NORMALIZATION=1
           MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE=1
+          # Write-side mirror of the gate above: a weak detection ("120
+          # requests per minute" → it@0.33) is not stamped as the fact's
+          # `lang` (#788).
+          MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE=1
+          # Homoglyph / mixed-script entity names are logged for review —
+          # never blocked, never merged (#788).
+          INGEST_CONFUSABLES_CHECK=1
           # ── One memory holds several languages (Russian conversations,
           # English code decisions): the hard same-language exclusion hid
           # every English fact from a confidently-Russian question once the
