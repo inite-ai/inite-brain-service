@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin, extractAccessToken } from '@/lib/server-auth'
-import { getBrainToken } from '@/lib/brain-api'
+import { getBrainToken, TokenExchangeError } from '@/lib/brain-api'
 
 /**
  * /api/admin/sse/[...path] — admin-gated SSE pass-through.
@@ -49,17 +49,24 @@ export const GET = withAdmin(async (_session, request) => {
 
   let token: string
   try {
-    // Same identity-preserving exchange as the JSON proxy (M2M fallback
-    // for dev-bypass sessions).
+    // Same fail-closed, identity-preserving exchange as the JSON proxy:
+    // only a request with no user token (dev bypass) gets the M2M token.
+    const userToken = await extractAccessToken(request)
     token = await getBrainToken({
       scope: SSE_SCOPE,
-      userToken: await extractAccessToken(request),
+      userToken,
+      requireUserIdentity: Boolean(userToken),
     })
   } catch (e) {
-    return NextResponse.json(
-      { error: (e as Error).message },
-      { status: 500 },
-    )
+    if (e instanceof TokenExchangeError) {
+      return NextResponse.json(
+        { error: 'Not authorized for this request.', code: 'identity_exchange_failed' },
+        { status: 403 },
+      )
+    }
+    // Token-endpoint diagnostics stay in the server log.
+    console.error('[admin-sse] token mint failed:', (e as Error).message)
+    return NextResponse.json({ error: 'Upstream credential unavailable.' }, { status: 502 })
   }
 
   // The browser-side EventSource will abort the upstream fetch when the
