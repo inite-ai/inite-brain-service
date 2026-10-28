@@ -522,17 +522,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     description:
       'Reversible entity resolution: a WEAK inline-resolution match (embedding-only, no exact-canonical / externalRef signal) is NOT auto-merged — it becomes a reviewable entity_merge_log candidate (migration 0102) and a fresh entity is minted, so the fuse is deferred to explicit review. STRONG matches (exact canonical / externalRef) still auto-reuse but write an auditable merge row, so any wrong fuse can be found by target entity and split. Off (default) → the resolver reuses immediately with no log — byte-identical.',
   },
-  {
-    key: 'MULTILINGUAL_CJK_SEGMENTATION',
-    category: 'pipeline',
-    // Resolved into the RetrievalProfile (cjkSegmentation) by
-    // resolveRetrievalProfile — read per request, never constructor-captured.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'CJK segmentation for the mention-scan topic: segment the topic with the Intl.Segmenter built-in (ICU-backed word boundaries — no new dependency) so CJK / other non-space-delimited scripts yield real terms instead of being split to nothing by the ASCII/Cyrillic character class. Resolved into the RetrievalProfile and threaded to the mention-scan lane. Off (default) → the legacy split — byte-identical.',
-  },
+
   // ── Multilingual (Tier 4) ───────────────────────────
   {
     key: 'MULTILINGUAL_LANE_ROUTING',

@@ -20,7 +20,6 @@ export const RetrievalProfileWireSchema = z.object({
   timelineEvidence: z.enum(['off', 'routed', 'scan']),
   coverageScanMode: z.enum(['brute', 'hnsw']),
   coverageLexMode: z.enum(['phrase', 'or_terms']),
-  cjkSegmentation: z.boolean(),
   multilingualLaneRouting: z.boolean(),
   multilingualConflict: z.boolean(),
   answerLangGuard: z.boolean(),

@@ -261,15 +261,6 @@ export interface RetrievalProfile {
    *  'phrase' = the legacy AND-semantics matcher. */
   coverageLexMode: CoverageLexMode;
   /**
-   * Multilingual Tier 3 (MULTILINGUAL_CJK_SEGMENTATION). Segment the
-   * mention-scan topic with Intl.Segmenter so CJK / non-space-delimited
-   * scripts yield real terms instead of being split to nothing by the
-   * ASCII/Cyrillic character class. Off (default) ⇒ the legacy split,
-   * byte-identical. Resolved here (the one env-reading module below the
-   * boundary) and threaded to the mention-scan lane.
-   */
-  cjkSegmentation: boolean;
-  /**
    * Multilingual Tier 4 (MULTILINGUAL_LANE_ROUTING). When ON, a language-
    * agnostic nearest-centroid classifier augments the English-regex answer
    * router for queries it returns null/generic for — a non-English temporal /
@@ -757,7 +748,6 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
       enumEnv(env, 'RETRIEVAL_COVERAGE_LEX_MODE', ['phrase', 'or_terms'] as const) ?? 'phrase',
     // Cross-cutting locale flags (MULTILINGUAL_ family, off the RETRIEVAL_
     // budget); resolved directly from env here, no genre preset.
-    cjkSegmentation: envFlagEnabled(env.MULTILINGUAL_CJK_SEGMENTATION),
     multilingualLaneRouting: envFlagEnabled(env.MULTILINGUAL_LANE_ROUTING),
     multilingualConflict: envFlagEnabled(env.MULTILINGUAL_CONFLICT),
     answerLangGuard: envFlagEnabled(env.MULTILINGUAL_ANSWER_GUARD),
@@ -982,7 +972,6 @@ export function resolveRetrievalProfileFor(
     'factsAsKeys',
     'fragmentLane',
     'sceneLane',
-    'cjkSegmentation',
     'multilingualLaneRouting',
     'multilingualConflict',
     'answerLangGuard',

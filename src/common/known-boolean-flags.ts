@@ -887,13 +887,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // can be found and split. Default off ⇒ immediate reuse, no log (byte-
   // identical). MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_ENTITY_REVERSIBLE',
-  // Multilingual Tier 3. CJK segmentation: the mention-scan topic is
-  // segmented with the Intl.Segmenter built-in (ICU-backed, no new dep) so
-  // CJK / non-space-delimited scripts yield real terms instead of being
-  // split to nothing. Resolved into the RetrievalProfile (cjkSegmentation).
-  // Default off ⇒ the legacy split (byte-identical). MULTILINGUAL_ family,
-  // off the ENGINE flag budget.
-  'MULTILINGUAL_CJK_SEGMENTATION',
   // Multilingual Tier 4. Language-agnostic lane classifier: a nearest-centroid
   // classifier (multilingual exemplar centroids, shared cosine primitive)
   // AUGMENTS the English-regex answer router for queries it returns
