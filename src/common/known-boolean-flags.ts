@@ -879,13 +879,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // untouched. Default off ⇒ any non-`und` detection stamps,
   // byte-identical. MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE',
-  // Multilingual Tier 3 (migration 0102). Reversible entity resolution: a
-  // weak embedding-only inline-resolution match is NOT auto-merged — it
-  // becomes a reviewable entity_merge_log candidate — and every strong
-  // (exact/externalRef) reuse writes an auditable merge row so a wrong fuse
-  // can be found and split. Default off ⇒ immediate reuse, no log (byte-
-  // identical). MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_ENTITY_REVERSIBLE',
   // Multilingual Tier 4. Language-agnostic lane classifier: a nearest-centroid
   // classifier (multilingual exemplar centroids, shared cosine primitive)
   // AUGMENTS the English-regex answer router for queries it returns

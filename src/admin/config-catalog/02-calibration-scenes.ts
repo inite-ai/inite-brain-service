@@ -510,18 +510,6 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
       'Write-side mirror of MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE (migration 0127): a language DETECTION below the same shared high-confidence floor (0.5) is NOT stamped as the row\'s authoritative `lang` column — the hard same-language search filter\'s input — so a one-stopword mislabel ("120 requests per minute" → it@0.33 off the lone Italian "per", the k07 write-side root) stops polluting facts for every future lang-aware consumer. Applies to live fact ingest (fact-resolver) and derived rows (derive-row-builder). Only `lang` is withheld: the detected script stays, and on the fact-resolver path the attribution metadata records what the detector said (detectedLang + langConfidence + detectorVersion, langSource=detected) even while MULTILINGUAL_LANG_ATTRIBUTION is off — withholding is never silent. Inherited/explicit language paths are untouched (a weak detection does NOT divert to sourceLang inheritance — that stays strictly for detector-`und` objects). Off (default) → any non-`und` detection stamps, byte-identical.',
   },
   // ── Multilingual (Tier 3, migration 0102) ───────────
-  {
-    key: 'MULTILINGUAL_ENTITY_REVERSIBLE',
-    category: 'pipeline',
-    // Read per-call in EntityResolverService.isReversible() +
-    // EntityUpsertService (process.env), never constructor-captured — a flip
-    // takes effect without restart.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Reversible entity resolution: a WEAK inline-resolution match (embedding-only, no exact-canonical / externalRef signal) is NOT auto-merged — it becomes a reviewable entity_merge_log candidate (migration 0102) and a fresh entity is minted, so the fuse is deferred to explicit review. STRONG matches (exact canonical / externalRef) still auto-reuse but write an auditable merge row, so any wrong fuse can be found by target entity and split. Off (default) → the resolver reuses immediately with no log — byte-identical.',
-  },
 
   // ── Multilingual (Tier 4) ───────────────────────────
   {

@@ -2,23 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
-import { EntityJudgeService, EntityVerdict } from '../ai/entity-judge.service';
+import { EntityJudgeService } from '../ai/entity-judge.service';
 import { traceArtifact } from '../common/debug-trace';
 import { envFlagEnabled } from '../common/env-validation';
 import { nameKey } from '../common/name-key';
-import { dbCreate } from '../db/surreal.service';
-
-/** One auditable reuse/candidate decision (migration 0102 entity_merge_log). */
-export interface MergeLogEntry {
-  mention: string;
-  type: string;
-  targetEntity: string;
-  verdict: EntityVerdict;
-  cosine: number;
-  matchKind:
-    'exact' | 'externalRef' | 'translit' | 'embedding' | 'article-variant' | 'name-part' | 'known';
-  decision: 'reused' | 'candidate';
-}
 
 /**
  * EntityResolverService — inline entity resolution at ingest time
@@ -129,45 +116,6 @@ export class EntityResolverService {
   }
 
   /**
-   * Tier 3 reversible-resolution switch (MULTILINGUAL_ENTITY_REVERSIBLE,
-   * default off). Read per-call so a live flip lands without restart — the
-   * config catalogue advertises it runtimeMutable, so it must never be
-   * constructor-captured. Off ⇒ resolveByName is byte-identical (immediate
-   * reuse, no merge log).
-   */
-  isReversible(): boolean {
-    return envFlagEnabled(process.env.MULTILINGUAL_ENTITY_REVERSIBLE);
-  }
-
-  /**
-   * Append one auditable row to entity_merge_log (migration 0102) so a reuse
-   * is reversible / splittable. NEVER throws — an audit-log failure must not
-   * block ingest (same posture as resolveByName). Callers gate on
-   * isReversible() before invoking.
-   */
-  async recordMerge(db: Surreal, entry: MergeLogEntry): Promise<void> {
-    try {
-      await dbCreate(db, 'entity_merge_log', {
-        mention: entry.mention,
-        mentionType: entry.type,
-        targetEntity: entry.targetEntity,
-        verdict: entry.verdict,
-        cosine: entry.cosine,
-        matchKind: entry.matchKind,
-        decision: entry.decision,
-        // A weak candidate enters the review queue; a deterministic reused
-        // row needs no review, so reviewState stays NONE (omitted).
-        ...(entry.decision === 'candidate' ? { reviewState: 'pending' } : {}),
-      });
-    } catch (err) {
-      this.logger.warn(
-        `[ingest.merge_log] failed to record ${entry.decision} for ` +
-          `"${entry.mention}": ${(err as Error).message}`,
-      );
-    }
-  }
-
-  /**
    * Resolve an extracted entity to an EXISTING entity id when a confident
    * same-as match is found, otherwise null (caller creates a new entity).
    *
@@ -223,32 +171,9 @@ export class EntityResolverService {
         existingFacts,
         incoming,
         verdict,
-        decision: verdict !== 'same' ? 'create' : this.isReversible() ? 'candidate' : 'reuse',
+        decision: verdict !== 'same' ? 'create' : 'reuse',
       });
       if (verdict === 'same') {
-        if (this.isReversible()) {
-          // Tier 3 (MULTILINGUAL_ENTITY_REVERSIBLE): an embedding-only match
-          // is LOW-CONFIDENCE by construction — an exact-canonical /
-          // externalRef signal would have reused UPSTREAM before we ran. Do
-          // NOT auto-adopt the id: that fuse is unreversible once the caller
-          // writes facts under it. Record a reviewable candidate and fall
-          // through to "create new", deferring the merge to an explicit,
-          // reversible review.
-          await this.recordMerge(db, {
-            mention: name,
-            type,
-            targetEntity: candidate.entityId,
-            verdict,
-            cosine: candidate.cosine,
-            matchKind: candidate.matchKind,
-            decision: 'candidate',
-          });
-          this.logger.log(
-            `[ingest.inline_resolution] candidate (not auto-merged) ` +
-              `${candidate.entityId} for "${name}" (cos=${candidate.cosine.toFixed(3)})`,
-          );
-          return null;
-        }
         this.logger.log(
           `[ingest.inline_resolution] reused ${candidate.entityId} for "${name}" ` +
             `(cos=${candidate.cosine.toFixed(3)})`,
