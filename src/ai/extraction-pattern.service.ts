@@ -97,6 +97,8 @@ export class ExtractionPatternService {
    */
   async record(companyId: string, entries: ExtractionPatternEntry[]): Promise<void> {
     if (entries.length === 0) return;
+    let failed = 0;
+    let lastError = '';
     await this.surreal.withCompany(companyId, async (db) => {
       for (const e of entries) {
         const key = this.normalise(e.clauseText);
@@ -119,12 +121,17 @@ export class ExtractionPatternService {
             { key },
           );
         } catch (err) {
-          this.logger.warn(
-            `record(${companyId}): failed to upsert pattern for "${key.slice(0, 60)}": ${(err as Error).message}`,
-          );
+          failed += 1;
+          lastError = (err as Error).message;
         }
       }
     });
+    // Counts only: the clause text is the user's own words.
+    if (failed > 0) {
+      this.logger.warn(
+        `record(${companyId}): ${failed}/${entries.length} pattern upsert(s) failed: ${lastError}`,
+      );
+    }
     this.invalidate(companyId);
   }
 
