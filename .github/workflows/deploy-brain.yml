@@ -380,6 +380,8 @@ jobs:
           EVIDENCE_QUARANTINE=1
           EVIDENCE_RAW_READ_ENABLED=1
           EVIDENCE_FRAGMENT_CITATIONS=1
+          # MEASUREMENT ONLY (flag audit #788) — not for merge.
+          EXTRACTOR_TRANSITION_CLASSIFIER=1
           # ── Provenance DAG ──
           PROVENANCE_SUMMARY_EPISODE_STAMP=1
           PROVENANCE_RECURSIVE_CLOSURE=1
