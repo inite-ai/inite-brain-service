@@ -112,6 +112,27 @@ describe('ExtractionPatternService', () => {
     expect(upserts).toHaveLength(0);
   });
 
+  it('a failed upsert is logged as a count, never with the clause text', async () => {
+    const db = {
+      query: jest.fn(async () => {
+        throw new Error('Transaction conflict: Resource busy');
+      }),
+    };
+    const service = { withCompany: async (_c: string, fn: (d: typeof db) => unknown) => fn(db) };
+    const svc = new ExtractionPatternService(service as never, stubConfig);
+    const warn = jest
+      .spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+    await svc.record('demo', [
+      { clauseText: 'I bought a Kawasaki Ninja', facts: [], edges: [] },
+      { clauseText: 'my home city is Lisbon', facts: [], edges: [] },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]?.[0]);
+    expect(line).toContain('2/2');
+    expect(line).not.toMatch(/kawasaki|lisbon/i);
+  });
+
   it('invalidate() clears the TTL cache for that tenant', async () => {
     const { service } = mkSurreal([
       {
