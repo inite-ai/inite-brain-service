@@ -556,19 +556,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     description:
       'Typed conflict detection: detectEvidenceConflicts compares NORMALIZED TYPED VALUES (numbers/booleans, digit-script- and case-folded, locale number parsing) instead of surface strings, so a cross-lingual numeric/boolean disagreement on a typed slot ("70 kg" vs "75 kg") is caught even on derived rows without a COMPETING status, and cosmetic differences (digit script, case) no longer false-flag. Presentation of already-flagged COMPETING facts only — never the write-side adjudicator; model-based multilingual NLI (semantic string equivalence like "tea" ≡ "чай") is deliberately deferred (needs a model). Resolved into the RetrievalProfile. Off (default) → byte-identical string-equality behavior.',
   },
-  // ── Multilingual (Tier 5, migration 0103) ───────────
-  {
-    key: 'MULTILINGUAL_CALIBRATION',
-    category: 'pipeline',
-    // Read at fit / load time via fovea-flags.multilingualCalibrationEnabled()
-    // (a per-call function body const, never constructor-captured) — a flip
-    // takes effect on the next fit/load without restart.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Hierarchical per-language focus calibration: the §4.2 per-class isotonic calibrator (focus-signal.ts) gains a LANGUAGE key with an exact (class × language) → (class × script/family) → (class) → global fallback, fitting a per-language / per-script map only when the bucket clears the same min-sample floor (so a sparse language never earns a noisy calibrator and degrades up the hierarchy). Focus-signal capture stamps the detected query language + script on each sample (migration 0103 optional columns). Serving-neutral — nothing on the answer path reads the calibration yet (Optics-2/3). Off (default) → the language dimension is never written or consulted and the global per-class calibration is byte-identical.',
-  },
+  // ── Multilingual (Tier 5) ───────────
   {
     key: 'MULTILINGUAL_ANSWER_GUARD',
     category: 'pipeline',
