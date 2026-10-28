@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { jwtVerify, createRemoteJWKSet } from 'jose'
 import { refreshAccessToken, setSessionCookies } from '@/lib/token-refresh'
+import { acceptedIssuers } from '@/lib/auth-issuer'
 
 /**
  * Edge guard for /(en|ru)/admin/** and /(en|ru)/app/**.
@@ -52,6 +53,7 @@ async function verifyToken(
   try {
     const { payload } = await jwtVerify(token, JWKS, {
       audience: EXPECTED_AUDIENCE,
+      issuer: acceptedIssuers(),
       algorithms: ['RS256'],
     })
     const roles = (payload.roles as string[] | undefined) ?? []

@@ -14,6 +14,7 @@
  */
 
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose'
+import { acceptedIssuers } from './auth-issuer'
 
 const AUTH_DOMAIN =
   process.env.AUTH_SERVICE_URL ||
@@ -43,6 +44,7 @@ export async function verifyAccessToken(
   try {
     const { payload } = await jwtVerify(token, jwks, {
       audience: EXPECTED_AUDIENCE,
+      issuer: acceptedIssuers(),
       algorithms: ['RS256'],
     })
     if (!payload.sub) return null
