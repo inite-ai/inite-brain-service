@@ -37,6 +37,9 @@ const DRIFT_TOLERANCE = 0.05;
 /** "A multiple of economy": the head costs at most this share of the base. */
 const ECONOMY_RATIO = 0.5;
 
+/** The generator reads the context pack; its input per question is the context. */
+const CONTEXT_SITE = /^synthesize\/generator/;
+
 const root = process.argv[2] ?? 'artifacts';
 const cells = new Map();
 let approxPrice = false;
@@ -57,16 +60,16 @@ for (const dir of existsSync(root) ? readdirSync(root) : []) {
   cells.get(key).push({ pass: s.pass, scored: s.pass + s.fail, ...price(out, report) });
 }
 
-/** Rows of `brain_llm_tokens{kind,model,type} value` → { "kind|model": {type: n} }. */
+/** Rows of `brain_llm_tokens{kind,model,site,type} value` → { "kind|model|site": {type: n} }. */
 function readProm(path) {
   const acc = {};
   if (!existsSync(path)) return null;
   for (const line of readFileSync(path, 'utf8').split('\n')) {
-    const m =
-      /^brain_llm_tokens\{kind="([^"]+)",model="([^"]+)",type="([^"]+)"\} ([0-9.e+]+)$/.exec(line);
+    const m = /^brain_llm_tokens\{([^}]*)\} ([0-9.e+]+)$/.exec(line);
     if (!m) continue;
-    const k = `${m[1]}|${m[2]}`;
-    (acc[k] ??= {})[m[3]] = Number(m[4]);
+    const l = Object.fromEntries([...m[1].matchAll(/(\w+)="([^"]*)"/g)].map((x) => [x[1], x[2]]));
+    const k = `${l.kind}|${l.model}|${l.site ?? 'unknown'}`;
+    (acc[k] ??= {})[l.type] = Number(m[2]);
   }
   return acc;
 }
@@ -84,16 +87,27 @@ function minus(a, b) {
 function dollars(usage) {
   let usd = 0;
   let input = 0;
+  let context = 0;
+  let sawSites = false;
+  const sites = {};
   for (const [k, v] of Object.entries(usage ?? {})) {
-    const model = k.split('|')[1];
+    const [kind, model, site] = k.split('|');
     const p = PRICES[model] ?? DEFAULT_PRICE;
     if (!PRICES[model]) approxPrice = true;
     const cached = v.cached_input ?? 0;
     const fresh = Math.max(0, (v.input ?? 0) - cached);
-    usd += (fresh * p.input + cached * p.cached + (v.output ?? 0) * p.output) / 1e6;
-    if (k.startsWith('chat|')) input += v.input ?? 0;
+    const cost = (fresh * p.input + cached * p.cached + (v.output ?? 0) * p.output) / 1e6;
+    usd += cost;
+    if (kind === 'chat') input += v.input ?? 0;
+    if (site && site !== 'unknown') sawSites = true;
+    if (kind === 'chat' && CONTEXT_SITE.test(site ?? '')) context += v.input ?? 0;
+    const row = (sites[`${kind}:${site}`] ??= { usd: 0, calls: 0, errors: 0 });
+    row.usd += cost;
+    row.calls += v.calls ?? 0;
+    row.errors += v.errors ?? 0;
   }
-  return { usd, input };
+  // Before per-site labels, all chat input stands in for the context.
+  return { usd, input: sawSites ? context : input, sites };
 }
 
 function median(xs) {
@@ -119,6 +133,8 @@ function price(out, report) {
   const a = ask ? dollars(ask) : null;
   const asked = Math.max(1, answers.length || items.length);
   return {
+    writeSites: w?.sites,
+    askSites: a?.sites,
     writeUsd: w?.usd,
     askUsd: a?.usd,
     ctxPerQ: a ? a.input / asked : undefined,
@@ -230,3 +246,40 @@ if (approxPrice)
   process.stdout.write(
     '\n~ some models are not in the price table and were priced as gpt-6-luna.\n',
   );
+
+/**
+ * Where the money goes: per calling file, mean dollars per sample in each
+ * half, calls and errors — the audit view (a site that spends on the
+ * write half of a corpus it never changes, or errors on every call, is
+ * money for nothing).
+ */
+const where = [];
+for (const [key, samples] of [...cells.entries()].sort()) {
+  const [battery, arm] = key.split('\u0000');
+  const agg = {};
+  for (const smp of samples) {
+    for (const [half, sites] of [
+      ['write', smp.writeSites],
+      ['ask', smp.askSites],
+    ]) {
+      for (const [site, r] of Object.entries(sites ?? {})) {
+        const a = (agg[site] ??= { write: 0, ask: 0, calls: 0, errors: 0 });
+        a[half] += r.usd / samples.length;
+        a.calls += r.calls / samples.length;
+        a.errors += r.errors / samples.length;
+      }
+    }
+  }
+  const rows = Object.entries(agg).sort((x, y) => y[1].write + y[1].ask - (x[1].write + x[1].ask));
+  if (rows.length === 0) continue;
+  const total = rows.reduce((t, [, r]) => t + r.write + r.ask, 0);
+  where.push(`\n**${battery} · ${arm}** — $${total.toFixed(4)} per sample\n`);
+  where.push('| site | write $ | ask $ | calls | errors | share |', '|---|---|---|---|---|---|');
+  for (const [site, r] of rows) {
+    const share = total > 0 ? (100 * (r.write + r.ask)) / total : 0;
+    where.push(
+      `| ${site} | ${usd(r.write)} | ${usd(r.ask)} | ${num(r.calls)} | ${num(r.errors)} | ${num(share)}% |`,
+    );
+  }
+}
+if (where.length) process.stdout.write(`\n**Where the money goes**\n${where.join('\n')}\n`);

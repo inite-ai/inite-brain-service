@@ -4,6 +4,7 @@
  * Before it, 9 call sites spent tokens no counter saw (2026-10-28).
  */
 import {
+  callSite,
   llmUsageSnapshot,
   recordLlmUsage,
   resetLlmUsage,
@@ -47,7 +48,9 @@ describe('llm usage ledger', () => {
         {
           kind: 'chat',
           model: 'gpt-6-luna',
+          site: expect.any(String),
           calls: 2,
+          errors: 0,
           inputTokens: 2400,
           cachedInputTokens: 2000,
           outputTokens: 160,
@@ -55,7 +58,9 @@ describe('llm usage ledger', () => {
         {
           kind: 'embed',
           model: 'text-embedding-3-small',
+          site: expect.any(String),
           calls: 1,
+          errors: 0,
           inputTokens: 9,
           cachedInputTokens: 0,
           outputTokens: 0,
@@ -65,25 +70,48 @@ describe('llm usage ledger', () => {
   });
 
   it('a response without usage still counts the call', () => {
-    recordLlmUsage('chat', 'm', undefined);
+    recordLlmUsage({ kind: 'chat', model: 'm' }, undefined);
     expect(llmUsageSnapshot()[0]).toMatchObject({ calls: 1, inputTokens: 0, outputTokens: 0 });
   });
 
-  it('a failed call is not counted and the error reaches the caller', async () => {
+  it('a failed call is counted as an error, not as usage, and still reaches the caller', async () => {
     const c = fakeClient();
     c.chat.completions.create.mockImplementationOnce(async () => {
       throw new Error('429');
     });
     withUsageLedger(c);
     await expect(c.chat.completions.create({ model: 'm' })).rejects.toThrow('429');
-    expect(llmUsageSnapshot()).toHaveLength(0);
+    expect(llmUsageSnapshot()).toEqual([
+      expect.objectContaining({ model: 'm', calls: 0, errors: 1, inputTokens: 0 }),
+    ]);
   });
 
   it('/metrics exposes the ledger as brain_llm_tokens', async () => {
-    recordLlmUsage('chat', 'gpt-6-luna', { prompt_tokens: 50, completion_tokens: 5 });
+    recordLlmUsage(
+      { kind: 'chat', model: 'gpt-6-luna', site: 'synthesize/verifier' },
+      { prompt_tokens: 50, completion_tokens: 5 },
+    );
     const { body } = await new MetricsService().serialize();
-    expect(body).toContain('brain_llm_tokens{kind="chat",model="gpt-6-luna",type="input"} 50');
-    expect(body).toContain('brain_llm_tokens{kind="chat",model="gpt-6-luna",type="output"} 5');
-    expect(body).toContain('brain_llm_tokens{kind="chat",model="gpt-6-luna",type="calls"} 1');
+    const l = 'kind="chat",model="gpt-6-luna",site="synthesize/verifier"';
+    expect(body).toContain(`brain_llm_tokens{${l},type="input"} 50`);
+    expect(body).toContain(`brain_llm_tokens{${l},type="output"} 5`);
+    expect(body).toContain(`brain_llm_tokens{${l},type="calls"} 1`);
+    expect(body).toContain(`brain_llm_tokens{${l},type="errors"} 0`);
+  });
+
+  it('callSite names the first non-plumbing source file, src or dist', () => {
+    const stack = [
+      'Error',
+      '    at h.create (/app/dist/ai/llm-usage-ledger.js:80:20)',
+      '    at create (/app/dist/ai/openai-client.js:140:12)',
+      '    at fn (/app/dist/synthesize/verifier.js:212:44)',
+      '    at withGenAiCall (/app/dist/common/gen-ai-observability.js:130:9)',
+    ].join('\n');
+    expect(callSite(stack)).toBe('synthesize/verifier');
+    expect(callSite('Error\n    at x (/repo/src/admin/scene-enricher.service.ts:90:7)')).toBe(
+      'admin/scene-enricher.service',
+    );
+    expect(callSite('Error\n    at x (node:internal/process:1:1)')).toBe('unknown');
+    expect(callSite(undefined)).toBe('unknown');
   });
 });
