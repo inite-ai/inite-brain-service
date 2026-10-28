@@ -133,7 +133,8 @@ jobs:
           corpus=$( (cd harness && git ls-tree -r HEAD -- "test/eval/$BATTERY" test/eval/phase.ts test/eval/http-brain-client.ts test/eval/long-request.ts) \
             | grep -vE '/(probes|questions|scorers)\.ts$|/README\.md$' | sha256sum | cut -c1-12)
           day=""; [ "$BATTERY" = relationship ] && day="-$(date -u +%F)"
-          echo "key=battery-snap-v3-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
+          # v4: every v3 snapshot was written by a drained key (2026-10-28).
+          echo "key=battery-snap-v4-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
 
       - name: Restore snapshot
         id: snap
@@ -219,6 +220,23 @@ jobs:
           export BRAIN_BASE_URL=http://127.0.0.1:3000 BATTERY_PHASE=ingest \
             MEMFIT_REPORT_DIR=../snap/reports STEV_REPORT_DIR=../snap/reports REL_REPORT_DIR=../snap/reports
           pnpm --ignore-workspace "eval:$BATTERY" 2>&1 | tee ../ingest.log
+
+      - name: Check the write half
+        if: steps.snap.outputs.cache-hit != 'true'
+        # A memory written while the provider refused is not this arm's
+        # memory, and a snapshot of it would be replayed by every later run
+        # with the same key: on 2026-10-28 a drained key poisoned 126
+        # snapshots and two rounds of measurements read them as regressions.
+        run: |
+          if grep -iqE 'no credits remaining|insufficient_quota|credit_balance_exhausted|[^0-9.]429 (you|rate|too many)' brain.log; then
+            echo "::error::the provider refused during the write half; no snapshot"
+            exit 1
+          fi
+          if grep -qE 'extract_documents .*failed=[1-9]' brain.log; then
+            echo "::error::extraction groups failed during the write half; no snapshot"
+            exit 1
+          fi
+          echo "[ok] the write half saw no provider refusal"
 
       - name: Export snapshot
         if: steps.snap.outputs.cache-hit != 'true'
