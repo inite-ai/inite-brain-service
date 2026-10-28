@@ -158,6 +158,8 @@ jobs:
                 # allowedAudiences including 'brain'.
                 - AUTH_SERVICE_URL=https://auth.inite.ai
                 - NEXT_PUBLIC_AUTH_SERVICE_URL=https://auth.inite.ai
+                # `iss` every session token must carry (lib/auth-issuer.ts).
+                - AUTH_SERVICE_ISSUER=https://auth-api.inite.ai
                 - OAUTH_CLIENT_ID=brain-landing
                 - NEXT_PUBLIC_OAUTH_CLIENT_ID=brain-landing
                 - OAUTH_CLIENT_SECRET=${{ secrets.OAUTH_CLIENT_SECRET }}
