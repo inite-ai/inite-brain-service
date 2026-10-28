@@ -261,15 +261,6 @@ export interface RetrievalProfile {
    *  'phrase' = the legacy AND-semantics matcher. */
   coverageLexMode: CoverageLexMode;
   /**
-   * Multilingual Tier 3 (MULTILINGUAL_CJK_SEGMENTATION). Segment the
-   * mention-scan topic with Intl.Segmenter so CJK / non-space-delimited
-   * scripts yield real terms instead of being split to nothing by the
-   * ASCII/Cyrillic character class. Off (default) ⇒ the legacy split,
-   * byte-identical. Resolved here (the one env-reading module below the
-   * boundary) and threaded to the mention-scan lane.
-   */
-  cjkSegmentation: boolean;
-  /**
    * Multilingual Tier 4 (MULTILINGUAL_LANE_ROUTING). When ON, a language-
    * agnostic nearest-centroid classifier augments the English-regex answer
    * router for queries it returns null/generic for — a non-English temporal /
@@ -288,17 +279,6 @@ export interface RetrievalProfile {
    * adjudicator. Off (default) ⇒ byte-identical string-equality behavior.
    */
   multilingualConflict: boolean;
-  /**
-   * Multilingual Tier 5 (MULTILINGUAL_ANSWER_GUARD). When ON, the answer-
-   * language target follows a strict fallback ORDER — explicit answerLang →
-   * user/session locale (dto.queryLang) → confidently-detected query language
-   * (Tier 1 confidence floor) → no forced language — so the retrieved FACTS
-   * never decide the answer language; and after generation the answer's own
-   * language is checked against that target, with ONE bounded corrective
-   * regeneration on a cross-script mismatch (then flagged). Off (default) ⇒
-   * `resolveAnswerLang` is byte-identical and no output-language check runs.
-   */
-  answerLangGuard: boolean;
   /** HNSW ef candidate-list size for the scan legs (clamped up to the
    *  overfetched k at query time — ef below k is never useful). */
   scanHnswEf: number;
@@ -757,10 +737,8 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
       enumEnv(env, 'RETRIEVAL_COVERAGE_LEX_MODE', ['phrase', 'or_terms'] as const) ?? 'phrase',
     // Cross-cutting locale flags (MULTILINGUAL_ family, off the RETRIEVAL_
     // budget); resolved directly from env here, no genre preset.
-    cjkSegmentation: envFlagEnabled(env.MULTILINGUAL_CJK_SEGMENTATION),
     multilingualLaneRouting: envFlagEnabled(env.MULTILINGUAL_LANE_ROUTING),
     multilingualConflict: envFlagEnabled(env.MULTILINGUAL_CONFLICT),
-    answerLangGuard: envFlagEnabled(env.MULTILINGUAL_ANSWER_GUARD),
     scanHnswEf: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_EF', 400),
     scanHnswOverfetch: positiveIntEnv(env, 'RETRIEVAL_SCAN_HNSW_OVERFETCH', 4),
     dateAnchoring:
@@ -982,10 +960,8 @@ export function resolveRetrievalProfileFor(
     'factsAsKeys',
     'fragmentLane',
     'sceneLane',
-    'cjkSegmentation',
     'multilingualLaneRouting',
     'multilingualConflict',
-    'answerLangGuard',
     'verifiedUseDecay',
     'verifiedUseRanking',
     'tenantDecayPolicy',
@@ -1034,8 +1010,7 @@ export interface SearchTuning {
   usageRanking: boolean;
   usageBeta: number;
   usageSaturation: number;
-  /** SEARCH_PPR_ENABLED / SEARCH_PPR_AUTO_THRESHOLD. */
-  pprEnabled: boolean;
+  /** SEARCH_PPR_AUTO_THRESHOLD: PPR runs on candidate sets at least this large; 0 = never. */
   pprAutoThreshold: number;
   /** Source-reputation ranking knobs (Phase 5); 0 = factor 1.0. */
   trustBeta: number;
@@ -1117,7 +1092,6 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     usageRanking: envFlagEnabled(env.SEARCH_USAGE_RANKING_ENABLED),
     usageBeta: nonNegativeFloat(env, 'SEARCH_USAGE_BETA'),
     usageSaturation: tuningInt(env, 'SEARCH_USAGE_SATURATION', 20),
-    pprEnabled: envFlagEnabled(env.SEARCH_PPR_ENABLED),
     pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
     trustBeta: nonNegativeFloat(env, 'SEARCH_TRUST_BETA'),
     corroborationGamma: nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA'),
