@@ -35,6 +35,28 @@ export interface FaithfulnessSourceFact {
   factId: string;
   predicate: string;
   object: string;
+  /**
+   * Who the fact is about, and when it holds / what day it names. Without
+   * them the judge could neither catch an answer that pins another
+   * patient's symptom on the asked one ("Diego reported a dry cough" off
+   * someone else's row was judged supported) nor accept a date that IS in
+   * memory (every dated claim came back partial) — nightly 2026-10-28.
+   */
+  subject?: string | undefined;
+  validFrom?: string | undefined;
+  date?: string | undefined;
+}
+
+/** One source line as the judge reads it: who · predicate: object · when. */
+export function renderSourceFact(f: FaithfulnessSourceFact): string {
+  const when = [
+    f.date ? `day ${f.date}` : '',
+    f.validFrom ? `since ${f.validFrom.slice(0, 10)}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const who = f.subject ? `${f.subject} — ` : '';
+  return `[${f.factId}] ${who}${f.predicate}: ${f.object}${when ? ` (${when})` : ''}`;
 }
 
 export interface FaithfulnessInput {
@@ -112,6 +134,7 @@ Verdicts:
 - "not_supported" — claim is not in the facts at all
 
 Be strict. A claim that adds a date, location, or value not in the facts is at most "partial".
+Each fact names who it is about and when it holds. A claim that attributes a fact to a DIFFERENT person or thing than the fact's subject is "not_supported". A date that matches a fact's day or "since" date is supported.
 
 Return strictly the JSON shape requested: one verdict per claim id (c1, c2, …).`;
 
@@ -246,9 +269,7 @@ async function verifyClaims(
 ): Promise<VerifyClaimsOutcome> {
   if (claims.length === 0) return { verdicts: [] };
   const factLines =
-    sourceFacts.length > 0
-      ? sourceFacts.map((f) => `[${f.factId}] ${f.predicate}: ${f.object}`).join('\n')
-      : '(no source facts)';
+    sourceFacts.length > 0 ? sourceFacts.map(renderSourceFact).join('\n') : '(no source facts)';
   const numbered = claims.map((c, i) => `c${i + 1}. ${c}`).join('\n');
   try {
     const res = await client.chat.completions.create({

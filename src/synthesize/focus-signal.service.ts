@@ -6,19 +6,15 @@ import {
   adaptiveL3Enabled,
   adaptiveL3EscalateThreshold,
   focusCaptureEnabled,
-  multilingualCalibrationEnabled,
 } from '../common/fovea-flags';
 import { SurrealService } from '../db/surreal.service';
-import { detectLanguage } from '../ai/locale/language-detector';
 import type { SearchHit } from '../search/search.types';
 import type { LaneId } from './answer-router';
 import {
   buildFocusSignal,
   calibratedConfidence as calibratedConfidenceOf,
-  calibrationKey,
   computeReliability,
   fitPerClass,
-  parseCalibrationKey,
   queryClassOf,
   rawFocusConfidence,
   type FocusOutcomeSample,
@@ -40,38 +36,6 @@ const FOCUS_STAGES: readonly FocusStage[] = ['verdict', 'preanswer'];
  */
 function stagePredicate(stage: FocusStage): string {
   return stage === 'verdict' ? "(stage = 'verdict' OR stage IS NONE)" : "stage = 'preanswer'";
-}
-
-/**
- * Build the WHERE fragment + params that select EXACTLY one calibration key's
- * (queryClass, language, script) tuple — an absent dimension matches `IS NONE`
- * so a bare per-class row is never confused with a (class × language) row when
- * bumping the version counter (Tier 5). queryClass is a typed LaneId/'default';
- * language/script are ISO codes — all inlined via bound params.
- */
-function calibrationKeyPredicate(parts: {
-  queryClass: string;
-  language?: string | undefined;
-  script?: string | undefined;
-}): {
-  where: string;
-  params: Record<string, unknown>;
-} {
-  const clauses = ['queryClass = $q'];
-  const params: Record<string, unknown> = { q: parts.queryClass };
-  if (parts.language) {
-    clauses.push('language = $language');
-    params.language = parts.language;
-  } else {
-    clauses.push('language IS NONE');
-  }
-  if (parts.script) {
-    clauses.push('script = $script');
-    params.script = parts.script;
-  } else {
-    clauses.push('script IS NONE');
-  }
-  return { where: clauses.join(' AND '), params };
 }
 
 /**
@@ -164,19 +128,6 @@ export class FocusSignalService {
         factScores,
         verifierVerdict: args.verdict,
       });
-      // Tier 5 (MULTILINGUAL_CALIBRATION): stamp the detected QUERY language +
-      // script so the hierarchical calibrator can key on them. Detected with
-      // attribution OFF so the bucket label is deterministic and independent
-      // of MULTILINGUAL_LANG_ATTRIBUTION; 'und' leaves the pair unset (the
-      // sample stays in the global per-class pool). Off ⇒ never stamped, so
-      // every sample is language-NONE and the fit/apply path is byte-identical.
-      if (multilingualCalibrationEnabled() && args.query) {
-        const det = detectLanguage(args.query, false);
-        if (det.language !== 'und') {
-          signal.language = det.language;
-          signal.script = det.script;
-        }
-      }
       await this.insertSample(companyId, { sig: signal, stage, decisionId: args.decisionId });
     } catch (e) {
       this.logger.warn(`focus-signal capture failed (${(e as Error).message}); ignored`);
@@ -189,13 +140,8 @@ export class FocusSignalService {
   ): Promise<void> {
     const { sig, stage, decisionId } = args;
     await this.surreal.withCompany(companyId, async (db) => {
-      // Tier 5 language/script columns are appended to the CONTENT only when
-      // detected — an omitted optional field stays NONE (not NULL), so
-      // `language IS NONE` still selects the global per-class pool. Off ⇒ the
-      // clause is empty and the insert is byte-identical to pre-Tier-5.
-      // The 0119 decisionId join key follows the same appended-only idiom.
-      const langFields =
-        (sig.language ? ', language: $language' : '') + (sig.script ? ', script: $script' : '');
+      // The 0119 decisionId join key is appended only when set — an omitted
+      // optional field stays NONE (not NULL).
       const decisionField = decisionId ? ', decisionId: $decisionId' : '';
       await db.query(
         `CREATE focus_signal_sample CONTENT {
@@ -208,7 +154,7 @@ export class FocusSignalService {
             verifierVerdict: $verifierVerdict,
             retrievalGap: $retrievalGap,
             rawConfidence: $rawConfidence,
-            correct: NONE${langFields}${decisionField}
+            correct: NONE${decisionField}
          }`,
         {
           companyId,
@@ -220,8 +166,6 @@ export class FocusSignalService {
           verifierVerdict: sig.verifierVerdict,
           retrievalGap: sig.retrievalGap,
           rawConfidence: rawFocusConfidence(sig),
-          ...(sig.language ? { language: sig.language } : {}),
-          ...(sig.script ? { script: sig.script } : {}),
           ...(decisionId ? { decisionId } : {}),
         },
       );
@@ -277,20 +221,15 @@ export class FocusSignalService {
             verifierVerdict: string;
             retrievalGap: number;
             correct: number;
-            language: string | null;
-            script: string | null;
           }>,
         ]
       >(
         `SELECT queryClass, topScore, coverageScore, verifierVerdict,
-                retrievalGap, correct, language, script
+                retrievalGap, correct
             FROM focus_signal_sample
             WHERE correct IS NOT NONE AND ${stagePredicate(stage)}
             LIMIT 100000`,
       );
-      // language/script are carried through (NONE ⇒ global pool); fitPerClass
-      // only groups on them when byLanguage is on (Tier 5), so loading them
-      // unconditionally is flag-agnostic and harmless when off.
       return (rows ?? []).map((r) => ({
         queryClass: r.queryClass,
         topScore: r.topScore,
@@ -298,8 +237,6 @@ export class FocusSignalService {
         verifierVerdict: normalizeVerdict(r.verifierVerdict),
         retrievalGap: r.retrievalGap,
         correct: r.correct === 1 ? 1 : 0,
-        ...(r.language ? { language: r.language } : {}),
-        ...(r.script ? { script: r.script } : {}),
       }));
     });
   }
@@ -323,12 +260,11 @@ export class FocusSignalService {
       sampleCount: number;
       stage: FocusStage;
     }> = [];
-    const byLanguage = multilingualCalibrationEnabled();
     for (const stage of FOCUS_STAGES) {
       const samples = await this.loadLabeledSamples(companyId, stage);
       total += samples.length;
       if (samples.length === 0) continue;
-      const cal = fitPerClass(samples, { byLanguage });
+      const cal = fitPerClass(samples);
       const persisted = await this.persistCalibration(companyId, cal, stage);
       for (const p of persisted) classes.push({ ...p, stage });
     }
@@ -343,25 +279,16 @@ export class FocusSignalService {
     return this.surreal.withCompany(companyId, async (db) => {
       const out: Array<{ queryClass: string; bins: number; sampleCount: number }> = [];
       for (const [key, map] of Object.entries(cal)) {
-        // Decode the calibration key back into its columns (Tier 5): a bare
-        // key → { queryClass } (language/script NONE, byte-identical to
-        // pre-0103); a hierarchical key → the (class × language|script) tuple.
-        const parts = parseCalibrationKey(key);
-        // Version counter is per (queryClass, language, script, stage) — a
-        // (class × ru), a (class × Cyrl) and the global (class) map each
-        // advance independently, as do the verdict/preanswer stages.
-        const keyPred = calibrationKeyPredicate(parts);
+        // Version counter is per (queryClass, stage). The 0103 language /
+        // script columns stay NONE: the per-language tier was removed (#788),
+        // and `IS NONE` keeps the counter on the global per-class rows.
         const [latest] = await db.query<[Array<{ version: number }>]>(
           `SELECT version FROM focus_calibration
-              WHERE ${keyPred.where} AND stage = $stage ORDER BY version DESC LIMIT 1`,
-          { ...keyPred.params, stage },
+              WHERE queryClass = $q AND language IS NONE AND script IS NONE AND stage = $stage
+              ORDER BY version DESC LIMIT 1`,
+          { q: key, stage },
         );
         const next = Array.isArray(latest) && latest[0]?.version ? latest[0].version + 1 : 1;
-        // Optional columns appended only when set — an omitted one stays NONE,
-        // so a bare per-class row is byte-identical to pre-0103.
-        const langFields =
-          (parts.language ? ', language: $language' : '') +
-          (parts.script ? ', script: $script' : '');
         await db.query(
           `CREATE focus_calibration CONTENT {
               queryClass: $q,
@@ -369,17 +296,15 @@ export class FocusSignalService {
               thresholds: $t,
               values: $v,
               sampleCount: $sc,
-              version: $version${langFields}
+              version: $version
            }`,
           {
-            q: parts.queryClass,
+            q: key,
             stage,
             t: map.thresholds,
             v: map.values,
             sc: map.sampleCount,
             version: next,
-            ...(parts.language ? { language: parts.language } : {}),
-            ...(parts.script ? { script: parts.script } : {}),
           },
         );
         out.push({ queryClass: key, bins: map.thresholds.length, sampleCount: map.sampleCount });
@@ -392,22 +317,14 @@ export class FocusSignalService {
    * Load the latest persisted per-class calibration for one STAGE (max
    * version per key). `stage` defaults to 'verdict' so Optics-2's stage-less
    * `loadCalibration(companyId)` call resolves the verdict calibrator
-   * byte-identically; NONE-stage rows (pre-0095) are read as verdict.
-   *
-   * Tier 5 (MULTILINGUAL_CALIBRATION): when the flag is on, the (class ×
-   * language) and (class × script) rows are ALSO loaded and re-keyed with
-   * `calibrationKey`, so the hierarchical lookup in `calibratedConfidence`
-   * can resolve them. When OFF the query adds `language IS NONE AND script IS
-   * NONE`, selecting ONLY the global per-class rows (every pre-0103 row, plus
-   * any bare row a later fit wrote) — byte-identical to the pre-Tier-5 load.
+   * byte-identically; NONE-stage rows (pre-0095) are read as verdict. Only
+   * global per-class rows (`language IS NONE AND script IS NONE`) are read.
    */
   async loadCalibration(
     companyId: string,
     stage: FocusStage = 'verdict',
   ): Promise<PerClassCalibration> {
-    const byLanguage = multilingualCalibrationEnabled();
     return this.surreal.withCompany(companyId, async (db) => {
-      const langClause = byLanguage ? '' : ' AND language IS NONE AND script IS NONE';
       const [rows] = await db.query<
         [
           Array<{
@@ -416,26 +333,18 @@ export class FocusSignalService {
             values: number[];
             sampleCount: number;
             version: number;
-            language: string | null;
-            script: string | null;
           }>,
         ]
       >(
-        `SELECT queryClass, thresholds, values, sampleCount, version, language, script
+        `SELECT queryClass, thresholds, values, sampleCount, version
             FROM focus_calibration
-            WHERE ${stagePredicate(stage)}${langClause}
+            WHERE ${stagePredicate(stage)} AND language IS NONE AND script IS NONE
             ORDER BY version DESC`,
       );
       const cal: PerClassCalibration = {};
       for (const r of rows ?? []) {
-        // Re-key on the full (class, language, script) tuple; a bare row
-        // yields the plain queryClass key. First row per key wins (rows are
-        // version-desc ordered).
-        const key = calibrationKey({
-          queryClass: r.queryClass,
-          ...(r.language ? { language: r.language } : {}),
-          ...(r.script ? { script: r.script } : {}),
-        });
+        // First row per class wins (rows are version-desc ordered).
+        const key = r.queryClass;
         if (cal[key]) continue;
         if (!Array.isArray(r.thresholds) || !Array.isArray(r.values)) continue;
         cal[key] = {
@@ -465,12 +374,10 @@ export class FocusSignalService {
   }
 
   /** Apply the latest persisted calibration to a live signal — provided for
-   *  Optics-2/3 (NOT called on the serving path in this PR). Threads the Tier 5
-   *  hierarchy flag so the (class × language|script) lookup matches the load. */
+   *  Optics-2/3 (NOT called on the serving path in this PR). */
   async calibrate(companyId: string, sig: FocusSignal): Promise<number> {
-    const byLanguage = multilingualCalibrationEnabled();
     const cal = await this.loadCalibration(companyId);
-    return calibratedConfidenceOf(cal, sig, { byLanguage });
+    return calibratedConfidenceOf(cal, sig);
   }
 
   /** List recent samples (id + class + label state) so the harness can

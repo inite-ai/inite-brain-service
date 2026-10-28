@@ -486,17 +486,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
       'Per-call deadline for the NLI worker RPC. On timeout the router keeps the punctuation fallback and the classifier latches off for 5 minutes.',
   },
   // ── Search ────────────────────────────────────────────
-  {
-    key: 'SEARCH_PPR_ENABLED',
-    category: 'search',
-    // Code default is OFF (retrieval-profile.ts pprEnabled): on
-    // small per-tenant graphs PPR amplifies hub effects
-    // pathologically — measured. The catalog claimed '1' until the
-    // 2026-08 graph audit.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-  },
+
   {
     key: 'SEARCH_PPR_AUTO_THRESHOLD',
     category: 'search',
