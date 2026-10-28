@@ -16,7 +16,6 @@ import {
   attachDecisionLog,
   buildGeneratorArgs,
   buildSecondaryDto,
-  enforceAnswerLanguage,
   resolveAnswerFrames,
   resolveAnswerLang,
   resolveCitations,
@@ -350,7 +349,7 @@ export class SynthesizeService {
     // What every L3 attempt of this request shares.
     const l3Common: L3Common = {
       ...{ cache, companyId, callerScopes, dto, profile, lane, model, asker },
-      ...{ answerLang: resolveAnswerLang(dto, profile), guardrails, explain, decisionCtx },
+      ...{ answerLang: resolveAnswerLang(dto), guardrails, explain, decisionCtx },
     };
     if ('empty' in prepared) return this.orRaw(prepared.empty, { ...l3Common, ...NO_EVIDENCE });
     // `let`: the V13 search loop may replace the evidence set with the
@@ -433,9 +432,8 @@ export class SynthesizeService {
     const shapeInstruction = frames.shapeInstruction;
     let dateMathLines = frames.dateMathLines;
 
-    // Phase 4.C answer language; Tier 5 (profile.answerLangGuard) applies the
-    // strict fallback order so the facts never decide it (off ⇒ byte-identical).
-    const answerLang = resolveAnswerLang(dto, profile);
+    // Phase 4.C answer language: explicit, else detected from the query.
+    const answerLang = resolveAnswerLang(dto);
 
     onProgress({ stage: 'generate', message: `LLM grounding answer over ${factIndex.size} facts` });
     // Generation + the V13 constrained refine round, one seam: a
@@ -846,27 +844,7 @@ export class SynthesizeService {
     // 0107: the FINAL evidence set (post-refine) was selected for
     // context — once per request, at the point the set is final.
     emitSelectedForContext(this.outcomes, args.companyId, round.factIndex.keys());
-    // Tier 5 answer-language guard — no-op unless on AND the final answer's
-    // language mismatches; then the corrected regeneration replaces `generated`.
-    const corrected = await enforceAnswerLanguage(
-      { metrics: this.metrics, logger: this.logger },
-      { guard: profile.answerLangGuard, target: args.answerLang, answer: round.generated.answer },
-      () =>
-        withSpan('synthesize.generate_lang_retry', () =>
-          this.limiter.run(() =>
-            this.callGenerator(
-              buildGeneratorArgs(args, {
-                results: round.results,
-                promptFactLines: round.promptFactLines,
-                factIndex: round.factIndex,
-                dateMathLines: round.dateMathLines,
-                answerLangStrict: true,
-              }),
-            ),
-          ),
-        ),
-    );
-    return corrected ? { ...round, generated: corrected } : round;
+    return round;
   }
 
   /**

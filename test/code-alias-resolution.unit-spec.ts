@@ -249,7 +249,6 @@ describe('EntityUpsertService after a judge-confirmed reuse', () => {
     const resolver = {
       isEnabled: () => true,
       resolveByName: jest.fn().mockResolvedValue('knowledge_entity:existing'),
-      isReversible: () => false,
     };
     const svc = new EntityUpsertService(resolver as never);
     const out = await resolve(svc, db, 'Thomas Brandt');

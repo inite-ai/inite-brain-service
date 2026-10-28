@@ -510,29 +510,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
       'Write-side mirror of MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE (migration 0127): a language DETECTION below the same shared high-confidence floor (0.5) is NOT stamped as the row\'s authoritative `lang` column — the hard same-language search filter\'s input — so a one-stopword mislabel ("120 requests per minute" → it@0.33 off the lone Italian "per", the k07 write-side root) stops polluting facts for every future lang-aware consumer. Applies to live fact ingest (fact-resolver) and derived rows (derive-row-builder). Only `lang` is withheld: the detected script stays, and on the fact-resolver path the attribution metadata records what the detector said (detectedLang + langConfidence + detectorVersion, langSource=detected) even while MULTILINGUAL_LANG_ATTRIBUTION is off — withholding is never silent. Inherited/explicit language paths are untouched (a weak detection does NOT divert to sourceLang inheritance — that stays strictly for detector-`und` objects). Off (default) → any non-`und` detection stamps, byte-identical.',
   },
   // ── Multilingual (Tier 3, migration 0102) ───────────
-  {
-    key: 'MULTILINGUAL_ENTITY_REVERSIBLE',
-    category: 'pipeline',
-    // Read per-call in EntityResolverService.isReversible() +
-    // EntityUpsertService (process.env), never constructor-captured — a flip
-    // takes effect without restart.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Reversible entity resolution: a WEAK inline-resolution match (embedding-only, no exact-canonical / externalRef signal) is NOT auto-merged — it becomes a reviewable entity_merge_log candidate (migration 0102) and a fresh entity is minted, so the fuse is deferred to explicit review. STRONG matches (exact canonical / externalRef) still auto-reuse but write an auditable merge row, so any wrong fuse can be found by target entity and split. Off (default) → the resolver reuses immediately with no log — byte-identical.',
-  },
-  {
-    key: 'MULTILINGUAL_CJK_SEGMENTATION',
-    category: 'pipeline',
-    // Resolved into the RetrievalProfile (cjkSegmentation) by
-    // resolveRetrievalProfile — read per request, never constructor-captured.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'CJK segmentation for the mention-scan topic: segment the topic with the Intl.Segmenter built-in (ICU-backed word boundaries — no new dependency) so CJK / other non-space-delimited scripts yield real terms instead of being split to nothing by the ASCII/Cyrillic character class. Resolved into the RetrievalProfile and threaded to the mention-scan lane. Off (default) → the legacy split — byte-identical.',
-  },
+
   // ── Multilingual (Tier 4) ───────────────────────────
   {
     key: 'MULTILINGUAL_LANE_ROUTING',
@@ -556,30 +534,8 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     description:
       'Typed conflict detection: detectEvidenceConflicts compares NORMALIZED TYPED VALUES (numbers/booleans, digit-script- and case-folded, locale number parsing) instead of surface strings, so a cross-lingual numeric/boolean disagreement on a typed slot ("70 kg" vs "75 kg") is caught even on derived rows without a COMPETING status, and cosmetic differences (digit script, case) no longer false-flag. Presentation of already-flagged COMPETING facts only — never the write-side adjudicator; model-based multilingual NLI (semantic string equivalence like "tea" ≡ "чай") is deliberately deferred (needs a model). Resolved into the RetrievalProfile. Off (default) → byte-identical string-equality behavior.',
   },
-  // ── Multilingual (Tier 5, migration 0103) ───────────
-  {
-    key: 'MULTILINGUAL_CALIBRATION',
-    category: 'pipeline',
-    // Read at fit / load time via fovea-flags.multilingualCalibrationEnabled()
-    // (a per-call function body const, never constructor-captured) — a flip
-    // takes effect on the next fit/load without restart.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Hierarchical per-language focus calibration: the §4.2 per-class isotonic calibrator (focus-signal.ts) gains a LANGUAGE key with an exact (class × language) → (class × script/family) → (class) → global fallback, fitting a per-language / per-script map only when the bucket clears the same min-sample floor (so a sparse language never earns a noisy calibrator and degrades up the hierarchy). Focus-signal capture stamps the detected query language + script on each sample (migration 0103 optional columns). Serving-neutral — nothing on the answer path reads the calibration yet (Optics-2/3). Off (default) → the language dimension is never written or consulted and the global per-class calibration is byte-identical.',
-  },
-  {
-    key: 'MULTILINGUAL_ANSWER_GUARD',
-    category: 'pipeline',
-    // Resolved into the RetrievalProfile (answerLangGuard) by
-    // resolveRetrievalProfile — read per request, never constructor-captured.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      "Answer-language guard: the answer-language target follows a strict fallback ORDER — explicit answerLang → user/session locale (dto.queryLang) → confidently-detected query language (Tier 1 confidence floor) → no forced language — so on mixed retrieval the FACTS never decide the answer language. After generation the answer's own language is detected and, on a cross-script mismatch with the target, ONE bounded corrective regeneration runs with a reinforced language directive (temperature already 0); a still-mismatched answer is flagged (metrics) and served best-effort. Resolved into the RetrievalProfile. Off (default) → resolveAnswerLang byte-identical and no output-language check runs.",
-  },
+  // ── Multilingual (Tier 5) ───────────
+
   {
     key: 'INGEST_CONFUSABLES_CHECK',
     category: 'pipeline',
