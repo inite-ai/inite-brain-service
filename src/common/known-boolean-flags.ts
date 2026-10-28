@@ -903,15 +903,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // (multilingualConflict). Default off ⇒ byte-identical string-equality.
   // MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_CONFLICT',
-  // Multilingual Tier 5. Answer-language guard: the answer target follows a
-  // strict fallback order (explicit answerLang → session locale → confidently-
-  // detected query language → no forced language) so the facts never pick the
-  // answer language, and the generated answer's own language is checked against
-  // that target with ONE bounded corrective regeneration on a cross-script
-  // mismatch. Resolved into the RetrievalProfile (answerLangGuard). Default off
-  // ⇒ resolveAnswerLang byte-identical, no output-language check.
-  // MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_ANSWER_GUARD',
   // Multilingual Tier 2 (migration 0101). The embedding-space family stamps
   // + guards the (model, dim, norm) space a vector lives in so flipping the
   // embedder can't silently mix vector spaces. All default off; each is a

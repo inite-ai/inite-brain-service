@@ -22,7 +22,6 @@ export const RetrievalProfileWireSchema = z.object({
   coverageLexMode: z.enum(['phrase', 'or_terms']),
   multilingualLaneRouting: z.boolean(),
   multilingualConflict: z.boolean(),
-  answerLangGuard: z.boolean(),
   scanHnswEf: z.number().int(),
   scanHnswOverfetch: z.number().int(),
   dateAnchoring: z.enum(['none', 'session_date', 'absolute']),
