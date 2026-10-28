@@ -206,7 +206,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // (X-Brain-Tenant) and LLM-free episode-only ingestion.
   'BRAIN_TENANT_OVERRIDE_ENABLED',
   'INGEST_EPISODE_ONLY',
-  'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   // Index PROVISIONING: the schema-ready hook that gives a new tenant its
   // indexes, and the nightly sweep that reconciles the roster. Derived

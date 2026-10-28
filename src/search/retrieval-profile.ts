@@ -1010,8 +1010,7 @@ export interface SearchTuning {
   usageRanking: boolean;
   usageBeta: number;
   usageSaturation: number;
-  /** SEARCH_PPR_ENABLED / SEARCH_PPR_AUTO_THRESHOLD. */
-  pprEnabled: boolean;
+  /** SEARCH_PPR_AUTO_THRESHOLD: PPR runs on candidate sets at least this large; 0 = never. */
   pprAutoThreshold: number;
   /** Source-reputation ranking knobs (Phase 5); 0 = factor 1.0. */
   trustBeta: number;
@@ -1093,7 +1092,6 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     usageRanking: envFlagEnabled(env.SEARCH_USAGE_RANKING_ENABLED),
     usageBeta: nonNegativeFloat(env, 'SEARCH_USAGE_BETA'),
     usageSaturation: tuningInt(env, 'SEARCH_USAGE_SATURATION', 20),
-    pprEnabled: envFlagEnabled(env.SEARCH_PPR_ENABLED),
     pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
     trustBeta: nonNegativeFloat(env, 'SEARCH_TRUST_BETA'),
     corroborationGamma: nonNegativeFloat(env, 'SEARCH_CORROBORATION_GAMMA'),

@@ -881,10 +881,11 @@ export class SearchService {
     byEntity: Map<string, EntityBucket>,
     ctx: PipelineContext,
   ): Promise<void> {
-    const pprForced = ctx.tuning.pprEnabled;
+    // PPR runs on any candidate set at or above SEARCH_PPR_AUTO_THRESHOLD
+    // (25 in prod); 0 = never. The force-on flag was removed (#788).
     const pprAutoThreshold = ctx.tuning.pprAutoThreshold;
     const pprAuto = pprAutoThreshold > 0 && byEntity.size >= pprAutoThreshold;
-    if (!(pprForced || pprAuto) || byEntity.size <= 1) return;
+    if (!pprAuto || byEntity.size <= 1) return;
     await withSpan(
       'search.ppr',
       () => applyPprPrior(db, byEntity, { userId: ctx.dto.userId, asOf: ctx.dto.asOf }),

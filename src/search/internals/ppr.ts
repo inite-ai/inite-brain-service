@@ -6,17 +6,14 @@ import { buildEdgeFence } from './edge-fence';
  * PROVENANCE OF THESE THREE NUMBERS, because two of them have none —
  * and they are LIVE.
  *
- * `SEARCH_PPR_ENABLED` is 0 in prod, which reads like an off switch and
- * is not one: `SEARCH_PPR_AUTO_THRESHOLD=25` turns the lane on for any
- * candidate set at or above 25, and the deploy config puts the typical
- * per-tenant graph at 30-80. So this runs on most production queries,
- * and these constants shape most production rankings.
- *
- * The catalog still describes the 2026-08 graph audit's finding — that
- * PPR amplified hub effects on small graphs — as the reason the flag is
- * off. The deploy config records the sequel: the 30-entity recall@1
- * regression was traced to neighbour fan-out in edge expansion, not to
- * PPR, and the threshold was lowered 100 -> 25 on that basis.
+ * The lane runs on any candidate set at or above
+ * `SEARCH_PPR_AUTO_THRESHOLD` (25 in prod; the typical per-tenant graph is
+ * 30-80), so it shapes most production rankings. The 2026-08 graph audit
+ * blamed PPR for hub effects on small graphs; the sequel traced that
+ * 30-entity recall@1 regression to neighbour fan-out in edge expansion,
+ * not to PPR, and the threshold was lowered 100 -> 25 on that basis. (The
+ * old `SEARCH_PPR_ENABLED` force-on flag read like an off switch and was
+ * not one; it was removed, #788.)
  *
  * ALPHA is the textbook PageRank damping (Brin & Page), the one number
  * here with a source; the teleport below is the standard personalization
