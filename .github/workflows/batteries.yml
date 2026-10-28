@@ -134,7 +134,8 @@ jobs:
             | grep -vE '/(probes|questions|scorers)\.ts$|/README\.md$' | sha256sum | cut -c1-12)
           day=""; [ "$BATTERY" = relationship ] && day="-$(date -u +%F)"
           # v4: every v3 snapshot was written by a drained key (2026-10-28).
-          echo "key=battery-snap-v4-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
+          # v5: a snapshot carries the price of its write half (usage-write.prom).
+          echo "key=battery-snap-v5-$BATTERY-$code-$flags-$corpus-s$SAMPLE$day" >> "$GITHUB_OUTPUT"
 
       - name: Restore snapshot
         id: snap
@@ -242,6 +243,9 @@ jobs:
         if: steps.snap.outputs.cache-hit != 'true'
         run: |
           set -a; . snap/battery.env; set +a
+          # What the write half cost, kept with the memory it bought: a later
+          # hit restores the price along with the rows (summary: price of quality).
+          curl -sf http://127.0.0.1:3000/metrics | grep '^brain_llm_tokens' > snap/usage-write.prom || echo "[warn] no usage scrape"
           for db in system "co_${BRAIN_COMPANY_ID}"; do
             # To a file inside the container: on stdout the CLI's own INFO log
             # lines land in the dump (the first v1 snapshots were unimportable).
@@ -268,6 +272,11 @@ jobs:
             MEMFIT_REPORT_DIR=../snap/reports STEV_REPORT_DIR=../snap/reports REL_REPORT_DIR=../snap/reports
           pnpm --ignore-workspace "eval:$BATTERY" 2>&1 | tee ../ask.log || echo "[warn] $BATTERY exited non-zero"
           mkdir -p ../out && cp ../snap/reports/*.json ../out/ 2>/dev/null || true
+          # Cumulative since boot: on a miss it includes the write half, which
+          # the summary subtracts (usage-write.prom); on a hit the process is fresh.
+          curl -sf http://127.0.0.1:3000/metrics | grep '^brain_llm_tokens' > ../out/usage-end.prom || echo "[warn] no usage scrape"
+          cp ../snap/usage-write.prom ../out/ 2>/dev/null || true
+          echo "${HIT:-false}" > ../out/snapshot-hit.txt
           { echo "### $ARM — $BATTERY #$SAMPLE (snapshot ${HIT:-miss})"; echo '```'; sed -n '/scorecard/,$p' ../ask.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dump the written facts
