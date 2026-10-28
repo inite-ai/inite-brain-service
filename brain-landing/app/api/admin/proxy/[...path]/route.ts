@@ -506,12 +506,19 @@ async function forward(
 
   // Preserve the operator's identity downstream via token exchange —
   // brain's audit trail then names the real admin, not the anonymous
-  // service credential. Dev-bypass sessions keep the M2M path.
+  // service credential. Fail closed, as the end-user proxy does: a session
+  // whose exchange is refused must never ride the client_credentials token,
+  // which carries brain:admin + brain:read_pii on brain-landing's own
+  // tenant. `admin` in `roles` also marks admins scoped to some other
+  // company, so the fallback handed them this tenant. Only a request with
+  // no user token at all (dev bypass) keeps the M2M path.
+  const userToken = await extractAccessToken(request)
   const res = await brainFetch(`/${subpath}`, {
     method: request.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     body,
     query,
-    userToken: await extractAccessToken(request),
+    userToken,
+    requireUserIdentity: Boolean(userToken),
     headers: debug ? { 'X-Brain-Debug': '1' } : undefined,
     apiKey: registryKey,
   })

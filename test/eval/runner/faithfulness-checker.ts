@@ -107,8 +107,15 @@ export class FaithfulnessChecker {
         // confabulation and fails. Faithfulness is not scored — a
         // fabricated answer is wrong regardless of internal consistency.
         if (e.expectRefusal) {
-          const SENTINEL = "I don't have grounded evidence for that.";
-          const refused = !answer || !answer.trim() || answer.trim() === SENTINEL;
+          // Both of the brain's refusal sentinels: the generator's, and the
+          // abstention plane's NOT_IN_MEMORY_ANSWER (src/synthesize/abstention.ts)
+          // — the eval knew only the first, so a correct refusal in the
+          // second wording counted as a confabulation.
+          const SENTINELS = new Set([
+            "I don't have grounded evidence for that.",
+            "I don't have that in my memory.",
+          ]);
+          const refused = !answer || !answer.trim() || SENTINELS.has(answer.trim());
           outcomes.push({
             scenarioId: scenario.id,
             query: e.query,
@@ -161,16 +168,23 @@ export class FaithfulnessChecker {
         // score (every claim "not_supported" despite being grounded).
         // Pull the full result.facts as fallback when citations are
         // thin — this matches the verifier's actual semantics.
+        const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
         const fromCitations: FaithfulnessSourceFact[] = res.citations.map((c) => ({
           factId: c.factId,
           predicate: c.predicate,
           object: c.object,
+          subject: c.canonicalName,
+          validFrom: str(c.validFrom),
+          date: str(c.date),
         }));
         const fromResults: FaithfulnessSourceFact[] = (res.results ?? []).flatMap((r) =>
           (r.facts ?? []).map((f) => ({
             factId: f.factId,
             predicate: f.predicate,
             object: f.object,
+            subject: r.canonicalName,
+            validFrom: str(f.validFrom),
+            date: str(f.date),
           })),
         );
         // Merge: citations first (explicit), then any result-fact not

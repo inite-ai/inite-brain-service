@@ -289,11 +289,6 @@ export class EntityUpsertService {
     // same node a typed fact on {vertical: 'user', id: <userId>} lands on.
     if (hint) {
       const hintKey = scopedRefKey(hint.vertical, hint.id, hint.userId);
-      // Tier 3 reversible audit: a keyed reuse is deterministic (caller-
-      // authoritative externalRef), but still logged so the merge trail is
-      // complete. Existence is pre-checked ONLY under the flag (off ⇒ no
-      // extra query, byte-identical).
-      await this.auditExternalRefReuse(db, hintKey, e);
       // The participant's name is the caller's and authoritative; the
       // mention that anchored here is a surface of it — or a pronoun,
       // which names nothing (isPronounReference) and is kept off the
@@ -336,11 +331,6 @@ export class EntityUpsertService {
         // The surface form that named it this time becomes an alias, so
         // the next exact lookup hits without a model in the loop.
         await this.stampAlias(db, pinned, e.name);
-        await this.auditKeyedReuse(db, pinned, {
-          mention: e.name,
-          type: this.normalizeEntityType(e.type),
-          matchKind: 'known',
-        });
         return resolved('known', pinned);
       }
     }
@@ -369,14 +359,7 @@ export class EntityUpsertService {
       { name: target, rawName: e.name },
     );
     if (nRow) {
-      // Tier 3 reversible audit: an exact canonical/alias reuse is
-      // deterministic, but logged so every reuse is traceable/reversible.
       await this.stampNameKeys(db, String(nRow.id), [e.name, e.canonical]);
-      await this.auditKeyedReuse(db, String(nRow.id), {
-        mention: e.name,
-        type: this.normalizeEntityType(e.type),
-        matchKind: 'exact',
-      });
       return resolved('exact', String(nRow.id));
     }
 
@@ -402,11 +385,6 @@ export class EntityUpsertService {
           { variants },
         );
         if (vRows.length === 1 && vRows[0]) {
-          await this.auditKeyedReuse(db, String(vRows[0].id), {
-            mention: e.name,
-            type: this.normalizeEntityType(e.type),
-            matchKind: 'article-variant',
-          });
           return resolved('article-variant', String(vRows[0].id));
         }
       }
@@ -442,11 +420,6 @@ export class EntityUpsertService {
         // The new spelling joins the entity's keys, so the NEXT one resolves
         // on the index rather than re-deriving it.
         await this.stampNameKeys(db, id, [e.name, e.canonical]);
-        await this.auditKeyedReuse(db, id, {
-          mention: e.name,
-          type: this.normalizeEntityType(e.type),
-          matchKind: 'translit',
-        });
         return resolved('translit', id);
       }
     }
@@ -846,9 +819,9 @@ export class EntityUpsertService {
       const target = e.canonical ?? e.name;
       const symbol = symbolAliasForPath(target);
       if (symbol !== null) {
-        return await this.reuseSymbolEntityForPath(db, { pathName: target, symbol, e });
+        return await this.reuseSymbolEntityForPath(db, { pathName: target, symbol });
       }
-      if (isCodeSymbolShaped(target)) return await this.reusePathEntityForSymbol(db, target, e);
+      if (isCodeSymbolShaped(target)) return await this.reusePathEntityForSymbol(db, target);
       return null;
     } catch (err) {
       this.logger.warn(
@@ -863,9 +836,9 @@ export class EntityUpsertService {
    *  normalized match, unique). */
   private async reuseSymbolEntityForPath(
     db: Surreal,
-    p: { pathName: string; symbol: string; e: { name: string; type: string } },
+    p: { pathName: string; symbol: string },
   ): Promise<string | null> {
-    const { pathName, symbol, e } = p;
+    const { pathName, symbol } = p;
     const rows = await queryRows<{ id: unknown }>(
       db,
       `SELECT id FROM knowledge_entity
@@ -887,11 +860,6 @@ export class EntityUpsertService {
     }
     const entityId = ids[0]!;
     await this.stampAlias(db, entityId, pathName);
-    await this.auditKeyedReuse(db, entityId, {
-      mention: e.name,
-      type: this.normalizeEntityType(e.type),
-      matchKind: 'exact', // deterministic exact match on the derived alias
-    });
     this.logger.log(
       `[ingest.code_alias] reused ${entityId} for path "${pathName}" (symbol "${symbol}")`,
     );
@@ -902,11 +870,7 @@ export class EntityUpsertService {
    *  already known by a code path whose derived symbol equals it. Needle
    *  candidates are verified exactly by re-deriving, and only a unique
    *  verified entity is reused. */
-  private async reusePathEntityForSymbol(
-    db: Surreal,
-    symbol: string,
-    e: { name: string; type: string },
-  ): Promise<string | null> {
+  private async reusePathEntityForSymbol(db: Surreal, symbol: string): Promise<string | null> {
     const matched = new Set<string>();
     for (const needle of pathNeedlesForSymbol(symbol)) {
       const rows = await queryRows<{ id: unknown; canonicalName: string }>(
@@ -934,11 +898,6 @@ export class EntityUpsertService {
     }
     const entityId = [...matched][0]!;
     await this.stampAlias(db, entityId, symbol);
-    await this.auditKeyedReuse(db, entityId, {
-      mention: e.name,
-      type: this.normalizeEntityType(e.type),
-      matchKind: 'exact', // deterministic exact match via derived symbol
-    });
     this.logger.log(`[ingest.code_alias] reused ${entityId} for symbol "${symbol}"`);
     return entityId;
   }
@@ -1101,47 +1060,5 @@ export class EntityUpsertService {
       this.logger.warn(`[entity.known] ${known} unreadable: ${(err as Error).message}`);
       return null;
     }
-  }
-
-  /** Audit a deterministic keyed reuse to entity_merge_log (0102), gated on
-   *  MULTILINGUAL_ENTITY_REVERSIBLE. No-op when the resolver isn't wired or
-   *  the flag is off. */
-  private async auditKeyedReuse(
-    db: Surreal,
-    targetEntity: string,
-    meta: {
-      mention: string;
-      type: string;
-      matchKind: 'exact' | 'externalRef' | 'article-variant' | 'translit' | 'known';
-    },
-  ): Promise<void> {
-    if (!this.entityResolver?.isReversible()) return;
-    await this.entityResolver.recordMerge(db, {
-      mention: meta.mention,
-      type: meta.type,
-      targetEntity,
-      verdict: 'same',
-      cosine: 1,
-      matchKind: meta.matchKind,
-      decision: 'reused',
-    });
-  }
-
-  /** Audit an externalRef/hint reuse: only a PRE-EXISTING keyed entity is a
-   *  reuse (a fresh create is not), so existence is checked first — but only
-   *  under the reversible flag, so the off path adds no query. */
-  private async auditExternalRefReuse(
-    db: Surreal,
-    hintKey: string,
-    e: { name: string; type: string },
-  ): Promise<void> {
-    if (!this.entityResolver?.isReversible()) return;
-    const existing = await this.lookupExternalRef(db, hintKey);
-    if (!existing) return;
-    await this.auditKeyedReuse(db, existing, {
-      mention: e.name,
-      type: this.normalizeEntityType(e.type),
-      matchKind: 'externalRef',
-    });
   }
 }

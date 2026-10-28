@@ -70,7 +70,7 @@ export const RETRIEVAL_CONVEYOR: Conveyor = {
       title: 'PPR cluster lift (HippoRAG-style) over the candidate subgraph',
       consumes: ['entity-buckets', 'edge'],
       produces: ['entity-buckets'],
-      gate: { env: 'SEARCH_PPR_ENABLED' },
+      gate: { env: 'SEARCH_PPR_AUTO_THRESHOLD' },
     },
     {
       step: '6b',
