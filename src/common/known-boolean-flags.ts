@@ -206,7 +206,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // (X-Brain-Tenant) and LLM-free episode-only ingestion.
   'BRAIN_TENANT_OVERRIDE_ENABLED',
   'INGEST_EPISODE_ONLY',
-  'SEARCH_PPR_ENABLED',
   'SEARCH_HNSW_ENABLED',
   // Index PROVISIONING: the schema-ready hook that gives a new tenant its
   // indexes, and the nightly sweep that reconciles the roster. Derived
@@ -880,20 +879,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // untouched. Default off ⇒ any non-`und` detection stamps,
   // byte-identical. MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE',
-  // Multilingual Tier 3 (migration 0102). Reversible entity resolution: a
-  // weak embedding-only inline-resolution match is NOT auto-merged — it
-  // becomes a reviewable entity_merge_log candidate — and every strong
-  // (exact/externalRef) reuse writes an auditable merge row so a wrong fuse
-  // can be found and split. Default off ⇒ immediate reuse, no log (byte-
-  // identical). MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_ENTITY_REVERSIBLE',
-  // Multilingual Tier 3. CJK segmentation: the mention-scan topic is
-  // segmented with the Intl.Segmenter built-in (ICU-backed, no new dep) so
-  // CJK / non-space-delimited scripts yield real terms instead of being
-  // split to nothing. Resolved into the RetrievalProfile (cjkSegmentation).
-  // Default off ⇒ the legacy split (byte-identical). MULTILINGUAL_ family,
-  // off the ENGINE flag budget.
-  'MULTILINGUAL_CJK_SEGMENTATION',
   // Multilingual Tier 4. Language-agnostic lane classifier: a nearest-centroid
   // classifier (multilingual exemplar centroids, shared cosine primitive)
   // AUGMENTS the English-regex answer router for queries it returns
@@ -910,25 +895,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // (multilingualConflict). Default off ⇒ byte-identical string-equality.
   // MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_CONFLICT',
-  // Multilingual Tier 5 (migration 0103). Hierarchical per-language focus
-  // calibration: the §4.2 per-class isotonic calibrator gains a LANGUAGE key
-  // with an exact (class × language) → (class × script/family) → (class)
-  // fallback, and the focus-signal capture stamps the detected query
-  // language/script per sample. Read at fit/load time via fovea-flags
-  // (multilingualCalibrationEnabled). Serving-neutral (nothing on the answer
-  // path reads the calibration yet). Default off ⇒ language dimension never
-  // written or consulted; global per-class calibration byte-identical.
-  // MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_CALIBRATION',
-  // Multilingual Tier 5. Answer-language guard: the answer target follows a
-  // strict fallback order (explicit answerLang → session locale → confidently-
-  // detected query language → no forced language) so the facts never pick the
-  // answer language, and the generated answer's own language is checked against
-  // that target with ONE bounded corrective regeneration on a cross-script
-  // mismatch. Resolved into the RetrievalProfile (answerLangGuard). Default off
-  // ⇒ resolveAnswerLang byte-identical, no output-language check.
-  // MULTILINGUAL_ family, off the ENGINE flag budget.
-  'MULTILINGUAL_ANSWER_GUARD',
   // Multilingual Tier 2 (migration 0101). The embedding-space family stamps
   // + guards the (model, dim, norm) space a vector lives in so flipping the
   // embedder can't silently mix vector spaces. All default off; each is a
