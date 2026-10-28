@@ -138,6 +138,20 @@ export class HttpBrainClient {
     };
   }
 
+  /**
+   * Ask the server to read every captured turn now and answer once it has
+   * (extraction runs in the background since raw-first, #698). A server
+   * that still extracts on the write path answers 404 — nothing waits.
+   * Any refusal is swallowed: the caller reads what is there either way.
+   */
+  async drainExtraction(): Promise<void> {
+    try {
+      await this.call<unknown>('POST', '/v1/admin/maintenance/extraction', {});
+    } catch {
+      // 404 (inline extraction) / 403 (no brain:admin): nothing to wait for here.
+    }
+  }
+
   async search(body: unknown): Promise<EvalSearchResponse> {
     return this.call<EvalSearchResponse>('POST', '/v1/search', body);
   }

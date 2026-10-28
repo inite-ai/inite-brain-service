@@ -1,4 +1,9 @@
-import { computeFaithfulness, meanFaithfulness, verdictSchema } from './eval/metrics/faithfulness';
+import {
+  computeFaithfulness,
+  meanFaithfulness,
+  renderSourceFact,
+  verdictSchema,
+} from './eval/metrics/faithfulness';
 import type { FaithfulnessScore, OpenAiLike } from './eval/metrics/faithfulness';
 
 /**
@@ -271,5 +276,28 @@ describe('verdictSchema', () => {
     const schema = verdictSchema(3) as { required: string[]; properties: Record<string, unknown> };
     expect(schema.required).toEqual(['c1', 'c2', 'c3']);
     expect(Object.keys(schema.properties)).toEqual(['c1', 'c2', 'c3']);
+  });
+});
+
+describe('renderSourceFact', () => {
+  it('tells the judge who a fact is about and when it holds', () => {
+    expect(
+      renderSourceFact({
+        factId: 'f1',
+        subject: 'Maya Tanaka',
+        predicate: 'interacted_with',
+        object: 'placed order #4101',
+        validFrom: '2026-03-04T10:00:00.000Z',
+        date: '2026-03-04',
+      }),
+    ).toBe(
+      '[f1] Maya Tanaka — interacted_with: placed order #4101 (day 2026-03-04, since 2026-03-04)',
+    );
+  });
+
+  it('degrades to the old line when subject and dates are absent', () => {
+    expect(renderSourceFact({ factId: 'f2', predicate: 'name', object: 'Diego' })).toBe(
+      '[f2] name: Diego',
+    );
   });
 });

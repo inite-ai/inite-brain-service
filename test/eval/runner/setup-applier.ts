@@ -126,6 +126,11 @@ export class SetupApplier {
       emittedAt: step.emittedAt,
     });
 
+    // Extraction is background work since raw-first (#698): read back only
+    // after it ran, or every expected predicate reads as missing — the
+    // nightly's extraction-predicate-recall sat at 0.00 for that reason.
+    await this.brain.drainExtraction();
+
     // Read back the predicates surfaced on the speaker entity (or, if no
     // hint, on the most recently created entity).
     const observed: string[] = [];
