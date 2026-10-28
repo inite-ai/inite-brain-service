@@ -380,6 +380,8 @@ jobs:
           EVIDENCE_QUARANTINE=1
           EVIDENCE_RAW_READ_ENABLED=1
           EVIDENCE_FRAGMENT_CITATIONS=1
+          # MEASUREMENT ONLY (flag audit #788) — not for merge.
+          SCENES_VALUE_GATE_ENABLED=1
           # An uploaded PDF's extracted text goes through the ordinary
           # document pipeline, so it yields facts — off, a PDF gave
           # fragments for retrieval and never one fact (flag audit #788).
