@@ -236,10 +236,14 @@ export const falsePremiseScenarios: Scenario[] = [
     vertical: 'estate',
     description:
       'Anya submitted an offer on 2026-04-29; ask as-of 2026-03-01 (before it existed). Must refuse.',
+    // Its own entity id: adversarial.scenarios.ts names `estate/anya` Anya
+    // Volkov, and the shared tenant collapsed both onto one entity whose
+    // current name was Volkov — the control query then refused (nightly
+    // 2026-10-28, estate faithfulness and decision-log both 0.00).
     setup: [
       {
         kind: 'fact',
-        entityRef: { vertical: 'estate', id: 'anya' },
+        entityRef: { vertical: 'estate', id: 'anya_kovac' },
         predicate: 'name',
         object: 'Anya Kovac',
         validFrom: ISO('2026-03-01'),
@@ -248,7 +252,7 @@ export const falsePremiseScenarios: Scenario[] = [
       },
       {
         kind: 'fact',
-        entityRef: { vertical: 'estate', id: 'anya' },
+        entityRef: { vertical: 'estate', id: 'anya_kovac' },
         predicate: 'interacted_with',
         object: 'submitted an offer of €710k on 14 Birch Lane',
         validFrom: ISO('2026-04-29'),

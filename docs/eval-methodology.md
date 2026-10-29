@@ -25,7 +25,7 @@ the public statement of the protocol; the full per-axis detail
    judge is a controlled variable.
 2. **Held-out gold.** LoCoMo conversations 1–5 are the iteration set;
    6–10 are touched only to confirm milestones. The guard demonstrably
-   works: our largest gain measured *larger* on held-out than on dev
+   works: our largest gain measured _larger_ on held-out than on dev
    (+6.6pp vs +3.8pp) — the opposite of what overfitting produces.
 3. **Abstention counted honestly.** LoCoMo category 5 (adversarial:
    the gold answer is a refusal) is excluded from the headline — its
@@ -101,12 +101,12 @@ internally consistent, not mutually comparable.
 
 Conversion factors we measured between the currencies:
 
-| Conversion | Factor | How measured |
-|---|---|---|
-| Strict binary → official BEAM nugget (rubric partial credit) | ≈ 1.3× | our own paired reading of the same run (0.353 binary vs 0.46 nugget) |
-| Strict nugget → lenient vendor-harness (BEAM) | ≈ 1.5–2.0× | currency triangulation against the AMB vendor leaderboard |
-| Single-lane extreme (BEAM contradiction resolution) | ≥ 12× | 0.006–0.05 strict for *all* published systems vs 60+ on a vendor harness |
-| LoCoMo / LongMemEval unpinned vendor claims | +20–40pp | cross-protocol comparison of published vs pinned re-runs |
+| Conversion                                                   | Factor     | How measured                                                             |
+| ------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------ |
+| Strict binary → official BEAM nugget (rubric partial credit) | ≈ 1.3×     | our own paired reading of the same run (0.353 binary vs 0.46 nugget)     |
+| Strict nugget → lenient vendor-harness (BEAM)                | ≈ 1.5–2.0× | currency triangulation against the AMB vendor leaderboard                |
+| Single-lane extreme (BEAM contradiction resolution)          | ≥ 12×      | 0.006–0.05 strict for _all_ published systems vs 60+ on a vendor harness |
+| LoCoMo / LongMemEval unpinned vendor claims                  | +20–40pp   | cross-protocol comparison of published vs pinned re-runs                 |
 
 Applying the ceiling and acceptance-rate corrections, our strict
 LoCoMo 77.8 is plausibly equivalent to a mid-80s score in the lenient
@@ -118,17 +118,17 @@ travel is pinning protocols, not converting headlines.
 All rows: answer model gpt-4o-mini, strict gpt-4.1-mini judge,
 category-5 excluded from LoCoMo headlines, per-question paired stats.
 CIs are 95% binomial intervals on the judged denominator; for any
-*delta* the load-bearing statistic is the paired McNemar, not CI
+_delta_ the load-bearing statistic is the paired McNemar, not CI
 overlap.
 
-| Axis | Result | n | 95% CI |
-|---|---|---|---|
-| LoCoMo headline (cats 1–4, dev-5 control) | **77.8%** | 762 | 74.8–80.7 |
-| LoCoMo held-out vs own full-context | **76.3% vs 69.0%** | — | McNemar p=8e-05, discordants 131:74 |
-| LongMemEval-S (full 500) | **48.0%** | 500 | 43.6–52.4 |
-| BEAM-100K, strict binary | **35.3%** | 360 judged | 30.4–40.3 |
-| BEAM-100K, official nugget scoring | **0.46** | — | vs the 0.358 published LIGHT anchor |
-| BEAM contradiction resolution, strict binary | **52–55%** | two paired legs | vs ≤5% for all configs in the original paper |
+| Axis                                         | Result             | n               | 95% CI                                       |
+| -------------------------------------------- | ------------------ | --------------- | -------------------------------------------- |
+| LoCoMo headline (cats 1–4, dev-5 control)    | **77.8%**          | 762             | 74.8–80.7                                    |
+| LoCoMo held-out vs own full-context          | **76.3% vs 69.0%** | —               | McNemar p=8e-05, discordants 131:74          |
+| LongMemEval-S (full 500)                     | **48.0%**          | 500             | 43.6–52.4                                    |
+| BEAM-100K, strict binary                     | **35.3%**          | 360 judged      | 30.4–40.3                                    |
+| BEAM-100K, official nugget scoring           | **0.46**           | —               | vs the 0.358 published LIGHT anchor          |
+| BEAM contradiction resolution, strict binary | **52–55%**         | two paired legs | vs ≤5% for all configs in the original paper |
 
 Context for the LoCoMo rows: the memory system beats our own
 full-context baseline at roughly **16% of the FC prompt tokens per
@@ -189,9 +189,29 @@ Methodology: each battery runs against a **fresh tenant per run**
 entities, so scenarios cannot cross-contaminate within a run). The
 **same-memory re-ask** (`MEMFIT_SKIP_INGEST=1` / `STEV_SKIP_INGEST=1`
 with the original run id) re-asks an already-ingested run without
-re-writing — separating the *extraction lottery* (what a fresh ingest
-happens to capture) from *read-side* regressions over the same stored
+re-writing — separating the _extraction lottery_ (what a fresh ingest
+happens to capture) from _read-side_ regressions over the same stored
 memory. Both runners' READMEs carry the full env contract.
+
+### Price of quality
+
+A pass count alone misjudges a change in both directions. A change that halves the context each answer reads, at the price of one point, looks like a loss. A change that doubles the bill at par looks free.
+
+On 2026-10-28, seven flags read "no gain" on batteries near their ceiling, and nobody could say what each one cost. The CI battery workflow (`batteries.yml`) therefore also scrapes `brain_llm_tokens` twice. The first scrape runs after the write half and is kept inside the snapshot. The second runs after the questions.
+
+That gauge comes from an SDK-level ledger (`src/ai/llm-usage-ledger.ts`). It sees every chat and embedding call, including the call sites that bypass `withGenAiCall`.
+
+`scripts/ci/battery-summary.mjs` reports the following per arm:
+
+- write-half dollars and ask-half dollars;
+- context tokens per question, which is the chat input of the ask half divided by the number of questions;
+- median answer length;
+- median latency;
+- passes per dollar.
+
+The verdict reads quality first, then economy. A head within a drift of 5% of the battery wins if it is at least 2× more economical, measured as total cost or context per question, whichever is lower. At par, ≤ 0.8× cost is "cheaper" and ≥ 1.25× is "costlier".
+
+Prices are list prices, and the table is in the script. A model missing from the table is priced as the default chat model, and the report flags that.
 
 ## See also
 
