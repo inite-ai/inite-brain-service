@@ -151,9 +151,7 @@ export class FactIngestService {
       // 3. One-RTT server-side resolve (embed + policy + fn::resolve_fact +
       //    HyPE alt-embedding) behind FactResolverService. Direct ingest
       //    carries no extraction entropy. The embedding text preserves the
-      //    historical `${predicate}: ${dto.object}` form (not objectStr);
-      //    under INGEST_PREDICATE_INDEX_TEXT (default off) the shared
-      //    builder appends the humanized predicate words.
+      //    historical `${predicate}: ${dto.object}` form (not objectStr).
       const { result } = await this.factResolver.resolve(db, {
         companyId,
         entityId,

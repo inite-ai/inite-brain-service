@@ -1,6 +1,6 @@
 /**
  * Corpus-builder contract for the state-transition battery's variation
- * axis (test/eval/state-transitions/variants.ts). Four pins:
+ * axis (test/eval/state-transitions/variants.ts). Three pins:
  *
  *  1. default identity — buildScenarios('default') IS the current
  *     corpus, byte-identical (same reference AND same serialized
@@ -10,16 +10,11 @@
  *     turn TEXT differs. No scenario loses checks, no marker list
  *     loses a default marker (except provenance fragments, which are
  *     corpus text and are REPLACED — pinned verbatim below);
- *  3. paraphrase honesty — the paraphrase corpus contains NO verb of
- *     the deterministic state-verb lexicon (asserted against the REAL
- *     exported STATE_VERB_LEXICON, not a copy), so a paraphrase pass
- *     can only come from the transition classifier or the LLM lane;
- *  4. ru honesty — every RU turn actually carries Cyrillic, and every
+ *  3. ru honesty — every RU turn actually carries Cyrillic, and every
  *     variant's provenance fragments are verbatim substrings of that
  *     variant's seeded turns (a fragment that quotes nothing measures
  *     nothing).
  */
-import { STATE_VERB_LEXICON } from '../src/ai/extractor-internals/state-verb-harvest';
 import { SCENARIOS } from './eval/state-transitions/scenarios';
 import {
   allTurnsOf,
@@ -121,19 +116,6 @@ describe('state-transition corpus builder (variation axis)', () => {
           }
         }
       }
-    }
-  });
-
-  it('paraphrase corpus contains NO state-verb-lexicon verb (classifier-only by construction)', () => {
-    const lexicon = new RegExp(
-      `\\b(?:${[...STATE_VERB_LEXICON].sort((a, b) => b.length - a.length).join('|')})\\b`,
-      'i',
-    );
-    for (const turn of allTurnsOf(buildScenarios('paraphrase'))) {
-      const hit = lexicon.exec(turn.text);
-      expect(
-        hit === null ? null : `${turn.conversation}#${turn.turn} contains lexicon verb "${hit[0]}"`,
-      ).toBeNull();
     }
   });
 

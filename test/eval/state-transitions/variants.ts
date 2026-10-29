@@ -4,19 +4,15 @@
  *
  *  - `default`    — the original corpus, byte-identical (buildScenarios
  *    returns the SCENARIOS array itself; pinned by unit test).
- *  - `paraphrase` — same facts, phrased WITHOUT any verb of the
- *    deterministic state-verb lexicon (src/ai/extractor-internals/
- *    state-verb-harvest.ts — pinned against the exported
- *    STATE_VERB_LEXICON by unit test), so only the transition
- *    classifier lane (morphology + BGE-M3 prototypes) and the LLM
- *    extractor can catch the transitions ("parted with the Kawasaki"
- *    for sold, "walked away from the chess club" for quit, …).
+ *  - `paraphrase` — same facts, phrased without the common
+ *    transition verbs ("parted with the Kawasaki" for sold, "walked
+ *    away from the chess club" for quit, …). Built when a
+ *    deterministic state-verb lexicon lane existed (removed in #788);
+ *    the LLM extractor is now the only producer either way.
  *  - `ru`         — faithful Russian phrasings of the same facts
  *    (speakers/entities keep their names; brand names stay Latin, the
- *    way Russian text actually writes them), exercising the RU
- *    prototype path of the classifier («продал», «вернул», «вступил»,
- *    «записался», …) and the RU candidate matcher's sentence-scoped
- *    guards.
+ *    way Russian text actually writes them: «продал», «вернул»,
+ *    «вступил», «записался», …).
  *
  * Variants measure ROBUSTNESS, not pass/fail parity — see README.md.
  *

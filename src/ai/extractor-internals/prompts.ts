@@ -252,7 +252,10 @@ sits in.
   transliterated name, a first name after the full name, a nickname or a role
   the conversation already tied to them → the known one. A KNOWN ENTITY is never
   created again under another name. name stays the mention as the turn wrote it
-  ("Rui"); known says who that is.
+  ("Rui"); known says who that is. A shared name alone is not the same person:
+  when the turn describes the one it names with facts that contradict the known
+  entity's KNOWN FACTS — another city, profession or employer — and nothing else
+  ties them, it is someone else with the same name, and known is null.
 
   A value is never a bare pronoun or a phrase whose object is one ("it", "her",
   "covers for her"): name the thing, or state the link as an edge instead.
@@ -343,42 +346,6 @@ export function renderPredicateCard(p: PredicateDefinition): string {
  */
 export function buildDialogueSystemPrompt(_predicates: PredicateDefinition[]): string {
   return EXTRACTION_PROMPT_HEADER_DIALOGUE + MEMORY_CONTRACT_SECTION;
-}
-
-/**
- * Facet-specialist instructions, appended to the dialogue header for a single
- * extra pass (EXTRACTOR_ROUTING_ENABLED). Each one narrows the job to ONE
- * contract so it stops competing with the other four in a single call — the
- * general pass still runs, and the union is deduplicated downstream, so a
- * facet can only ADD recall, never remove it.
- */
-const FACET_INSTRUCTIONS: Record<string, string> = {
-  enumeration: `
-=== THIS PASS: LIST ITEMS ONLY ===
-Ignore everything that is not an enumeration. Find every list in the turn and emit ONE FACT PER ITEM — never a single fact holding a joined list, never a summary of the list.
-  "we do pottery, camping, and painting" → THREE facts.
-  "I've read The Hobbit, Dune and most of Discworld" → THREE facts, each with the title as the value.
-Repeat the same predicate across the items of one list; the items are what differ. Missing an item is the failure mode this pass exists to prevent, so err toward emitting one more.
-If the turn contains no list, return empty facts.`,
-  entity: `
-=== THIS PASS: NAMED THINGS ONLY ===
-Ignore everything that is not anchored to a PROPER NAME — a person, brand, product, place, organisation, book, film or team the turn names explicitly.
-Emit the name EXACTLY as written. Never substitute a description for a name:
-  "Under Armour" NOT "a renowned outdoor gear company"; "the UK" NOT "Europe";
-  "The Name of the Wind" NOT "a fantasy book".
-If the turn refers to something only by description and never names it, DO NOT emit a fact for it — that is the general pass's job, not this one.
-If the turn names nothing, return empty facts.`,
-};
-
-/**
- * The system prompt for one specialist pass. An unknown facet degrades to the
- * plain dialogue prompt (a redundant general pass), which the union dedupes —
- * never an error.
- */
-export function buildFacetSystemPrompt(facet: string): string {
-  return (
-    EXTRACTION_PROMPT_HEADER_DIALOGUE + MEMORY_CONTRACT_SECTION + (FACET_INSTRUCTIONS[facet] ?? '')
-  );
 }
 
 /**

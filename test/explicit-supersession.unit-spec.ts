@@ -207,6 +207,9 @@ describe('mergeCandidates carries the memory-context fields', () => {
 });
 
 describe('EntityUpsertService — a pinned mention', () => {
+  // The naming ladder's own lookups (exact name, transliterated key).
+  const isLadder = (sql: string): boolean =>
+    /^SELECT id(, canonicalName)? FROM knowledge_entity/.test(sql);
   function make(rows: Record<string, { id: string; mergedInto?: string }>) {
     const queries: string[] = [];
     const db = {
@@ -216,7 +219,7 @@ describe('EntityUpsertService — a pinned mention', () => {
           const row = rows[String(params?.id)];
           return [row ? [row] : []];
         }
-        if (sql.startsWith('SELECT id FROM knowledge_entity')) return [[]];
+        if (isLadder(sql)) return [[]];
         if (sql.includes('CREATE')) return [[{ id: 'knowledge_entity:created' }]];
         return [[]];
       }),
@@ -237,7 +240,7 @@ describe('EntityUpsertService — a pinned mention', () => {
     const { svc, db, queries } = make({ 'knowledge_entity:rui': { id: 'knowledge_entity:rui' } });
     expect(await call(svc, db, 'knowledge_entity:rui')).toBe('knowledge_entity:rui');
     expect(queries.some((q) => q.includes('aliases = array::union'))).toBe(true);
-    expect(queries.some((q) => q.startsWith('SELECT id FROM knowledge_entity'))).toBe(false);
+    expect(queries.some(isLadder)).toBe(false);
   });
 
   it('follows a merged row to its survivor', async () => {
@@ -250,6 +253,6 @@ describe('EntityUpsertService — a pinned mention', () => {
   it('a stale pin falls through to the ladder', async () => {
     const { svc, db, queries } = make({});
     await call(svc, db, 'knowledge_entity:gone');
-    expect(queries.some((q) => q.startsWith('SELECT id FROM knowledge_entity'))).toBe(true);
+    expect(queries.some(isLadder)).toBe(true);
   });
 });

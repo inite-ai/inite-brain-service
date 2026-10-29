@@ -24,50 +24,8 @@ export interface ExtractionPipelineProfile {
    * so consumers apply `vocabulary === 'closed' && normalizeObjects`.
    */
   normalizeObjects: boolean;
-  /** Specialist extraction pass per detected facet (open vocab only). */
-  facetRouting: boolean;
   /** Drop bare `said` residuals at ingest instead of storing chatter. */
   dropSaid: boolean;
-  /**
-   * EXTRACTOR_LITERAL_HARVEST (memory-fitness lever #1, Design A of the
-   * diagnosed literal-drop): a deterministic regex lane over the
-   * trimmed input harvesting technical literals the closed-vocab LLM
-   * extraction measurably drops — ports, rate limits, HTTP statuses,
-   * ALL_CAPS / dotted / camelCase identifiers, naming-convention
-   * prefixes — as span-grounded facts (valueSpan verbatim by
-   * construction) unioned into the result AFTER denoise, deduped
-   * against the LLM set, capped per turn. Pure code: no second LLM
-   * path, no prompt change. Off (default) → byte-identical extraction.
-   */
-  literalHarvest: boolean;
-  /**
-   * EXTRACTOR_STATE_VERB_HARVEST (state-transition battery follow-up):
-   * the deterministic sibling of the literal lane for COMPLETED state
-   * transitions. A fixed past-tense transition lexicon (bought/joined/
-   * quit/returned/cancelled/switched to/…) harvests the verbatim verb
-   * phrase ("quit the chess club") as a span-grounded `state_change`
-   * fact, with pre-verb intention/negation guards ("thinking about",
-   * "haven't", "will") so voiced plans never flip state. Unioned after
-   * the literal lane, deduped against LLM + literal facts, capped per
-   * turn. Pure code: no second LLM path, no prompt change. Off
-   * (default) → byte-identical extraction.
-   */
-  stateVerbHarvest: boolean;
-  /**
-   * EXTRACTOR_TRANSITION_CLASSIFIER (state-transition battery follow-up):
-   * the semantic transition lane — compromise morphology (EN) plus a
-   * bounded RU past-tense matcher propose candidate verb clauses
-   * (past-tense, non-negated, non-hypothetical, with a complement);
-   * embedding-prototype matching (BGE-M3, EN+RU prototype bank)
-   * accepts completed transitions above the calibrated score-floor/
-   * margin gates. Accepted clauses land as the SAME span-grounded
-   * `state_change` shape as the state-verb lexicon lane, bound via the
-   * shared bindStateHolder; a sentence the lexicon lane already
-   * harvested is deferred whole, so the two lanes compose without
-   * double emission. Runs LAST in assembleResult. Off (default) →
-   * byte-identical extraction, embedder never called.
-   */
-  transitionClassifier: boolean;
   /** Let the local pre-pass skip the extractor LLM call when it hits. */
   skipLlmPrePass: boolean;
   /** Refinement collapse threshold for the local predicate selector. */
@@ -213,11 +171,7 @@ export function resolveExtractionProfile(
   return {
     vocabulary: open ? 'open' : 'closed',
     normalizeObjects: envFlagEnabled(env.EXTRACTION_OBJECT_NORMALIZE),
-    facetRouting: open && envFlagEnabled(env.EXTRACTOR_ROUTING_ENABLED),
     dropSaid: envFlagEnabled(env.EXTRACTOR_DROP_SAID),
-    literalHarvest: envFlagEnabled(env.EXTRACTOR_LITERAL_HARVEST),
-    stateVerbHarvest: envFlagEnabled(env.EXTRACTOR_STATE_VERB_HARVEST),
-    transitionClassifier: envFlagEnabled(env.EXTRACTOR_TRANSITION_CLASSIFIER),
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
     deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),

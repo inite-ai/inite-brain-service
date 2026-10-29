@@ -327,19 +327,6 @@ segment-serving mode is on, cross-user verbatim disclosure is possible.
 | `OUTCOME_DECISION_CAPTURE`        | `0`     | Content-free `memory_decision` rows at the abstain gate + L3 trigger (0119); independent master, not coupled to `OUTCOME_TELEMETRY_ENABLED`.                                                                      |
 | `OUTCOME_DECISION_RETENTION_DAYS` | `30`    | Decision-row retention (03:41 UTC prune, gated on the capture flag).                                                                                                                                              |
 
-### `EXTRACTOR_*` — deterministic harvest lanes
-
-Regex/lexicon lanes that run after the LLM extractor's denoise pass and
-UNION extra mention candidates into the same pipeline — deterministic,
-zero additional LLM calls. Prose reference:
-[extraction-harvest-lanes.md](extraction-harvest-lanes.md).
-
-| Flag                              | Default | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EXTRACTOR_LITERAL_HARVEST`       | `0`     | Literal-fact harvest (`src/ai/extractor-internals/literal-harvest.ts`): regex rules emit `rate_limit`, `service_port`, `http_status`, `naming_prefix`, `identifier` mention candidates (cap 6/turn; attribution by clause overlap with speaker fallback). The sixth technical-literal core predicate, `duration_limit`, is seeded as an LLM slot only — its harvest rule ships disabled (the over-firing rule of the family). |
-| `EXTRACTOR_STATE_VERB_HARVEST`    | `0`     | State-verb harvest (`src/ai/extractor-internals/state-verb-harvest.ts`): a past-tense/completed state-verb lexicon emits `state_change` facts (confidence 0.95, cap 6/turn). The fact binds to the state HOLDER — a person entity named in the sentence, else the speaker — never to the transitioned object.                                                                                                                 |
-| `EXTRACTOR_TRANSITION_CLASSIFIER` | `0`     | Availability gate ONLY in this release: the language-agnostic transition classifier (compromise morphology stage + BGE-M3 EN/RU prototype bank — `transition-morphology.ts` + `transition-classifier.ts`) exists as a standalone module but is NOT wired into the extraction pipeline yet; thresholds are exported defaults pending stand calibration.                                                                        |
-
 Related read-surface flags documented in [api.md](api.md):
 `FACTS_API_ENABLED` (fact read + provenance, also registers the MCP
 `get_fact` / `get_fact_provenance` tools), `BELIEFS_API_ENABLED`
