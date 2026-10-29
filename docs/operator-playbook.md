@@ -2,7 +2,7 @@
 
 The day-2 manual for the people who keep brain running — issue keys,
 troubleshoot, run maintenance, recover. If you're trying to wire a
-vertical *into* brain, see [migration-guide.md](migration-guide.md) instead;
+vertical _into_ brain, see [migration-guide.md](migration-guide.md) instead;
 for enablement runbooks of dark-shipped features (document pipeline, MCP
 pack tools, billing), see [operations.md](operations.md).
 
@@ -12,7 +12,7 @@ pack tools, billing), see [operations.md](operations.md).
 2. [Promote a tenant from dev to prod auth](#promote-a-tenant-from-dev-to-prod-auth)
 3. [Troubleshoot: ingest is failing](#troubleshoot-ingest-is-failing)
 4. [Troubleshoot: search returns nothing](#troubleshoot-search-returns-nothing)
-5. [Troubleshoot: search returns *wrong* results (the un-indexed tenant)](#troubleshoot-search-returns-wrong-results-the-un-indexed-tenant)
+5. [Troubleshoot: search returns _wrong_ results (the un-indexed tenant)](#troubleshoot-search-returns-wrong-results-the-un-indexed-tenant)
 6. [Run a forget (GDPR)](#run-a-forget-gdpr)
 7. [Monitor: metrics + logs](#monitor-metrics--logs)
 8. [Tune `SEARCH_RERANK_SKIP_MARGIN`](#tune-search_rerank_skip_margin)
@@ -105,13 +105,13 @@ Symptoms: `POST /v1/ingest/fact` returns 500, or 4xx with a validation error.
 
 Symptoms: `POST /v1/search` returns `{ results: [] }` for queries that obviously match.
 
-1. **Embedding mismatch.** If you changed `EMBEDDER_PROVIDER`, old vectors don't match new queries. Re-embed via `POST /v1/admin/reindex/embeddings` (wait for `/ready` 200 first — vector writes are refused while the primary embedder is warming). Model and width are not separately configurable; they are declared in `src/ai/embedder/embedding-space.ts`.
+1. **Embedding mismatch.** If you changed `EMBEDDER_PROVIDER`, old vectors don't match new queries. The vector-corpus repair re-embeds on the next boot once the primary is warm (and drops HNSW indexes still at the old width, which would reject the re-embed). By hand: `POST /v1/admin/maintenance/hnsw {action:'drop'}`, then `POST /v1/admin/reindex/embeddings?allTables=true` (wait for `/ready` 200 first — vector writes are refused while the primary embedder is warming), then `{action:'create'}`. Model and width are not separately configurable; they are declared in `src/ai/embedder/embedding-space.ts`.
 2. **The data was forgotten.** Check the tenant's `forgotten_entity` table — there'll be a tombstone row per cascade-forget. Ingests after a forget go to a fresh entity with a new `cuid`, so old searches won't find them.
 3. **Wrong `asOf`.** A historical query with `asOf` predating the fact's `validFrom` will skip it. Drop `asOf` and retry to confirm.
 4. **PII gating.** A caller without `brain:read_pii` cannot see PII facts. Search itself is unaffected (entity still ranks), but specific facts will be missing from the result. Inspect the caller's scopes via the request log's `key=` tag and your key registry.
 5. **Multi-tenant fan-out gone wrong.** Search runs only inside `NS=inite DB=co_<companyId>` (in prod; `NS=brain` in dev when `SURREALDB_NAMESPACE=brain`). If the caller is on the wrong companyId, they're looking in the wrong DB. Confirm `req.brainAuth.companyId` matches the data's expected tenant.
 
-## Troubleshoot: search returns *wrong* results (the un-indexed tenant)
+## Troubleshoot: search returns _wrong_ results (the un-indexed tenant)
 
 Symptoms: search returns the same handful of unrelated facts for every
 query; a tenant accumulates a duplicate entity for every mention of the
@@ -229,11 +229,13 @@ curl -X POST https://brain.example.com/v1/dreams/run \
 ```
 
 Watch for:
+
 - `brain_dreams_total{outcome="failed"}` — sub-service threw on a tenant. Check logs for the per-tenant error message.
-- `brain_dreams_emitted_total{kind="identity_link"}` rising spike — usually means a recent batch ingest created near-duplicate entities. Healthy signal *if* it's a one-off; recurring spike means upstream extraction is fragmenting identities and needs investigation upstream of brain.
+- `brain_dreams_emitted_total{kind="identity_link"}` rising spike — usually means a recent batch ingest created near-duplicate entities. Healthy signal _if_ it's a one-off; recurring spike means upstream extraction is fragmenting identities and needs investigation upstream of brain.
 - `brain_dreams_emitted_total{kind="resolution"}` rising — competing-fact backlog being chewed. Watch the unsure rate (logged at WARN level) — high unsure means the LLM can't actually disambiguate and the operator should clear the backlog manually.
 
 When NOT to enable dreams:
+
 - Tenants with very few entities (< ~50). The dedup cosine kNN doesn't have enough neighbours to be useful and you pay the LLM judge cost on basically every pair.
 - Workloads where competing facts are intentional (e.g. multi-source CRM where two sources disagree by design until human reconciliation). Run dedup but not resolve.
 
@@ -288,6 +290,7 @@ curl -X POST https://brain.example.com/v1/admin/maintenance/dreams/run \
 ```
 
 If you don't see the cron tick (`[CompactionService] Compaction starting…` at 03:17 UTC under `JOBS_QUEUE_MODE=inline`, or a `compaction` row appearing in `/v1/admin/jobs` at the same time under `enqueue`), check:
+
 - `ScheduleModule` is imported by `CompactionModule`
 - the process actually survives until 03:17 (no nightly restart)
 - in queue mode: the leader pod's `worker_loop` lease is held (`GET /v1/admin/leases`)
@@ -345,6 +348,7 @@ Use this as a last-resort. The proper fix is to find what broke queue mode (usua
 The aggregator surfaces `memory-lifecycle-correctness` (fraction of memory-lifecycle assertions passed). The threshold is **1.0** — anything less means brain's read side disagrees with the write semantics, which is non-negotiable. A failing assertion appears in the report's "Memory-lifecycle FAILURES" section with scenario id, kind, and detail.
 
 For scale validation, run `pnpm test:eval:directory`. The jumbo fixture seeds ~1k customers with realistic distributions:
+
 - 30% temporal tier trajectories (3-fact supersede chain over 3 months)
 - 5% competing status (active vs churned, near-identical confidence)
 - 3% retracted complaints

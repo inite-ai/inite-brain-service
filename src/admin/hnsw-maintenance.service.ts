@@ -39,9 +39,13 @@ import { probeHnswIndex, resetKnnIndexMemo, type HnswIndexState } from '../db/kn
  *
  * The swap ORDER still matters for the DATA: recreate leaves the index
  * matching the embedder, but rows embedded in the old space are still
- * old-width, so run the embedding reindex (POST
- * /v1/admin/reindex/embeddings) BEFORE `create` — with no index present
- * the rewrites it must perform are not rejected.
+ * old-width, and an old-width index rejects the rewrites the reindex must
+ * perform. So by hand it is `drop` → reindex (POST
+ * /v1/admin/reindex/embeddings?allTables=true) → `create`. Automatically,
+ * the vector-corpus repair (VectorCorpusService, on every tenant's
+ * schema-ready hook and nightly) does the same three steps itself: it
+ * removes foreign-width indexes (`removeForeignWidth`), re-embeds the
+ * non-conforming rows, and hands the tenant to provisioning `ensure`.
  *
  * Two indexes, each with a consumer: fact_embedding_hnsw rides under the
  * fact legs, the dedup seed and inline entity resolution (all `<|K,EF|>`
@@ -110,10 +114,10 @@ import { probeHnswIndex, resetKnnIndexMemo, type HnswIndexState } from '../db/kn
  *
  * WIDTH IS PART OF READINESS. An index that exists at the wrong DIMENSION
  * is `ready` to `INFO FOR INDEX` and useless in fact: every write of a
- * correctly-sized vector is rejected against it. `ensure` cannot fix that
- * (the repair is reindex → `create`, and it destroys data), so it does the
- * only honest thing — reports the mismatch and refuses to call the tenant
- * ready. The declared DIMENSION is parsed out of the same `INFO FOR TABLE`
+ * correctly-sized vector is rejected against it. `ensure` does not fix that
+ * (the repair is drop → reindex → `create`, and it is the corpus repair's
+ * to run, see above), so it does the only honest thing — reports the
+ * mismatch and refuses to call the tenant ready. The declared DIMENSION is parsed out of the same `INFO FOR TABLE`
  * response the existence probe already fetched, so it costs nothing.
  */
 export type HnswIndexBuildState = HnswIndexState;
@@ -302,6 +306,45 @@ export class HnswMaintenanceService {
     };
   }
 
+  /**
+   * REMOVE every owned index declared at a DIMENSION other than the
+   * primary's — and nothing else; returns the names removed.
+   *
+   * Not an `apply` action, and never called by provisioning: it exists for
+   * the vector-corpus repair (VectorCorpusService), the one caller that is
+   * about to rewrite the corpus into the primary width. A foreign-width
+   * index REJECTS that rewrite — measured on surrealdb/surrealdb:v3.2.4, an
+   * UPDATE of a 1536-wide vector against a DIMENSION 1024 index fails with
+   * "Incorrect vector dimension (1536). Expected a vector of 1024
+   * dimension." — so after an EMBEDDER_PROVIDER switch the automatic repair
+   * failed row by row on every boot, and so did every ordinary write. The
+   * removed index served nothing (a query at the new width cannot ride it),
+   * so removing it costs no working retrieval; the repair defines it again
+   * at the right width once the rows conform (provisioning `ensure`).
+   */
+  async removeForeignWidth(companyId: string): Promise<string[]> {
+    const dimension = this.embedder.primaryDimensions();
+    const removed = await this.surreal.withCompany(companyId, async (db) => {
+      const builds = await this.probeBuilds(db);
+      const out: string[] = [];
+      for (const spec of INDEX_SPECS) {
+        const declared = builds.find((b) => b.index === spec.index)?.dimension;
+        if (declared === undefined || declared === dimension) continue;
+        await db.query(`REMOVE INDEX IF EXISTS ${spec.index} ON ${spec.table};`);
+        out.push(spec.index);
+      }
+      return out;
+    });
+    if (removed.length > 0) {
+      resetKnnIndexMemo();
+      this.logger.warn(
+        `hnsw: removed [${removed.join(', ')}] for ${companyId} — declared at a width other than ` +
+          `the embedder's ${dimension}, they rejected every write of a correctly-sized vector`,
+      );
+    }
+    return removed;
+  }
+
   /** Every log line `apply` emits, kept out of the happy path's way. */
   private report(
     companyId: string,
@@ -322,8 +365,9 @@ export class HnswMaintenanceService {
       this.logger.error(
         `hnsw index width mismatch for ${companyId}: [${r.mismatched.join(', ')}] exist at a ` +
           `DIMENSION other than the embedder's ${r.dimension}. Every write of a correctly-sized ` +
-          `vector is rejected against them. Repair in order: reindex embeddings, then POST ` +
-          `/v1/admin/maintenance/hnsw {action:'create'} (which recreates at the current width).`,
+          `vector is rejected against them. The vector-corpus repair removes them and re-embeds ` +
+          `once the primary embedder is ready; by hand, in order: POST /v1/admin/maintenance/hnsw ` +
+          `{action:'drop'}, reindex embeddings, then {action:'create'}.`,
       );
     }
     if ((r.action === 'create' || r.created.length > 0) && !r.ready) {
