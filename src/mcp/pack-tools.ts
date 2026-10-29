@@ -126,7 +126,7 @@ function registerSearchQueryTool(ctx: QueryToolContext): void {
         scopes,
       );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -172,7 +172,7 @@ function registerFactsByPredicateTool(ctx: QueryToolContext): void {
         scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },

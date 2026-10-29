@@ -215,7 +215,7 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     searchLoop: false,
     l3Escalation: false,
     l3MaxSessions: 3,
-    l3TokenCap: 60000,
+    l3TokenCap: 20000,
     l3DirectAnchor: false,
     l3SegmentAnchor: false,
     l3TemporalAnchor: false,

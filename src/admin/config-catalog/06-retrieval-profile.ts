@@ -415,11 +415,11 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_L3_TOKEN_CAP',
     category: 'pipeline',
-    defaultValue: '60000',
+    defaultValue: '20000',
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Token cap for the assembled L3 large-context prompt under RETRIEVAL_L3_ESCALATION (estimated from assembled length). Over the cap the lane degrades to widened L2 raw-turn windows around the anchor turns rather than truncating a session mid-way (metric outcome over_budget_degraded). Only read on that path.',
+      'Token cap for the assembled L3 large-context prompt under RETRIEVAL_L3_ESCALATION (estimated from assembled length). Over the cap the lane degrades to widened L2 raw-turn windows around the anchor turns rather than truncating a session mid-way (metric outcome over_budget_degraded). 20000 since 2026-10-29 (was 60000: the sessions are sent twice, generator then verifier). Only read on that path.',
   },
   {
     key: 'RETRIEVAL_L3_DIRECT_ANCHOR',

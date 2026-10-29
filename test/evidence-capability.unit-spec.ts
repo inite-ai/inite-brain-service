@@ -412,6 +412,21 @@ describe('buildVerifierUserMessage — capabilityEvidenceLines (seam)', () => {
     expect(users[0]).not.toContain('[capability:');
   });
 
+  it('two audits of the same evidence share the whole evidence prefix: the answer comes last', async () => {
+    const users: string[] = [];
+    await runVerifier({ ...BASE, openai: capturingOpenAi(users) });
+    await runVerifier({
+      ...BASE,
+      answer: 'Pinned on the whiteboard.',
+      openai: capturingOpenAi(users),
+    });
+    const [a, b] = users as [string, string];
+    const shared = a.slice(0, a.lastIndexOf('Answer:'));
+    expect(shared).toContain('Source facts:');
+    expect(b.startsWith(shared)).toBe(true);
+    expect(a.endsWith('Answer:\nOn the whiteboard.')).toBe(true);
+  });
+
   it('non-empty → its own section with the [capability:<kind>] lines', async () => {
     const users: string[] = [];
     const lines = [

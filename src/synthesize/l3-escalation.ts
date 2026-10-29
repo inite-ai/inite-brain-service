@@ -353,3 +353,14 @@ export function selectWindowCenters(
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
+
+/**
+ * The sessions one escalation reads: pending first (never dropped), then
+ * the ranked ones, all within `max`. Pending sessions used to ride on top
+ * of the budget — every unread conversation added a whole session to a
+ * prompt sent twice (LLM spend audit, 2026-10-28).
+ */
+export function selectL3Sessions(pending: string[], ranked: string[], max: number): string[] {
+  const rest = ranked.filter((id) => !pending.includes(id));
+  return [...pending, ...rest].slice(0, Math.max(max, pending.length));
+}

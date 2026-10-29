@@ -191,7 +191,7 @@ export class PackToolProxyService {
       return { content: [{ type: 'text', text: content }] };
     }
     return {
-      content: [{ type: 'text', text: JSON.stringify(content, null, 2) }],
+      content: [{ type: 'text', text: JSON.stringify(content) }],
       structuredContent: content as Record<string, unknown>,
     };
   }

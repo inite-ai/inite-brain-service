@@ -230,6 +230,8 @@ export async function auditAndRevise(
         generated: g,
         citations: resolveCitations(g.citedFactIds, g.answer, round.factIndex),
         onPrimaryVerdict: async () => undefined,
+        // One zoom per request: the primary verify already had it.
+        zoom: false,
       }),
   });
   if (!revised) return primary;

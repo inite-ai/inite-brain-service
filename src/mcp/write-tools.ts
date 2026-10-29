@@ -156,7 +156,7 @@ export function registerWriteTools({
         },
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -201,7 +201,7 @@ export function registerWriteTools({
         source: { vertical: args.sourceVertical },
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -250,7 +250,7 @@ export function registerWriteTools({
         callerScopes: scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -287,7 +287,7 @@ export function registerWriteTools({
         source: { kind: args.sourceKind ?? 'operator' },
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -307,7 +307,7 @@ export function registerWriteTools({
     async (args) => {
       const out = await deps.procedural.retire(companyId, args.procedureId);
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -359,7 +359,7 @@ function registerFeedbackTool({
         scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -402,7 +402,7 @@ export function registerAdminTools(
         },
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -488,7 +488,7 @@ function registerIngestDocumentTool({
         { channel: 'mcp' },
       );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },

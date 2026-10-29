@@ -146,7 +146,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         scopes,
       );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -219,7 +219,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         onProgress: reporter,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -283,7 +283,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         onProgress: reporter,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -330,7 +330,7 @@ function registerMemoryDiffTool({
         scopes,
       );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -382,7 +382,7 @@ function registerGraphRetrieveTool({
         callerScopes: scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -421,7 +421,7 @@ function registerEntityReadTools({
         scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -451,7 +451,7 @@ function registerEntityReadTools({
         scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -488,7 +488,7 @@ function registerEntityReadTools({
           scopes,
         });
         return {
-          content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+          content: [{ type: 'text', text: JSON.stringify(out) }],
           structuredContent: asStructuredContent(out),
         };
       }
@@ -503,7 +503,7 @@ function registerEntityReadTools({
         scopes,
       );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: {
           ...out,
           sampledBy: 'local_template',
@@ -543,7 +543,7 @@ function registerEntityReadTools({
         callerScopes: scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -602,7 +602,7 @@ function registerEntityReadTools({
         ...(args.userId !== undefined ? { userId: args.userId } : {}),
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -641,7 +641,7 @@ function registerFactReadTools({
         scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -664,7 +664,7 @@ function registerFactReadTools({
         scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -721,7 +721,7 @@ function registerDetectContradictionTool({
         scopes,
       );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -791,7 +791,7 @@ function registerReadResources({
           {
             uri: uri.href,
             mimeType: 'application/json',
-            text: JSON.stringify(profile, null, 2),
+            text: JSON.stringify(profile),
           },
         ],
       };
@@ -823,7 +823,7 @@ function registerReadResources({
           {
             uri: uri.href,
             mimeType: 'application/json',
-            text: JSON.stringify(timeline, null, 2),
+            text: JSON.stringify(timeline),
           },
         ],
       };
