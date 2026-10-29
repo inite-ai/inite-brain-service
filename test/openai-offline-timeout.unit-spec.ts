@@ -27,17 +27,17 @@ describe('withOfflineTimeout', () => {
         signal: undefined,
       } as never,
     );
-    expect(seen[0]).toEqual({ timeout: 180_000, signal: undefined });
+    expect(seen[0]).toEqual({ timeout: 180_000, maxRetries: 1, signal: undefined });
   });
 
-  it("keeps a caller's own timeout, and leaves standard calls alone", async () => {
+  it("keeps a caller's own timeout and retries, and leaves standard calls alone", async () => {
     const { c, seen } = client();
     withOfflineTimeout(c, 180_000);
     await c.chat.completions.create(
       { model: 'm', messages: [], service_tier: 'flex' } as never,
-      { timeout: 5 } as never,
+      { timeout: 5, maxRetries: 0 } as never,
     );
     await c.chat.completions.create({ model: 'm', messages: [] } as never);
-    expect(seen).toEqual([{ timeout: 5 }, undefined]);
+    expect(seen).toEqual([{ timeout: 5, maxRetries: 0 }, undefined]);
   });
 });
