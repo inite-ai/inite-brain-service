@@ -83,6 +83,22 @@ describe('LLM provider failover', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('a flex capacity 429 is not failed over to full price: the job reschedules', async () => {
+    const busy = Object.assign(new Error('429 Resource unavailable'), { status: 429 });
+    const { calls } = stubCreate(() => {
+      throw busy;
+    });
+    const client = createOpenAiClient(config(env))!;
+    const create = client.chat.completions.create as unknown as Create;
+    await expect(create({ model: 'gpt-6-luna', service_tier: 'flex', messages: [] })).rejects.toBe(
+      busy,
+    );
+    expect(calls.map((c) => c.baseURL.includes('openrouter'))).toEqual([false]);
+    // A standard-tier 429 that outlived the SDK's retries still fails over.
+    await create({ model: 'gpt-6-luna', messages: [] }).catch(() => undefined);
+    expect(calls.map((c) => c.baseURL.includes('openrouter')).slice(1)).toEqual([false, true]);
+  });
+
   it('without a fallback configured a call reaches the SDK once, body untouched', async () => {
     const { calls } = stubCreate(() => ({ ok: true }));
     const client = createOpenAiClient(config({ OPENAI_API_KEY: 'sk' }))!;

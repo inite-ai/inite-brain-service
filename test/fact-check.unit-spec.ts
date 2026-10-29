@@ -65,6 +65,14 @@ describe('checking an extraction against its document', () => {
     expect(calls[0]!.state).toBe(`TEXT:\n${DOC}`);
   });
 
+  it('sees the whole of a long read: a fact stated past 8k characters is judged on its text', async () => {
+    const { svc, calls } = plane({});
+    const long = `${'filler turn. '.repeat(1100)}${DOC}`;
+    expect(long.length).toBeGreaterThan(14_000);
+    await checkExtraction({ result: misnumbered(), text: long, decisions: svc });
+    expect(calls[0]!.state).toBe(`TEXT:\n${long}`);
+  });
+
   it('reads the text with the context the extractor read — the speaker, the turns before', async () => {
     const { svc, calls } = plane({});
     await checkExtraction({

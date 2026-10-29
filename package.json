@@ -177,7 +177,8 @@
       "protobufjs@7": "^7.6.5",
       "protobufjs@8": "^8.6.6",
       "handlebars": "^4.7.10",
-      "proxy-addr": "^2.0.8"
+      "proxy-addr": "^2.0.8",
+      "systeminformation@<5.33.16": "^5.33.16"
     }
   }
 }
