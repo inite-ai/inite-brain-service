@@ -194,7 +194,6 @@ export class MultiHopPlannerService {
               },
             },
             ...chatCallParams(this.model, { temperature: 0, visibleCap: 768 }),
-            temperature: 0,
           },
           { signal: getAbortSignal() },
         ),

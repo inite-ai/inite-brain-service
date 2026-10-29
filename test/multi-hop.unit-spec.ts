@@ -1,10 +1,10 @@
 import { MultiHopService, MultiHopResult } from '../src/multi-hop/multi-hop.service';
 import { MultiHopChainService } from '../src/multi-hop/multi-hop-chain.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
-import type {
+import {
   MultiHopPlannerService,
-  MultiHopPlan,
-  HopPlan,
+  type MultiHopPlan,
+  type HopPlan,
 } from '../src/multi-hop/multi-hop-planner.service';
 import type { SynthesizeService } from '../src/synthesize/synthesize.service';
 import type { MultiHopDto } from '../src/multi-hop/dto/multi-hop.dto';
@@ -638,5 +638,55 @@ describe('MultiHopService', () => {
       // Bare prior set — no expansion applied.
       expect(hop2Dto.entityIds).toEqual(['e1']);
     });
+  });
+});
+
+/**
+ * Since #617 (2026-09-17) a stray `temperature: 0` after the reasoning
+ * guard sent every planner call to gpt-6-luna with a temperature it
+ * rejects: 400 on every call, so multi-hop never planned a single query
+ * (found by the per-site token ledger, 2026-10-29: 3 calls, 3 errors).
+ */
+describe('MultiHopPlannerService request', () => {
+  it('a reasoning model gets no temperature: the plan comes back instead of a 400', async () => {
+    const cfg = {
+      get: (k: string, d?: string) => ({ OPENAI_API_KEY: 'sk-test' })[k] ?? d,
+      getOrThrow: () => 'sk-test',
+    };
+    const planner = new MultiHopPlannerService(cfg as never);
+    const bodies: Array<Record<string, unknown>> = [];
+    (planner as unknown as { openai: unknown }).openai = {
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            bodies.push(body);
+            if ('temperature' in body) throw new Error('400 Unsupported value: temperature');
+            return {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      isMultiHop: true,
+                      hops: [
+                        {
+                          subQuery: 'who works at Orbital',
+                          predicates: [],
+                          combination: 'first',
+                          asOf: null,
+                          rationale: null,
+                        },
+                      ],
+                    }),
+                  },
+                },
+              ],
+            };
+          },
+        },
+      },
+    };
+    const plan = await planner.plan('Where do people who work at Orbital live?', 3);
+    expect(bodies[0]).not.toHaveProperty('temperature');
+    expect(plan?.hops).toHaveLength(1);
   });
 });

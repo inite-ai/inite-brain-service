@@ -50,7 +50,7 @@ export function registerRelationshipTools({
     async (args) => {
       const out = await read(args.userId);
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -68,9 +68,7 @@ export function registerRelationshipTools({
     async (uri, params) => {
       const out = await read(String(params.userId));
       return {
-        contents: [
-          { uri: uri.href, mimeType: 'application/json', text: JSON.stringify(out, null, 2) },
-        ],
+        contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(out) }],
       };
     },
   );

@@ -66,7 +66,7 @@ export function registerPublicTools(opts: { server: McpServer; options: PublicTo
         docs: `${base}/en/docs`,
       };
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -106,7 +106,7 @@ export function registerPublicTools(opts: { server: McpServer; options: PublicTo
         docs: `${base}/en/docs`,
       };
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
