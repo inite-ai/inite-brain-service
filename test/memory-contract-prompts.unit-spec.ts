@@ -42,6 +42,14 @@ describe('the memory contract in the extraction prompts', () => {
     );
   });
 
+  it('a shared name with contradicting facts is not pinned to the known entity (#815)', () => {
+    // The known entity's facts are in front of the extractor; an identical
+    // name alone must not pin a vet in Munich and an engineer in Lisbon.
+    const section = MEMORY_CONTRACT_SECTION.replace(/\s+/g, ' ');
+    expect(section).toContain('A shared name alone is not the same person');
+    expect(section).toContain('it is someone else with the same name, and known is null');
+  });
+
   it('the user-message prefix: speaker framing, then the memory, then CURRENT TURN', () => {
     const prefix = buildConversationContext({
       speakerName: 'Mike',

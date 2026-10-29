@@ -252,7 +252,10 @@ sits in.
   transliterated name, a first name after the full name, a nickname or a role
   the conversation already tied to them → the known one. A KNOWN ENTITY is never
   created again under another name. name stays the mention as the turn wrote it
-  ("Rui"); known says who that is.
+  ("Rui"); known says who that is. A shared name alone is not the same person:
+  when the turn describes the one it names with facts that contradict the known
+  entity's KNOWN FACTS — another city, profession or employer — and nothing else
+  ties them, it is someone else with the same name, and known is null.
 
   A value is never a bare pronoun or a phrase whose object is one ("it", "her",
   "covers for her"): name the thing, or state the link as an edge instead.
