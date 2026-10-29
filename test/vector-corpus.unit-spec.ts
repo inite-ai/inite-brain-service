@@ -19,6 +19,7 @@ describe('VectorCorpusService', () => {
     ready?: boolean;
     afterRepair?: Census;
     dimension?: number;
+    order?: string[];
   }) {
     let census = opts.census;
     const queries: string[] = [];
@@ -42,6 +43,7 @@ describe('VectorCorpusService', () => {
     };
     const reindex = {
       run: jest.fn(async () => {
+        opts.order?.push('reindex');
         if (opts.afterRepair) census = opts.afterRepair;
         return {
           factsScanned: 40,
@@ -61,6 +63,18 @@ describe('VectorCorpusService', () => {
       countVectorCorpusRepair: jest.fn(),
     };
     const apiKeys = { fanOutRoster: () => ['co_x'] };
+    const hnsw = {
+      removeForeignWidth: jest.fn(async () => {
+        opts.order?.push('removeForeignWidth');
+        return ['fact_embedding_hnsw'];
+      }),
+    };
+    const provision = {
+      provisionTenant: jest.fn(async () => {
+        opts.order?.push('provision');
+        return { companyId: 'co_x', state: 'ready', created: [], ready: true };
+      }),
+    };
     const svc = new VectorCorpusService(
       surreal as never,
       embedder as never,
@@ -68,8 +82,11 @@ describe('VectorCorpusService', () => {
       apiKeys as never,
       jobs as never,
       metrics as never,
+      undefined,
+      hnsw as never,
+      provision as never,
     );
-    return { svc, reindex, jobs, metrics, queries };
+    return { svc, reindex, jobs, metrics, queries, hnsw, provision };
   }
 
   it('counts every declared column, by width and space, against the primary width', async () => {
@@ -115,6 +132,36 @@ describe('VectorCorpusService', () => {
     const ent = inv.columns.find((c) => c.table === 'knowledge_entity')!;
     // Width is the contract the cosine enforces; the stamp is bookkeeping.
     expect(ent).toMatchObject({ conforming: 6, nonConforming: 1 });
+  });
+
+  it('removes a foreign-width HNSW index BEFORE the sweep and provisions the tenant after it', async () => {
+    // Measured on 3.2.4: an index declared at the old width rejects every
+    // rewrite the sweep makes ("Incorrect vector dimension"), so the repair
+    // could never land after a provider switch.
+    const order: string[] = [];
+    const { svc, hnsw, provision } = make({
+      census: { 'knowledge_fact.embedding': [{ width: 1536, count: 39 }] },
+      afterRepair: { 'knowledge_fact.embedding': [{ width: 1024, count: 39 }] },
+      order,
+    });
+    const r = await svc.reconcileTenant('co_x', 'startup');
+    expect(r.outcome).toBe('repaired');
+    expect(order).toEqual(['removeForeignWidth', 'reindex', 'provision']);
+    expect(hnsw.removeForeignWidth).toHaveBeenCalledWith('co_x');
+    expect(provision.provisionTenant).toHaveBeenCalledWith('co_x', {});
+  });
+
+  it('touches no index while the corpus conforms or the embedder is still warming', async () => {
+    const clean = make({ census: { 'knowledge_fact.embedding': [{ width: 1024, count: 3 }] } });
+    await clean.svc.reconcileTenant('co_x', 'cron');
+    expect(clean.hnsw.removeForeignWidth).not.toHaveBeenCalled();
+    expect(clean.provision.provisionTenant).not.toHaveBeenCalled();
+    const warming = make({
+      census: { 'knowledge_fact.embedding': [{ width: 1536, count: 3 }] },
+      ready: false,
+    });
+    await warming.svc.reconcileTenant('co_x', 'cron');
+    expect(warming.hnsw.removeForeignWidth).not.toHaveBeenCalled();
   });
 
   it('repairs a repairable corpus with one sweep for that tenant, recorded as a reindex job run', async () => {

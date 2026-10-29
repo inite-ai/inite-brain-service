@@ -9,8 +9,7 @@
  * and the hard `lang = 'en' OR lang IS NONE` exclusion then hid the
  * `rate_limit: 120 requests per minute` fact, which had been stamped
  * `it` at write time off the lone Italian stopword "per" (confidence
- * 0.33). The fact ranked #1 by raw cosine (the INGEST_PREDICATE_INDEX_TEXT
- * humanized embedding worked) and was excluded purely by language — on a
+ * 0.33). The fact ranked #1 by raw cosine and was excluded purely by language — on a
  * query that expressed no language at all. Verified live: the same
  * search with `disableLangFilter: true` served both rate_limit facts.
  *

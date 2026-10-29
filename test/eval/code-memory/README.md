@@ -99,15 +99,12 @@ the measured signal the parallel PR landed.** The gates:
   self-softens to "never measured" with no edit here. The unit spec
   pins the invariant that a check on an undeclared predicate is always
   gap-gated — the battery cannot hardcode green.
-- **k08** — needs the coding-verb state-verb lexicon (parallel PR) AND
-  `EXTRACTOR_STATE_VERB_HARVEST=1` at the stand; even then, holder
-  binding routes "we enabled FLAG" to the AGENT entity, so the full
-  story landing on one timeline is unmeasured.
+- **k08** — the full flag story landing on one timeline is unmeasured
+  (the deterministic state-verb lane was removed in #788; only the LLM
+  extractor can produce the stages).
 
-k14 is the deliberate NEGATIVE twin of k08: it must hold today (no
-coding verbs in the lexicon → nothing to guard) and keep holding after
-the lexicon lands (the 6-token pre-verb guards are then what keeps it
-green). k10 (cross-entity) is un-gated on purpose: a fail there is a
+k14 is the deliberate NEGATIVE twin of k08: a voiced plan must never
+land as a completed `state_change`. k10 (cross-entity) is un-gated on purpose: a fail there is a
 genuine platform finding, not a known gap. It measures IDENTITY alone —
 the runner resolves the ONE named entity strictly, then scans ALL facts
 ever recorded onto it (`get_entity_timeline` ∪ the hit's top facts)
@@ -133,9 +130,6 @@ with a clear message when `BRAIN_BASE_URL` is unset).
 
 Stand flags that shape coverage:
 
-- `EXTRACTOR_LITERAL_HARVEST=1` — required for k07 (ON in prod).
-- `EXTRACTOR_STATE_VERB_HARVEST=1` — shapes k08/k14 (the transition
-  lane; k14 must stay green with it on or off).
 - `FACTS_API_ENABLED=1` — required for k11 (`get_fact_provenance` is
   otherwise absent; the check is skipped, never silently passed).
 - `THROTTLE_DISABLED=1` — recommended; the runner backs off on 429

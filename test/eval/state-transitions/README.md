@@ -67,21 +67,15 @@ conversations, same turn counts, same timestamps, same checks
 
 - **`default`** — the original corpus, byte-identical (the builder
   returns the `SCENARIOS` array itself).
-- **`paraphrase`** — same facts phrased WITHOUT any verb of the
-  deterministic state-verb lexicon (`EXTRACTOR_STATE_VERB_HARVEST`;
-  pinned against the exported `STATE_VERB_LEXICON`): "parted with the
-  Kawasaki" for sold, "walked away from the chess club" for quit,
-  "sent the standing desk back" for returned. Only the transition
-  classifier lane (`EXTRACTOR_TRANSITION_CLASSIFIER`: morphology +
-  BGE-M3 prototypes) and the LLM extractor can catch these transitions.
+- **`paraphrase`** — same facts phrased without the common transition
+  verbs: "parted with the Kawasaki" for sold, "walked away from the
+  chess club" for quit, "sent the standing desk back" for returned.
+  (Built when deterministic state-verb and transition-classifier lanes
+  existed; both were removed in #788, so the LLM extractor is the only
+  producer in every variant.)
 - **`ru`** — faithful Russian phrasings («продал», «вернул»,
   «вступил», «записался», …; person names go Cyrillic, brand names
-  stay Latin the way Russian text writes them), exercising the RU
-  prototype path of the classifier and the RU candidate matcher's
-  sentence-scoped guards — including the documented deliberate-miss
-  class («Я продал Kawasaki сегодня; байка больше нет.» is ONE guarded
-  span, because the RU guard is sentence-scoped and `sentenceSpans`
-  splits only before Latin uppercase).
+  stay Latin the way Russian text writes them).
 
 Check expectations stay the same across variants: nothing is removed,
 marker lists only gain language/phrasing alternates a correct answer

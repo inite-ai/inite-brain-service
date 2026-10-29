@@ -160,6 +160,24 @@ describe('width is part of readiness', () => {
     await maintenance(db, 1024).apply('co1', 'ensure');
     expect(ddl(db.calls)).toEqual([]);
   });
+
+  it('removeForeignWidth removes ONLY the indexes declared at another width — for the corpus repair', async () => {
+    const db = fakeDb({
+      fact_embedding_hnsw: { status: 'ready' as const, dimension: 1024 },
+      segment_embedding_hnsw: { status: 'ready' as const, dimension: 1536 },
+    });
+    const removed = await maintenance(db, 1024).removeForeignWidth('co1');
+    expect(removed).toEqual(['segment_embedding_hnsw']);
+    expect(ddl(db.calls)).toEqual([
+      'REMOVE INDEX IF EXISTS segment_embedding_hnsw ON episode_segment;',
+    ]);
+  });
+
+  it('removeForeignWidth emits no DDL on a tenant whose indexes match or are absent', async () => {
+    const db = fakeDb({ fact_embedding_hnsw: { status: 'ready' as const, dimension: 1024 } });
+    expect(await maintenance(db, 1024).removeForeignWidth('co1')).toEqual([]);
+    expect(ddl(db.calls)).toEqual([]);
+  });
 });
 
 // ── the provisioning service ────────────────────────────────────────────

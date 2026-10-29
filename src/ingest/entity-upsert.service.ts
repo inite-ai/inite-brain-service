@@ -335,94 +335,14 @@ export class EntityUpsertService {
       }
     }
 
-    // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
-    // via the stored `canonicalNameLc` VALUE field — no per-row
-    // `string::lowercase()` evaluation needed. Two concurrent ingests
-    // of the same name can still both miss and both create; we accept
-    // the rare alias-only dup (same legal entity, two records) since
-    // name canonicalisation is heuristic. Identity merge via
-    // ingestLink consolidates downstream.
-    const target = (e.canonical ?? e.name).toLowerCase();
-    // This is the tenant-GLOBAL naming path (mention/document ingest never
-    // stamps a userId). Pin `userId IS NONE` so a same-named PERSONAL
-    // entity never matches — otherwise global facts attach to a user's
-    // private entity and leak its identity (externalRefs, canonicalName)
-    // onto the global surface. Mirrors the scope fence on the embedding
-    // resolver (entity-resolver.service.ts).
-    const nRow = await queryFirst<{ id: unknown }>(
-      db,
-      `SELECT id FROM knowledge_entity
-       WHERE (canonicalNameLc = $name
-          OR aliases CONTAINS $rawName)
-          AND userId IS NONE
-       LIMIT 1`,
-      { name: target, rawName: e.name },
-    );
-    if (nRow) {
-      await this.stampNameKeys(db, String(nRow.id), [e.name, e.canonical]);
-      return resolved('exact', String(nRow.id));
-    }
-
-    // 2a. Article-insensitive reuse (INGEST_ARTICLE_NORMALIZATION, default
-    // off). The extractor coins entity names with and without a leading
-    // English article across turns ("the office lease" vs "office lease"),
-    // splitting ONE referent into two entities — and every slot-keyed
-    // consumer downstream (conflict formation, timelines, competing pairs)
-    // goes blind to the collision. The lookup is widened to the leading-
-    // article VARIANTS of the name (stripped + the/a/an re-prefixed); the
-    // stored canonicalName is never rewritten, and a UNIQUE match only —
-    // two same-named-modulo-article entities existing already is exactly
-    // the ambiguity we refuse to guess about. Same tenant-global fence.
-    if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
-      const variants = articleNameVariants(target);
-      if (variants.length > 0) {
-        const vRows = await queryRows<{ id: unknown }>(
-          db,
-          `SELECT id FROM knowledge_entity
-           WHERE canonicalNameLc IN $variants
-             AND userId IS NONE
-           LIMIT 2`,
-          { variants },
-        );
-        if (vRows.length === 1 && vRows[0]) {
-          return resolved('article-variant', String(vRows[0].id));
-        }
-      }
-    }
-
-    // 2a-bis. Script-independent name match (migration 0148). Step 2 compares
-    // surfaces as strings, so it unifies "ACME" with "Acme" and stops at the
-    // first change of script: "Иван Петров" shares no character with "Ivan
-    // Petrov" and reads as a new entity. Everything past this point used to
-    // be the embedding + LLM judge, and measurement says that signal cannot
-    // decide a NAME — a different person who shares a given name scores
-    // ABOVE most true cross-script pairs, because an embedding measures
-    // meaning and a name has none (see common/name-key.ts for the table).
-    //
-    // So the comparison happens where it belongs: both spellings are
-    // transliterated into one script and compared as strings. Deterministic,
-    // free, reversible, and right on the exact pair the embedding gets
-    // wrong. UNIQUE match only — two entities sharing a key (a person and
-    // the company named after them; two real Ivan Petrovs) is an ambiguity,
-    // and guessing at it is what this whole ladder refuses to do.
-    const key = nameKey(e.canonical ?? e.name);
-    if (key !== '') {
-      const kRows = await queryRows<{ id: unknown }>(
-        db,
-        `SELECT id FROM knowledge_entity
-         WHERE nameKeys CONTAINS $key
-           AND userId IS NONE
-         LIMIT 2`,
-        { key },
-      );
-      if (kRows.length === 1 && kRows[0]) {
-        const id = String(kRows[0].id);
-        // The new spelling joins the entity's keys, so the NEXT one resolves
-        // on the index rather than re-deriving it.
-        await this.stampNameKeys(db, id, [e.name, e.canonical]);
-        return resolved('translit', id);
-      }
-    }
+    // 2, 2a, 2a-bis. The deterministic name rungs (exact, article variant,
+    // transliterated key). `distinct` means the mention's facts contradicted
+    // every entity carrying its very name (#815): it is someone else who
+    // shares the name, and it is created below without consulting the
+    // remaining rungs — they would only find the same entities again.
+    const byName = await this.resolveByNameRungs(db, { e, incomingFacts });
+    if (byName && byName !== 'distinct') return resolved(byName.step, byName.id);
+    const sameNameDistinct = byName === 'distinct';
 
     // 2b. Code-identifier alias resolution (INGEST_CODE_ALIAS_RESOLUTION,
     // default off). A module mentioned by file path and by the symbol it
@@ -432,7 +352,7 @@ export class EntityUpsertService {
     // the existing entity is reused (and the new surface stamped into its
     // aliases); anything ambiguous or not clearly code-shaped falls
     // through to create-new. Same tenant-global fence as step 2.
-    const viaCodeAlias = await this.resolveByCodeAlias(db, e);
+    const viaCodeAlias = sameNameDistinct ? null : await this.resolveByCodeAlias(db, e);
     if (viaCodeAlias) return resolved('code-alias', viaCodeAlias);
 
     // 3. Inline entity resolution (graphiti-style, opt-in). Before minting
@@ -440,7 +360,7 @@ export class EntityUpsertService {
     // an LLM judge confirm same-as using the incoming facts. A confirmed
     // match reuses the existing entity, so the duplicate is never created.
     // Falls through to create-new when disabled, no match, or any error.
-    if (this.entityResolver?.isEnabled()) {
+    if (!sameNameDistinct && this.entityResolver?.isEnabled()) {
       // The form the entity is known by, not the surface it was mentioned
       // in: the key scans and the judge's name hint work on "Мария
       // Петрова", never on "Марией Петровой".
@@ -470,6 +390,153 @@ export class EntityUpsertService {
       externalRefs: {},
     });
     return resolved('created', String(created?.id));
+  }
+
+  /**
+   * The deterministic name rungs of `resolveOrCreateNamedEntity`: a
+   * resolved `{ step, id }`, `distinct` when the name matched but the
+   * mention's facts contradicted it, or null when no rung matched.
+   */
+  private async resolveByNameRungs(
+    db: Surreal,
+    {
+      e,
+      incomingFacts,
+    }: {
+      e: { name: string; type: string; canonical?: string | undefined };
+      incomingFacts: string[];
+    },
+  ): Promise<{ step: ResolutionStep; id: string } | 'distinct' | null> {
+    // 2. Canonical-name match. Hits `entity_canonical_lc_idx` directly
+    // via the stored `canonicalNameLc` VALUE field — no per-row
+    // `string::lowercase()` evaluation needed. Two concurrent ingests
+    // of the same name can still both miss and both create; we accept
+    // the rare alias-only dup (same legal entity, two records) since
+    // name canonicalisation is heuristic. Identity merge via
+    // ingestLink consolidates downstream.
+    const target = (e.canonical ?? e.name).toLowerCase();
+    // This is the tenant-GLOBAL naming path (mention/document ingest never
+    // stamps a userId). Pin `userId IS NONE` so a same-named PERSONAL
+    // entity never matches — otherwise global facts attach to a user's
+    // private entity and leak its identity (externalRefs, canonicalName)
+    // onto the global surface. Mirrors the scope fence on the embedding
+    // resolver (entity-resolver.service.ts).
+    //
+    // A same name is not yet the same person (#815): the rows found here go
+    // through `sameName`, which reuses one unless the mention's facts
+    // contradict every one of them.
+    const nRows = await queryRows<{ id: unknown; canonicalName?: string }>(
+      db,
+      `SELECT id, canonicalName FROM knowledge_entity
+       WHERE (canonicalNameLc = $name
+          OR aliases CONTAINS $rawName)
+          AND userId IS NONE
+       LIMIT 3`,
+      { name: target, rawName: e.name },
+    );
+    if (nRows.length > 0) {
+      const id = await this.sameName(db, { e, rows: nRows, incomingFacts });
+      if (!id) return 'distinct';
+      await this.stampNameKeys(db, id, [e.name, e.canonical]);
+      return { step: 'exact', id };
+    }
+
+    // 2a. Article-insensitive reuse (INGEST_ARTICLE_NORMALIZATION, default
+    // off). The extractor coins entity names with and without a leading
+    // English article across turns ("the office lease" vs "office lease"),
+    // splitting ONE referent into two entities — and every slot-keyed
+    // consumer downstream (conflict formation, timelines, competing pairs)
+    // goes blind to the collision. The lookup is widened to the leading-
+    // article VARIANTS of the name (stripped + the/a/an re-prefixed); the
+    // stored canonicalName is never rewritten, and a UNIQUE match only —
+    // two same-named-modulo-article entities existing already is exactly
+    // the ambiguity we refuse to guess about. Same tenant-global fence.
+    if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
+      const variants = articleNameVariants(target);
+      if (variants.length > 0) {
+        const vRows = await queryRows<{ id: unknown }>(
+          db,
+          `SELECT id FROM knowledge_entity
+           WHERE canonicalNameLc IN $variants
+             AND userId IS NONE
+           LIMIT 2`,
+          { variants },
+        );
+        if (vRows.length === 1 && vRows[0]) {
+          return { step: 'article-variant', id: String(vRows[0].id) };
+        }
+      }
+    }
+
+    // 2a-bis. Script-independent name match (migration 0148). Step 2 compares
+    // surfaces as strings, so it unifies "ACME" with "Acme" and stops at the
+    // first change of script: "Иван Петров" shares no character with "Ivan
+    // Petrov" and reads as a new entity. Everything past this point used to
+    // be the embedding + LLM judge, and measurement says that signal cannot
+    // decide a NAME — a different person who shares a given name scores
+    // ABOVE most true cross-script pairs, because an embedding measures
+    // meaning and a name has none (see common/name-key.ts for the table).
+    //
+    // So the comparison happens where it belongs: both spellings are
+    // transliterated into one script and compared as strings. Deterministic,
+    // free, reversible, and right on the exact pair the embedding gets
+    // wrong. UNIQUE match only — two entities sharing a key (a person and
+    // the company named after them; two real Ivan Petrovs) is an ambiguity,
+    // and guessing at it is what this whole ladder refuses to do.
+    // An identical key is an identical name, so the same contradiction
+    // check as step 2 runs before the unique match is reused.
+    const key = nameKey(e.canonical ?? e.name);
+    if (key !== '') {
+      const kRows = await queryRows<{ id: unknown; canonicalName?: string }>(
+        db,
+        `SELECT id, canonicalName FROM knowledge_entity
+         WHERE nameKeys CONTAINS $key
+           AND userId IS NONE
+         LIMIT 2`,
+        { key },
+      );
+      if (kRows.length === 1 && kRows[0]) {
+        const id = await this.sameName(db, { e, rows: kRows, incomingFacts });
+        if (!id) return 'distinct';
+        // The new spelling joins the entity's keys, so the NEXT one
+        // resolves on the index rather than re-deriving it.
+        await this.stampNameKeys(db, id, [e.name, e.canonical]);
+        return { step: 'translit', id };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Which of the entities found under the mention's very name it is —
+   * the first the mention's facts do not contradict (the resolver's
+   * `confirmSameName`), or null when they contradict every one. Without a
+   * resolver this is the first row, the reuse the ladder always made.
+   */
+  private async sameName(
+    db: Surreal,
+    {
+      e,
+      rows,
+      incomingFacts,
+    }: {
+      e: { name: string; canonical?: string | undefined };
+      rows: Array<{ id: unknown; canonicalName?: string }>;
+      incomingFacts: string[];
+    },
+  ): Promise<string | null> {
+    const candidates = rows.map((r) => ({
+      entityId: String(r.id),
+      canonicalName: r.canonicalName,
+    }));
+    if (!this.entityResolver) return candidates[0]?.entityId ?? null;
+    const outcome = await this.entityResolver.confirmSameName({
+      db,
+      name: e.canonical ?? e.name,
+      candidates,
+      incomingFacts,
+    });
+    return outcome.kind === 'reuse' ? outcome.entityId : null;
   }
 
   /**

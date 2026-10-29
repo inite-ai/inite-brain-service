@@ -208,11 +208,12 @@ header comment explaining semantics and backfill, idempotent statements.
 traps live in existing migration headers — read the last few first.
 
 **Add an extraction lane:** pure module in `src/ai/extractor-internals/`
-(model: `literal-harvest.ts`), wired in `src/ai/extractor-runner.service.ts`,
-switched by a field on the extraction profile (`src/ai/extraction-profile.ts`),
-never `process.env` in the lane. An `EXTRACTOR_*` switch is an engine flag →
-flag budget golden + config catalogue entry → maintainer approval, plus eval
-evidence ([docs/extraction-harvest-lanes.md](docs/extraction-harvest-lanes.md)).
+(model: `denoise.ts`, switched by `dropSaid`), wired in
+`src/ai/extractor-runner.service.ts`, switched by a field on the extraction
+profile (`src/ai/extraction-profile.ts`), never `process.env` in the lane. An
+`EXTRACTOR_*` switch is an engine flag → flag budget golden + config catalogue
+entry → maintainer approval, plus eval evidence
+([docs/eval-methodology.md](docs/eval-methodology.md)).
 Retrieval/answer lanes: `LaneId` in `src/search/retrieval-profile.ts` and
 `LANE_REGISTRY` in `src/synthesize/answer-router.ts` (one entry per id, gated).
 

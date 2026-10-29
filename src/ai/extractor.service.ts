@@ -12,7 +12,7 @@ import { ExtractorRunnerService } from './extractor-runner.service';
 import type { ExtractionResult } from './extractor-internals/types';
 import type { ConversationContext } from './extractor-internals/prompts';
 import { memoryContextDigest } from './extractor-internals/memory-context';
-import { offlineServiceTier } from './openai-client';
+import { offlineServiceTier, providerSideFailure } from './openai-client';
 
 export type { ConversationContext } from './extractor-internals/prompts';
 
@@ -190,13 +190,21 @@ export class ExtractorService {
       registryVersionHash: snapshot.versionHash,
     });
 
-    const result = await this.runner.run({
-      trimmed,
-      companyId,
-      snapshot,
-      context,
-      ...(p.background ? { overrides: { tier: offlineServiceTier(), scPasses } } : {}),
-    });
+    // A provider refusal (every pass refused) reaches a background reader
+    // with its status — the batch must not halve on it; the request path
+    // keeps its contract and sees it as the transient failure below.
+    const result = await this.runner
+      .run({
+        trimmed,
+        companyId,
+        snapshot,
+        context,
+        ...(p.background ? { overrides: { tier: offlineServiceTier(), scPasses } } : {}),
+      })
+      .catch((err: unknown) => {
+        if (p.background || !providerSideFailure(err)) throw err;
+        return null;
+      });
     if (!result && p.background) {
       throw new Error('extraction produced no usable response (transient LLM failure)');
     }

@@ -1,3 +1,5 @@
+import { providerSideFailure } from '../ai/openai-client';
+
 /**
  * Why a group read failed, and whether reading its halves can help.
  *
@@ -18,18 +20,10 @@ export class ExtractionStagingError extends Error {
   }
 }
 
-/** A refusal about the account or the provider, not about this text. */
-function providerRefused(err: unknown): boolean {
-  const status = (err as { status?: unknown } | undefined)?.status;
-  return (
-    typeof status === 'number' &&
-    (status === 401 || status === 403 || status === 429 || status >= 500)
-  );
-}
-
 /** Reading the halves can succeed where the whole failed. */
 export function halvingCanHelp(err: unknown): boolean {
   if (err instanceof ExtractionStagingError) return false;
-  if (providerRefused(err)) return false;
+  // A refusal about the account or the provider, not about this text.
+  if (providerSideFailure(err)) return false;
   return (err as Error | undefined)?.message !== 'aborted';
 }

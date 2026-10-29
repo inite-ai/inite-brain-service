@@ -104,9 +104,6 @@ importers:
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
-      compromise:
-        specifier: ^14.19.0
-        version: 14.19.0
       helmet:
         specifier: ^8.3.0
         version: 8.3.0
@@ -2839,10 +2836,6 @@ packages:
     resolution: {integrity: sha512-6FqVXeETqWPoGcfzrXb37E50NP0LXT8kAMu5ooZayhWWdgEY4lBEEcbQNXtkuKQsGduxiIcI4gOTsxTmuq/bSg==}
     engines: {node: '>= 14'}
 
-  compromise@14.19.0:
-    resolution: {integrity: sha512-nA/ClpXt0PaS2Ne389wClhxFBBxV0el3nv6V7XFpoRRQBr8eCnV3Iv4ZY6C5H06UHq1k7bqth73nVc/hv/rrCg==}
-    engines: {node: '>=18'}
-
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
@@ -3036,10 +3029,6 @@ packages:
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
-
-  efrt@2.9.0:
-    resolution: {integrity: sha512-ZMAvlcu4AfmtJ4K/0hs0uofVUZPSeLG/w4yOyZawQLl9YEy8iDKIxIIPsUAlS907clC7bgD17e73vi5unwNE/g==}
-    engines: {node: '>=12.0.0'}
 
   electron-to-chromium@1.5.438:
     resolution: {integrity: sha512-AN9xMU1hJiT65LkCUPL1DZm5TCbOPb2Qsm5pYwFLEXp6/qj9SdT4yMiqs7Qqstwvkn1zF7l36SRGt+s6XcJ0FA==}
@@ -4948,10 +4937,6 @@ packages:
 
   strtok3@10.6.3:
     resolution: {integrity: sha512-MD8mENgyXMr2mDaDfzP3RWYDSyYQxIIou7HhCiCJiBekrsoDtUG0id3vYnjDfY9ndOEbazFXe13Qw6u/1AB8ew==}
-    engines: {node: '>=18'}
-
-  suffix-thumb@6.0.0:
-    resolution: {integrity: sha512-HsCTMLaupbob5ZG//ZW6PSj446tHT5kSJ1qXS5F/qO2Nt13uAn6ZLPhJQ/H6bN/jVQCb+pcqe2psEwy4Mp5+Vw==}
     engines: {node: '>=18'}
 
   superagent@10.3.0:
@@ -8513,11 +8498,6 @@ snapshots:
       normalize-path: 3.0.0
       readable-stream: 4.7.0
 
-  compromise@14.19.0:
-    dependencies:
-      efrt: 2.9.0
-      suffix-thumb: 6.0.0
-
   concat-map@0.0.1: {}
 
   content-disposition@1.1.0: {}
@@ -8689,8 +8669,6 @@ snapshots:
   eastasianwidth@0.2.0: {}
 
   ee-first@1.1.1: {}
-
-  efrt@2.9.0: {}
 
   electron-to-chromium@1.5.438: {}
 
@@ -11025,8 +11003,6 @@ snapshots:
   strtok3@10.6.3:
     dependencies:
       '@tokenizer/token': 0.3.0
-
-  suffix-thumb@6.0.0: {}
 
   superagent@10.3.0:
     dependencies:

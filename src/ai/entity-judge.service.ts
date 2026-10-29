@@ -35,7 +35,7 @@ export interface JudgeContext {
    * similarity. Named so the prompt does not call a string distance a
    * cosine.
    */
-  similarity?: 'embedding' | 'transliteration' | 'name-part';
+  similarity?: 'embedding' | 'transliteration' | 'name-part' | 'same-name';
   /** The two surface names, when the caller has them. */
   names?: { a?: string | undefined; b?: string | undefined };
   /**
@@ -71,6 +71,25 @@ function similarityLine(ctx: JudgeContext): string {
       `person — a surname that differs by an ending is often a relative or the other ` +
       `gender — so when the names are NOT identical after transliteration, require at ` +
       `least one fact in common beyond the employer before answering "same".`
+    );
+  }
+  if (ctx.similarity === 'same-name') {
+    // The two names are IDENTICAL (as written, or once transliterated to
+    // one script) — the deterministic rungs of the naming ladder found the
+    // candidate, and they used to reuse it without asking. A shared name is
+    // not identity: two different "Anna Schmidt"s — a vet in Munich and an
+    // engineer in Lisbon — were fused into one node that way (#815). So the
+    // question here is narrow: do the facts CONTRADICT? Unrelated or few
+    // facts are a later mention of the same person and must stay "same",
+    // or every re-mention in a new conversation would mint a duplicate.
+    return (
+      `\n\nThe two names are identical (as written, or once transliterated to one script). ` +
+      `A shared name alone is not identity — common names are shared by different people — ` +
+      `but it is the usual case of one person mentioned twice. Answer "same" when the facts ` +
+      `are consistent, unrelated or few. Answer "different" when they describe two people: ` +
+      `the facts contradict on what identifies a person — a different city of residence, a ` +
+      `different profession or role, a different employer, date of birth or email — and ` +
+      `nothing but the name ties them together.`
     );
   }
   if (ctx.similarity === 'name-part') {
