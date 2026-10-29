@@ -1,8 +1,9 @@
 /**
  * What search_knowledge and get_entity_timeline hand a model by default
  * (src/mcp/compact-read.ts): the evidence, not the engine's bookkeeping.
- * Measured on a key-less stand: one search answer 3545 → ~440 tokens,
- * one timeline 2784 → ~515, where the raw turns behind them cost 138.
+ * Measured on a key-less stand, where the raw turns cost 138 tokens: one
+ * search answer 3683 → ~440 compact → 35 on average in focus (the
+ * default); one timeline 2784 → ~515.
  */
 import { compactSearch, compactTimeline, renderFocus } from '../src/mcp/compact-read';
 import type { SearchHit } from '../src/search/search.types';
@@ -278,6 +279,80 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
     expect(text).toContain('Diego colleague_of Ana');
     expect(text).not.toContain('Orbital Dynamics');
     expect(text).not.toContain('MacBook');
+  });
+
+  it('keeps rank order: a quote stands where its best fact ranked', () => {
+    const sources = new Map([['knowledge_fact:moto', [turn]]]);
+    const ranked = hit({
+      facts: [
+        fact(
+          'knowledge_fact:moto',
+          'owns_motorcycle',
+          'no motorcycle anymore as of this week',
+          0.3,
+        ),
+        fact('knowledge_fact:x', 'sold', 'Ninja', 0.29),
+      ] as never,
+    });
+    const lines = renderFocus({ out: { results: [ranked] }, sources, tokens: chars }).split('\n');
+    expect(lines[0]).toContain('I sold the Ninja');
+    expect(lines[1]).toContain('sold = Ninja');
+  });
+
+  it('never quotes a competing or ended fact — the turn cannot carry its status', () => {
+    const sources = new Map([['knowledge_fact:c', [turn]]]);
+    const disputed = hit({
+      facts: [
+        {
+          ...fact('knowledge_fact:c', 'owns_motorcycle', 'no motorcycle anymore, sold it', 0.3),
+          status: 'competing',
+        },
+      ] as never,
+    });
+    const text = renderFocus({ out: { results: [disputed] }, sources, tokens: chars });
+    expect(text).toContain('[competing]');
+    expect(text).not.toContain('I sold the Ninja');
+  });
+
+  it('shows a dispute whole, whatever the other side scored', () => {
+    const meridian = hit({
+      canonicalName: 'Meridian',
+      relations: [],
+      facts: [
+        { ...fact('knowledge_fact:p', 'payout_cutoff', '17:00 UTC', 0.4), status: 'competing' },
+        fact('knowledge_fact:r', 'rate_limit', '50 rpm', 0.12),
+        fact('knowledge_fact:s', 'sandbox', 'yes', 0.11),
+        { ...fact('knowledge_fact:d', 'payout_cutoff', '16:30 UTC', 0.1), status: 'competing' },
+      ] as never,
+    });
+    const text = renderFocus({ out: { results: [meridian] }, sources: new Map(), tokens: chars });
+    expect(text).toContain('17:00 UTC');
+    expect(text).toContain('16:30 UTC');
+    expect(text).not.toContain('rate_limit');
+  });
+
+  it('hands on what a linked source answered, marked as not memory, with its observation ref', () => {
+    const linked = [
+      {
+        connectionId: 'source_connection:j',
+        connector: 'jira',
+        observationRef: 'tool_observation:o1',
+        hits: [
+          { externalId: 'LS-12', title: 'LS-12 payout retries', snippet: 'Backoff capped at 5' },
+        ],
+      },
+    ];
+    const alone = renderFocus({ out: { results: [], linked }, sources: new Map(), tokens: chars });
+    expect(alone).toBe(
+      '[jira, not in memory, tool_observation:o1] LS-12 payout retries — Backoff capped at 5',
+    );
+    const withFacts = renderFocus({
+      out: { results: [sasha], linked },
+      sources: new Map(),
+      tokens: chars,
+    });
+    expect(withFacts).toContain('owns_motorcycle');
+    expect(withFacts).toContain('LS-12 payout retries');
   });
 
   it('says nothing matched — or that the search was degraded, which is not the same', () => {

@@ -1,6 +1,7 @@
 import type { SearchHit } from '../search/search.types';
 import type { TimelineEvent } from '../entities/entities.service';
 import { isoString } from '../common/surreal-date';
+import type { LinkedSourceResult } from '../contracts/search/search.schema';
 
 /** What SearchService.search returns, as compact reads it. */
 interface SearchOut {
@@ -172,6 +173,9 @@ const FOCUS_LAMBDA = 0.4;
 const FOCUS_MAX_FACTS = 8;
 const NEAR_TOP = 0.9;
 const QUOTE_MAX_CHARS = 400;
+/** Linked-source answers (W7) shown per source, and the excerpt kept of each. */
+const LINKED_HITS = 3;
+const LINKED_SNIPPET_CHARS = 200;
 
 type Kept = { hit: SearchHit; fact: SearchHit['facts'][number] };
 
@@ -192,7 +196,18 @@ export function focusSelect(
   const cut = Math.min(top - (opts.lambda ?? FOCUS_LAMBDA) * (top - median), NEAR_TOP * top);
   const max = opts.maxFacts ?? FOCUS_MAX_FACTS;
   const kept = ranked.filter((k, i) => i === 0 || (k.fact.score ?? 0) >= cut).slice(0, max);
+  // A dispute is shown whole: the other side of a kept competing value
+  // stays whatever it scored, or the cut would settle the conflict the
+  // memory deliberately left open.
+  const disputed = new Set(kept.filter((k) => k.fact.status === 'competing').map((k) => slotOf(k)));
+  for (const k of ranked) {
+    if (k.fact.status === 'competing' && disputed.has(slotOf(k)) && !kept.includes(k)) kept.push(k);
+  }
   return { kept, omitted: all.length - kept.length };
+}
+
+function slotOf(k: Kept): string {
+  return `${k.hit.entityId}\u0000${k.fact.predicate}`;
 }
 
 /** The focus view as the model reads it (see above). `tokens` counts a string. */
@@ -203,52 +218,85 @@ export function renderFocus(p: {
   opts?: FocusOptions;
 }): string {
   const { kept, omitted } = focusSelect(p.out, p.opts);
-  // A degraded search (the embedder still warming, a leg down) says so —
-  // an empty answer from half a search is not "nothing in memory".
-  const degraded =
-    Array.isArray(p.out.degraded) && p.out.degraded.length > 0
-      ? `(search degraded: ${p.out.degraded.map((d) => (typeof d === 'string' ? d : ((d as { reason?: string }).reason ?? 'partial'))).join(', ')} — retry for a full answer)`
-      : undefined;
+  const degraded = degradedNote(p.out.degraded);
+  const linked = linkedLines(p.out.linked);
   if (kept.length === 0) {
+    if (linked.length > 0) return [...linked, ...(degraded ? [degraded] : [])].join('\n');
     return degraded ?? 'No facts in memory match this question.';
   }
-  // Group by the turn each fact was read from; a fact with no readable
-  // source is its own group and always shown as a fact.
-  const groups = new Map<string, { turn?: FocusSourceTurn; items: Kept[] }>();
-  for (const k of kept) {
-    const turn = p.sources.get(k.fact.factId)?.[0];
-    const key = turn && turn.text.length <= QUOTE_MAX_CHARS ? turn.episodeId : k.fact.factId;
-    const g = groups.get(key) ?? { ...(turn && key === turn.episodeId ? { turn } : {}), items: [] };
-    g.items.push(k);
-    groups.set(key, g);
-  }
-  const asFacts: Kept[] = [];
-  const quotes: string[] = [];
-  for (const g of groups.values()) {
-    if (!g.turn) {
-      asFacts.push(...g.items);
-      continue;
-    }
-    const quote = quoteLine(g.turn);
-    const facts = g.items.map((k) => `${k.hit.canonicalName}: ${factSegment(k.fact)}`).join('\n');
-    if (p.tokens(quote) < p.tokens(facts)) quotes.push(quote);
-    else asFacts.push(...g.items);
-  }
-  const lines: string[] = [];
-  const byEntity = new Map<string, Kept[]>();
-  for (const k of asFacts)
-    byEntity.set(k.hit.entityId, [...(byEntity.get(k.hit.entityId) ?? []), k]);
-  for (const items of byEntity.values()) {
-    lines.push(
-      `${items[0]!.hit.canonicalName}: ${items.map((k) => factSegment(k.fact)).join('; ')}`,
-    );
-  }
-  lines.push(...quotes);
+  const lines = evidenceLines(kept, p.sources, p.tokens);
   const links = connectingLinks(kept);
   if (links.length > 0) lines.push(`links: ${links.join('; ')}`);
+  lines.push(...linked);
   if (omitted > 0) lines.push(`(+${omitted} more: detail "compact")`);
   if (degraded) lines.push(degraded);
   return lines.join('\n');
+}
+
+/**
+ * A degraded search (the embedder still warming, a leg down) says so —
+ * an empty answer from half a search is not "nothing in memory".
+ */
+function degradedNote(degraded: unknown): string | undefined {
+  if (!Array.isArray(degraded) || degraded.length === 0) return undefined;
+  const why = degraded.map((d) =>
+    typeof d === 'string' ? d : ((d as { reason?: string }).reason ?? 'partial'),
+  );
+  return `(search degraded: ${why.join(', ')} — retry for a full answer)`;
+}
+
+/**
+ * The kept facts as lines, in rank order: a group of facts read from one
+ * turn becomes that turn quoted when the quote is shorter, an entity's
+ * remaining facts one line where its best fact ranked. A fact with no
+ * readable source is its own group. A fact the turn alone would misstate
+ * — competing, or ended since — is never quoted: the quote cannot carry
+ * its status or its end.
+ */
+function evidenceLines(
+  kept: Kept[],
+  sources: Map<string, FocusSourceTurn[]>,
+  tokens: (s: string) => number,
+): string[] {
+  const keyOf = new Map<Kept, string>();
+  const groups = new Map<string, { turn?: FocusSourceTurn; items: Kept[] }>();
+  for (const k of kept) {
+    const turn = sources.get(k.fact.factId)?.[0];
+    const quotable =
+      turn !== undefined &&
+      turn.text.length <= QUOTE_MAX_CHARS &&
+      (!k.fact.status || k.fact.status === 'active') &&
+      !day(k.fact.validUntil);
+    const key = quotable ? turn.episodeId : k.fact.factId;
+    const g = groups.get(key) ?? { ...(quotable ? { turn } : {}), items: [] };
+    g.items.push(k);
+    groups.set(key, g);
+    keyOf.set(k, key);
+  }
+  const quoted = new Map<string, string>();
+  for (const [key, g] of groups) {
+    if (!g.turn) continue;
+    const quote = quoteLine(g.turn);
+    const facts = g.items.map((k) => `${k.hit.canonicalName}: ${factSegment(k.fact)}`).join('\n');
+    if (tokens(quote) < tokens(facts)) quoted.set(key, quote);
+  }
+  const lines: string[] = [];
+  const done = new Set<string>();
+  for (const k of kept) {
+    const quote = quoted.get(keyOf.get(k) as string);
+    const slot = quote !== undefined ? (keyOf.get(k) as string) : k.hit.entityId;
+    if (done.has(slot)) continue;
+    done.add(slot);
+    if (quote !== undefined) {
+      lines.push(quote);
+      continue;
+    }
+    const facts = kept.filter(
+      (x) => x.hit.entityId === k.hit.entityId && !quoted.has(keyOf.get(x) as string),
+    );
+    lines.push(`${k.hit.canonicalName}: ${facts.map((x) => factSegment(x.fact)).join('; ')}`);
+  }
+  return lines;
 }
 
 function factSegment(f: SearchHit['facts'][number]): string {
@@ -288,4 +336,24 @@ function connectingLinks(kept: Kept[]): string[] {
     }
   }
   return [...out];
+}
+
+/**
+ * What linked sources answered at query time (W7). Not memory — nothing
+ * was stored — so each line says where it came from, and the observation
+ * ref ingest_document takes to keep the chain if the answer is kept.
+ */
+function linkedLines(linked: unknown): string[] {
+  if (!Array.isArray(linked)) return [];
+  const lines: string[] = [];
+  for (const src of linked as LinkedSourceResult[]) {
+    for (const h of (src.hits ?? []).slice(0, LINKED_HITS)) {
+      const snippet = h.snippet ? ` — ${h.snippet.slice(0, LINKED_SNIPPET_CHARS)}` : '';
+      const where = h.originUri ? ` <${h.originUri}>` : '';
+      lines.push(
+        `[${src.connector}, not in memory, ${src.observationRef}] ${h.title}${where}${snippet}`,
+      );
+    }
+  }
+  return lines;
 }
