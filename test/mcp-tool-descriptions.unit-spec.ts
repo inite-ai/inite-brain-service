@@ -53,10 +53,29 @@ const IMPERATIVE =
 
 const ALL = ['brain:read', 'brain:write', 'brain:admin'] as never;
 
+/** Build with EXTRACTION_SOURCE=harness, so the harness extraction tools are listed too. */
+async function inHarness(build: () => Promise<McpServer>): Promise<McpServer> {
+  const before = process.env.EXTRACTION_SOURCE;
+  process.env.EXTRACTION_SOURCE = 'harness';
+  try {
+    return await build();
+  } finally {
+    if (before === undefined) delete process.env.EXTRACTION_SOURCE;
+    else process.env.EXTRACTION_SOURCE = before;
+  }
+}
+
 describe('MCP tool descriptions', () => {
   const surfaces: Array<[string, () => Promise<McpServer>]> = [
     ['full', () => service().buildServer('co_t', ALL, { toolProfile: resolveToolProfile('full') })],
     ['core', () => service().buildServer('co_t', ALL, { toolProfile: resolveToolProfile('core') })],
+    [
+      'full (harness extraction)',
+      () =>
+        inHarness(() =>
+          service().buildServer('co_t', ALL, { toolProfile: resolveToolProfile('full') }),
+        ),
+    ],
     ['public', async () => service().buildPublicServer('https://brain.example')],
   ];
 

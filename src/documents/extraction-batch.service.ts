@@ -27,6 +27,7 @@ import { Semaphore } from '../common/semaphore';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 import { halvingCanHelp } from './read-failure';
+import { extractionSource } from './extraction-source';
 
 /**
  * Extraction off the write path. A document is remembered when it
@@ -152,7 +153,27 @@ export class ExtractionBatchService implements OnModuleInit {
       force?: boolean;
     } = {},
   ): Promise<PassOutcome> {
+    if (extractionSource() === 'harness') return this.leaveForHarness(companyId);
     return this.exclusive(companyId, opts.force === true, () => this.pass(companyId, opts));
+  }
+
+  /**
+   * Harness mode (EXTRACTION_SOURCE=harness, #819): no triage, no read, no
+   * model call — the waiting documents stay pending for the connected
+   * agent (take_extraction_work). One line with the count, never content.
+   */
+  private async leaveForHarness(companyId: string): Promise<PassOutcome> {
+    const waiting = await this.candidates.listAwaitingRuns(companyId, {
+      packId: GENERAL_INDEXER_ID,
+      packVersion: GENERAL_INDEXER_VERSION,
+      includeFailed: true,
+      limit: PASS_DOCS,
+      exclude: [],
+    });
+    this.logger.log(
+      `extract_documents ${companyId}: harness mode, ${waiting.length}${waiting.length === PASS_DOCS ? '+' : ''} document(s) left for the connected agent`,
+    );
+    return { read: 0, failed: 0, committed: 0, retry: 0 };
   }
 
   /**
@@ -475,7 +496,7 @@ export class ExtractionBatchService implements OnModuleInit {
    * is retried, and a commit that still fails is left to the candidate
    * sweeper (its candidates stay pending) instead of failing the pass.
    */
-  private async commitInOrder(companyId: string, done: StoredDocument[]): Promise<number> {
+  async commitInOrder(companyId: string, done: StoredDocument[]): Promise<number> {
     let committed = 0;
     for (const doc of [...done].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
       try {
@@ -603,7 +624,7 @@ function batchWindowMs(): number {
 }
 
 /** EXTRACTION_GROUP_MAX_CHARS / EXTRACTION_GROUP_MAX_DOCS: what one extraction call reads. */
-function groupBudget(): { maxChars: number; maxDocs: number } {
+export function groupBudget(): { maxChars: number; maxDocs: number } {
   const chars = Number(process.env.EXTRACTION_GROUP_MAX_CHARS);
   const count = Number(process.env.EXTRACTION_GROUP_MAX_DOCS);
   return {
@@ -617,7 +638,7 @@ function groupBudget(): { maxChars: number; maxDocs: number } {
  * a conversation is read once quiet this long, and never later than the
  * wait bound after its oldest unread turn (defaults 120 s / 600 s).
  */
-function settleRule(): { settleMs: number; maxWaitMs: number } {
+export function settleRule(): { settleMs: number; maxWaitMs: number } {
   const settle = Number(process.env.EXTRACTION_CONVERSATION_SETTLE_SECONDS);
   const wait = Number(process.env.EXTRACTION_CONVERSATION_MAX_WAIT_SECONDS);
   return {
@@ -720,7 +741,7 @@ const TRIAGE_CONCURRENCY = 8;
 /** Documents of a page loaded at once. */
 const LOAD_CONCURRENCY = 8;
 /** Documents one page of a pass lists. */
-const PASS_DOCS = 64;
+export const PASS_DOCS = 64;
 /** A pass stops taking pages after this (the job lease is 15 minutes). */
 const PASS_BUDGET_MS = 10 * 60_000;
 /** Retry passes after a pass with failed groups, and the first backoff. */

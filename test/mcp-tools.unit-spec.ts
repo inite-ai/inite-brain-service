@@ -140,6 +140,26 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     expect(names).toContain('forget_entity');
   });
 
+  it('registers the harness extraction tools only under EXTRACTION_SOURCE=harness and brain:write', async () => {
+    const before = process.env.EXTRACTION_SOURCE;
+    try {
+      delete process.env.EXTRACTION_SOURCE;
+      const server = toolNames(await buildWithScopes(['brain:read', 'brain:write']));
+      expect(server).not.toContain('take_extraction_work');
+      expect(server).not.toContain('submit_extraction');
+      process.env.EXTRACTION_SOURCE = 'harness';
+      const readOnly = toolNames(await buildWithScopes(['brain:read']));
+      expect(readOnly).not.toContain('take_extraction_work');
+      expect(readOnly).not.toContain('submit_extraction');
+      const harness = toolNames(await buildWithScopes(['brain:read', 'brain:write']));
+      expect(harness).toContain('take_extraction_work');
+      expect(harness).toContain('submit_extraction');
+    } finally {
+      if (before === undefined) delete process.env.EXTRACTION_SOURCE;
+      else process.env.EXTRACTION_SOURCE = before;
+    }
+  });
+
   it('registers brain://entity/ + /timeline resources at brain:read', async () => {
     const names = resourceNames(await buildWithScopes(['brain:read']));
     expect(names).toContain('entity-profile');

@@ -87,6 +87,43 @@ document → fact provenance loop under `TOOL_OBSERVATIONS_ENABLED`),
 Admin (adds with `brain:admin`): `forget_entity` — GDPR hard-delete with a
 synchronous cascade and tombstones.
 
+Harness extraction (adds with `brain:write`, only on a server running
+`EXTRACTION_SOURCE=harness`): `take_extraction_work`, `submit_extraction` —
+see [Harness mode](#harness-mode).
+
+## Harness mode
+
+A workspace running `EXTRACTION_SOURCE=harness` spends no model key of its
+own on extraction: you read its stored documents into facts with your own
+model. Writes work as always — `ingest_document`, the mention routes and the
+plugin's capture store text raw, and it is searchable at once through the
+episode lanes. The facts come when you read it:
+
+1. When idle (between tasks, end of a session), call `take_extraction_work`.
+   `{work: null}` means nothing is waiting — stop.
+2. Otherwise `work` holds `systemPrompt`, `userContent` (the memory context
+   plus the text), `schema` (the JSON schema of the reply), `documents` (how
+   many turns it covers), `token` and `expiresAt`. Answer it with your model:
+   `systemPrompt` as the system message, `userContent` as the user message, a
+   JSON object matching `schema` as the reply. Copy values verbatim from the
+   text where the prompt says so — the server drops anything the text does
+   not hold, exactly as it does for its own model.
+3. Call `submit_extraction({token, result})` before `expiresAt`. It returns
+   `{documents, facts, entities, edges, committed}`. A token works once; an
+   expired one is refused, and its documents return to the queue on their
+   own after the claim window (`INDEXER_RUN_STALE_MINUTES`, 30 min).
+   A `409` (the memory or the predicate vocabulary moved since you took the
+   work) releases the documents: take again.
+4. Repeat until `work` is null.
+
+Pass the same `userId` you write with: a tenant-global call takes only
+tenant-global documents, a user's call only that user's.
+
+Answering: `search_knowledge` / `get_fact_provenance` and answering from that
+evidence yourself costs the workspace no model call. `synthesize` (and
+`search_multi_hop` with `synthesize=true`) still runs the server's answer
+generator and verifier on the server's keys.
+
 ## Memory semantics you must know
 
 - **Facts vs episodes.** Brain ingests raw conversation/document _episodes_

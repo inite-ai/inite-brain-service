@@ -16,7 +16,12 @@ import {
 import { CandidateStoreService } from './candidate-store.service';
 import type { DocumentChunk } from './chunker';
 import type { StoredDocument } from './document-store.service';
-import { renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
+import {
+  renderGroup,
+  splitGroupResult,
+  type GroupDoc,
+  type RenderedGroup,
+} from './extraction-group';
 import { Semaphore } from '../common/semaphore';
 import type { ReadDepth } from './read-depth';
 import { ExtractionStagingError } from './read-failure';
@@ -34,6 +39,12 @@ export interface IndexerRunResult {
     relations: number;
     durationMs: number;
   };
+}
+
+/** A document whose generalist run this worker claimed (claimGroup). */
+export interface ClaimedRun {
+  doc: StoredDocument;
+  runId: string;
 }
 
 /** One indexer execution over a document, supplied by the dispatcher. */
@@ -267,12 +278,63 @@ export class IndexerRunService {
     depth?: Exclude<ReadDepth, 'raw'>;
   }): Promise<IndexerRunResult[]> {
     const startedAt = Date.now();
+    const { model, claimed, results } = await this.claimGroup(p.companyId, p.docs);
+    if (claimed.length === 0) return results;
+
+    // A run already finalized as succeeded keeps its rows when a later
+    // member's staging fails: the catch below used to mark it failed too.
+    const finalized = new Set<string>();
+    try {
+      if (p.abortSignal?.aborted) throw new Error('aborted');
+      const { groupDocs, rendered, context } = await this.groupInput(p.companyId, claimed, p.texts);
+      const extraction = await traceSpan(
+        'indexer.run.extract_group',
+        async () =>
+          this.extractor.extractBackground({
+            text: rendered.text,
+            companyId: p.companyId,
+            context,
+            passes: passesOf(p.depth),
+          }),
+        { packId: GENERAL_INDEXER_ID, documents: claimed.length },
+      );
+      const stagedRuns = await this.stageGroup({
+        companyId: p.companyId,
+        claimed,
+        read: { groupDocs, extraction, model, startedAt, depth: p.depth },
+        finalized,
+      });
+      return [...results, ...stagedRuns];
+    } catch (err) {
+      await this.failRuns(
+        p.companyId,
+        claimed.map(({ runId }) => runId).filter((runId) => !finalized.has(runId)),
+        err,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Claim the pending generalist run of every document of a group through
+   * the run ledger (createRun). Documents whose run another worker already
+   * holds come back in `results` as skipped and are left to it.
+   */
+  async claimGroup(
+    companyId: string,
+    docs: StoredDocument[],
+  ): Promise<{
+    model: string;
+    registryVersionHash: string | undefined;
+    claimed: ClaimedRun[];
+    results: IndexerRunResult[];
+  }> {
     const model = this.extractor.modelId();
-    const registryVersionHash = await this.extractor.vocabularyVersionHash(p.companyId);
-    const claimed: Array<{ doc: StoredDocument; runId: string }> = [];
+    const registryVersionHash = await this.extractor.vocabularyVersionHash(companyId);
+    const claimed: ClaimedRun[] = [];
     const results: IndexerRunResult[] = [];
-    for (const doc of p.docs) {
-      const run = await this.candidates.createRun(p.companyId, {
+    for (const doc of docs) {
+      const run = await this.candidates.createRun(companyId, {
         docId: doc.id,
         packId: GENERAL_INDEXER_ID,
         packVersion: GENERAL_INDEXER_VERSION,
@@ -282,77 +344,99 @@ export class IndexerRunService {
       if (run.created) claimed.push({ doc, runId: run.runId });
       else results.push({ runId: run.runId, packId: GENERAL_INDEXER_ID, status: 'skipped' });
     }
-    if (claimed.length === 0) return results;
+    return { model, registryVersionHash, claimed, results };
+  }
 
-    const groupDocs = claimed.map(({ doc }) => groupDocOf(doc, p.texts.get(doc.id) ?? ''));
-    // A run already finalized as succeeded keeps its rows when a later
-    // member's staging fails: the catch below used to mark it failed too.
-    const finalized = new Set<string>();
-    try {
-      if (p.abortSignal?.aborted) throw new Error('aborted');
-      const rendered = renderGroup(groupDocs);
-      const extraction = await traceSpan(
-        'indexer.run.extract_group',
-        async () =>
-          this.extractor.extractBackground({
-            text: rendered.text,
-            companyId: p.companyId,
-            context: {
-              turns: rendered.turns,
-              ...(await this.groupMemory(p.companyId, claimed, groupDocs)),
+  /**
+   * What one extraction of a claimed group reads: its turns rendered as
+   * CURRENT TURNS, and the context (turn headers + the memory it is read
+   * against). The same for the server read and a harness read.
+   */
+  async groupInput(
+    companyId: string,
+    claimed: ClaimedRun[],
+    texts: Map<string, string>,
+  ): Promise<{ groupDocs: GroupDoc[]; rendered: RenderedGroup; context: ConversationContext }> {
+    const groupDocs = claimed.map(({ doc }) => groupDocOf(doc, texts.get(doc.id) ?? ''));
+    const rendered = renderGroup(groupDocs);
+    return {
+      groupDocs,
+      rendered,
+      context: {
+        turns: rendered.turns,
+        ...(await this.groupMemory(companyId, claimed, groupDocs)),
+      },
+    };
+  }
+
+  /**
+   * Stage one group's extraction: split per document (the clauses each
+   * document's text holds), insert each part on its own run, finalize it
+   * succeeded. Every finalized run id lands in `finalized`, so a caller
+   * failing the rest after a later member's staging error leaves it alone.
+   */
+  async stageGroup(p: {
+    companyId: string;
+    claimed: ClaimedRun[];
+    read: {
+      groupDocs: GroupDoc[];
+      extraction: ExtractionResult;
+      model: string;
+      startedAt: number;
+      depth?: Exclude<ReadDepth, 'raw'> | undefined;
+    };
+    finalized: Set<string>;
+  }): Promise<IndexerRunResult[]> {
+    const { groupDocs, extraction, model, startedAt, depth } = p.read;
+    const results: IndexerRunResult[] = [];
+    const perDoc = splitGroupResult(groupDocs, extraction);
+    for (const [i, { doc, runId }] of p.claimed.entries()) {
+      const part = perDoc[i] as ExtractionResult;
+      const counts = await staged(() =>
+        this.candidates.insertBatch(p.companyId, {
+          docId: doc.id,
+          runId,
+          chunkSeq: 0,
+          batch: {
+            provenance: {
+              indexerId: GENERAL_INDEXER_ID,
+              packVersion: GENERAL_INDEXER_VERSION,
+              executionMode: 'virtual',
+              model,
             },
-            passes: passesOf(p.depth),
-          }),
-        { packId: GENERAL_INDEXER_ID, documents: claimed.length },
+            entities: part.entities.map((e, k) => ({ ...e, entityIndex: k })),
+            facts: part.facts,
+            relations: part.edges,
+          },
+        }),
       );
-      const perDoc = splitGroupResult(groupDocs, extraction);
-      for (const [i, { doc, runId }] of claimed.entries()) {
-        const part = perDoc[i] as ExtractionResult;
-        const counts = await staged(() =>
-          this.candidates.insertBatch(p.companyId, {
-            docId: doc.id,
-            runId,
-            chunkSeq: 0,
-            batch: {
-              provenance: {
-                indexerId: GENERAL_INDEXER_ID,
-                packVersion: GENERAL_INDEXER_VERSION,
-                executionMode: 'virtual',
-                model,
-              },
-              entities: part.entities.map((e, k) => ({ ...e, entityIndex: k })),
-              facts: part.facts,
-              relations: part.edges,
-            },
-          }),
-        );
-        const stats = {
-          chunks: 1,
-          ...counts,
-          durationMs: Date.now() - startedAt,
-          ...(p.depth ? { depth: p.depth } : {}),
-        };
-        await staged(() =>
-          this.candidates.finalizeRun(p.companyId, { runId, status: 'succeeded', stats }),
-        );
-        finalized.add(runId);
-        this.metrics?.countIndexerRun('succeeded');
-        results.push({ runId, packId: GENERAL_INDEXER_ID, status: 'succeeded', stats });
-      }
-      return results;
-    } catch (err) {
-      for (const { runId } of claimed) {
-        if (finalized.has(runId)) continue;
-        await this.candidates
-          .finalizeRun(p.companyId, {
-            runId,
-            status: 'failed',
-            error: { message: (err as Error).message },
-          })
-          .catch(() => undefined);
-        this.metrics?.countIndexerRun('failed');
-      }
-      throw err;
+      const stats = {
+        chunks: 1,
+        ...counts,
+        durationMs: Date.now() - startedAt,
+        ...(depth ? { depth } : {}),
+      };
+      await staged(() =>
+        this.candidates.finalizeRun(p.companyId, { runId, status: 'succeeded', stats }),
+      );
+      p.finalized.add(runId);
+      this.metrics?.countIndexerRun('succeeded');
+      results.push({ runId, packId: GENERAL_INDEXER_ID, status: 'succeeded', stats });
+    }
+    return results;
+  }
+
+  /** Fail claimed runs: the next retry pass (or harness take) lists them again. Never throws. */
+  async failRuns(companyId: string, runIds: string[], err: unknown): Promise<void> {
+    for (const runId of runIds) {
+      await this.candidates
+        .finalizeRun(companyId, {
+          runId,
+          status: 'failed',
+          error: { message: (err as Error).message },
+        })
+        .catch(() => undefined);
+      this.metrics?.countIndexerRun('failed');
     }
   }
 

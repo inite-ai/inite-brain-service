@@ -77,6 +77,24 @@ export class ExtractorLlmService {
     return this.model;
   }
 
+  /**
+   * The response schema of an extraction call. Schema and prompt section
+   * move in lockstep — the object field only exists when the prompt
+   * explains it. Public so a harness read (extraction-work.service.ts)
+   * hands its agent exactly the schema this service would send.
+   */
+  responseSchema(): Record<string, unknown> {
+    return buildExtractionSchema({
+      objectNormalization: this.objectNormalizationActive(),
+      dialogue: this.dialogueActive(),
+    });
+  }
+
+  /** The user message of an extraction call: the context prefix, then the text. */
+  userContent(trimmed: string, contextPrefix: string | undefined): string {
+    return (contextPrefix ?? '') + trimmed;
+  }
+
   composeSystemPrompt(snapshot: {
     active: PredicateDefinition[];
     extractionProfiles?: PackExtractionProfile[];
@@ -140,7 +158,7 @@ export class ExtractorLlmService {
     const { trimmed, systemPrompt } = args;
     const temperature = args.temperature ?? 0.1;
     const model = args.model ?? this.model;
-    const userContent = (args.contextPrefix ?? '') + trimmed;
+    const userContent = this.userContent(trimmed, args.contextPrefix);
     const res = await this.limiter.run(() =>
       withGenAiCall(
         {
@@ -164,12 +182,7 @@ export class ExtractorLlmService {
                 json_schema: {
                   name: 'extraction',
                   strict: true,
-                  // Schema and prompt section move in lockstep — the
-                  // object field only exists when the prompt explains it.
-                  schema: buildExtractionSchema({
-                    objectNormalization: this.objectNormalizationActive(),
-                    dialogue: this.dialogueActive(),
-                  }),
+                  schema: this.responseSchema(),
                 },
               },
               ...chatCallParams(model, {

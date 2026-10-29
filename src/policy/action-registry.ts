@@ -68,6 +68,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
   ingest_document: { kind: 'write', family: 'mcp_write', title: 'Ingest document' },
   record_decision: { kind: 'write', family: 'mcp_write', title: 'Record decision' },
   record_feedback: { kind: 'write', family: 'mcp_write', title: 'Record retrieval feedback' },
+  // Harness extraction (#819): the connected agent reads pending documents.
+  take_extraction_work: { kind: 'write', family: 'mcp_write', title: 'Take extraction work' },
+  submit_extraction: { kind: 'write', family: 'mcp_write', title: 'Submit extraction' },
 
   // Communities / graph neighbourhood
   list_communities: { kind: 'read', family: 'mcp_community', title: 'List communities' },

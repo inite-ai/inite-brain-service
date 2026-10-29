@@ -22,6 +22,15 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
       'How long captures gather before one extract_documents pass reads them: every write of one window asks for the same job.',
   },
   {
+    key: 'EXTRACTION_SOURCE',
+    category: 'extractor',
+    defaultValue: 'server',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Who reads captured documents into facts. `server` (default): the background extract_documents pass calls the configured extraction model. `harness`: the server spends no model key on extraction — the pass leaves documents pending (no triage, no read) and the connected agent reads them with its own model through the MCP tools take_extraction_work / submit_extraction, whose replies go through the same grounding, staging and commit. synthesize still uses server keys.',
+  },
+  {
     key: 'EXTRACTION_CONVERSATION_SETTLE_SECONDS',
     category: 'extractor',
     defaultValue: '120',

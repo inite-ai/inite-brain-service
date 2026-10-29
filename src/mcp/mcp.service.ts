@@ -51,6 +51,8 @@ import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { toolObservationsEnabled } from '../common/tool-observation-flags';
+import { registerExtractionWorkTools } from './extraction-work-tools';
+import { ExtractionWorkService } from '../documents/extraction-work.service';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -138,6 +140,9 @@ export class McpService {
     // @Optional for the same reason, and because a deployment without it
     // simply serves no onboarding tools — nothing else changes.
     @Optional() private readonly workspaceStatus?: WorkspaceStatusService,
+    // Harness extraction (#819): its tools register only under
+    // EXTRACTION_SOURCE=harness; @Optional for positional unit fixtures.
+    @Optional() private readonly extractionWork?: ExtractionWorkService,
   ) {}
 
   /**
@@ -769,6 +774,7 @@ export class McpService {
         companyId,
         deps: { ingest: this.ingest },
       });
+      registerExtractionWorkTools({ server, companyId, deps: { work: this.extractionWork } });
     }
     if (scopes.includes('brain:admin')) {
       registerAdminTools(server, companyId, {
