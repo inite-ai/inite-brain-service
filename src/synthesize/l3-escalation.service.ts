@@ -43,6 +43,7 @@ import {
   type L3AdaptiveGate,
   type L3AnchorSource,
   type L3TriggerReason,
+  selectL3Sessions,
 } from './l3-escalation';
 import {
   buildFocusSignal,
@@ -438,12 +439,11 @@ export class L3EscalationService {
     // newest thing the memory holds (an answer, a correction, an
     // instruction). Bounded by the pending-turn cap.
     const pendingSessions = [...new Set(pending.anchors.map((a) => a.conversationId))];
-    const sessionIds = [
-      ...pendingSessions,
-      ...rankL3Sessions(anchors, { max: maxSessions, window }).filter(
-        (id) => !pendingSessions.includes(id),
-      ),
-    ].slice(0, maxSessions + pendingSessions.length);
+    const sessionIds = selectL3Sessions(
+      pendingSessions,
+      rankL3Sessions(anchors, { max: maxSessions, window }),
+      maxSessions,
+    );
     // Anchor-source observability: once per fired escalation per source
     // that contributed ≥1 anchor to the final ranked set.
     const selected = new Set(sessionIds);

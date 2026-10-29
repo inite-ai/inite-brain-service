@@ -50,7 +50,7 @@ export function registerCommunityTools(
         callerScopes: scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent({ communities: out }),
       };
     },
@@ -73,7 +73,7 @@ export function registerCommunityTools(
         callerScopes: scopes,
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent({ communities: out }),
       };
     },
@@ -93,7 +93,7 @@ export function registerCommunityTools(
     async (args) => {
       const out = await communities.forEntity(companyId, args.entityId, scopes);
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent({ communities: out }),
       };
     },

@@ -49,6 +49,17 @@ describe('EpisodeLaneService (P2)', () => {
     expect(queries[0]!.sql).toContain('@1@ $q');
   });
 
+  it('a pasted document is cut at the line budget and marked; an ordinary turn stays whole', async () => {
+    const paste = 'x'.repeat(16_000);
+    const { svc } = makeLane([
+      { speaker: 'Sasha', text: paste, occurredAt: '2023-05-01T10:00:00Z' },
+      { speaker: 'Sasha', text: 'short turn', occurredAt: '2023-05-02T10:00:00Z' },
+    ]);
+    const [long, short] = await svc.transcriptLines(base);
+    expect(long).toBe(`[2023-05-01] Sasha: ${'x'.repeat(1500)}…`);
+    expect(short).toBe('[2023-05-02] Sasha: short turn');
+  });
+
   it('gates piiClass rows away from callers without brain:read_pii', async () => {
     const { svc, queries } = makeLane([]);
     await svc.transcriptLines({ ...base, callerScopes: ['brain:read'] });

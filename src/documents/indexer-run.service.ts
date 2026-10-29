@@ -241,6 +241,10 @@ export class IndexerRunService {
             },
             text,
           ),
+          // One sample: the focus already narrows the read to one question,
+          // and self-consistency's three passes re-paid for every served
+          // answer that cited a raw turn (LLM spend audit, 2026-10-28).
+          passes: passesOf('single'),
         }),
       abortSignal: p.abortSignal,
     });
