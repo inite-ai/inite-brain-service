@@ -82,7 +82,7 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
 | `src/ingest/conflict-resolver.ts`, `src/ingest/fact-resolver.service.ts`, `src/facts/` | Conflict resolution, fact lifecycle (supersede / COMPETING / retract) | 🔴 red                      |
 | `src/common/*-flags.ts`, `src/admin/config-catalog*`, `test/golden/`                 | Flag readers, config catalogue, flag budget                           | 🔴 red (new flags)          |
 | `test/eval/**`                                                                         | Eval batteries, golden baselines                                      | 🔴 red                      |
-| `.github/workflows/`, `scripts/ci/`, `Dockerfile`, `docker-compose*.yml`               | CI, deploy (every green `main` deploys to prod)                       | 🔴 red                      |
+| `.github/workflows/`, `scripts/ci/`, `Dockerfile`, `docker-compose*.yml`               | CI, deploy (every release deploys to prod)                            | 🔴 red                      |
 | Published API shapes (breaking changes to `src/contracts/`, MCP tool schemas)          | What integrators code against                                         | 🔴 red                      |
 
 🟢 just do it · 🟡 tests + a note in the PR on what you touched and why ·

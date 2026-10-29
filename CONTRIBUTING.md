@@ -221,12 +221,12 @@ through a PR, and the recipe is fixed:
 
 ## Releasing
 
-Brain auto-deploys on push to `main` via `.github/workflows/deploy-brain.yml`
-(self-hosted SFO runner builds + ships the image, restarts the container) —
-every green main commit is live in prod. Versioned releases (the
-`package.json` version, `CHANGELOG.md`, GitHub Releases) are cut by
-release-please from conventional-commit titles; don't edit the changelog
-by hand.
+Production moves on a release, not on a merge. A merge to `main` runs CI
+only. Versioned releases (the `package.json` version, `CHANGELOG.md`,
+GitHub Releases) are cut by release-please from conventional-commit titles;
+merging its release PR creates the release, and that run calls
+`.github/workflows/deploy-brain.yml`, which ships the image CI tested for
+the release commit. Don't edit the changelog by hand.
 
 Rollback is via the workflow's `restart` action against a previous tag
 (see `docs/DEPLOY.md` § Rollback).

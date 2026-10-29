@@ -2,100 +2,69 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * The engine deploy fires on an ALLOWLIST of paths. An allowlist has a
- * failure mode a denylist does not: forgetting an entry means the deploy
- * silently does NOT run, and a merged fix sits in main believing itself
- * shipped. That is strictly worse than the over-deploying it replaced.
+ * Production moves on a release and only on a release. The engine deploy
+ * used to fire on every green push to main that touched the image (a
+ * paths allowlist), so prod ran whatever was merged last and a release was
+ * only a changelog entry. Now release-please.yml calls the deploy in the
+ * run that cut the release; a merge runs CI and nothing else.
  *
- * These gates buy the allowlist back by deriving it from the two files that
- * actually decide what the engine is: the Dockerfile (what enters the image)
- * and the landing workflow (what belongs to somebody else). A path that
- * starts shipping without joining the trigger fails here rather than in a
- * confusing "why is prod still on the old build" afternoon.
+ * Both directions are pinned: the deploy has no push trigger (a merge
+ * cannot reach prod), and the release run calls it exactly when a release
+ * was created (a release cannot silently skip prod). The call is a
+ * workflow_call because the release is created with GITHUB_TOKEN, which
+ * never triggers another workflow.
  */
 const ROOT = join(__dirname, '..');
-const DOCKERFILE = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
 const DEPLOY = readFileSync(join(ROOT, '.github/workflows/deploy-brain.yml'), 'utf8');
-const LANDING = readFileSync(join(ROOT, '.github/workflows/deploy-brain-landing.yml'), 'utf8');
+const RELEASE = readFileSync(join(ROOT, '.github/workflows/release-please.yml'), 'utf8');
 
-/** The `paths:` block of a workflow's push trigger, as bare glob strings. */
-function triggerPaths(workflow: string): string[] {
-  const block = /\n    paths:\n((?:\s*(?:#[^\n]*|- '[^']+')\n)+)/.exec(workflow);
-  if (!block?.[1]) throw new Error('no push paths: block found');
-  return [...block[1].matchAll(/- '([^']+)'/g)].map((m) => m[1]!);
+/** The top-level `on:` block of a workflow, comments dropped. */
+function onBlock(workflow: string): string {
+  const block = /\non:\n((?:(?: {2}.*)?\n)+?)(?=\S)/.exec(`\n${workflow}`);
+  if (!block?.[1]) throw new Error('no on: block found');
+  return block[1]
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
 }
 
-/**
- * Sources of every COPY in the builder stage, ignoring --from=… copies
- * (those move artefacts between stages and never read the repo).
- */
-function dockerfileCopySources(): string[] {
-  return [...DOCKERFILE.matchAll(/^COPY (?!--from=)(.+)$/gm)]
-    .flatMap((m) => m[1]!.trim().split(/\s+/).slice(0, -1))
-    .map((src) => src.replace(/\*$/, ''))
-    .filter((src) => src !== '.');
-}
-
-/**
- * Does the allowlist cover this repo path? `dir/**` covers both the
- * directory itself and everything under it — a Dockerfile writes
- * `COPY src ./src`, naming the directory bare, while a trigger glob names
- * its contents.
- */
-function covered(paths: string[], file: string): boolean {
-  return paths.some((p) => {
-    if (!p.endsWith('/**')) return p === file;
-    const dir = p.slice(0, -3);
-    return file === dir || file.startsWith(`${dir}/`);
-  });
+/** One job of a workflow, by name, as text up to the next job. */
+function job(workflow: string, name: string): string {
+  const start = workflow.indexOf(`\n  ${name}:\n`);
+  if (start < 0) throw new Error(`no ${name} job`);
+  const rest = workflow.slice(start + 1);
+  const next = rest.slice(1).search(/\n {2}[a-z][\w-]*:\n/);
+  return next < 0 ? rest : rest.slice(0, next + 1);
 }
 
 describe('engine deploy trigger', () => {
-  const paths = triggerPaths(DEPLOY);
-
-  it('covers every path the Dockerfile copies into the image', () => {
-    // The self-maintaining property: a new COPY is a Dockerfile edit, and
-    // Dockerfile is itself in the allowlist — so the commit that starts
-    // shipping a path also trips the trigger. This asserts the steady state.
-    const uncovered = dockerfileCopySources().filter((src) => !covered(paths, src));
-    expect(uncovered).toEqual([]);
+  it('a merge to main cannot reach production: the deploy has no push trigger', () => {
+    const on = onBlock(DEPLOY);
+    expect(on).not.toMatch(/^\s{2}push:/m);
+    expect(on).not.toMatch(/^\s{2}(pull_request|schedule|workflow_run):/m);
   });
 
-  it('watches the Dockerfile itself, which is what makes the list self-maintaining', () => {
-    expect(paths).toContain('Dockerfile');
+  it('is called by the release run, and runnable by hand (deploy, restart, logs, rollback)', () => {
+    const on = onBlock(DEPLOY);
+    expect(on).toMatch(/^\s{2}workflow_call:/m);
+    expect(on).toMatch(/^\s{2}workflow_dispatch:/m);
   });
 
-  it('watches its own workflow file', () => {
-    // The deploy generates its compose file and its entire enablement env
-    // inline, so a change to this workflow IS a change to production.
-    expect(paths).toContain('.github/workflows/deploy-brain.yml');
+  it('the release run calls the deploy exactly when it created a release', () => {
+    const deploy = job(RELEASE, 'deploy');
+    expect(deploy).toContain('uses: ./.github/workflows/deploy-brain.yml');
+    expect(deploy).toContain("needs.release-please.outputs.release_created == 'true'");
+    expect(deploy).toContain('secrets: inherit');
+    // verify reads CI's run and downloads its deploy manifest.
+    expect(deploy).toMatch(/actions: read/);
   });
 
-  it('does not fire on anything the landing deploy owns', () => {
-    // The whole point of the split: a landing or admin-panel edit must not
-    // rebuild and redeploy the engine. Admin lives at
-    // brain-landing/app/[lang]/admin, inside the landing's Next app, so it
-    // is covered by the same ownership.
-    const landingOwned = triggerPaths(LANDING).filter((p) => p.endsWith('/**'));
-    const overlap = landingOwned.filter((owned) =>
-      paths.some((p) => p.startsWith(owned.slice(0, -2)) || owned.startsWith(p.replace('/**', ''))),
-    );
-    expect(overlap).toEqual([]);
-  });
-
-  it('does not fire on docs, plans or the monitoring stack', () => {
-    // These were the original ignore list. Under an allowlist they are
-    // excluded by construction — this pins that the property survived the
-    // inversion, since re-adding them would be a silent regression.
-    for (const file of [
-      'docs/operations.md',
-      'README.md',
-      '.planning/roadmap.md',
-      'monitoring/grafana/provisioning/alerting/rules.yaml',
-      'brain-landing/app/[lang]/admin/config/page.tsx',
-      'skills/brain/SKILL.md',
-    ]) {
-      expect(covered(paths, file)).toBe(false);
-    }
+  it('a release call deploys like the old push did: every job treats it as action=deploy', () => {
+    // In a called workflow event_name is the caller's (push), never
+    // workflow_dispatch, and inputs.action is empty — which the deploy
+    // script reads as deploy.
+    expect(DEPLOY).not.toContain("github.event_name == 'push'");
+    expect(DEPLOY).toContain("github.event_name != 'workflow_dispatch'");
+    expect(DEPLOY).toContain('action=${ACTION:-deploy}');
   });
 });
