@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import OpenAI from 'openai';
-import { chatCallParams, createOpenAiClient } from './openai-client';
+import { chatCallParams, createOpenAiClient, offlineServiceTier } from './openai-client';
 import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
@@ -37,6 +37,11 @@ export interface JudgeContext {
   similarity?: 'embedding' | 'transliteration' | 'name-part';
   /** The two surface names, when the caller has them. */
   names?: { a?: string | undefined; b?: string | undefined };
+  /**
+   * No user waits on this verdict (the nightly dedup): the model fallback
+   * runs on the offline tier. Commit-time resolution leaves it unset.
+   */
+  offline?: boolean;
 }
 
 function nameLine(name: string | undefined): string {
@@ -307,6 +312,7 @@ Output strictly the JSON shape requested. No preamble.`;
             visibleCap: 64,
             reasoningCap: 512,
             reasoningEffort: 'low',
+            tier: ctx.offline ? offlineServiceTier() : undefined,
           }),
         }),
     );

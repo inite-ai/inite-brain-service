@@ -1,5 +1,6 @@
 import type { DecisionService } from '../decisions/decision.service';
 import type { ExtractionResult } from './types';
+import { LLM_INPUT_LIMITS } from '../../common/input-limits';
 
 /**
  * Every extracted fact, checked against the document it came from before it
@@ -34,8 +35,15 @@ import type { ExtractionResult } from './types';
  * is what extraction did before.
  */
 
-/** The plane's input is cheap, not free: a document's worth, and the context that reads it. */
-const TEXT_CHARS = 8000;
+/**
+ * The judge sees ALL of what the extractor read: a chunk is up to
+ * `mentionText` (16k), a group up to its budget plus per-turn headers. At
+ * 8k, facts from the second half of a long read were judged against text
+ * the judge could not see, and a confident "not stated" dropped facts the
+ * extractor had been paid three passes to find (LLM spend audit,
+ * 2026-10-28). The headroom covers group headers.
+ */
+const TEXT_CHARS = LLM_INPUT_LIMITS.mentionText + 2_000;
 const CONTEXT_CHARS = 6000;
 
 export interface FactCheck {

@@ -184,8 +184,18 @@ export function sceneScorerVersion(predictionBaseline: boolean): string {
  * the prediction baseline on — so flipping the flag either way re-enriches
  * naturally instead of leaving a mixed world behind one stamp.
  */
-export function sceneEnrichmentVersion(model: string, predictionBaseline = false): string {
-  return `${sceneGistPromptVersion(predictionBaseline)}|${sceneScorerVersion(predictionBaseline)}|${model}`;
+export function sceneEnrichmentVersion(
+  model: string,
+  predictionBaseline = false,
+  entityLinks = false,
+): string {
+  // `|links`: a scene enriched before SCENES_ENTITY_LINKS was on has no
+  // entityIds, so it is not current once the flag is. The only way to
+  // re-enrich it used to be a recompose, which wiped every scene's paid
+  // enrichment; rebuilt scenes now keep theirs (scene-carry.ts). Off ⇒ the
+  // composite is byte-identical to before.
+  const links = entityLinks ? '|links' : '';
+  return `${sceneGistPromptVersion(predictionBaseline)}|${sceneScorerVersion(predictionBaseline)}|${model}${links}`;
 }
 
 export const SCENE_ENRICHMENT_SYSTEM = `You analyze ONE scene — a contiguous span of turns from a conversation — and produce its memory encoding. Output strictly the JSON schema:
@@ -351,7 +361,19 @@ export interface SceneEnrichResult {
   failed: number;
   /** Already at the current enrichmentVersion — no call made (idempotency). */
   skipped: number;
+  /** Over this run's cap — left for the next run (SCENE_ENRICH_MAX_PER_RUN). */
+  deferred?: number;
 }
+
+/**
+ * Model calls one enrichment run may make. Nothing bounded it: a model or
+ * prompt revision moves every scene off the current `enrichmentVersion`,
+ * and the next 10-minute tick re-enriched the whole corpus in one go;
+ * scenes whose reply fails to parse were re-asked on every tick (LLM spend
+ * audit, 2026-10-28). The backlog drains across runs instead, like the
+ * gist encoder's SCENE_EMBED_MAX_PER_RUN.
+ */
+export const SCENE_ENRICH_MAX_PER_RUN = 50;
 
 interface SceneHead {
   id: unknown;
@@ -429,7 +451,7 @@ export class SceneEnricherService {
     // Resolved ONCE per run for the same Drift-3 reason: a mid-run flip
     // must not leave half the world linked and half not.
     const entityLinksOn = sceneEntityLinksEnabled();
-    const enrichmentVersion = sceneEnrichmentVersion(this.model, predictionOn);
+    const enrichmentVersion = sceneEnrichmentVersion(this.model, predictionOn, entityLinksOn);
     await this.surreal.withCompany(companyId, async (db) => {
       // The scope columns are projected ONLY when a leg actually needs
       // them — the prediction baseline's #387 fence, or the entity-link
@@ -458,6 +480,10 @@ export class SceneEnricherService {
             `scene enrichment skipped ${String(scene.id)}: already at ${enrichmentVersion}`,
           );
         } else pending.push(scene);
+      }
+      if (pending.length > SCENE_ENRICH_MAX_PER_RUN) {
+        result.deferred = pending.length - SCENE_ENRICH_MAX_PER_RUN;
+        pending.length = SCENE_ENRICH_MAX_PER_RUN;
       }
       // ONE bounded belief read per run, fenced to the users whose scenes
       // pass #387. Flag off (or nothing to enrich) ⇒ zero extra queries.
