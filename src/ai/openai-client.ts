@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
+import { withUsageLedger } from './llm-usage-ledger';
 
 /**
  * The chat model every LLM call runs on unless OPENAI_CHAT_MODEL says
@@ -68,6 +69,7 @@ function buildClient(config: ConfigService, apiKey: string): OpenAI {
     primary,
     parseInt(config.get<string>('OPENAI_OFFLINE_TIMEOUT_MS', '180000'), 10),
   );
+  withUsageLedger(primary);
   return primary;
 }
 
