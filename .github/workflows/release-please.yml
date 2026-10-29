@@ -65,3 +65,29 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # The family release gate reads the commit's checks and its PR.
+      checks: read
+      pull-requests: read
+
+  # The landing and the monitoring stack on the same host move the same way:
+  # on the release, each only when its own paths changed since the previous
+  # release (deploy-brain-landing.yml, deploy-monitoring.yml § changes).
+  deploy-landing:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/deploy-brain-landing.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+
+  deploy-monitoring:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/deploy-monitoring.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read

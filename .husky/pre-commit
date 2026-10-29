@@ -1,0 +1,3 @@
+# The family gate on every commit: lint, typecheck, standards (the tests and
+# the build run in CI). Never --no-verify.
+GATE_SCOPE=commit sh scripts/family.sh gate HEAD

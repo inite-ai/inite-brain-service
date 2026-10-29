@@ -25,7 +25,7 @@
 const REPO = process.env.GITHUB_REPOSITORY;
 const TOKEN = process.env.GITHUB_TOKEN;
 const SHA = process.env.AWAIT_SHA;
-const WORKFLOW = process.env.AWAIT_WORKFLOW ?? 'ci.yml';
+const WORKFLOW = process.env.AWAIT_WORKFLOW ?? 'checks.yml';
 const TIMEOUT_MIN = Number(process.env.AWAIT_TIMEOUT_MINUTES ?? '45');
 const POLL_SECONDS = Number(process.env.AWAIT_POLL_SECONDS ?? '20');
 // "CI is slow" and "CI does not exist for this commit" are different

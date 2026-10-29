@@ -50,7 +50,7 @@ deploy:
 |---|---|---|
 | `DOCKERHUB_USERNAME` | docker login | shared with other inite services |
 | `DOCKERHUB_TOKEN` | docker login | — |
-| `INITE_SHARED_PAT` | `ci.yml` second checkout | optional — CI workflow only, not read by `deploy-brain.yml`; falls back to `github.token` if same-org |
+| `INITE_SHARED_PAT` | `checks.yml` second checkout | optional — CI workflow only, not read by `deploy-brain.yml`; falls back to `github.token` if same-org |
 | `BRAIN_SURREAL_USER` | brain SURREALDB_USERNAME | root user for the shared inite-surrealdb |
 | `BRAIN_SURREAL_PASS` | brain SURREALDB_PASSWORD | — |
 | `BRAIN_SURREAL_SCOPED_PASS` | brain SURREALDB_SCOPED_PASS | password for `brain_caller` user. Brain auto-overwrites the placeholder password from migration 0005 with this secret on each ensureSchema cycle. |

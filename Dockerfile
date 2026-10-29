@@ -37,6 +37,8 @@ FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml* ./
+# Vendored dev tarballs the lockfile names (@inite/eslint-config)
+COPY vendor ./vendor
 # NO --ignore-scripts: native deps (sharp, onnxruntime-node) need
 # their postinstall to materialise platform-specific .node binaries.
 # pnpm's `onlyBuiltDependencies` allowlist in package.json restricts
