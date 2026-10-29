@@ -251,33 +251,31 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     expect(mock.calls).toHaveLength(0);
   });
 
-  it('composer re-run resets the revision; the post-swap hook re-enriches', async () => {
-    // Flag off: a re-compose swaps in fresh rows WITHOUT enriched*
-    // columns (deterministic-only) — enrichment is a revision on rows,
-    // not a property of the world.
+  it("composer re-run keeps an unchanged scene's enrichment; the post-swap hook pays nothing", async () => {
+    // A re-compose swaps the conversation's scene rows. A scene with the
+    // same id, member turns and gist is the same scene and inherits what
+    // was paid for it (scene-carry.ts) — it used to come back bare and be
+    // re-enriched on every settle (LLM spend audit, 2026-10-28).
     delete process.env.SCENES_LLM_ENRICHMENT;
     const plain = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
     expect(plain.status).toBe(201);
+    expect(plain.body.skipped).toEqual([]);
     expect(plain.body).toMatchObject({ conversations: 1, scenes: 2 });
-    const fresh = await scenesInDb();
-    expect(fresh).toHaveLength(2);
-    for (const scene of fresh) {
+    const kept = await scenesInDb();
+    expect(kept).toHaveLength(2);
+    for (const scene of kept) {
       expect(scene.gist).toContain('opens:');
-      expect(scene.enrichedGist).toBeUndefined();
-      expect(scene.enrichmentVersion).toBeUndefined();
+      expect(scene.enrichedGist).toBe(
+        'Mika planned the Lisbon trip: compared flights and booked the morning one.',
+      );
+      expect(scene.enrichmentVersion).toBe(sceneEnrichmentVersion(scene.enrichmentModel!));
     }
-    // Flag on: the composer's post-swap hook re-enriches the fresh rows.
+    // Flag on: the post-swap hook finds every scene current — no call.
     process.env.SCENES_LLM_ENRICHMENT = '1';
     const mock = mockSceneEnricherOpenAi(f.app, [ENRICHMENT_REPLY]);
     const hooked = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
     expect(hooked.status).toBe(201);
-    expect(mock.calls).toHaveLength(2);
-    for (const scene of await scenesInDb()) {
-      expect(scene.gist).toContain('opens:'); // originals still intact
-      expect(scene.enrichedGist).toBe(
-        'Mika planned the Lisbon trip: compared flights and booked the morning one.',
-      );
-    }
+    expect(mock.calls).toHaveLength(0);
   });
 
   /**
@@ -347,8 +345,9 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
       return (rows ?? [])[0]?.n ?? 0;
     });
 
-    // Re-enrich with the links flag on: a changed flag does NOT change the
-    // enrichmentVersion composite, so force a fresh world first.
+    // Turning the links flag on changes the enrichmentVersion composite
+    // (`|links`), so the next enrich run treats every scene as stale; the
+    // recompose keeps their enrichment and no longer forces anything.
     process.env.SCENES_ENTITY_LINKS = '1';
     delete process.env.SCENES_LLM_ENRICHMENT;
     const recompose = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});

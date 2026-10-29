@@ -527,7 +527,7 @@ export class SceneComposerService {
         WHERE conversationIds = [$conv] AND segmenterVersion = $v`,
       { conv: conversationId, v: version },
     );
-    result.carried = (result.carried ?? 0) + carrySceneEnrichment(sceneRows, prior ?? []);
+    const carried = carrySceneEnrichment(sceneRows, prior ?? []);
 
     await runTransaction(db as unknown as Surreal, (tx) =>
       tx
@@ -548,6 +548,8 @@ export class SceneComposerService {
         .bind('memberRows', memberRows),
     );
     result.scenes += sceneRows.length;
+    // Counted once the swap landed: a failed swap carried nothing.
+    result.carried = (result.carried ?? 0) + carried;
   }
 
   /**

@@ -184,8 +184,18 @@ export function sceneScorerVersion(predictionBaseline: boolean): string {
  * the prediction baseline on — so flipping the flag either way re-enriches
  * naturally instead of leaving a mixed world behind one stamp.
  */
-export function sceneEnrichmentVersion(model: string, predictionBaseline = false): string {
-  return `${sceneGistPromptVersion(predictionBaseline)}|${sceneScorerVersion(predictionBaseline)}|${model}`;
+export function sceneEnrichmentVersion(
+  model: string,
+  predictionBaseline = false,
+  entityLinks = false,
+): string {
+  // `|links`: a scene enriched before SCENES_ENTITY_LINKS was on has no
+  // entityIds, so it is not current once the flag is. The only way to
+  // re-enrich it used to be a recompose, which wiped every scene's paid
+  // enrichment; rebuilt scenes now keep theirs (scene-carry.ts). Off ⇒ the
+  // composite is byte-identical to before.
+  const links = entityLinks ? '|links' : '';
+  return `${sceneGistPromptVersion(predictionBaseline)}|${sceneScorerVersion(predictionBaseline)}|${model}${links}`;
 }
 
 export const SCENE_ENRICHMENT_SYSTEM = `You analyze ONE scene — a contiguous span of turns from a conversation — and produce its memory encoding. Output strictly the JSON schema:
@@ -441,7 +451,7 @@ export class SceneEnricherService {
     // Resolved ONCE per run for the same Drift-3 reason: a mid-run flip
     // must not leave half the world linked and half not.
     const entityLinksOn = sceneEntityLinksEnabled();
-    const enrichmentVersion = sceneEnrichmentVersion(this.model, predictionOn);
+    const enrichmentVersion = sceneEnrichmentVersion(this.model, predictionOn, entityLinksOn);
     await this.surreal.withCompany(companyId, async (db) => {
       // The scope columns are projected ONLY when a leg actually needs
       // them — the prediction baseline's #387 fence, or the entity-link

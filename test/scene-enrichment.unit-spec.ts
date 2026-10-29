@@ -102,6 +102,11 @@ describe('sceneEnrichmentVersion', () => {
     );
   });
 
+  it('entity links mark the composite, so turning them on re-enriches; off is byte-identical', () => {
+    expect(sceneEnrichmentVersion('m', false, true)).toBe(`${sceneEnrichmentVersion('m')}|links`);
+    expect(sceneEnrichmentVersion('m', false, false)).toBe(sceneEnrichmentVersion('m'));
+  });
+
   it('names the prediction prompt AND both scorers with the baseline on', () => {
     expect(sceneEnrichmentVersion('gpt-4o-mini', true)).toBe(
       'scene-gist-v2|scene-scorer-llm-v1+scene-scorer-v1|gpt-4o-mini',
