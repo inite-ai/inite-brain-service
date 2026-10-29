@@ -15,6 +15,7 @@ import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
+import { isoDay, isoString } from '../common/surreal-date';
 
 /**
  * DreamsResolverService — auto-resolve competing fact pairs that
@@ -176,7 +177,8 @@ export class DreamsResolverService {
           verdict: 'unsure',
         });
         this.logger.warn(
-          `[dreams.resolve] unsure: entity=${String(pair.a.entityId)} predicate=${pair.a.predicate} a='${pair.a.object}' vs b='${pair.b.object}'`,
+          // Ids only: the two values are memory content.
+          `[dreams.resolve] unsure: entity=${String(pair.a.entityId)} predicate=${pair.a.predicate} a=${String(pair.a.id)} b=${String(pair.b.id)}`,
         );
         continue;
       }
@@ -253,9 +255,7 @@ export class DreamsResolverService {
       if (group.length !== 2) continue;
       // Min-age gate is now an eligibility condition on the pair: both members
       // must have settled past the cutoff before we let the LLM adjudicate.
-      const aged = group.every(
-        (r) => new Date(r.recordedAt as unknown as string).getTime() <= cutoffMs,
-      );
+      const aged = group.every((r) => new Date(isoString(r.recordedAt)).getTime() <= cutoffMs);
       if (!aged) continue;
       pairs.push({ a: group[0]!, b: group[1]! }); // group.length === 2 (checked)
       if (pairs.length >= this.maxPairs * CANDIDATE_OVERFETCH) break;
@@ -297,9 +297,9 @@ Output strictly the JSON shape requested.`;
     const user =
       `Entity context:\n${ctxFacts}\n\n` +
       `Fact A: ${pair.a.predicate} = "${pair.a.object}" ` +
-      `(confidence=${pair.a.confidence.toFixed(2)}, validFrom=${pair.a.validFrom.slice(0, 10)}, recordedAt=${pair.a.recordedAt.slice(0, 10)})\n` +
+      `(confidence=${pair.a.confidence.toFixed(2)}, validFrom=${isoDay(pair.a.validFrom)}, recordedAt=${isoDay(pair.a.recordedAt)})\n` +
       `Fact B: ${pair.b.predicate} = "${pair.b.object}" ` +
-      `(confidence=${pair.b.confidence.toFixed(2)}, validFrom=${pair.b.validFrom.slice(0, 10)}, recordedAt=${pair.b.recordedAt.slice(0, 10)})`;
+      `(confidence=${pair.b.confidence.toFixed(2)}, validFrom=${isoDay(pair.b.validFrom)}, recordedAt=${isoDay(pair.b.recordedAt)})`;
 
     try {
       const res = await withGenAiCall(
@@ -386,7 +386,7 @@ Output strictly the JSON shape requested.`;
     );
     const r = (rows as R[]) ?? [];
     if (r.length === 0) return '(no other active facts)';
-    return r.map((f) => `- [${f.recordedAt.slice(0, 10)}] ${f.predicate}: ${f.object}`).join('\n');
+    return r.map((f) => `- [${isoDay(f.recordedAt)}] ${f.predicate}: ${f.object}`).join('\n');
   }
 
   private async markSuperseded(db: Surreal, loserId: string, winnerId: string): Promise<void> {

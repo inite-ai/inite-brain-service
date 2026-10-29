@@ -12,6 +12,7 @@ import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { FactToSummarize, SummaryGenerator } from '../compaction/summary-generator';
 import { envFlagEnabled } from '../common/env-validation';
+import { isoDay } from '../common/surreal-date';
 
 /**
  * LLM-backed SummaryGenerator. Drop-in for ConcatSummaryGenerator —
@@ -83,7 +84,7 @@ Rules:
 - Prefer the dominant pattern: a tier upgrade followed by a downgrade is "tier oscillated", not "tier was platinum".
 - Output the summary string ONLY, no JSON, no quotes, no preamble.`;
     const lines = group
-      .map((f) => `[${f.validFrom.slice(0, 10)}] ${f.predicate}: ${f.object}`)
+      .map((f) => `[${isoDay(f.validFrom)}] ${f.predicate}: ${f.object}`)
       .join('\n');
     const user = `Facts (chronological):\n${lines}`;
 
@@ -119,7 +120,7 @@ Rules:
 
   private concatFallback(group: FactToSummarize[]): string {
     const parts = group.map((f) => {
-      const day = f.validFrom.slice(0, 10);
+      const day = isoDay(f.validFrom);
       return `[${day}] ${f.predicate}: ${f.object}`;
     });
     const text = parts.join(' | ');

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { isoDay } from '../common/surreal-date';
 
 /**
  * One fact in the source group fed to a SummaryGenerator. Sorted by
@@ -41,7 +42,7 @@ export class ConcatSummaryGenerator implements SummaryGenerator {
   async generate(group: FactToSummarize[]): Promise<string> {
     if (group.length === 0) return '';
     const parts = group.map((f) => {
-      const day = f.validFrom.slice(0, 10);
+      const day = isoDay(f.validFrom);
       return `[${day}] ${f.predicate}: ${f.object}`;
     });
     const text = parts.join(' | ');
