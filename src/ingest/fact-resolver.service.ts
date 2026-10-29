@@ -207,17 +207,15 @@ export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
   // calendar-anchor gate below, AND the non-person subject gate
   // (NON_PERSON_GUARDED_ALIASES) — a person's own state_change history
   // ("quit the chess club", "returned the standing desk") is the
-  // timeline substrate the state-transition lanes exist to build and
+  // timeline substrate the state_change predicate exists to hold and
   // must NEVER reroute, whatever dates it mentions.
   ['state_change', 'status'],
 ]);
 
 /**
- * Person-typed extraction subjects — exactly the state-holder types the
- * transition lanes bind state_change facts to (bindStateHolder in
- * state-verb-harvest.ts: customer | staff, else the speaker, who is
- * also one of these). Kept in lockstep with that binder on purpose: it
- * defines what "a person's own lifecycle history" means here.
+ * Person-typed extraction subjects (customer | staff — the speaker is
+ * also one of these): what "a person's own lifecycle history" means
+ * here.
  */
 const PERSON_ENTITY_TYPES: ReadonlySet<string> = new Set(['customer', 'staff']);
 
@@ -483,8 +481,7 @@ export class FactResolverService {
       entityType?: string | undefined;
       objectMeta?: object | undefined;
       /** Exact text to embed; defaults to factIndexText(predicate, object)
-       *  (the historical `${predicate}: ${object}` unless
-       *  INGEST_PREDICATE_INDEX_TEXT appends the humanized predicate). */
+       *  (the historical `${predicate}: ${object}`). */
       embeddingText?: string | undefined;
       /** When supplied, skips the embed round-trip (batched mention path). */
       precomputedEmbedding?: number[] | undefined;

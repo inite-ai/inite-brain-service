@@ -209,7 +209,7 @@ function statusOf(err: unknown): number | undefined {
   return (err as { status?: number })?.status;
 }
 
-function providerSideFailure(err: unknown): boolean {
+export function providerSideFailure(err: unknown): boolean {
   const status = statusOf(err);
   return (
     status === 429 ||
