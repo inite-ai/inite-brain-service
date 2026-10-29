@@ -28,6 +28,7 @@ import {
   type EmbedderProviderName,
   type EmbeddingNorm,
 } from './embedder/embedding-space';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /** Minimum gap between two "serving on fallback" warnings. */
 const FALLBACK_WARN_THROTTLE_MS = 10_000;
@@ -105,11 +106,12 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
       // createOpenAiClientOrThrow. With no fallback a not-ready primary
       // answers 503 until warmup completes — the same outcome the guard
       // produces.
-      this.fallback = this.buildOpenAIProvider({ required: false });
+      // Harness mode buys no embedding either: no fallback, warmup is waited out.
+      this.fallback = serverModelsRefused() ? null : this.buildOpenAIProvider({ required: false });
       this.logger.log(
         this.fallback
           ? `Embedder primary=bge-m3 fallback=openai (until warmup completes)`
-          : `Embedder primary=bge-m3, no fallback (OPENAI_API_KEY unset — note validateEnv requires it at boot): requests answer 503 until warmup completes`,
+          : `Embedder primary=bge-m3, no fallback: requests answer 503 until warmup completes`,
       );
     } else {
       this.primary = this.buildOpenAIProvider({ required: true });

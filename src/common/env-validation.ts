@@ -6,12 +6,16 @@ import {
 } from './evidence-flags';
 import { KNOWN_BOOLEAN_FLAGS } from './known-boolean-flags';
 import { isProcessRole, normalizeProcessRole } from './process-role';
+import { serverModelsRefused } from './extraction-source';
 
 const log = new Logger('EnvValidation');
 
 // The placeholder password baked into migration 0005's `DEFINE USER
 // brain_caller`. It is public (lives in the repo), so deploying with it
 // unchanged leaves the scoped account on a known credential.
+/** Never sent: harness mode refuses every chat call before the network. */
+export const HARNESS_PLACEHOLDER_KEY = 'sk-harness-mode-no-key';
+
 const SHIPPED_SCOPED_PASS_DEFAULT = 'brain-caller-password-must-be-overridden-via-env';
 
 /**
@@ -32,7 +36,21 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // extractor, generator, verifier, deriver, chat router and multi-hop
   // planner all build an OpenAI client eagerly in their constructors, so a
   // key-less boot fails there instead of here.
-  required({ env, name: 'OPENAI_API_KEY', errors, pattern: /^sk-/ });
+  //
+  // Harness mode (EXTRACTION_SOURCE=harness) is the key-less deployment:
+  // every server-side chat call is refused before the network
+  // (serverModelsRefused), so the eagerly built clients get a placeholder
+  // they never send. Embeddings still need a provider: the local one.
+  if (serverModelsRefused(env) && !env.OPENAI_API_KEY) {
+    if ((env.EMBEDDER_PROVIDER ?? 'openai').trim().toLowerCase() !== 'bge-m3') {
+      errors.push(
+        'EXTRACTION_SOURCE=harness without OPENAI_API_KEY needs the local embedder: EMBEDDER_PROVIDER=bge-m3',
+      );
+    }
+    env.OPENAI_API_KEY = HARNESS_PLACEHOLDER_KEY;
+  } else {
+    required({ env, name: 'OPENAI_API_KEY', errors, pattern: /^sk-/ });
+  }
 
   // ── Auth ─────────────────────────────────────────────────────────
   // BRAIN_API_KEYS is required, but [] is acceptable in dev (no callers).

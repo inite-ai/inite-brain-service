@@ -5,6 +5,7 @@ import { withGenAiCall } from '../../common/gen-ai-observability';
 import { getAbortSignal } from '../../common/request-context';
 import { MetricsService } from '../../metrics/metrics.service';
 import type { DecisionRequest, DecisionResponse, DecisionAnswer } from './decision.types';
+import { serverModelsRefused } from '../../common/extraction-source';
 
 /**
  * TypeSafe Jev — the System One model behind the decision plane.
@@ -54,6 +55,8 @@ export class JevClient {
 
   /** Whether the plane can run at all — no key, no decisions. */
   available(): boolean {
+    // Harness mode: no decision is bought; every caller falls back.
+    if (serverModelsRefused()) return false;
     return this.apiKey !== undefined && this.apiKey !== '';
   }
 

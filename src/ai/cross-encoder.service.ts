@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /**
  * Cross-encoder reranker via Cohere Rerank v3.5.
@@ -90,7 +91,8 @@ export class CrossEncoderService implements OnApplicationBootstrap, OnApplicatio
 
   /** Cohere (primary) path is configured. */
   private cohereConfigured(): boolean {
-    return !!this.apiKey;
+    // Harness mode buys no vendor rerank; the local worker serves.
+    return !!this.apiKey && !serverModelsRefused();
   }
 
   /** True when the LOCAL cross-encoder is the active path (no Cohere key).

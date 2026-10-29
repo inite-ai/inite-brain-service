@@ -14,7 +14,7 @@ import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
 import { ExtractorRunnerService } from '../src/ai/extractor-runner.service';
 import { ExtractorService } from '../src/ai/extractor.service';
 import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
-import { extractionSource } from '../src/documents/extraction-source';
+import { extractionSource } from '../src/common/extraction-source';
 import {
   mintWorkToken,
   verifyWorkToken,

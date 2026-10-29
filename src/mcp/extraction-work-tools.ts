@@ -2,7 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ExtractionWorkService } from '../documents/extraction-work.service';
-import { extractionSource } from '../documents/extraction-source';
+import { extractionSource } from '../common/extraction-source';
 import { asStructuredContent } from './structured';
 
 export interface ExtractionWorkToolDeps {

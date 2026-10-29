@@ -94,8 +94,9 @@ see [Harness mode](#harness-mode).
 ## Harness mode
 
 A workspace running `EXTRACTION_SOURCE=harness` spends no model key of its
-own on extraction: you read its stored documents into facts with your own
-model. Writes work as always — `ingest_document`, the mention routes and the
+own, anywhere: you read its stored documents into facts with your own model,
+and you answer from its evidence yourself. The server can run with no
+`OPENAI_API_KEY` at all (on the local `bge-m3` embedder). Writes work as always — `ingest_document`, the mention routes and the
 plugin's capture store text raw, and it is searchable at once through the
 episode lanes. The facts come when you read it:
 
@@ -119,10 +120,15 @@ episode lanes. The facts come when you read it:
 Pass the same `userId` you write with: a tenant-global call takes only
 tenant-global documents, a user's call only that user's.
 
-Answering: `search_knowledge` / `get_fact_provenance` and answering from that
-evidence yourself costs the workspace no model call. `synthesize` (and
-`search_multi_hop` with `synthesize=true`) still runs the server's answer
-generator and verifier on the server's keys.
+Answering: `search_knowledge` (facts with their relations, so one call
+usually covers a two-hop question), `get_entity_timeline` (what held before:
+superseded values with their dates) and `get_fact_provenance`, then answer
+from that evidence yourself. `synthesize` makes no call in this mode and
+returns an empty answer (`reason: generator_error`).
+
+What the server's own model did in the background is skipped, not billed:
+a borderline "same entity?" match is kept as two entities, scenes are built
+without their summaries, and dreams merge and resolve nothing.
 
 ## Memory semantics you must know
 

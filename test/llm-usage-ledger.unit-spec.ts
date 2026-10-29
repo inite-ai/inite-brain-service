@@ -86,6 +86,32 @@ describe('llm usage ledger', () => {
     ]);
   });
 
+  it('harness mode refuses every chat call before the network; embeddings pass', async () => {
+    const prev = process.env.EXTRACTION_SOURCE;
+    process.env.EXTRACTION_SOURCE = 'harness';
+    try {
+      const c = fakeClient();
+      const chat = c.chat.completions.create;
+      const embed = c.embeddings.create;
+      withUsageLedger(c);
+      await expect(c.chat.completions.create({ model: 'gpt-6-luna' })).rejects.toMatchObject({
+        status: 403,
+        code: 'harness_mode',
+      });
+      expect(chat).not.toHaveBeenCalled();
+      await c.embeddings.create({ model: 'local' });
+      expect(embed).toHaveBeenCalledTimes(1);
+      expect(llmUsageSnapshot()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'chat', model: 'gpt-6-luna', calls: 0, errors: 1 }),
+        ]),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.EXTRACTION_SOURCE;
+      else process.env.EXTRACTION_SOURCE = prev;
+    }
+  });
+
   it('/metrics exposes the ledger as brain_llm_tokens', async () => {
     recordLlmUsage(
       { kind: 'chat', model: 'gpt-6-luna', site: 'synthesize/verifier' },

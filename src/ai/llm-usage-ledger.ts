@@ -13,6 +13,8 @@
  * Process-global on purpose: the client is built outside Nest's container,
  * and `/metrics` reads it through a collect-time gauge.
  */
+import { HarnessModeRefusal, serverModelsRefused } from '../common/extraction-source';
+
 export interface LlmUsageRow {
   model: string;
   kind: 'chat' | 'embed';
@@ -115,6 +117,8 @@ type Create = (body: { model?: unknown }, opts?: unknown) => Promise<unknown>;
  * lands in the ledger. Applied last in `buildClient`, outside the provider
  * router, so a call the fallback served is counted under the model asked.
  * A stream has no usage on its return value and is counted as a call only.
+ * Harness mode refuses every chat call here, before the network — the one
+ * place all clients pass through (serverModelsRefused).
  */
 export function withUsageLedger(target: {
   chat: { completions: unknown };
@@ -126,6 +130,10 @@ export function withUsageLedger(target: {
     h.create = async (body, opts) => {
       const site = callSite(new Error().stack);
       const model = typeof body?.model === 'string' ? body.model : 'unknown';
+      if (kind === 'chat' && serverModelsRefused()) {
+        recordLlmError({ kind, model, site });
+        throw new HarnessModeRefusal();
+      }
       try {
         const res = await inner(body, opts);
         recordLlmUsage({ kind, model, site }, (res as { usage?: unknown } | undefined)?.usage);

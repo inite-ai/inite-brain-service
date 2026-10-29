@@ -12,6 +12,7 @@ import type {
   HealthComponent,
   HealthComponentsResponse,
 } from '../contracts/admin/health-components.schema';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /**
  * HealthComponentsService — the per-component grid for the admin cockpit
@@ -203,6 +204,9 @@ export class HealthComponentsService {
 
   /** Presence only — a ping would burn tokens. */
   private openAiKeyRow(): HealthComponent {
+    if (serverModelsRefused()) {
+      return { name: 'openai key', status: 'disabled', message: 'harness mode: never sent' };
+    }
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
     return {
       name: 'openai key',

@@ -27,7 +27,7 @@ import { Semaphore } from '../common/semaphore';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 import { halvingCanHelp } from './read-failure';
-import { extractionSource } from './extraction-source';
+import { extractionSource } from '../common/extraction-source';
 
 /**
  * Extraction off the write path. A document is remembered when it

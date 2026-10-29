@@ -8,7 +8,7 @@
  * start without both creds.
  */
 import { Logger } from '@nestjs/common';
-import { validateEnv } from '../src/common/env-validation';
+import { HARNESS_PLACEHOLDER_KEY, validateEnv } from '../src/common/env-validation';
 
 function baseProdEnv(): NodeJS.ProcessEnv {
   return {
@@ -381,5 +381,30 @@ describe('validateEnv — BRAIN_API_KEYS empty in production', () => {
     validateEnv(env);
     expect(keysWarning(warn)).toBe(true);
     warn.mockRestore();
+  });
+});
+
+describe('validateEnv — harness mode is the key-less deployment (#819)', () => {
+  it('boots without OPENAI_API_KEY on the local embedder, with a placeholder no call sends', () => {
+    const env: NodeJS.ProcessEnv = {
+      ...baseProdEnv(),
+      EXTRACTION_SOURCE: 'harness',
+      EMBEDDER_PROVIDER: 'bge-m3',
+    };
+    delete env.OPENAI_API_KEY;
+    expect(() => validateEnv(env)).not.toThrow();
+    expect(env.OPENAI_API_KEY).toBe(HARNESS_PLACEHOLDER_KEY);
+  });
+
+  it('refuses a key-less harness boot whose embeddings would need the key', () => {
+    const env: NodeJS.ProcessEnv = { ...baseProdEnv(), EXTRACTION_SOURCE: 'harness' };
+    delete env.OPENAI_API_KEY;
+    expect(() => validateEnv(env)).toThrow(/EMBEDDER_PROVIDER=bge-m3/);
+  });
+
+  it('server mode still requires the key', () => {
+    const env: NodeJS.ProcessEnv = { ...baseProdEnv(), EMBEDDER_PROVIDER: 'bge-m3' };
+    delete env.OPENAI_API_KEY;
+    expect(() => validateEnv(env)).toThrow(/OPENAI_API_KEY/);
   });
 });
