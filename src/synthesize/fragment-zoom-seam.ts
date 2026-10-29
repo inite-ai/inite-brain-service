@@ -123,6 +123,13 @@ export interface VerifyStageArgs {
   /** factIndex.size — the synthesize.verify span attribute. */
   factCount: number;
   decisionCtx: DecisionContext;
+  /**
+   * false: verify only, no fragment zoom. The revise round's re-verify
+   * passes it — the request already had its one zoom, and each zoom
+   * re-sends the whole evidence pack to the auditor (LLM spend audit,
+   * 2026-10-28: up to five full-pack audits per question).
+   */
+  zoom?: boolean;
   /** Invoked with the PRE-zoom verdict (the focus-capture hook). */
   onPrimaryVerdict: (verdict: VerifierOutput) => Promise<void>;
 }
@@ -243,6 +250,7 @@ export async function verifyAndZoom(
   await args.onPrimaryVerdict(verdict);
   // MM-zoom PR3: the ONE bounded zoom step; null ⇒ the primary verdict
   // stands and every downstream byte matches the pre-zoom flow.
+  if (args.zoom === false) return { verdict };
   const zoomed = await tryFragmentZoom(deps, {
     ctx,
     nliMode,

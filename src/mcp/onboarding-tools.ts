@@ -53,7 +53,7 @@ export function registerOnboardingTools(opts: {
       if (ctx.userId !== undefined) input.userId = ctx.userId;
       const out = await deps.workspaceStatus.status(input);
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },

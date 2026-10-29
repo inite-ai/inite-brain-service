@@ -121,7 +121,7 @@ export function registerMetaTools({ server, catalogue, removed, listed }: MetaTo
         howToCall: 'run_tool({ name, args })',
       };
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+        content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
         structuredContent: asStructuredContent(payload),
       };
     },

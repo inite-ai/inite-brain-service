@@ -810,7 +810,12 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     searchLoop: presetFlag(env, 'RETRIEVAL_SEARCH_LOOP', preset.searchLoop),
     l3Escalation: presetFlag(env, 'RETRIEVAL_L3_ESCALATION', preset.l3Escalation),
     l3MaxSessions: positiveIntEnv(env, 'RETRIEVAL_L3_MAX_SESSIONS', 3),
-    l3TokenCap: positiveIntEnv(env, 'RETRIEVAL_L3_TOKEN_CAP', 60000),
+    // 20k, not 60k: L3 fires on every abstention with an anchor, and the
+    // assembled sessions went out twice (generator, then verifier) — up to
+    // ~120k input tokens per unanswered question (LLM spend audit,
+    // 2026-10-28). Over the cap the lane already degrades to widened
+    // windows around the anchor turns, never a half session.
+    l3TokenCap: positiveIntEnv(env, 'RETRIEVAL_L3_TOKEN_CAP', 20000),
     l3DirectAnchor: presetFlag(env, 'RETRIEVAL_L3_DIRECT_ANCHOR', preset.l3DirectAnchor),
     l3SegmentAnchor: presetFlag(env, 'RETRIEVAL_L3_SEGMENT_ANCHOR', preset.l3SegmentAnchor),
     l3TemporalAnchor: presetFlag(env, 'RETRIEVAL_L3_TEMPORAL_ANCHOR', preset.l3TemporalAnchor),

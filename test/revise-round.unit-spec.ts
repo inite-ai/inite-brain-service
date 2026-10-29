@@ -169,7 +169,10 @@ describe('auditAndRevise', () => {
     // The re-verification audits the rewrite, not the original.
     expect(verifyMock.mock.calls[1]![1]).toMatchObject({
       generated: { answer: 'A only [knowledge_fact:a]' },
+      // One zoom per request: the re-verify does not zoom again.
+      zoom: false,
     });
+    expect(verifyMock.mock.calls[0]![1]).not.toHaveProperty('zoom');
     // Focus capture saw the primary verdict only.
     expect(p.focus).toEqual(['partial']);
   });

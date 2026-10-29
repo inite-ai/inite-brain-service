@@ -329,7 +329,12 @@ function buildVerifierUserMessage({
     );
   }
   const today = dateContext ? `Today (the query's date): ${dateContext}\n` : '';
-  return `Query: ${query}\n${today}${askerVerifierLine(asker)}\nAnswer:\n${answer}\n\n${sections.join('\n\n')}`;
+  // The answer LAST: one request audits the same evidence several times
+  // (primary, zoom, the revise round's re-verify) with a different answer
+  // each time, and the provider's prefix cache bills a repeated prefix at
+  // the cached rate only while it is byte-identical up to the evidence's
+  // end (LLM spend audit, 2026-10-28).
+  return `Query: ${query}\n${today}${askerVerifierLine(asker)}\n${sections.join('\n\n')}\n\nAnswer:\n${answer}`;
 }
 
 /**

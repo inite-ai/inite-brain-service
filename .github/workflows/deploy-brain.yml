@@ -952,7 +952,11 @@ jobs:
                 # verbatim=shape_conditioned, dateAnchoring=absolute. The
                 # genre tag documents that intent for operators.
                 - RETRIEVAL_GENRE=assistant_chat
-                - SEARCH_RERANKER_SC_N=3
+                # SEARCH_RERANKER_SC_N is the code default (1): three
+                # permuted rerank calls per search, on up to three searches
+                # per question, bought an entity ORDER that fact-centric
+                # selection and the evidence union mostly discard (LLM spend
+                # audit 2026-10-28: the reranker was 11% of a memfit run).
                 # PPR over the candidate subgraph (HippoRAG-style). Auto
                 # threshold lowered from 100 → 25 so the typical per-tenant
                 # graph (~30-80 candidates) actually triggers it. Hub-effect

@@ -53,6 +53,21 @@ function collectAnchorEpisodeIds(facts: Array<{ eps?: unknown }>, cap: number): 
   return ids;
 }
 
+/**
+ * Per-line budget of every quoted-turn section (transcript, raw windows,
+ * source excerpts). A turn is up to 16K chars at ingest and these lines
+ * had no cap at all: one pasted document turned into a 4K-token line that
+ * every generator AND verifier call of the request paid for again (LLM
+ * spend audit, 2026-10-28). 1500 chars leaves an ordinary turn whole and
+ * only cuts pastes; the cut is marked so the model knows the line is
+ * partial.
+ */
+const QUOTE_LINE_CHAR_CAP = 1500;
+
+function capQuote(text: string): string {
+  return text.length <= QUOTE_LINE_CHAR_CAP ? text : `${text.slice(0, QUOTE_LINE_CHAR_CAP)}…`;
+}
+
 /** Chronological `[YYYY-MM-DD] Speaker: text` rendering shared by both lanes. */
 function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
   return rows
@@ -66,7 +81,7 @@ function renderQuoteLines(rows: EpisodeQuoteRow[]): string[] {
         r.occurredAt instanceof Date ? r.occurredAt.toISOString() : r.occurredAt,
       ).slice(0, 10);
       const who = r.speaker ? `${r.speaker}` : 'unknown';
-      return `[${day}] ${who}: ${r.text}`;
+      return `[${day}] ${who}: ${capQuote(String(r.text ?? ''))}`;
     });
 }
 
