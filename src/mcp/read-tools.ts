@@ -6,7 +6,6 @@ import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { FactsService } from '../facts/facts.service';
 import type { FactSourceTurnsService } from '../facts/fact-source-turns.service';
-import { countTokens } from '../common/token-counter';
 import type { MultiHopService } from '../multi-hop/multi-hop.service';
 import type { SynthesizeService } from '../synthesize/synthesize.service';
 import type { MemoryDiffService } from '../diff/memory-diff.service';
@@ -16,7 +15,8 @@ import type { BrainScope } from '../auth/api-key.types';
 import { NOOP_REPORTER, type ProgressEvent, type ProgressReporter } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
-import { compactSearch, compactTimeline, focusSelect, renderFocus } from './compact-read';
+import { compactSearch, compactTimeline, renderProfile, renderTimeline } from './compact-read';
+import { answerDetailArg, focusOf, multiHopView, synthesizeView } from './answer-views';
 
 /**
  * The per-user scope argument every read tool takes. A user-bound token
@@ -160,16 +160,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
       // by default only the part the query is about, in its cheapest
       // faithful form (compact-read.ts: 3683 → under the raw turns).
       if (args.detail === undefined || args.detail === 'focus') {
-        const factIds = focusSelect(found).kept.map((k) => k.fact.factId);
-        const sources = deps.sourceTurns
-          ? await deps.sourceTurns.turnsOf({
-              companyId,
-              factIds,
-              scopes,
-              userId: args.userId,
-            })
-          : new Map();
-        const text = renderFocus({ out: found, sources, tokens: countTokens });
+        const text = await focusOf({ deps, companyId, scopes, userId: args.userId }, found);
         return { content: [{ type: 'text', text }] };
       }
       const out = args.detail === 'full' ? found : compactSearch(found);
@@ -218,6 +209,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           ),
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         limit: z.number().int().min(1).max(100).optional(),
+        detail: answerDetailArg,
         userId: z
           .string()
           .max(200)
@@ -229,7 +221,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     },
     async (args, extra) => {
       const reporter = buildProgressReporter(extra as never);
-      const out = await deps.multiHop.run({
+      const found = await deps.multiHop.run({
         companyId,
         dto: {
           query: args.query,
@@ -246,15 +238,37 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         callerScopes: scopes,
         onProgress: reporter,
       });
+      const view =
+        args.detail === 'full'
+          ? found
+          : multiHopView(
+              found,
+              await focusOf(
+                { deps, companyId, scopes, userId: args.userId },
+                { results: found.finalHits },
+              ),
+            );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
+        content: [{ type: 'text', text: JSON.stringify(view) }],
+        structuredContent: asStructuredContent(view),
       };
     },
   );
 
   registerGraphRetrieveTool({ server, companyId, scopes, deps });
 
+  registerSynthesizeTool({ server, companyId, scopes, deps });
+  registerMemoryDiffTool({ server, companyId, scopes, deps });
+}
+
+// Split out of registerSearchTools for the max-lines-per-function gate.
+function registerSynthesizeTool({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  const embedderHint = ` Embedding model on this tenant: ${deps.embedderDescription()}.`;
   // ── synthesize ────────────────────────────────────────────────────
   server.registerTool(
     'synthesize',
@@ -283,6 +297,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .enum(['strict', 'lenient', 'off'])
           .optional()
           .describe('Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)'),
+        detail: answerDetailArg,
         userId: z
           .string()
           .max(200)
@@ -294,7 +309,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     },
     async (args, extra) => {
       const reporter = buildProgressReporter(extra as never);
-      const out = await deps.synth.synthesize({
+      const found = await deps.synth.synthesize({
         companyId,
         dto: {
           query: args.query,
@@ -310,14 +325,21 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         callerScopes: scopes,
         onProgress: reporter,
       });
+      const view =
+        args.detail === 'full'
+          ? found
+          : synthesizeView(
+              found,
+              found.answer === null
+                ? await focusOf({ deps, companyId, scopes, userId: args.userId }, found)
+                : undefined,
+            );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
+        content: [{ type: 'text', text: JSON.stringify(view) }],
+        structuredContent: asStructuredContent(view),
       };
     },
   );
-
-  registerMemoryDiffTool({ server, companyId, scopes, deps });
 }
 
 // Split out of registerSearchTools for the max-lines-per-function gate.
@@ -417,7 +439,8 @@ function registerGraphRetrieveTool({
   );
 }
 
-function registerEntityReadTools({
+// Split out of registerEntityReadTools for the max-lines-per-function gate.
+function registerEntityProfileTool({
   server,
   companyId,
   scopes,
@@ -438,6 +461,10 @@ function registerEntityReadTools({
             'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
           ),
         userId: userScopeArg,
+        detail: z
+          .enum(['text', 'full'])
+          .optional()
+          .describe('text (default): one line per attribute. full: JSON with fact ids'),
       },
     },
     async (args) => {
@@ -448,12 +475,22 @@ function registerEntityReadTools({
         ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
+      if (args.detail !== 'full') return { content: [{ type: 'text', text: renderProfile(out) }] };
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
   );
+}
+
+function registerEntityReadTools({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  registerEntityProfileTool({ server, companyId, scopes, deps });
 
   // ── get_entity_timeline ───────────────────────────────────────────
   server.registerTool(
@@ -468,9 +505,11 @@ function registerEntityReadTools({
         until: isoDateTime().optional(),
         userId: userScopeArg,
         detail: z
-          .enum(['compact', 'full'])
+          .enum(['text', 'compact', 'full'])
           .optional()
-          .describe('compact (default): fact id, value, day. full: adds sources and confidence'),
+          .describe(
+            'text (default): one line per change. compact: JSON with fact ids. full: adds sources and confidence',
+          ),
       },
     },
     async (args) => {
@@ -482,6 +521,9 @@ function registerEntityReadTools({
         ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
+      if (args.detail === undefined || args.detail === 'text') {
+        return { content: [{ type: 'text', text: renderTimeline(timeline) }] };
+      }
       const out = args.detail === 'full' ? timeline : compactTimeline(timeline);
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],

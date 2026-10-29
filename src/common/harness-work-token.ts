@@ -19,10 +19,18 @@ import { credentialKeys } from './secret-cipher';
  * then do not survive a restart or cross replicas (a submit there is
  * refused and the work is simply taken again). No new secret.
  */
-/** The kinds of deferred work a connected agent can take, in the order they are offered. */
+/**
+ * The kinds of deferred work a connected agent can take, in the order
+ * they are offered. Attribute classification comes before extraction: a
+ * predicate a direct write coined waits as append_only until classified,
+ * and a fact extracted under it meanwhile is resolved by that default —
+ * on the memory-fitness run, extraction went first and every revision
+ * of `queue_backend` / `deploy_target` / `pilot_launch_date` stayed
+ * current beside the value it replaced. Classifying is one short batch.
+ */
 export const HARNESS_WORK_KINDS = [
-  'extraction',
   'predicate_semantics',
+  'extraction',
   'entity_match',
   'fact_conflict',
   'fact_corroboration',

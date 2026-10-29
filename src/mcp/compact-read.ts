@@ -1,5 +1,5 @@
 import type { SearchHit } from '../search/search.types';
-import type { TimelineEvent } from '../entities/entities.service';
+import type { EntityProfile, TimelineEvent } from '../entities/entities.service';
 import { isoString } from '../common/surreal-date';
 import type { LinkedSourceResult } from '../contracts/search/search.schema';
 
@@ -167,12 +167,15 @@ export interface FocusSourceTurn {
 export interface FocusOptions {
   lambda?: number;
   maxFacts?: number;
+  topRelations?: boolean;
 }
 
 const FOCUS_LAMBDA = 0.4;
 const FOCUS_MAX_FACTS = 8;
 const NEAR_TOP = 0.9;
 const QUOTE_MAX_CHARS = 400;
+/** Share of a value's words its turn must contain to stand in for the fact. */
+const QUOTE_MIN_VALUE_COVERAGE = 0.6;
 /** Linked-source answers (W7) shown per source, and the excerpt kept of each. */
 const LINKED_HITS = 3;
 const LINKED_SNIPPET_CHARS = 200;
@@ -225,7 +228,7 @@ export function renderFocus(p: {
     return degraded ?? 'No facts in memory match this question.';
   }
   const lines = evidenceLines(kept, p.sources, p.tokens);
-  const links = connectingLinks(kept);
+  const links = connectingLinks(kept, p.opts?.topRelations ?? true);
   if (links.length > 0) lines.push(`links: ${links.join('; ')}`);
   lines.push(...linked);
   if (omitted > 0) lines.push(`(+${omitted} more: detail "compact")`);
@@ -266,7 +269,8 @@ function evidenceLines(
       turn !== undefined &&
       turn.text.length <= QUOTE_MAX_CHARS &&
       (!k.fact.status || k.fact.status === 'active') &&
-      !day(k.fact.validUntil);
+      !day(k.fact.validUntil) &&
+      statedIn(k.fact.object, turn.text);
     const key = quotable ? turn.episodeId : k.fact.factId;
     const g = groups.get(key) ?? { ...(quotable ? { turn } : {}), items: [] };
     g.items.push(k);
@@ -299,6 +303,22 @@ function evidenceLines(
   return lines;
 }
 
+/**
+ * Whether a turn states a value itself. The extractor reads a turn WITH
+ * its conversation, so a fact can carry a value the turn only refers to
+ * ("update the runbooks for the new retry policy" → retry_policy =
+ * exponential backoff, said three turns earlier) — quoting that turn
+ * would drop the value. Most of the value's words must be in the turn.
+ */
+function statedIn(value: string, text: string): boolean {
+  const words = value.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._:-]*/gu) ?? [];
+  const significant = words.filter((w) => w.length >= 3 || /\d/.test(w));
+  if (significant.length === 0) return false;
+  const turn = text.toLowerCase();
+  const found = significant.filter((w) => turn.includes(w)).length;
+  return found / significant.length >= QUOTE_MIN_VALUE_COVERAGE;
+}
+
 function factSegment(f: SearchHit['facts'][number]): string {
   const since = day(f.validFrom);
   const until = day(f.validUntil);
@@ -313,9 +333,9 @@ function quoteLine(t: FocusSourceTurn): string {
 }
 
 /** Relations between the kept entities, or through a peer two of them share. */
-function connectingLinks(kept: Kept[]): string[] {
+function connectingLinks(kept: Kept[], withTop: boolean): string[] {
   const hits = new Map(kept.map((k) => [k.hit.entityId, k.hit]));
-  if (hits.size < 2) return [];
+  const top = kept[0]?.hit.entityId;
   const names = new Set([...hits.values()].map((h) => norm(h.canonicalName)));
   const peerCount = new Map<string, number>();
   for (const h of hits.values()) {
@@ -327,7 +347,8 @@ function connectingLinks(kept: Kept[]): string[] {
   for (const h of hits.values()) {
     for (const r of h.relations ?? []) {
       const peer = norm(r.peer);
-      if (!names.has(peer) && (peerCount.get(peer) ?? 0) < 2) continue;
+      const connects = names.has(peer) || (peerCount.get(peer) ?? 0) >= 2;
+      if (!connects && !(withTop && h.entityId === top)) continue;
       out.add(
         r.direction === 'in'
           ? `${r.peer} ${r.kind} ${h.canonicalName}`
@@ -356,4 +377,58 @@ function linkedLines(linked: unknown): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * get_entity_profile, as the model reads it: the entity's name and type
+ * and one line per attribute — every current value of it, with the day
+ * it holds from. The JSON profile carried a record id, a confidence and
+ * two full timestamps on each of 74 facts: 5197 tokens for the entity
+ * of a memory whose whole raw history is 1986. `detail: "full"` keeps
+ * the ids (get_fact_provenance and retract_fact take them).
+ */
+export function renderProfile(p: EntityProfile): string {
+  const head = `${p.canonicalName} (${p.type})${p.mergedInto ? ` — merged into ${p.mergedInto}` : ''}`;
+  const byPredicate = new Map<string, string[]>();
+  for (const f of p.facts) {
+    const since = day(f.validFrom);
+    const until = day(f.validUntil);
+    const when = since && until ? ` (${since}…${until})` : since ? ` (${since})` : '';
+    const status = f.status && f.status !== 'active' ? ` [${f.status}]` : '';
+    byPredicate.set(f.predicate, [
+      ...(byPredicate.get(f.predicate) ?? []),
+      `${f.object}${when}${status}`,
+    ]);
+  }
+  const lines = [...byPredicate].map(
+    ([predicate, values]) => `${predicate}: ${values.join(' | ')}`,
+  );
+  return [head, ...(lines.length > 0 ? lines : ['(no facts)'])].join('\n');
+}
+
+/**
+ * get_entity_timeline, as the model reads it: one line per event, oldest
+ * first as the service orders them — `+` a value recorded on the day it
+ * holds from, `−` a value retracted (with what replaced it). A
+ * retraction names the value it ended, read from the recording it
+ * points at; the JSON views made the reader join the two by id.
+ */
+export function renderTimeline(out: { entityId: string; events: TimelineEvent[] }): string {
+  const valueOf = new Map<string, string>();
+  for (const e of out.events) {
+    if (e.type === 'fact.recorded') valueOf.set(e.factId, `${e.predicate} = ${e.object}`);
+  }
+  const lines = out.events.map((e) => {
+    if (e.type === 'fact.recorded') {
+      return `${day(e.validFrom) ?? day(e.at) ?? '?'} + ${e.predicate} = ${e.object}`;
+    }
+    const replaced = e.supersededBy ? valueOf.get(e.supersededBy) : undefined;
+    const why = replaced
+      ? ` → ${replaced}`
+      : typeof e.reason === 'string' && e.reason
+        ? ` (${e.reason})`
+        : '';
+    return `${day(e.at) ?? '?'} − ${valueOf.get(e.factId) ?? e.factId}${why}`;
+  });
+  return lines.length > 0 ? lines.join('\n') : 'No events.';
 }

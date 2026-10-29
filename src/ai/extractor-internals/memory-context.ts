@@ -114,6 +114,8 @@ export interface MemoryContext {
 /** Prompt-side caps: enough to anchor a turn, small enough to stay cheap. */
 export const MEMORY_RECENT_TURNS = 6;
 export const MEMORY_FACTS_PER_ENTITY = 12;
+/** Candidates read per entity before the turn picks its MEMORY_FACTS_PER_ENTITY. */
+export const MEMORY_FACT_CANDIDATES_PER_ENTITY = 80;
 export const MEMORY_EDGES_PER_ENTITY = 8;
 export const MEMORY_PREDICATES = 40;
 /** Characters of one earlier turn shown as context. */
@@ -227,4 +229,58 @@ export function supersededFactIds(ctx: MemoryContext | undefined, raw: unknown):
     if (id && !out.includes(id)) out.push(id);
   }
   return out;
+}
+
+/**
+ * Which of an entity's facts a turn is shown, best first: those whose
+ * attribute or value the turn talks about, then the most recent.
+ *
+ * The newest-N cut alone lost exactly the facts a revision needs. On the
+ * memory-fitness memory `ledger-sync` held 70+ facts; by the architecture
+ * review the twelve newest were that day's own, so "we switch the queue
+ * to NATS JetStream" was read without `queue_backend: Redis Streams` in
+ * view, had no handle to supersede, and both values stayed current —
+ * likewise the deploy target, the launch date and the batch size. A
+ * value the turn changes is a value the turn names, in its attribute
+ * ("queue", "deploy", "launch") or its old value ("Redis").
+ */
+export function pickKnownFacts<T extends { predicate: string; object: string }>(
+  candidates: T[],
+  turnText: string,
+  cap: number,
+): T[] {
+  const turn = new Set(wordsOf(turnText));
+  const scored = candidates.map((c, i) => {
+    const words = new Set(wordsOf(`${c.predicate.replace(/_/g, ' ')} ${c.object}`));
+    return { c, i, hits: [...words].filter((w) => turn.has(w)).length };
+  });
+  const named = scored.filter((s) => s.hits > 0).sort((a, b) => b.hits - a.hits || a.i - b.i);
+  const picked = new Set(named.slice(0, cap).map((s) => s.i));
+  for (const s of scored) {
+    if (picked.size >= cap) break;
+    picked.add(s.i);
+  }
+  return scored.filter((s) => picked.has(s.i)).map((s) => s.c);
+}
+
+const STOP = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'this',
+  'that',
+  'our',
+  'are',
+  'was',
+  'not',
+  'any',
+]);
+
+/** Lowercased words of 3+ letters (or with a digit), minus a few function words. */
+function wordsOf(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}.:-]*/gu) ?? []).filter(
+    (w) => (w.length >= 3 || /\d/.test(w)) && !STOP.has(w),
+  );
 }

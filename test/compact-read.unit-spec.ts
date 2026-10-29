@@ -255,13 +255,14 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
       ['knowledge_fact:sold', [turn]],
     ]);
     const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars });
-    const evidence = text.split('\n').filter((l) => !l.startsWith('(+'));
+    // The evidence lines; links and the "more" line are the memory's own map.
+    const evidence = text.split('\n').filter((l) => !l.startsWith('(+') && !l.startsWith('links:'));
     expect(evidence.join('\n').length).toBeLessThanOrEqual(
       `[2026-10-05] sasha: "${turn.text}"`.length,
     );
   });
 
-  it('shows a link only when it connects the kept entities', () => {
+  it('shows the best entity its links, and the others only those connecting the kept entities', () => {
     const diego = hit({
       entityId: 'knowledge_entity:diego',
       canonicalName: 'Diego',
@@ -277,7 +278,8 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
     const text = renderFocus({ out: { results: [me, diego] }, sources: new Map(), tokens: chars });
     expect(text).toContain('Ana sibling_of Sasha');
     expect(text).toContain('Diego colleague_of Ana');
-    expect(text).not.toContain('Orbital Dynamics');
+    // Diego ranked first: his own links are the one hop an answer may need.
+    expect(text).toContain('Diego works_at Orbital Dynamics');
     expect(text).not.toContain('MacBook');
   });
 
@@ -288,7 +290,7 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
         fact(
           'knowledge_fact:moto',
           'owns_motorcycle',
-          'no motorcycle anymore as of this week',
+          'no motorcycle anymore, sold the Ninja',
           0.3,
         ),
         fact('knowledge_fact:x', 'sold', 'Ninja', 0.29),
@@ -353,6 +355,25 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
     });
     expect(withFacts).toContain('owns_motorcycle');
     expect(withFacts).toContain('LS-12 payout retries');
+  });
+
+  it('never quotes a turn that only refers to the value — the extractor read it with its conversation', () => {
+    const vague = { ...turn, text: 'Update the runbooks for the new retry policy.' };
+    const sources = new Map([['knowledge_fact:r', [vague]]]);
+    const retry = hit({
+      relations: [],
+      facts: [
+        fact(
+          'knowledge_fact:r',
+          'retry_policy',
+          'exponential backoff with full jitter, max 5 attempts',
+          0.3,
+        ),
+      ] as never,
+    });
+    const text = renderFocus({ out: { results: [retry] }, sources, tokens: chars });
+    expect(text).toContain('exponential backoff');
+    expect(text).not.toContain('runbooks');
   });
 
   it('says nothing matched — or that the search was degraded, which is not the same', () => {

@@ -431,6 +431,8 @@ export function otherUserId(cfg: { userId: string }): string {
 
 async function searchHits(ctx: AskContext, query: string, limit: number): Promise<SearchHit[]> {
   const out = await callTool<SearchOut>(ctx.mcp, 'search_knowledge', {
+    // The battery reads ids and statuses: the full shape, not the model's focus view.
+    detail: 'full',
     query,
     limit,
     userId: ctx.cfg.userId,
@@ -478,6 +480,7 @@ async function askOne(ctx: AskContext, q: Question): Promise<Verdict> {
       const entityId = await resolveEntityId(ctx, q.entityQuery, q.predicate);
       if (entityId === null) return { status: 'fail', detail: 'entity not found via search' };
       const timeline = await callTool<TimelineOut>(ctx.mcp, 'get_entity_timeline', {
+        detail: 'full',
         entityId,
         userId: ctx.cfg.userId,
       });
