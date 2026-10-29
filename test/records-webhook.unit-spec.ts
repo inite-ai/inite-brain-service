@@ -175,7 +175,7 @@ describe('RecordsWebhookService (inline, no queue)', () => {
     headers: {},
     rawBody: Buffer.from(JSON.stringify(body)),
     body,
-    query: { token },
+    query: new Map([['token', token]]),
   });
 
   it('applies inline: fetches the named deal, ingests it, deduplicates a repeat, closes a deletion; one job_run receipt each', async () => {

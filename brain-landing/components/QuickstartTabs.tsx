@@ -22,12 +22,18 @@ export function QuickstartTabs({ lang }: { lang: Lang }) {
   }
 
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    let next = index
-    if (event.key === 'ArrowRight') next = (index + 1) % QUICKSTART_EXAMPLES.length
-    else if (event.key === 'ArrowLeft') next = (index + QUICKSTART_EXAMPLES.length - 1) % QUICKSTART_EXAMPLES.length
-    else if (event.key === 'Home') next = 0
-    else if (event.key === 'End') next = QUICKSTART_EXAMPLES.length - 1
-    else return
+    const n = QUICKSTART_EXAMPLES.length
+    const next =
+      event.key === 'ArrowRight'
+        ? (index + 1) % n
+        : event.key === 'ArrowLeft'
+          ? (index + n - 1) % n
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? n - 1
+              : undefined
+    if (next === undefined) return
     event.preventDefault()
     select(next)
     tabs.current[next]?.focus()
