@@ -8,6 +8,7 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { DecisionService } from './decisions/decision.service';
 import type { ChoiceAnswer } from './decisions/decision.types';
+import { serverModelsRefused } from '../common/extraction-source';
 
 export type EntityVerdict = 'same' | 'different' | 'unsure';
 
@@ -108,6 +109,29 @@ function similarityLine(ctx: JudgeContext): string {
  * transient duplicate a later pass can still merge. Any LLM/parse failure
  * degrades to "unsure" (never throws), so callers never block on it.
  */
+/** The same-or-different judge's instructions — the server model's and the harness agent's. */
+export const ENTITY_JUDGE_SYSTEM = `You decide whether two knowledge-graph entities are the SAME real-world thing or DIFFERENT things that happen to share a similar name.
+
+The graph is multilingual. The two entities may have been mentioned in different languages, so their names may be two spellings of one name in two scripts, and their facts may say the same thing in two languages. A fact that is a translation of another fact is a MATCHING fact, not a contradiction: "employer: Orbital Dynamics" and "работодатель: Orbital Dynamics" agree; "role: lead architect" and "должность: ведущий архитектор" agree.
+
+Use the facts as the evidence:
+- "same" — facts directly identify them (matching dob / email / address / employer) OR facts are non-contradictory and the names are identical, clear aliases, or the same name written in two scripts.
+- "different" — facts contradict (different dob / different email / different employer at the same time).
+- "unsure" — the facts don't disambiguate either way (just names + occupation, common name).
+
+When the facts genuinely do not disambiguate, prefer "different" — wrongly fusing two distinct entities is worse than a transient duplicate a later pass can still merge. But do not call two entities different because their facts are in different languages.
+
+Output strictly the JSON shape requested. No preamble.`;
+
+/** One pair as the judge reads it. */
+export function entityJudgeUserContent(
+  left: string,
+  right: string,
+  ctx: JudgeContext = {},
+): string {
+  return `Entity A:${nameLine(ctx.names?.a)}\n${left}\n\nEntity B:${nameLine(ctx.names?.b)}\n${right}${similarityLine(ctx)}`;
+}
+
 @Injectable()
 export class EntityJudgeService {
   private readonly logger = new Logger(EntityJudgeService.name);
@@ -147,14 +171,20 @@ export class EntityJudgeService {
 
   /** True when an OpenAI key is configured (so a judge call is possible). */
   isAvailable(): boolean {
-    return !!this.openai;
+    // Harness mode: no judge call is bought; borderline pairs stay apart
+    // and the connected agent judges them later (kind entity_match).
+    return !!this.openai && !serverModelsRefused();
   }
 
   /**
    * Top active facts for an entity, rendered as `- predicate: object`
    * lines — the judge's evidence for one side. Shared by both call sites.
    */
-  async fetchTopFacts(db: Surreal, entityId: string): Promise<string> {
+  async fetchTopFacts(
+    db: Surreal,
+    entityId: string,
+    fence?: { userId: string | undefined },
+  ): Promise<string> {
     type R = { predicate: string; object: string };
     type E = { kind: string; other?: string };
     const eid = new StringRecordId(entityId);
@@ -170,6 +200,16 @@ export class EntityJudgeService {
     // same relation as a fact in one language and an edge in another, and
     // a judge that read only facts saw one side's employer and not the
     // other's.
+    //
+    // `fence` is for a reader outside the server — the harness agent
+    // (dreams-work.service.ts) sees only the slice its credential reads:
+    // tenant-global, plus its own user's.
+    const gate =
+      fence === undefined
+        ? ''
+        : fence.userId
+          ? 'AND (userId IS NONE OR userId = $fenceUser)'
+          : 'AND userId IS NONE';
     const [rows, edges] = await db.query<[R[], E[]]>(
       // confidence must be in the projection — SurrealDB 3.x requires the
       // ORDER BY idiom to appear in the SELECT (else "Missing order idiom").
@@ -177,12 +217,13 @@ export class EntityJudgeService {
          WHERE entityId = $eid
            AND status = 'active'
            AND retractedAt IS NONE
+           ${gate}
          ORDER BY confidence DESC
          LIMIT 5;
        SELECT kind, out.canonicalName AS other FROM knowledge_edge
-         WHERE in = $eid
+         WHERE in = $eid ${gate}
          LIMIT 5;`,
-      { eid },
+      { eid, ...(fence?.userId ? { fenceUser: fence.userId } : {}) },
     );
     const lines = ((rows as R[]) ?? []).map((f) => `- ${f.predicate}: ${f.object}`);
     for (const e of (edges as E[]) ?? []) if (e.other) lines.push(`- ${e.kind}: ${e.other}`);
@@ -199,6 +240,7 @@ export class EntityJudgeService {
    * @param ctx.cosine optional name cosine-similarity hint for the prompt
    */
   async judge(left: string, right: string, ctx: JudgeContext = {}): Promise<EntityVerdict> {
+    if (serverModelsRefused()) return 'unsure';
     const decided = await this.decide(left, right, ctx);
     if (decided) return decided;
     if (!this.openai) return 'unsure';
@@ -253,19 +295,8 @@ export class EntityJudgeService {
   }
 
   private async callLLM(left: string, right: string, ctx: JudgeContext): Promise<EntityVerdict> {
-    const sys = `You decide whether two knowledge-graph entities are the SAME real-world thing or DIFFERENT things that happen to share a similar name.
-
-The graph is multilingual. The two entities may have been mentioned in different languages, so their names may be two spellings of one name in two scripts, and their facts may say the same thing in two languages. A fact that is a translation of another fact is a MATCHING fact, not a contradiction: "employer: Orbital Dynamics" and "работодатель: Orbital Dynamics" agree; "role: lead architect" and "должность: ведущий архитектор" agree.
-
-Use the facts as the evidence:
-- "same" — facts directly identify them (matching dob / email / address / employer) OR facts are non-contradictory and the names are identical, clear aliases, or the same name written in two scripts.
-- "different" — facts contradict (different dob / different email / different employer at the same time).
-- "unsure" — the facts don't disambiguate either way (just names + occupation, common name).
-
-When the facts genuinely do not disambiguate, prefer "different" — wrongly fusing two distinct entities is worse than a transient duplicate a later pass can still merge. But do not call two entities different because their facts are in different languages.
-
-Output strictly the JSON shape requested. No preamble.`;
-    const user = `Entity A:${nameLine(ctx.names?.a)}\n${left}\n\nEntity B:${nameLine(ctx.names?.b)}\n${right}${similarityLine(ctx)}`;
+    const sys = ENTITY_JUDGE_SYSTEM;
+    const user = entityJudgeUserContent(left, right, ctx);
 
     const res = await withGenAiCall(
       {

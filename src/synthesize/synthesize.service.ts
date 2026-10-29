@@ -123,6 +123,7 @@ export type {
 } from './synthesize.types';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import type { Asker } from './asker';
+import { HarnessModeRefusal } from '../common/extraction-source';
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -815,13 +816,18 @@ export class SynthesizeService {
         { 'synthesize.facts': args.factIndex.size },
       );
     } catch (err) {
-      this.logger.warn(`Synthesize generator failed: ${(err as Error).message}`);
-      this.metrics?.countSynthesize('generator_error');
+      // Harness mode: no answer is generated here by design — the evidence
+      // below is what the connected agent answers from.
+      const reason = err instanceof HarnessModeRefusal ? 'harness_mode' : 'generator_error';
+      if (reason === 'generator_error') {
+        this.logger.warn(`Synthesize generator failed: ${(err as Error).message}`);
+      }
+      this.metrics?.countSynthesize(reason);
       return {
         failed: attachDecisionLog(
           {
             answer: null,
-            reason: 'generator_error',
+            reason,
             citations: [],
             results: args.results,
           },

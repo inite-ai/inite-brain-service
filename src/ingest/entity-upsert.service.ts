@@ -626,6 +626,41 @@ export class EntityUpsertService {
    * naming path's `userId IS NONE` pin, verbatim); a scope key ⇒ its own
    * rows too, and never a third party's.
    */
+  /**
+   * A short mention of a longer known name: "the Ninja" for "Kawasaki
+   * Ninja", "ThinkPad" for "ThinkPad X1 Carbon". The ladder above compares
+   * whole names, so a later turn that calls a thing by part of its name
+   * found nothing, and the memory context showed neither the entity nor
+   * its facts — the turn could not supersede "kept in the garage" after
+   * "I sold the Ninja" (key-less stand, 2026-10-29). Every word of the
+   * mention must be a word of the name (the BM25 matcher is AND over its
+   * words); unique matches only, read-only. For the memory context: the
+   * extractor still decides whether the mention is that entity.
+   */
+  async resolveExistingByNamePart(
+    db: Surreal,
+    e: { name: string },
+    opts: { userId?: string | undefined } = {},
+  ): Promise<string | null> {
+    const raw = e.name.trim();
+    if (raw.length < 3) return null;
+    const fence = this.readFence(opts.userId);
+    try {
+      return await this.uniqueEntity(
+        db,
+        `SELECT id FROM knowledge_entity
+          WHERE canonicalName @1@ $name
+            AND canonicalNameLc != $lc
+            AND mergedInto IS NONE
+            ${fence.clause}
+          LIMIT 2`,
+        { name: raw, lc: raw.toLowerCase(), ...fence.params },
+      );
+    } catch {
+      return null;
+    }
+  }
+
   private readFence(userId: string | undefined): {
     clause: string;
     params: Record<string, unknown>;

@@ -6,6 +6,45 @@ import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import type { Semantics } from './predicate-registry-internals/types';
+import { serverModelsRefused } from '../common/extraction-source';
+
+/** The cardinality judge's instructions — the server model's and the harness agent's. */
+export const PREDICATE_SEMANTICS_SYSTEM = `You classify a new knowledge-graph predicate by its CARDINALITY OVER TIME.
+
+Answer exactly one question: CAN ONE SUBJECT HOLD SEVERAL OF THESE AT THE SAME TIME?
+
+- "single_active" — no, only one at a time. The predicate names a SETTING, or a STATE the subject is IN: where it deploys, which backend it uses, its retry policy, its launch date, its cutoff, its batch size, its port, its address, its tier, its status. A later value REPLACES the earlier one, which becomes history.
+  e.g. deploy_target, deploys_to, queue_backend, retry_policy, pilot_launch_date, payout_cutoff, http_port, staging_namespace, office_address, employment_status
+
+- "append_only" — yes, several coexist. The predicate records an EVENT, an observation, a preference, a capability, or an EDGE to another entity that does not exclude other edges.
+  e.g. mentioned_topic, attended_event, complained_about, identified_bug, favorite_cuisine, speaks_language, purchased_item, calls, depends_on, owns, replaces, superseded_by
+
+Two things do NOT decide it:
+- The VALUE being a thing rather than a number or a date. A service deploys to one target at a time whether that target is called "AWS ECS Fargate" or "eu-west-1".
+- The example being phrased as something that HAPPENED. "We deployed ledger-sync to Fly.io" is how people state a current setting; it does not make the deploy target multi-valued.
+
+The sharpest test is the plural: "the service's deploy targets" is wrong — it has one. "The service's dependencies" is right — it has many. If the plural reads naturally, it is append_only.
+
+Judge the predicate, not the one example: "purchased_item" is append_only even though someone can buy the same thing twice, and "office_address" is single_active even if the example shows only one address.
+
+When the two readings are genuinely equally plausible, answer "append_only". Wrongly marking a multi-valued predicate single_active silently retires facts that should coexist; the reverse only leaves a disagreement standing for a later pass to adjudicate.
+
+Output strictly the JSON shape requested. No preamble.`;
+
+/** One predicate as the judge reads it. */
+export function predicateSemanticsUserContent(
+  predicate: string,
+  contextText: string,
+  nearest?: { predicateId: string; semantics: Semantics; similarity: number } | undefined,
+): string {
+  // The nearest predicate sits BELOW the alias threshold by
+  // construction — close enough to inform, too far to inherit from.
+  const nearestLine =
+    nearest !== undefined
+      ? `\n\nNearest existing predicate: "${nearest.predicateId}" (${nearest.semantics}) at cosine ${nearest.similarity.toFixed(3)} — related, but not the same predicate.`
+      : '';
+  return `Predicate: "${predicate}"\nExample use: ${contextText}${nearestLine}`;
+}
 
 /**
  * PredicateSemanticsJudgeService — the "LLM-classify pass" the
@@ -87,7 +126,7 @@ export class PredicateSemanticsJudgeService {
 
   /** True when a key is configured, so a classification is possible. */
   isAvailable(): boolean {
-    return !!this.openai;
+    return !!this.openai && !serverModelsRefused();
   }
 
   /**
@@ -108,7 +147,9 @@ export class PredicateSemanticsJudgeService {
     contextText: string,
     nearest?: { predicateId: string; semantics: Semantics; similarity: number } | undefined,
   ): Promise<Semantics> {
-    if (!this.openai) return 'append_only';
+    // Harness mode: the registry files the proposal append_only and the
+    // connected agent classifies it later (kind predicate_semantics).
+    if (!this.openai || serverModelsRefused()) return 'append_only';
     try {
       return await this.limiter.run(() => this.callLLM(predicate, contextText, nearest));
     } catch (err) {
@@ -124,35 +165,9 @@ export class PredicateSemanticsJudgeService {
     contextText: string,
     nearest?: { predicateId: string; semantics: Semantics; similarity: number } | undefined,
   ): Promise<Semantics> {
-    const sys = `You classify a new knowledge-graph predicate by its CARDINALITY OVER TIME.
+    const sys = PREDICATE_SEMANTICS_SYSTEM;
 
-Answer exactly one question: CAN ONE SUBJECT HOLD SEVERAL OF THESE AT THE SAME TIME?
-
-- "single_active" — no, only one at a time. The predicate names a SETTING, or a STATE the subject is IN: where it deploys, which backend it uses, its retry policy, its launch date, its cutoff, its batch size, its port, its address, its tier, its status. A later value REPLACES the earlier one, which becomes history.
-  e.g. deploy_target, deploys_to, queue_backend, retry_policy, pilot_launch_date, payout_cutoff, http_port, staging_namespace, office_address, employment_status
-
-- "append_only" — yes, several coexist. The predicate records an EVENT, an observation, a preference, a capability, or an EDGE to another entity that does not exclude other edges.
-  e.g. mentioned_topic, attended_event, complained_about, identified_bug, favorite_cuisine, speaks_language, purchased_item, calls, depends_on, owns, replaces, superseded_by
-
-Two things do NOT decide it:
-- The VALUE being a thing rather than a number or a date. A service deploys to one target at a time whether that target is called "AWS ECS Fargate" or "eu-west-1".
-- The example being phrased as something that HAPPENED. "We deployed ledger-sync to Fly.io" is how people state a current setting; it does not make the deploy target multi-valued.
-
-The sharpest test is the plural: "the service's deploy targets" is wrong — it has one. "The service's dependencies" is right — it has many. If the plural reads naturally, it is append_only.
-
-Judge the predicate, not the one example: "purchased_item" is append_only even though someone can buy the same thing twice, and "office_address" is single_active even if the example shows only one address.
-
-When the two readings are genuinely equally plausible, answer "append_only". Wrongly marking a multi-valued predicate single_active silently retires facts that should coexist; the reverse only leaves a disagreement standing for a later pass to adjudicate.
-
-Output strictly the JSON shape requested. No preamble.`;
-
-    // The nearest predicate sits BELOW the alias threshold by
-    // construction — close enough to inform, too far to inherit from.
-    const nearestLine =
-      nearest !== undefined
-        ? `\n\nNearest existing predicate: "${nearest.predicateId}" (${nearest.semantics}) at cosine ${nearest.similarity.toFixed(3)} — related, but not the same predicate.`
-        : '';
-    const user = `Predicate: "${predicate}"\nExample use: ${contextText}${nearestLine}`;
+    const user = predicateSemanticsUserContent(predicate, contextText, nearest);
 
     const res = await withGenAiCall(
       {

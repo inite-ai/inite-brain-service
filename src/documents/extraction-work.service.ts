@@ -1,15 +1,8 @@
-import { randomBytes } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { runInCircle } from '../auth/circle-scope';
 import { pinUserScope } from '../auth/user-scope';
-import { ExtractorService, type ConversationContext } from '../ai/extractor.service';
-import { memoryContextDigest } from '../ai/extractor-internals/memory-context';
+import { ExtractorService } from '../ai/extractor.service';
+import type { MemoryContext } from '../ai/extractor-internals/memory-context';
 import { GENERAL_INDEXER_ID, GENERAL_INDEXER_VERSION } from '../indexers/candidate.types';
 import { CandidateStoreService, staleRunMs } from './candidate-store.service';
 import { DocumentStoreService, type StoredDocument } from './document-store.service';
@@ -21,21 +14,15 @@ import {
   settleRule,
 } from './extraction-batch.service';
 import { planExtractionGroups, releaseSettled, type GroupDoc } from './extraction-group';
-import { mintWorkToken, verifyWorkToken, type WorkTokenPayload } from './extraction-work-token';
+import { workNonce, type HarnessWork } from '../common/harness-work';
+import { mintWorkToken, type ExtractionTokenPayload } from '../common/harness-work-token';
 import { IndexerRunService, groupDocOf, type ClaimedRun } from './indexer-run.service';
 import { askOf } from './read-depth';
 
-/** One group handed to the connected agent (take_extraction_work). */
-export interface ExtractionWork {
-  token: string;
-  systemPrompt: string;
-  userContent: string;
-  schema: Record<string, unknown>;
-  documents: number;
-  expiresAt: string;
-}
+/** One group handed to the connected agent (take_memory_work, kind extraction). */
+export type ExtractionWork = HarnessWork & { kind: 'extraction' };
 
-/** What a submission did (submit_extraction). */
+/** What a submission did (submit_memory_work, kind extraction). */
 export interface ExtractionSubmitOutcome {
   documents: number;
   facts: number;
@@ -61,17 +48,16 @@ export interface ExtractionSubmitOutcome {
  * runs (createRun reopens them), so the documents are taken again. The
  * token expires a minute BEFORE that window, so a late submit can never
  * land on runs someone else has re-claimed.
+ *
+ * The prompt names memory by position ([e#], [m#]); the token carries the
+ * record id behind every handle it showed, so submit maps the reply's
+ * handles without rebuilding the memory context — whose entity set rides
+ * an in-process per-conversation cache and whose order moves with every
+ * write. Any replica, any time inside the window, reads the same handles.
  */
 @Injectable()
 export class ExtractionWorkService {
   private readonly logger = new Logger(ExtractionWorkService.name);
-  /**
-   * The context each prompt was built from, by token nonce. Memory context
-   * handles ([e#], [m#]) are positions in it; rebuilding it at submit could
-   * shift them. Another replica (or a restart) misses here, rebuilds, and
-   * accepts only when the rebuilt context digests the same.
-   */
-  private readonly prepared = new Map<string, { context: ConversationContext; until: number }>();
   /** Submissions in flight in this process, by nonce (a double submit). */
   private readonly inFlight = new Set<string>();
 
@@ -109,12 +95,12 @@ export class ExtractionWorkService {
     return null;
   }
 
+  /** Apply a verified extraction token's reply (the MCP layer checks the signature and scope). */
   async submit(
     companyId: string,
-    token: string,
+    payload: ExtractionTokenPayload,
     result: unknown,
   ): Promise<ExtractionSubmitOutcome> {
-    const payload = this.verified(companyId, token);
     if (result === null || typeof result !== 'object' || Array.isArray(result)) {
       throw new BadRequestException('result must be the JSON object the schema describes');
     }
@@ -124,7 +110,6 @@ export class ExtractionWorkService {
       return await runInCircle(circlesOf(payload.k), () => this.apply(companyId, payload, result));
     } finally {
       this.inFlight.delete(payload.n);
-      this.prepared.delete(payload.n);
     }
   }
 
@@ -190,50 +175,38 @@ export class ExtractionWorkService {
       return null;
     }
     const exp = Math.floor((Date.now() + tokenTtlMs()) / 1000);
-    const nonce = randomBytes(12).toString('base64url');
-    const payload: WorkTokenPayload = {
-      v: 1,
+    const nonce = workNonce();
+    const payload: ExtractionTokenPayload = {
+      v: 2,
+      t: 'extraction',
       c: companyId,
       ...(p.userId !== undefined ? { u: p.userId } : {}),
       d: p.claimed.map(({ doc }) => doc.id),
       r: runIdsOf(p.claimed),
       h: read.vocabularyHash,
-      m: memoryContextDigest(context.memory),
       k: p.circleKey,
+      x: {
+        e: (context.memory?.entities ?? []).map((e) => e.id),
+        m: (context.memory?.facts ?? []).map((f) => f.id),
+      },
       n: nonce,
       exp,
     };
-    this.remember(nonce, context, exp * 1000);
     this.logger.log(`harness work taken ${companyId}: documents=${p.claimed.length}`);
     return {
+      kind: 'extraction',
       token: mintWorkToken(payload),
       systemPrompt: read.systemPrompt,
       userContent: read.userContent,
       schema: read.schema,
-      documents: p.claimed.length,
+      items: p.claimed.length,
       expiresAt: new Date(exp * 1000).toISOString(),
     };
   }
 
-  /** The token's payload, or a 4xx. */
-  private verified(companyId: string, token: string): WorkTokenPayload {
-    const verdict = verifyWorkToken(token);
-    if (verdict.state === 'invalid') throw new BadRequestException('invalid work token');
-    if (verdict.payload.c !== companyId) {
-      throw new ForbiddenException('this work token belongs to another workspace');
-    }
-    if (verdict.state === 'expired') {
-      throw new BadRequestException('work token expired; take the work again');
-    }
-    if (pinUserScope(verdict.payload.u) !== verdict.payload.u) {
-      throw new ForbiddenException('this work token belongs to another user scope');
-    }
-    return verdict.payload;
-  }
-
   private async apply(
     companyId: string,
-    payload: WorkTokenPayload,
+    payload: ExtractionTokenPayload,
     result: object,
   ): Promise<ExtractionSubmitOutcome> {
     const claimed = await this.claimedRuns(companyId, payload);
@@ -249,11 +222,7 @@ export class ExtractionWorkService {
       texts.set(doc.id, chunks.map((c) => c.text).join('\n'));
     }
     const input = await this.runs.groupInput(companyId, claimed, texts);
-    const context = this.recall(payload.n) ?? input.context;
-    if (memoryContextDigest(context.memory) !== payload.m) {
-      await this.runs.failRuns(companyId, runIds, new Error('memory_changed'));
-      throw new ConflictException('the memory this work was read against changed; take it again');
-    }
+    const context = { ...input.context, memory: handlesOf(input.context.memory, payload.x) };
     const startedAt = Date.now();
     const finalized = new Set<string>();
     try {
@@ -303,7 +272,10 @@ export class ExtractionWorkService {
    * The token's runs, still claimed and still on its documents. A run that
    * is no longer `running` was submitted already (a replay) or reclaimed.
    */
-  private async claimedRuns(companyId: string, payload: WorkTokenPayload): Promise<ClaimedRun[]> {
+  private async claimedRuns(
+    companyId: string,
+    payload: ExtractionTokenPayload,
+  ): Promise<ClaimedRun[]> {
     const claimed: ClaimedRun[] = [];
     for (const [i, docId] of payload.d.entries()) {
       const runId = payload.r[i] as string;
@@ -316,22 +288,6 @@ export class ExtractionWorkService {
       claimed.push({ doc, runId });
     }
     return claimed;
-  }
-
-  private remember(nonce: string, context: ConversationContext, until: number): void {
-    const now = Date.now();
-    for (const [k, v] of this.prepared) if (v.until < now) this.prepared.delete(k);
-    while (this.prepared.size >= PREPARED_CAP) {
-      const oldest = this.prepared.keys().next().value;
-      if (oldest === undefined) break;
-      this.prepared.delete(oldest);
-    }
-    this.prepared.set(nonce, { context, until });
-  }
-
-  private recall(nonce: string): ConversationContext | undefined {
-    const hit = this.prepared.get(nonce);
-    return hit && hit.until >= Date.now() ? hit.context : undefined;
   }
 }
 
@@ -348,5 +304,25 @@ export function tokenTtlMs(): number {
   return Math.max(60_000, staleRunMs() - 60_000);
 }
 
-/** Prepared contexts kept in process. */
-const PREPARED_CAP = 512;
+/**
+ * The memory the reply's handles resolve against: the rebuilt context
+ * (date, turns, vocabulary) with exactly the entities and facts the
+ * prompt showed, by the ids the token carries. Only handle and id are
+ * read when a reply is assembled (knownEntityId / supersededFactIds).
+ */
+function handlesOf(
+  rebuilt: MemoryContext | undefined,
+  x: ExtractionTokenPayload['x'],
+): MemoryContext {
+  return {
+    ...(rebuilt ?? { recentTurns: [], predicates: [] }),
+    entities: x.e.map((id, i) => ({ handle: `e${i + 1}`, id, name: '', type: '' })),
+    facts: x.m.map((id, i) => ({
+      handle: `m${i + 1}`,
+      id,
+      entityHandle: '',
+      predicate: '',
+      object: '',
+    })),
+  };
+}

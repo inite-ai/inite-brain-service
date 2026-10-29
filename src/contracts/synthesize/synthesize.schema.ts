@@ -62,6 +62,8 @@ export const SynthesisReasonSchema = z.enum([
   'verifier_failed',
   'verifier_partial',
   'generator_error',
+  /** Harness mode: the server makes no model call; `results` carry the evidence to answer from. */
+  'harness_mode',
   'verifier_error',
 ]);
 

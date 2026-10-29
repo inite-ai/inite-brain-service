@@ -28,7 +28,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: false,
     description:
-      'Who reads captured documents into facts. `server` (default): the background extract_documents pass calls the configured extraction model. `harness`: the server spends no model key on extraction — the pass leaves documents pending (no triage, no read) and the connected agent reads them with its own model through the MCP tools take_extraction_work / submit_extraction, whose replies go through the same grounding, staging and commit. Every other server-side chat call (judges, scene summaries, synthesize), Jev decisions and the Cohere reranker are refused before the network, and OPENAI_API_KEY may be unset with EMBEDDER_PROVIDER=bge-m3.',
+      'Who does the reading the server models would do. `server` (default): the server calls them. `harness`: no model call — background reading (extraction, attribute cardinality, entity, conflict and corroboration judgements, scene summaries, belief sentences) is handed to the connected agent in batches through the MCP tools take_memory_work / submit_memory_work and applied by the server own writes; every other server-side chat call, Jev decisions and the Cohere reranker are refused before the network, and OPENAI_API_KEY may be unset with EMBEDDER_PROVIDER=bge-m3.',
   },
   {
     key: 'EXTRACTION_CONVERSATION_SETTLE_SECONDS',

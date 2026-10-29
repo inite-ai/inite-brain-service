@@ -2,8 +2,9 @@
  * Who reads captured documents (#819). `server` (default): the background
  * pass calls the configured extraction model. `harness`: the server spends
  * no model key on extraction — documents stay pending, and the connected
- * agent reads them with its own model through `take_extraction_work` /
- * `submit_extraction` (extraction-work.service.ts).
+ * agent reads them with its own model through `take_memory_work` /
+ * `submit_memory_work` (harness-work-tools.ts), with every other background
+ * reading of the server's models.
  *
  * A string setting, not an engine flag: it chooses who pays for the read,
  * not which code path a measurement sees — the harness reply goes through

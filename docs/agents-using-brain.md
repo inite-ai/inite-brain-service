@@ -87,48 +87,65 @@ document → fact provenance loop under `TOOL_OBSERVATIONS_ENABLED`),
 Admin (adds with `brain:admin`): `forget_entity` — GDPR hard-delete with a
 synchronous cascade and tombstones.
 
-Harness extraction (adds with `brain:write`, only on a server running
-`EXTRACTION_SOURCE=harness`): `take_extraction_work`, `submit_extraction` —
+Harness work (adds with `brain:write`, only on a server running
+`EXTRACTION_SOURCE=harness`): `take_memory_work`, `submit_memory_work` —
 see [Harness mode](#harness-mode).
 
 ## Harness mode
 
 A workspace running `EXTRACTION_SOURCE=harness` spends no model key of its
-own, anywhere: you read its stored documents into facts with your own model,
-and you answer from its evidence yourself. The server can run with no
-`OPENAI_API_KEY` at all (on the local `bge-m3` embedder). Writes work as always — `ingest_document`, the mention routes and the
-plugin's capture store text raw, and it is searchable at once through the
-episode lanes. The facts come when you read it:
+own, anywhere. Everything its server would have asked a model, it leaves for
+you, and you answer with your own model. The server can run with no
+`OPENAI_API_KEY` at all, on the local `bge-m3` embedder.
 
-1. When idle (between tasks, end of a session), call `take_extraction_work`.
-   `{work: null}` means nothing is waiting — stop.
-2. Otherwise `work` holds `systemPrompt`, `userContent` (the memory context
-   plus the text), `schema` (the JSON schema of the reply), `documents` (how
-   many turns it covers), `token` and `expiresAt`. Answer it with your model:
-   `systemPrompt` as the system message, `userContent` as the user message, a
-   JSON object matching `schema` as the reply. Copy values verbatim from the
-   text where the prompt says so — the server drops anything the text does
-   not hold, exactly as it does for its own model.
-3. Call `submit_extraction({token, result})` before `expiresAt`. It returns
-   `{documents, facts, entities, edges, committed}`. A token works once; an
-   expired one is refused, and its documents return to the queue on their
-   own after the claim window (`INDEXER_RUN_STALE_MINUTES`, 30 min).
-   A `409` (the memory or the predicate vocabulary moved since you took the
-   work) releases the documents: take again.
+Writes work as usual. `ingest_document`, the mention routes and the plugin's
+capture store text raw, and it is searchable at once through the episode
+lanes. The rest comes in batches:
+
+| `kind`                | What you read                                                  | What the server does with your reply                                 |
+| --------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `extraction`          | stored turns and documents, with the memory context            | grounds every value against the text, resolves entities, commits      |
+| `predicate_semantics` | new attributes: can a subject hold one value or several        | sets the attribute's policy, so the next value supersedes or adds    |
+| `entity_match`        | pairs of entities whose names are close, with their facts      | links the same thing (`identity_of`), or remembers "different"       |
+| `fact_conflict`       | pairs of competing facts, with the subject's other facts       | supersedes the loser and makes the winner the current value          |
+| `fact_corroboration`  | pairs of facts that may state one thing in two wordings        | records the second as corroborating the first                        |
+| `scene_summary`       | conversation scenes as transcripts                             | stores the gist, memory value, state changes and entity mentions     |
+| `belief_statement`    | remembered states (subject, attribute, value)                  | replaces the template sentence with yours                            |
+
+1. When you are idle (between tasks, at the end of a session), call
+   `take_memory_work`. `{work: null}` means nothing is waiting, so stop.
+   Kinds come in the order above: facts first, because the judgements and
+   summaries read them. `kinds` limits a call to some of them.
+2. Otherwise `work` holds `kind`, `systemPrompt`, `userContent`, `schema`
+   (the JSON schema of the reply), `items` (how many turns, pairs, scenes,
+   attributes or beliefs the batch covers), `token` and `expiresAt`. Answer
+   it with your model: `systemPrompt` as the system message, `userContent`
+   as the user message, and a JSON object matching `schema` as the reply.
+   Batches number their items (`p1`, `s1`, `q1`, `b1`, …). Answer each item
+   once, by its number. For extraction, copy values verbatim where the prompt
+   says so: the server drops anything the text does not hold, exactly as it
+   does for its own model.
+3. Call `submit_memory_work({token, result})` before `expiresAt`. It returns
+   counts for the batch.
+   - An item whose evidence changed since you took it is counted `stale` and
+     comes back later. Submitting a batch twice changes nothing the second
+     time.
+   - An extraction token claims its documents. If you never submit it, they
+     return to the queue on their own after the claim window
+     (`INDEXER_RUN_STALE_MINUTES`, 30 min).
+   - A `409` on extraction means the predicate vocabulary moved since you
+     took the work; take it again.
 4. Repeat until `work` is null.
 
-Pass the same `userId` you write with: a tenant-global call takes only
-tenant-global documents, a user's call only that user's.
+Pass the same `userId` you write with. A tenant-global call sees only
+tenant-global memory, and a user's call sees only that user's.
 
-Answering: `search_knowledge` (facts with their relations, so one call
-usually covers a two-hop question), `get_entity_timeline` (what held before:
-superseded values with their dates) and `get_fact_provenance`, then answer
-from that evidence yourself. `synthesize` makes no call in this mode and
-returns an empty answer (`reason: generator_error`).
-
-What the server's own model did in the background is skipped, not billed:
-a borderline "same entity?" match is kept as two entities, scenes are built
-without their summaries, and dreams merge and resolve nothing.
+To answer a question, use `search_knowledge` (facts with their relations, so
+one call usually covers a two-hop question), `get_entity_timeline` (what held
+before: superseded values with their dates) and `get_fact_provenance`. Then
+answer from that evidence yourself. In this mode `synthesize` makes no model
+call: it returns no answer, with `reason: harness_mode` and the evidence in
+`results`.
 
 ## Memory semantics you must know
 

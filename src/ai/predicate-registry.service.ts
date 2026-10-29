@@ -31,6 +31,7 @@ import {
   embeddingTextFor,
   serializeForInsert,
 } from './predicate-registry-internals/db-mapping';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /**
  * What a writer knows about a predicate it asks the registry about: the
@@ -63,6 +64,14 @@ export { CORE_PREDICATES } from './predicate-registry-internals/core-seed';
  * lifecycle: snapshot cache, bootstrap, CRUD writes, and the EDC
  * canonicalize loop.
  */
+
+/**
+ * Who files a coinage in harness mode, as it reads in the proposal's
+ * description: "auto-proposed as append_only by the harness agent
+ * (pending); awaiting review" — the mark the predicate_semantics work
+ * lists (predicate-semantics-work.service.ts).
+ */
+export const HARNESS_SEMANTICS_PENDING = 'harness agent (pending)';
 
 @Injectable()
 export class PredicateRegistryService {
@@ -864,7 +873,14 @@ export class PredicateRegistryService {
     snapshot: PredicateSnapshot;
   }): Promise<CanonicalizeDecision> {
     const { companyId, predicate, context, best, queryEmb, snapshot } = args;
-    const decidedBy = context.cardinality ? 'extractor' : 'judge';
+    // Harness mode buys no judge call: a coinage no reader classified is
+    // filed append_only (the conservative default) and marked for the
+    // connected agent (kind predicate_semantics).
+    const decidedBy = context.cardinality
+      ? 'extractor'
+      : serverModelsRefused()
+        ? HARNESS_SEMANTICS_PENDING
+        : 'judge';
     const semantics: Semantics =
       context.cardinality === 'one'
         ? 'single_active'

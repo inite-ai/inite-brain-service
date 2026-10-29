@@ -18,8 +18,10 @@ import { extractionSource } from '../src/common/extraction-source';
 import {
   mintWorkToken,
   verifyWorkToken,
+  type ExtractionTokenPayload,
   type WorkTokenPayload,
-} from '../src/documents/extraction-work-token';
+} from '../src/common/harness-work-token';
+import { verifiedWorkToken } from '../src/mcp/harness-work-tools';
 import { ExtractionWorkService, tokenTtlMs } from '../src/documents/extraction-work.service';
 import { IndexerRunService } from '../src/documents/indexer-run.service';
 import type { StoredDocument } from '../src/documents/document-store.service';
@@ -48,14 +50,15 @@ afterAll(() => {
   }
 });
 
-const payload = (over: Partial<WorkTokenPayload> = {}): WorkTokenPayload => ({
-  v: 1,
+const payload = (over: Partial<ExtractionTokenPayload> = {}): ExtractionTokenPayload => ({
+  v: 2,
+  t: 'extraction',
   c: 'co_a',
   d: ['document:1'],
   r: ['indexer_run:1'],
   h: 'vh',
-  m: 'md',
   k: '',
+  x: { e: [], m: [] },
   n: 'nonce',
   exp: Math.floor(Date.now() / 1000) + 600,
   ...over,
@@ -93,6 +96,13 @@ describe('work token', () => {
   it('expires', () => {
     const token = mintWorkToken(payload({ exp: Math.floor(Date.now() / 1000) - 1 }));
     expect(verifyWorkToken(token).state).toBe('expired');
+  });
+
+  it('refuses a payload of an unknown version or kind, or missing its kind fields', () => {
+    const forge = (p: object) => mintWorkToken(p as WorkTokenPayload);
+    expect(verifyWorkToken(forge({ ...payload(), v: 1 })).state).toBe('invalid');
+    expect(verifyWorkToken(forge({ ...payload(), t: 'nonsense' })).state).toBe('invalid');
+    expect(verifyWorkToken(forge({ ...payload(), x: undefined })).state).toBe('invalid');
   });
 
   it('expires inside the run ledger stale window', () => {
@@ -207,7 +217,7 @@ function harness(opts: { runStatus?: string } = {}) {
     insertBatch: jest.fn(async () => ({ entities: 1, facts: 1, relations: 0 })),
     finalizeRun: jest.fn(async () => undefined),
   };
-  const memory = { build: jest.fn(async () => undefined) };
+  const memory = { build: jest.fn(async (): Promise<unknown> => undefined) };
   const extractor = {
     modelId: () => 'm',
     vocabularyVersionHash: jest.fn(async () => 'vh'),
@@ -235,7 +245,7 @@ function harness(opts: { runStatus?: string } = {}) {
     extractor as never,
     batch as never,
   );
-  return { work, runs, store, candidates, extractor, batch };
+  return { work, runs, store, candidates, extractor, batch, memory };
 }
 
 describe('take', () => {
@@ -257,7 +267,8 @@ describe('take', () => {
       systemPrompt: 'SYS',
       userContent: 'USER',
       schema: { type: 'object' },
-      documents: 2,
+      kind: 'extraction',
+      items: 2,
     });
     expect(h.candidates.createRun).toHaveBeenCalledTimes(2);
     const prepareCall = h.extractor.prepareRead.mock.calls[0] as unknown as [
@@ -302,11 +313,19 @@ describe('take', () => {
   });
 });
 
+/** The verified payload of a token take handed out. */
+function issued(token: string | undefined): ExtractionTokenPayload {
+  const v = verifyWorkToken(token);
+  if (v.state !== 'valid' || v.payload.t !== 'extraction')
+    throw new Error('not an extraction token');
+  return v.payload;
+}
+
 describe('submit', () => {
   it('assembles, stages on the claimed runs and commits in order', async () => {
     const h = harness();
     const taken = await h.work.take('co_a');
-    const out = await h.work.submit('co_a', taken?.token as string, { facts: [] });
+    const out = await h.work.submit('co_a', issued(taken?.token), { facts: [] });
     expect(out).toEqual({ documents: 2, facts: 1, entities: 1, edges: 0, committed: 2 });
     expect(h.extractor.assembleRead).toHaveBeenCalledTimes(1);
     expect(h.candidates.insertBatch).toHaveBeenCalled();
@@ -320,20 +339,72 @@ describe('submit', () => {
     expect(h.batch.commitInOrder).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a bad token, another tenant and an expired token with 4xx', async () => {
-    const h = harness();
-    await expect(h.work.submit('co_a', 'nope', {})).rejects.toBeInstanceOf(BadRequestException);
+  it('refuses a bad token, another tenant and an expired token with 4xx', () => {
+    expect(() => verifiedWorkToken('co_a', 'nope')).toThrow(BadRequestException);
     const foreign = mintWorkToken(payload({ c: 'co_b' }));
-    await expect(h.work.submit('co_a', foreign, {})).rejects.toBeInstanceOf(ForbiddenException);
+    expect(() => verifiedWorkToken('co_a', foreign)).toThrow(ForbiddenException);
     const expired = mintWorkToken(payload({ exp: Math.floor(Date.now() / 1000) - 5 }));
-    await expect(h.work.submit('co_a', expired, {})).rejects.toBeInstanceOf(BadRequestException);
-    expect(h.candidates.insertBatch).not.toHaveBeenCalled();
+    expect(() => verifiedWorkToken('co_a', expired)).toThrow(BadRequestException);
+    expect(verifiedWorkToken('co_a', mintWorkToken(payload())).t).toBe('extraction');
+  });
+
+  it('maps the reply handles by the ids the token carries, not a rebuilt memory', async () => {
+    const h = harness();
+    const memoryAt = (entities: string[], facts: string[]) => ({
+      recentTurns: [],
+      predicates: [],
+      entities: entities.map((id, i) => ({ handle: `e${i + 1}`, id, name: id, type: 'other' })),
+      facts: facts.map((id, i) => ({
+        handle: `m${i + 1}`,
+        id,
+        entityHandle: 'e1',
+        predicate: 'p',
+        object: 'o',
+      })),
+    });
+    h.memory.build.mockResolvedValueOnce(
+      memoryAt(
+        ['knowledge_entity:a', 'knowledge_entity:b'],
+        ['knowledge_fact:1', 'knowledge_fact:2'],
+      ) as never,
+    );
+    const taken = await h.work.take('co_a');
+    expect(issued(taken?.token).x).toEqual({
+      e: ['knowledge_entity:a', 'knowledge_entity:b'],
+      m: ['knowledge_fact:1', 'knowledge_fact:2'],
+    });
+    // Another replica rebuilds the memory in another order.
+    h.memory.build.mockResolvedValueOnce(
+      memoryAt(
+        ['knowledge_entity:b', 'knowledge_entity:a'],
+        ['knowledge_fact:2', 'knowledge_fact:1'],
+      ) as never,
+    );
+    await h.work.submit('co_a', issued(taken?.token), { facts: [] });
+    const [args] = h.extractor.assembleRead.mock.calls[0] as unknown as [
+      {
+        context: {
+          memory: {
+            entities: Array<{ handle: string; id: string }>;
+            facts: Array<{ handle: string; id: string }>;
+          };
+        };
+      },
+    ];
+    expect(args.context.memory.entities.map((e) => [e.handle, e.id])).toEqual([
+      ['e1', 'knowledge_entity:a'],
+      ['e2', 'knowledge_entity:b'],
+    ]);
+    expect(args.context.memory.facts.map((f) => [f.handle, f.id])).toEqual([
+      ['m1', 'knowledge_fact:1'],
+      ['m2', 'knowledge_fact:2'],
+    ]);
   });
 
   it('refuses a replay: runs no longer claimed', async () => {
     const h = harness({ runStatus: 'succeeded' });
     const taken = await h.work.take('co_a');
-    await expect(h.work.submit('co_a', taken?.token as string, {})).rejects.toBeInstanceOf(
+    await expect(h.work.submit('co_a', issued(taken?.token), {})).rejects.toBeInstanceOf(
       ConflictException,
     );
     expect(h.candidates.insertBatch).not.toHaveBeenCalled();
@@ -343,7 +414,7 @@ describe('submit', () => {
     const h = harness();
     const taken = await h.work.take('co_a');
     h.extractor.vocabularyVersionHash.mockResolvedValue('vh2');
-    await expect(h.work.submit('co_a', taken?.token as string, {})).rejects.toBeInstanceOf(
+    await expect(h.work.submit('co_a', issued(taken?.token), {})).rejects.toBeInstanceOf(
       ConflictException,
     );
     const statuses = (

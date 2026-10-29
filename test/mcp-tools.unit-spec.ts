@@ -145,15 +145,15 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     try {
       delete process.env.EXTRACTION_SOURCE;
       const server = toolNames(await buildWithScopes(['brain:read', 'brain:write']));
-      expect(server).not.toContain('take_extraction_work');
-      expect(server).not.toContain('submit_extraction');
+      expect(server).not.toContain('take_memory_work');
+      expect(server).not.toContain('submit_memory_work');
       process.env.EXTRACTION_SOURCE = 'harness';
       const readOnly = toolNames(await buildWithScopes(['brain:read']));
-      expect(readOnly).not.toContain('take_extraction_work');
-      expect(readOnly).not.toContain('submit_extraction');
+      expect(readOnly).not.toContain('take_memory_work');
+      expect(readOnly).not.toContain('submit_memory_work');
       const harness = toolNames(await buildWithScopes(['brain:read', 'brain:write']));
-      expect(harness).toContain('take_extraction_work');
-      expect(harness).toContain('submit_extraction');
+      expect(harness).toContain('take_memory_work');
+      expect(harness).toContain('submit_memory_work');
     } finally {
       if (before === undefined) delete process.env.EXTRACTION_SOURCE;
       else process.env.EXTRACTION_SOURCE = before;

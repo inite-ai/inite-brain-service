@@ -22,6 +22,7 @@ import { StatsModule } from '../stats/stats.module';
 import { WorkspaceStatusService } from './workspace-status.service';
 import { ApiKeyGuard } from '../auth/api-key.guard';
 import { McpOptionalAuthGuard } from './mcp-optional-auth.guard';
+import { DreamsModule } from '../dreams/dreams.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { McpOptionalAuthGuard } from './mcp-optional-auth.guard';
     CodeMemoryModule,
     SourcesModule,
     DocumentsModule,
+    DreamsModule,
     FeedbackModule,
     OutcomesModule,
     StatsModule,

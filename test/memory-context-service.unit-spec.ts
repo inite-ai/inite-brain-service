@@ -38,9 +38,15 @@ function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}
           ],
         ];
       }
+      // What the user's own entity is linked to (linkedToOwn).
+      if (sql.includes('in = $own')) {
+        return [[{ in: String(params?.own), out: 'knowledge_entity:laptop' }]];
+      }
       if (sql.includes('FROM knowledge_entity')) {
         return [
           [
+            { id: 'knowledge_entity:me', canonicalName: 'Me', type: 'customer' },
+            { id: 'knowledge_entity:laptop', canonicalName: 'ThinkPad X1', type: 'asset' },
             { id: 'knowledge_entity:rk', canonicalName: 'RK Imóveis', type: 'customer' },
             { id: 'knowledge_entity:rui', canonicalName: 'Rui Almeida', type: 'customer' },
             { id: 'knowledge_entity:old', canonicalName: 'Old', type: 'other', mergedInto: 'x' },
@@ -137,6 +143,7 @@ function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}
       if (e.name === 'Old') return 'knowledge_entity:old';
       return null;
     }),
+    resolveExistingByNamePart: jest.fn(async () => null as string | null),
   };
   const ner = {
     isReady: () => true,
@@ -145,6 +152,8 @@ function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}
       if (text === 'turn two')
         return [{ text: 'RK Imóveis', type: 'ORG', start: 0, end: 10, score: 0.99 }];
       if (text === 'turn one') return [{ text: 'Old', type: 'ORG', start: 0, end: 3, score: 0.99 }];
+      if (text === 'sold the Ninja')
+        return [{ text: 'Ninja', type: 'MISC', start: 9, end: 14, score: 0.9 }];
       return [];
     }),
   };
@@ -160,7 +169,7 @@ function make(opts: { fail?: boolean; predicates?: string[]; own?: string } = {}
     ner as never,
     users as never,
   );
-  return { svc, queries, lookups, ner, users };
+  return { svc, queries, lookups, ner, users, entities };
 }
 
 describe('MemoryContextService.build', () => {
@@ -244,6 +253,29 @@ describe('MemoryContextService.build', () => {
     expect(edgeQ().sql).not.toContain('$said');
   });
 
+  it('shows what the user is linked to and finds a short mention of a longer name', async () => {
+    const { svc } = make({ own: 'knowledge_entity:me' });
+    const linked = await svc.build({ companyId: 'co', text: 'current', userId: 'u1' });
+    // The user, the turn's own name (Rui), then what the user is linked to.
+    expect(linked?.entities.map((e) => e.id)).toEqual([
+      'knowledge_entity:me',
+      'knowledge_entity:rui',
+      'knowledge_entity:laptop',
+    ]);
+  });
+
+  it('a name the whole-name ladder misses is looked up as part of a longer name', async () => {
+    const { svc, entities } = make();
+    entities.resolveExistingByNamePart.mockImplementation(async () => 'knowledge_entity:rk');
+    const ctx = await svc.build({ companyId: 'co', text: 'sold the Ninja' });
+    expect(entities.resolveExistingByNamePart).toHaveBeenCalledWith(
+      expect.anything(),
+      { name: 'Ninja' },
+      { userId: undefined },
+    );
+    expect(ctx?.entities.map((e) => e.id)).toContain('knowledge_entity:rk');
+  });
+
   it('inUse: asks about the entities the text names — never the user — and reads either signal', async () => {
     const { svc, queries, users } = make({ own: 'knowledge_entity:me' });
     // 'current' names Rui (NER) → knowledge_entity:rui; the store answers
@@ -265,10 +297,12 @@ describe('MemoryContextService.build', () => {
     const { svc, users, lookups } = make({ own: 'knowledge_entity:rk' });
     const ctx = await svc.build({ companyId: 'co', text: 'current', userId: 'u1' });
     expect(users.lookup).toHaveBeenCalledWith(expect.anything(), 'u1');
-    // rk is the user's entity here: it leads, and the turn's own name (Rui) follows.
+    // rk is the user's entity here: it leads, the turn's own name (Rui)
+    // follows, then what the user is linked to.
     expect(ctx?.entities.map((e) => `${e.handle}:${e.id}`)).toEqual([
       'e1:knowledge_entity:rk',
       'e2:knowledge_entity:rui',
+      'e3:knowledge_entity:laptop',
     ]);
     // The name lookups are unchanged — the pin is additional, not a lookup.
     expect(lookups).toEqual(['Rui']);

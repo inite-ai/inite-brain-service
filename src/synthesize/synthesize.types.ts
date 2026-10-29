@@ -39,6 +39,8 @@ export type SynthesisReason =
   | 'verifier_failed'
   | 'verifier_partial'
   | 'generator_error'
+  /** Harness mode: no server model call; the caller answers from `results`. */
+  | 'harness_mode'
   | 'verifier_error';
 
 /**

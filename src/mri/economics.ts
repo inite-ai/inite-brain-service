@@ -124,6 +124,7 @@ export const TERMINAL_SYNTHESIZE_OUTCOMES = [
   'verifier_partial',
   'verifier_failed',
   'generator_error',
+  'harness_mode',
   'verifier_error',
 ] as const;
 

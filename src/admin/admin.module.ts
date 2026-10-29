@@ -54,6 +54,8 @@ import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
 import { SceneMaintenanceService } from './scene-maintenance.service';
 import { SceneEnricherService } from './scene-enricher.service';
+import { SceneSummaryWorkService } from './scene-summary-work.service';
+import { BeliefStatementWorkService } from './belief-statement-work.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 import { BeliefPromotionService } from './belief-promotion.service';
 import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
@@ -154,6 +156,8 @@ import { PlatformSettingsService } from './platform-settings.service';
     SceneComposerService,
     SceneMaintenanceService,
     SceneEnricherService,
+    SceneSummaryWorkService,
+    BeliefStatementWorkService,
     SceneBacklinkService,
     BeliefPromotionService,
     SceneEvidenceLinkerService,

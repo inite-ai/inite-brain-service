@@ -160,7 +160,7 @@ export class ExtractionBatchService implements OnModuleInit {
   /**
    * Harness mode (EXTRACTION_SOURCE=harness, #819): no triage, no read, no
    * model call — the waiting documents stay pending for the connected
-   * agent (take_extraction_work). One line with the count, never content.
+   * agent (take_memory_work). One line with the count, never content.
    */
   private async leaveForHarness(companyId: string): Promise<PassOutcome> {
     const waiting = await this.candidates.listAwaitingRuns(companyId, {
