@@ -1,6 +1,6 @@
 {
   "name": "inite-brain-service",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "INITE Brain Service - Cross-vertical knowledge layer (system of insight, not record). Implements the inite.service.brain contract.",
   "author": "INITE",
   "license": "AGPL-3.0-or-later",
