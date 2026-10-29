@@ -95,7 +95,7 @@ the strict JSON schema in lockstep with the prompt:
   `append_only`; `PredicateRegistryService.canonicalize` takes it in the
   context object) and the semantics judge is not asked; a predicate
   already registered keeps its semantics. The judge remains for writers
-  without the contract (`record_fact`, the harvest lanes). Measured on
+  without the contract (`record_fact`). Measured on
   the stand: the judge was 1–3.6 s of every turn that coined something,
   in series after the extraction, on a tenant young enough that every
   turn did — ingest fell from 2.6–10.9 s to 2.0–6.6 s per turn with the

@@ -4,8 +4,8 @@ import type { ExtractionResult } from './types';
 /**
  * Union several independent extractions of the SAME text into one result.
  *
- * Used by both multi-pass extraction (`EXTRACTOR_SC_PASSES`, N re-rolls of one
- * prompt) and facet routing (`EXTRACTOR_ROUTING_ENABLED`, N specialist prompts).
+ * Used by multi-pass extraction (`EXTRACTOR_SC_PASSES`, N re-rolls of one
+ * prompt).
  *
  * ⚠️ INDEX REMAPPING IS THE WHOLE POINT. Each pass returns its OWN `entities`
  * array, and its facts/edges address entities by POSITION in that array. Merging
@@ -14,8 +14,8 @@ import type { ExtractionResult } from './types';
  * at index 4 — or be a different entity entirely. The pre-existing multi-pass
  * merge carried raw indices across the union, which silently mis-attributed
  * facts whenever two passes ordered their entities differently. Same-prompt
- * re-rolls usually agree, which is why it survived; facet passes never do (the
- * named-entity pass emits only proper nouns), so the union must remap.
+ * re-rolls usually agree, which is why it survived; they do not always, so the
+ * union must remap.
  *
  * Deduplication: entities by (type, lowercased name); facts by semantic cluster
  * key; edges by (from-entity identity, kind, to-entity identity) — identity,
@@ -25,8 +25,8 @@ import type { ExtractionResult } from './types';
  * alone. They type the same thing differently ("@nestjs/config" as `other`
  * in one pass, `asset` in the next), and keyed by type as well it became
  * two entities — measured on a production document, 57 entities where 34
- * were meant. The first pass's type stands. Facet passes keep the type in
- * the key: they look for different things by design.
+ * were meant. The first pass's type stands. Without `selfConsistency` the
+ * type stays in the key.
  */
 export function mergeExtractions(
   passes: ExtractionResult[],
@@ -55,8 +55,8 @@ export function mergeExtractions(
   }
 
   // Self-consistency stats are only meaningful across re-rolls of the SAME
-  // prompt. Across facets, passes look for different things by construction, so
-  // "only 1 of 3 passes found it" says nothing about confidence.
+  // prompt; passes that look for different things say nothing about
+  // confidence when "only 1 of 3 passes found it".
   const sc = opts.selfConsistency
     ? selfConsistencyByFact(
         passes.map((r, p) =>
