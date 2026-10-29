@@ -5,6 +5,8 @@ import { envFlagNotDisabled } from '../common/env-validation';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { FactsService } from '../facts/facts.service';
+import type { FactSourceTurnsService } from '../facts/fact-source-turns.service';
+import { countTokens } from '../common/token-counter';
 import type { MultiHopService } from '../multi-hop/multi-hop.service';
 import type { SynthesizeService } from '../synthesize/synthesize.service';
 import type { MemoryDiffService } from '../diff/memory-diff.service';
@@ -14,7 +16,7 @@ import type { BrainScope } from '../auth/api-key.types';
 import { NOOP_REPORTER, type ProgressEvent, type ProgressReporter } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
-import { compactSearch, compactTimeline } from './compact-read';
+import { compactSearch, compactTimeline, focusSelect, renderFocus } from './compact-read';
 
 /**
  * The per-user scope argument every read tool takes. A user-bound token
@@ -45,6 +47,8 @@ export interface ReadToolDeps {
   predictor: IngestPredictionService;
   summarizer: SummarizeEntityService;
   embedderDescription: () => string;
+  /** The raw turns behind facts (search_knowledge focus view); absent → facts only. */
+  sourceTurns?: FactSourceTurnsService | undefined;
 }
 
 /**
@@ -132,10 +136,10 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         minConfidence: z.number().min(0).max(1).optional(),
         userId: userScopeArg,
         detail: z
-          .enum(['compact', 'full'])
+          .enum(['focus', 'compact', 'full'])
           .optional()
           .describe(
-            'compact (default): names, entity ids, facts (predicate, object, since) and relations. full: adds fact and edge ids, scores with their breakdown, trust keys',
+            'focus (default): only what the query is about, as facts or the turn they came from, whichever is shorter. compact: every fact of the matched entities, with entity ids. full: adds fact and edge ids, scores and trust keys',
           ),
       },
     },
@@ -152,8 +156,22 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         },
         scopes,
       );
-      // The model reads the evidence, not the engine's bookkeeping
-      // (compact-read.ts: 3545 → ~330 tokens on the same answer).
+      // The model reads the evidence, not the engine's bookkeeping, and
+      // by default only the part the query is about, in its cheapest
+      // faithful form (compact-read.ts: 3683 → under the raw turns).
+      if (args.detail === undefined || args.detail === 'focus') {
+        const factIds = focusSelect(found).kept.map((k) => k.fact.factId);
+        const sources = deps.sourceTurns
+          ? await deps.sourceTurns.turnsOf({
+              companyId,
+              factIds,
+              scopes,
+              userId: args.userId,
+            })
+          : new Map();
+        const text = renderFocus({ out: found, sources, tokens: countTokens });
+        return { content: [{ type: 'text', text }] };
+      }
       const out = args.detail === 'full' ? found : compactSearch(found);
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],

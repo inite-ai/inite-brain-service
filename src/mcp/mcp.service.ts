@@ -55,6 +55,7 @@ import { toolObservationsEnabled } from '../common/tool-observation-flags';
 import { registerHarnessWorkTools } from './harness-work-tools';
 import { ExtractionWorkService } from '../documents/extraction-work.service';
 import { DreamsWorkService } from '../dreams/dreams-work.service';
+import { FactSourceTurnsService } from '../facts/fact-source-turns.service';
 import { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
 import { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
@@ -150,6 +151,8 @@ export class McpService {
     @Optional() private readonly extractionWork?: ExtractionWorkService,
     @Optional() private readonly dreamsWork?: DreamsWorkService,
     @Optional() private readonly predicateWork?: PredicateSemanticsWorkService,
+    // The turns behind facts, for search_knowledge's focus view.
+    @Optional() private readonly sourceTurns?: FactSourceTurnsService,
     // The scene work lives in AdminModule, which imports McpModule:
     // resolved per call, not injected.
     @Optional() private readonly moduleRef?: ModuleRef,
@@ -729,6 +732,7 @@ export class McpService {
         predictor: this.predictor,
         summarizer: this.summarizer,
         embedderDescription: () => this.embedderDescription(),
+        sourceTurns: this.sourceTurns,
       },
     });
     registerProceduralReadTools(server, companyId, {

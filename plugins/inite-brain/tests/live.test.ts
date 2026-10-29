@@ -31,7 +31,17 @@ type Seen = {
  * (after `delayMs` on the mocked clock), and a prompt bottom that records
  * the context that reached the model.
  */
-function engine(on: On, opts: { delayMs?: number; connected?: boolean } = {}): Seen {
+/** search_knowledge's default answer: focus lines, not JSON. */
+const FOCUS_TEXT = [
+  'Ledger Sync: owned by = Ana (2026-09-01); deploys to = fly.io',
+  '[2026-10-02] mike: "we moved the queue to Redis last week"',
+  '(+7 more: detail "compact")',
+].join('\n')
+
+function engine(
+  on: On,
+  opts: { delayMs?: number; connected?: boolean; focusText?: boolean } = {},
+): Seen {
   const seen: Seen = { calls: [], context: undefined, clock: mock.clock(on) }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
@@ -47,8 +57,13 @@ function engine(on: On, opts: { delayMs?: number; connected?: boolean } = {}): S
   on('mcp.call', async ($, e) => {
     seen.calls.push({ tool: e.tool, args: e.args })
     if (opts.delayMs) await $.clock.sleep(opts.delayMs)
-    const body = e.tool === 'workspace_status' ? STATUS : SEARCH
-    return { value: { content: [{ type: 'text', text: JSON.stringify(body) }], isError: false } }
+    const text =
+      e.tool === 'workspace_status'
+        ? JSON.stringify(STATUS)
+        : opts.focusText
+          ? FOCUS_TEXT
+          : JSON.stringify(SEARCH)
+    return { value: { content: [{ type: 'text', text }], isError: false } }
   })
   on('prompt.submit', ($, e) => {
     seen.context = e.context
@@ -73,6 +88,16 @@ describe('recall on every prompt', () => {
     expect(seen.context?.[0]).toContain('- Ledger Sync: owned by Ana; deploys to fly.io')
     // An entity with no facts says nothing worth a line.
     expect(seen.context?.[0]).not.toContain('Nameless')
+  })
+
+  test('reads the focus lines the server answers by default', { options: OPTIONS }, async ($, on) => {
+    const seen = engine(on, { focusText: true })
+    await start($)
+    await submit($, 'who owns the ledger sync service?')
+    expect(seen.context?.[0]).toContain('- Ledger Sync: owned by = Ana (2026-09-01); deploys to = fly.io')
+    expect(seen.context?.[0]).toContain('we moved the queue to Redis last week')
+    // The closing note is for the model asking brain directly, not a hit.
+    expect(seen.context?.[0]).not.toContain('detail "compact"')
   })
 
   test('asks for the configured user only', { options: { ...OPTIONS, user_id: 'u_7' } }, async ($, on) => {

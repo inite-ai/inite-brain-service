@@ -4,7 +4,7 @@
  * Measured on a key-less stand: one search answer 3545 → ~440 tokens,
  * one timeline 2784 → ~515, where the raw turns behind them cost 138.
  */
-import { compactSearch, compactTimeline } from '../src/mcp/compact-read';
+import { compactSearch, compactTimeline, renderFocus } from '../src/mcp/compact-read';
 import type { SearchHit } from '../src/search/search.types';
 import type { TimelineEvent } from '../src/entities/entities.service';
 
@@ -192,5 +192,104 @@ describe('compactTimeline', () => {
     const text = JSON.stringify(compactTimeline({ entityId: 'e', events }));
     expect(text).not.toContain('source_document');
     expect(text).not.toContain('confidence');
+  });
+});
+
+describe('renderFocus — the fovea: only what the query is about, in its cheapest form', () => {
+  const chars = (s: string) => s.length;
+  const fact = (id: string, predicate: string, object: string, score: number) => ({
+    factId: id,
+    predicate,
+    object,
+    confidence: 0.9,
+    validFrom: '2026-10-05T10:00:00.000Z',
+    status: 'active',
+    score,
+  });
+  const sasha = hit({
+    facts: [
+      fact('knowledge_fact:moto', 'owns_motorcycle', 'no motorcycle anymore', 0.25),
+      fact('knowledge_fact:sold', 'sold', 'Kawasaki Ninja motorcycle', 0.21),
+      fact('knowledge_fact:a', 'founded_startup', 'INITE', 0.14),
+      fact('knowledge_fact:b', 'music_service', 'Yandex Music', 0.13),
+      fact('knowledge_fact:c', 'name', 'Sasha', 0.13),
+    ] as never,
+  });
+  const turn = {
+    episodeId: 'episode:t5',
+    text: 'I sold the Ninja, no motorcycle anymore.',
+    at: '2026-10-05T10:00:00.000Z',
+    speaker: 'sasha',
+  };
+
+  it('keeps the facts standing out of this answer noise floor, and says how many it left', () => {
+    const text = renderFocus({ out: { results: [sasha] }, sources: new Map(), tokens: chars });
+    expect(text).toContain('owns_motorcycle = no motorcycle anymore');
+    expect(text).toContain('sold = Kawasaki Ninja motorcycle');
+    expect(text).not.toContain('founded_startup');
+    expect(text).toContain('(+3 more: detail "compact")');
+  });
+
+  it('quotes the source turn when it is cheaper than the facts read from it', () => {
+    const sources = new Map([
+      ['knowledge_fact:moto', [turn]],
+      ['knowledge_fact:sold', [turn]],
+    ]);
+    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars });
+    expect(text).toContain('[2026-10-05] sasha: "I sold the Ninja, no motorcycle anymore."');
+    expect(text).not.toContain('owns_motorcycle');
+  });
+
+  it('keeps the facts when the turn they came from is longer', () => {
+    const long = { ...turn, text: `${'Well, long story. '.repeat(10)}I sold it.` };
+    const sources = new Map([['knowledge_fact:moto', [long]]]);
+    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars });
+    expect(text).toContain('owns_motorcycle = no motorcycle anymore');
+    expect(text).not.toContain('long story');
+  });
+
+  it('never spends more on evidence than the raw turns it came from', () => {
+    const sources = new Map([
+      ['knowledge_fact:moto', [turn]],
+      ['knowledge_fact:sold', [turn]],
+    ]);
+    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars });
+    const evidence = text.split('\n').filter((l) => !l.startsWith('(+'));
+    expect(evidence.join('\n').length).toBeLessThanOrEqual(
+      `[2026-10-05] sasha: "${turn.text}"`.length,
+    );
+  });
+
+  it('shows a link only when it connects the kept entities', () => {
+    const diego = hit({
+      entityId: 'knowledge_entity:diego',
+      canonicalName: 'Diego',
+      relations: [
+        { kind: 'colleague_of', peer: 'Ana', peerType: 'customer', direction: 'out' },
+        { kind: 'works_at', peer: 'Orbital Dynamics', peerType: 'other', direction: 'out' },
+      ],
+      facts: [fact('knowledge_fact:d', 'lives_in', 'Braga', 0.25)] as never,
+    } as never);
+    const me = hit({
+      facts: [fact('knowledge_fact:me', 'lives_in', 'Porto', 0.24)] as never,
+    });
+    const text = renderFocus({ out: { results: [me, diego] }, sources: new Map(), tokens: chars });
+    expect(text).toContain('Ana sibling_of Sasha');
+    expect(text).toContain('Diego colleague_of Ana');
+    expect(text).not.toContain('Orbital Dynamics');
+    expect(text).not.toContain('MacBook');
+  });
+
+  it('says nothing matched — or that the search was degraded, which is not the same', () => {
+    expect(renderFocus({ out: { results: [] }, sources: new Map(), tokens: chars })).toBe(
+      'No facts in memory match this question.',
+    );
+    expect(
+      renderFocus({
+        out: { results: [], degraded: ['embedder_unavailable'] },
+        sources: new Map(),
+        tokens: chars,
+      }),
+    ).toContain('search degraded: embedder_unavailable');
   });
 });

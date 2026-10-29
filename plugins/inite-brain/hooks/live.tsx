@@ -39,17 +39,40 @@ const hiddenAtom = atom({ plugin: 'inite-brain', key: 'isBandHidden' } as const,
 
 type Options = { user_id?: string; recall_each_prompt?: boolean }
 
-/** The JSON a brain tool answered with, or null when it answered none. */
-function payload(result: McpToolResult) {
+/** The text a brain tool answered with, or null when it answered none. */
+function textOf(result: McpToolResult): string | null {
   if (result.isError) return null
   const block = result.content.find(one => one.type === 'text')
   const text = block && 'text' in block ? block.text : undefined
-  if (typeof text !== 'string' || !text) return null
+  return typeof text === 'string' && text ? text : null
+}
+
+/** The JSON a brain tool answered with, or null when it answered none. */
+function payload(result: McpToolResult) {
+  const text = textOf(result)
+  if (text === null) return null
   try {
     return JSON.parse(text) as Record<string, unknown>
   } catch {
     return null
   }
+}
+
+/**
+ * search_knowledge's default (focus) answer is already lines for a model:
+ * `Name: fact; fact`, a quoted source turn, `links: …`, and a closing
+ * `(+N …)` note. Each line is one hit; the note and the empty answer are none.
+ */
+export function hitsOfText(text: string | null): BrainHit[] {
+  if (!text || text.startsWith('No facts in memory')) return []
+  const hits: BrainHit[] = []
+  for (const line of text.split('\n')) {
+    if (!line.trim() || line.startsWith('(+')) continue
+    const at = line.indexOf(': ')
+    if (at > 0) hits.push({ name: line.slice(0, at), facts: line.slice(at + 2).split('; ') })
+    else hits.push({ name: line, facts: [] })
+  }
+  return hits.slice(0, HITS)
 }
 
 export function hitsOf(out: Record<string, unknown> | null): BrainHit[] {
@@ -97,7 +120,9 @@ async function search(
   if (at.userId) args.userId = at.userId
   const call = $.mcp.call(at.server, 'search_knowledge', args).then(
     (result: McpToolResult) => ({
-      hits: hitsOf(payload(result)),
+      // A JSON answer (detail compact/full, or an older server) or the
+      // focus lines the server answers by default.
+      hits: payload(result) ? hitsOf(payload(result)) : hitsOfText(textOf(result)),
       failure: result.isError ? 'error' : undefined,
     }),
     () => ({ hits: [] as BrainHit[], failure: 'error' }),

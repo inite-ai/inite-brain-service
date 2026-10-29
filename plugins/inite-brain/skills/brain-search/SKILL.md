@@ -42,24 +42,22 @@ search_knowledge({
 
 ## Reading the result
 
-Each hit looks like this (the default, compact shape):
+By default (`detail: "focus"`) the answer is a few lines — only what the query is about, each piece of evidence as the facts or as the turn they were read from, whichever is shorter:
 
-```json
-{
-  "canonicalName": "Alice Smith",
-  "entityId": "knowledge_entity:01HXYZ...",
-  "facts": [
-    { "predicate": "tier", "object": "platinum", "since": "2026-04-01" },
-    { "predicate": "tier", "object": "gold", "since": "2025-11-02", "until": "2026-04-01", "status": "superseded" }
-  ],
-  "relations": ["→ works_at Acme", "← manages Bob"]
-}
+```
+Sasha: lives_in = Porto (2026-10-01)
+Diego: lives_in = Braga (2026-10-08)
+links: Ana sibling_of Sasha; Diego colleague_of Ana
+[2026-10-05] sasha: "Update: I sold the Ninja last week, I don't own a motorcycle anymore."
+(+11 more: detail "compact")
 ```
 
-- **`facts[]`** are pre-filtered to the bitemporal window of the query. `since` / `until` are the days a value held; `status` appears only when the value is not the current one. A fact you don't see either didn't match the query, was retracted before `asOf`, or was outside its valid window.
-- **`relations`** are the entity's 1-hop links (`→` it is the subject, `←` the object); a link that restates a listed fact is not repeated.
-- **`entityId`** is what `get_entity_timeline` (what held before, with dates) and `get_entity_profile` take.
-- **`detail: "full"`** adds fact and edge ids, the fused score with its per-leg breakdown, trust keys and external refs (the bridge back to the originating vertical, to rehydrate the live record via `@inite/api-kit`). It costs ~8× the tokens — ask for it only when you need one of those.
+- A fact line is `Entity: predicate = value (since…until) [status]`; a status shows only when the value is not the current one.
+- `links:` are the relations connecting the entities shown — the hop a two-step question needs.
+- `(+N more …)` is what was left out. Ask for it only if the lines above do not answer the question.
+- `detail: "compact"` returns JSON: every fact of the matched entities with `since`/`until`, relations, and `entityId` (what `get_entity_timeline` and `get_entity_profile` take).
+- `detail: "full"` adds fact and edge ids, the fused score with its per-leg breakdown, trust keys and external refs (the bridge back to the originating vertical). Ask for it only when you need one of those.
+- A memory answer never costs more context than the raw turns it came from; when a turn is cheaper than its facts, you get the turn.
 
 ## Common patterns
 
