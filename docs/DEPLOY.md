@@ -107,14 +107,15 @@ retries for 2 minutes.
 
 ## Subsequent deploys
 
-**Auto-deploy on push to main.** Every merge into `main` triggers the
-workflow on the sfo runner — build, push, deploy. Concurrency group
-cancels in-flight auto-deploys when a newer push lands so the droplet
-only runs the head commit. Doc-only / test-only / planning-only
-changes skip the deploy via `paths-ignore`.
+**Deploy on release.** A merge into `main` runs CI and nothing else.
+Production moves when a release is cut: merging the release-please PR
+creates the release, and the same `release-please.yml` run calls
+`deploy-brain.yml` at the release commit. The deploy waits for CI's
+verdict on that commit and ships the image digest CI smoke-tested.
+Deploys queue (one concurrency group, never cancelled mid-transaction).
 
-`Run workflow → action=deploy` does the same thing manually (e.g. to
-deploy from a non-main branch via the dispatch UI). The container
+`Run workflow → action=deploy` deploys the dispatched ref by hand —
+CI must have gone green on that commit. The container
 restart is **not zero-downtime** — single replica today; brain in-flight
 requests get aborted on swap. Acceptable for current traffic; revisit
 when caller volume warrants.

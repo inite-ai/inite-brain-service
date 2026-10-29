@@ -1,39 +1,17 @@
 name: Deploy brain.inite.ai
 
 on:
-  push:
-    branches: [main]
-    # An ALLOWLIST, not an ignore list. It used to be the other way round,
-    # which meant the engine rebuilt and redeployed for anything not
-    # explicitly excluded — including every `brain-landing/**` change, i.e.
-    # every landing and admin-panel edit, none of which enter this image.
-    # The landing has owned its own deploy (deploy-brain-landing.yml, with
-    # its own allowlist) all along; the coupling was one-directional.
-    #
-    # The list below is derived from the Dockerfile: the image copies
-    # package.json, pnpm-lock.yaml, tsconfig.json, nest-cli.json and src/,
-    # and nothing else. The compose file is generated inline by this
-    # workflow, so there is no external stack file to watch.
-    #
-    # This is self-maintaining rather than a list somebody must remember to
-    # update: anything NEW entering the image needs a COPY, and `Dockerfile`
-    # is itself in the allowlist — so the commit that starts shipping a new
-    # path also trips the trigger. test/deploy-trigger-truth.unit-spec.ts
-    # pins that property.
-    #
-    # (The previous comment here claimed `test/**` had to trigger a deploy
-    # because test/eval/scenarios ships in the image. That stopped being
-    # true when eval moved to src/eval to honour the
-    # production-code-must-not-import-from-test rule — see the Dockerfile.)
-    paths:
-      - 'src/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'tsconfig.json'
-      - 'nest-cli.json'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.github/workflows/deploy-brain.yml'
+  # Production moves on a RELEASE, not on a merge. It used to deploy every
+  # green push to main that touched the image (a paths allowlist), so prod
+  # ran whatever was merged last — a release was a changelog entry, not a
+  # gate. Now release-please.yml calls this workflow in the run that cut the
+  # release (release_created), at the release commit, beside the versioned
+  # image and the registry publish. A workflow_call, not `on: release`: the
+  # release is created with GITHUB_TOKEN, which never triggers another
+  # workflow (the same trap `image` and `mcp-registry` are wired around).
+  # Merging to main still runs CI; it no longer touches production.
+  # test/deploy-trigger-truth.unit-spec.ts pins both directions.
+  workflow_call:
   workflow_dispatch:
     inputs:
       action:
@@ -115,7 +93,9 @@ jobs:
     # restart, logs and rollback do not deploy a NEW image, so none of
     # them needs a freshly verified artifact. rollback in particular must
     # work when CI is red — that is the situation it exists for.
-    if: github.event_name == 'push' || (github.event.inputs.action == 'deploy' || github.event.inputs.action == '')
+    # A release call (event_name is the caller's, never workflow_dispatch)
+    # always deploys; a manual dispatch only for action=deploy.
+    if: github.event_name != 'workflow_dispatch' || (github.event.inputs.action == 'deploy' || github.event.inputs.action == '')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -153,12 +133,12 @@ jobs:
   deploy:
     needs: verify
     # Run the deploy job when:
-    #   - push event: only after CI went green and a digest was resolved
+    #   - release call: only after CI went green and a digest was resolved
     #   - workflow_dispatch deploy: same
     #   - workflow_dispatch restart/logs: no image needed, run anyway
     if: |
       always() && (
-        (github.event_name == 'push' && needs.verify.result == 'success') ||
+        (github.event_name != 'workflow_dispatch' && needs.verify.result == 'success') ||
         (github.event_name == 'workflow_dispatch' && (needs.verify.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs' || github.event.inputs.action == 'rollback'))
       )
     runs-on: [self-hosted, sfo]

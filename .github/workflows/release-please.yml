@@ -52,3 +52,16 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
+  # Production deploys on a release and only on a release (deploy-brain.yml
+  # § on). Same GITHUB_TOKEN trap as above, so it is called from here, at
+  # the release commit; its verify job waits for CI's verdict on that
+  # commit and deploys the digest CI smoke-tested.
+  deploy:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/deploy-brain.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      actions: read
