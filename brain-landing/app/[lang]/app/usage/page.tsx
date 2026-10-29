@@ -62,7 +62,7 @@ export default function UsagePage() {
     }
   }, [proxyBase])
 
-  const { loading, reload } = useLoader(load)
+  const { loading } = useLoader(load)
 
   return (
     <div className="max-w-3xl space-y-4">

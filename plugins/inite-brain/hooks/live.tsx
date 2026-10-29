@@ -26,7 +26,6 @@ import type { BrainHit, BrainRecall, BrainWorkspace } from '../types'
  * never sees a key.
  */
 
-const PLUGIN = 'inite-brain'
 const PANE = 'brain'
 const RECALL_TIMEOUT_MS = 2500
 const MIN_PROMPT_CHARS = 15

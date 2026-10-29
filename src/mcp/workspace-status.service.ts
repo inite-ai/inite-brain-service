@@ -109,7 +109,7 @@ export class WorkspaceStatusService {
     const cached = this.namedCache.get(companyId);
     const now = Date.now();
     if (cached && cached.until > now) return cached.named;
-    let named = true;
+    let named: boolean;
     try {
       named = (await this.registry.displayName(companyId)) !== undefined;
     } catch (e) {

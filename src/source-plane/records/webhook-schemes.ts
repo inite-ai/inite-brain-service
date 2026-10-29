@@ -35,7 +35,11 @@ export interface WebhookRequest {
   rawBody: Buffer;
   /** The parsed body (JSON, or a form as `qs` nests it). */
   body: unknown;
-  query: Record<string, string>;
+  /**
+   * String query parameters. A Map, not an object: a vendor-controlled key
+   * never becomes a property name (CodeQL js/remote-property-injection).
+   */
+  query: ReadonlyMap<string, string>;
 }
 
 export interface WebhookSecrets {
@@ -268,7 +272,7 @@ export const WEBHOOK_SCHEMES: Record<WebhookScheme['id'], WebhookScheme> = {
 
 /** `?token=` or `Authorization: Bearer` equal to the secret. */
 function tokenVerify(req: WebhookRequest, secret: string): boolean {
-  const q = req.query.token;
+  const q = req.query.get('token');
   if (typeof q === 'string' && q.length > 0 && same(q, secret)) return true;
   const auth = req.headers.authorization ?? '';
   const m = /^bearer (.+)$/i.exec(auth.trim());

@@ -11,12 +11,18 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 mkdir -p "$work/build" "$work/bundle/server"
+# Installs come from the lockfile beside this script (generated from the
+# shim's package.json), never from a fresh resolve: the bundle ships its
+# node_modules, so what it contains must be pinned. A shim dependency
+# change makes `npm ci` refuse until the lock is regenerated:
+#   (cp ../brain-mcp/package.json /tmp/x/ && cd /tmp/x && npm install --package-lock-only)
 cp -R "$shim/src" "$shim/package.json" "$shim/tsconfig.json" "$work/build/"
-(cd "$work/build" && npm install --ignore-scripts --no-audit --no-fund >/dev/null && npm run build >/dev/null)
+cp "$here/package-lock.json" "$work/build/"
+(cd "$work/build" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null && npm run build >/dev/null)
 
 cp "$here/manifest.json" "$here/README.md" "$here/icon.png" "$work/bundle/"
-cp "$work/build"/dist/*.js "$work/build/package.json" "$work/bundle/server/"
-(cd "$work/bundle/server" && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund >/dev/null)
+cp "$work/build"/dist/*.js "$work/build/package.json" "$here/package-lock.json" "$work/bundle/server/"
+(cd "$work/bundle/server" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null && rm package-lock.json)
 
 mkdir -p "$here/dist"
 npx -y @anthropic-ai/mcpb@2.1.2 validate "$work/bundle/manifest.json"

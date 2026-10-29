@@ -17,7 +17,13 @@ import { webhookRequestOf } from '../src/source-plane/records/source-webhook.con
 
 const URL = 'https://brain.example.test/v1/source-connections/webhook/abc';
 
-function reqOf(p: Partial<WebhookRequest> & { json?: unknown; form?: string }): WebhookRequest {
+function reqOf(
+  p: Omit<Partial<WebhookRequest>, 'query'> & {
+    json?: unknown;
+    form?: string;
+    query?: Record<string, string>;
+  },
+): WebhookRequest {
   const raw =
     p.rawBody ??
     (p.form !== undefined
@@ -29,7 +35,7 @@ function reqOf(p: Partial<WebhookRequest> & { json?: unknown; form?: string }): 
     headers: p.headers ?? {},
     rawBody: raw,
     body: p.body ?? (p.form !== undefined ? formBody(p.form) : (p.json ?? {})),
-    query: p.query ?? {},
+    query: new Map(Object.entries(p.query ?? {})),
   };
 }
 
@@ -300,7 +306,7 @@ describe('webhookRequestOf', () => {
     expect(out.url).toBe('https://brain.example.test/v1/source-connections/webhook/abc?token=t');
     expect(out.headers['x-hubspot-signature-v3']).toBe('sig');
     expect(out.headers.accept).toBe('a');
-    expect(out.query).toEqual({ token: 't' });
+    expect(out.query).toEqual(new Map([['token', 't']]));
     expect(out.rawBody).toBe(raw);
     expect(out.body).toEqual({ a: 1 });
   });

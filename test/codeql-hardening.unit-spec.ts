@@ -58,7 +58,8 @@ describe('CodeQL hardening', () => {
     } as unknown as RawBodyRequest<Request>;
     const out = webhookRequestOf(req);
     expect(out.headers['x-sig']).toBe('abc');
-    expect(out.query.token).toBe('t');
-    expect(Object.getPrototypeOf(out.query)).toBeNull();
+    expect(out.query.get('token')).toBe('t');
+    expect(out.query.get('__proto__')).toBe('y');
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
   });
 });

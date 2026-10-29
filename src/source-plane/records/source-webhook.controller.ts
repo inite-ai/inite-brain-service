@@ -38,9 +38,9 @@ export function webhookRequestOf(req: RawBodyRequest<Request>): WebhookRequest {
     if (typeof v === 'string') headers[k.toLowerCase()] = v;
     else if (Array.isArray(v) && v[0] !== undefined) headers[k.toLowerCase()] = v[0];
   }
-  const query: Record<string, string> = Object.create(null) as Record<string, string>;
+  const query = new Map<string, string>();
   for (const [k, v] of Object.entries(req.query ?? {})) {
-    if (typeof v === 'string') query[k] = v;
+    if (typeof v === 'string') query.set(k, v);
   }
   const rawBody = Buffer.isBuffer(req.rawBody)
     ? req.rawBody
