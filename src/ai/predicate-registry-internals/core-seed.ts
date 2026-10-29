@@ -356,8 +356,6 @@ VALUE  one anti-pattern per fact (multi-valued)`,
   // literals the CRM vocabulary had no home for (the measured
   // literal-drop: limit/port/identifier/convention turns produced ZERO
   // facts, or mis-slotted a port under `address` — sensitive PII).
-  // The deterministic harvest lane (EXTRACTOR_LITERAL_HARVEST) emits
-  // the same predicates; the cards work even with the harvester off.
   {
     predicateId: 'rate_limit',
     displayLabel: 'rate limit',
@@ -455,9 +453,7 @@ VALUE  the full duration phrase VERBATIM with units (e.g. "30 days")`,
   // This card gives the LLM a legitimate slot for completed
   // state-transition EVENTS the CRM vocabulary had no home for (the
   // measured state-transition drop: "quit the chess club" turns
-  // produced ZERO facts carrying the transition). The deterministic
-  // harvest lane (EXTRACTOR_STATE_VERB_HARVEST) emits the same
-  // predicate; the card works even with the harvester off.
+  // produced ZERO facts carrying the transition).
   {
     predicateId: 'state_change',
     displayLabel: 'state change',

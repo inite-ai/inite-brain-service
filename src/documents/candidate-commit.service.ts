@@ -165,8 +165,7 @@ export class CandidateCommitService {
     if (!facts.length) return [];
     try {
       // Shared index-text builder: same basis as the mention / direct paths
-      // (INGEST_PREDICATE_INDEX_TEXT appends humanized predicate words; off
-      // → bare `predicate: object`, byte-identical).
+      // (`predicate: object`).
       return await this.factEmbedding.embedMany(
         facts.map((f) => factIndexText(f.predicate, f.object)),
       );

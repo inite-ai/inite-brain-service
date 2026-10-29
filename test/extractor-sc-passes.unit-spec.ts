@@ -61,7 +61,7 @@ function mkExtractor(scPasses: number, scripted: any[], decisions?: any): Extrac
   // branch directly.
   (local as any).trySkip = async () => null;
   const refine = new ExtractorRefineService(registry, localPredicates);
-  const runner = new ExtractorRunnerService(llm, local, refine, undefined, decisions);
+  const runner = new ExtractorRunnerService(llm, local, refine, decisions);
   return new ExtractorService(extractionCache, registry, runner);
 }
 

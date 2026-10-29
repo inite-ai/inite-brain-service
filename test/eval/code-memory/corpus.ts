@@ -31,7 +31,6 @@
  */
 import { CODE_MEMORY_PACK } from '../../../src/ai/domain-packs/code-memory.pack';
 import { composePredicateId } from '../../../src/ai/domain-packs/manifest';
-import { STATE_CHANGE_PREDICATE } from '../../../src/ai/extractor-internals/state-verb-harvest';
 import { symbolAliasForPath } from '../../../src/ingest/code-alias';
 import type { Check, CorpusTurn } from './types';
 
@@ -104,10 +103,8 @@ export const FLAG_TRANSITION_GAP =
   'the match DROPS — and the LLM redraw sometimes lands a stage as a decided ' +
   'paraphrase carrying the prose markers and sometimes as the typed ' +
   'code_memory__default_value only. The stages therefore accept BOTH surface ' +
-  'forms; the deterministic producer of the typed form is the literal-harvest ' +
-  'flag-default rule, so EXTRACTOR_LITERAL_HARVEST must be ON at the stand ' +
-  'for the check to hold every run. A fail with the lane off is the recorded ' +
-  'gap; a fail with it on is a regression.';
+  'forms. The deterministic literal and state-verb lanes were removed (#788: ' +
+  'measured null under the memory contract), so a fail is the recorded gap.';
 
 /** Real (today) namespaced ids — drift-guarded. */
 export const CM = {
@@ -352,9 +349,10 @@ export function buildChecks(runId = ''): Check[] {
       id: 'k07-literal-harvest',
       cls: 'harvest',
       intent:
-        'The deterministic literal lane (EXTRACTOR_LITERAL_HARVEST, ON at the stand) ' +
-        'produces its core facts from identifier-heavy coding prose: the ALL_CAPS flag, ' +
-        'the metrics port and the route rate limit each land as a typed literal fact.',
+        'Extraction produces typed literal facts from identifier-heavy coding prose: the ' +
+        'ALL_CAPS flag, the metrics port and the route rate limit each land as a typed ' +
+        'literal fact (the deterministic literal lane was removed in #788; the LLM must ' +
+        'fill the six technical-literal core slots on its own).',
       wants: [
         {
           searchQuery: 'ACME_RETRY_QUEUE flag',
@@ -484,7 +482,7 @@ export function buildChecks(runId = ''): Check[] {
         'green BOTH before and after the coding-verb lexicon lands (the 6-token guards ' +
         'are what keep it green after).',
       searchQuery: 'ACME_STRICT_MODE',
-      forbidPredicate: STATE_CHANGE_PREDICATE,
+      forbidPredicate: 'state_change',
       forbidObjectMarkers: ['ACME_STRICT_MODE'],
     },
 

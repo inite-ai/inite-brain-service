@@ -243,15 +243,6 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
       'Contextual fact embedding: embed mention-extracted facts with a speaker+date context stamp so the vector matches context-referencing queries (Anthropic Contextual Retrieval, fact-level). Changes the embedding basis — requires re-ingest.',
   },
   {
-    key: 'INGEST_PREDICATE_INDEX_TEXT',
-    category: 'embedder',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      'Humanized predicate in the fact embedding basis (code-memory battery k07): append the predicate as natural words (`rate_limit` → "rate limit"; pack `<packId>__` prefix stripped; skipped when the words are already tokens of the text) to the embedded `predicate: object`, so the vector matches queries that phrase the predicate in natural language. Worst-hit were harvested literal facts (rate_limit / service_port / http_status / …) whose objects are bare values. Parity with the lexical leg: migration 0007 searchHaystack already carries the underscore→space form for BM25. Write-time only — changes the embedding basis for NEW facts; existing rows are not re-embedded (re-ingest to benefit).',
-  },
-  {
     key: 'INGEST_EVENT_TIME_EXTRACTION',
     category: 'extractor',
     defaultValue: '0',
@@ -343,42 +334,6 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       'Dialogue extraction profile: drop the closed CRM predicate vocabulary from the extraction call and let the model coin a SPECIFIC predicate per clause, keeping normalized (non-verbatim) values, attributing facts to the actor rather than the speaker, and enumerating lists. A closed label set as output contract is what drives the catch-all collapse ("conservative bias"); the vocabulary belongs downstream in canonicalization, not in the extractor. Measured +2.8pp on LoCoMo dev-5. Also bypasses the span-grounding drop (values are normalized by design) and skips the specificity-collapsing refinement passes. Requires re-ingest.',
-  },
-  {
-    key: 'EXTRACTOR_ROUTING_ENABLED',
-    category: 'extractor',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      'Facet routing (dialogue profile only): a turn containing a list (3+ items) or a proper name also gets a SPECIALIST extraction pass whose only contract is that one thing, unioned with the general pass. Strictly additive recall — the general pass still runs and the union deduplicates. The router is a local heuristic, not an LLM call. Costs one extra extraction call per detected facet. Requires re-ingest.',
-  },
-  {
-    key: 'EXTRACTOR_LITERAL_HARVEST',
-    category: 'extractor',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      'Deterministic literal-harvest lane (memory-fitness lever #1, Design A): a fixed set of regex rules over the input harvests technical literals the closed-vocab LLM extraction drops — service ports, rate limits ("50 requests per minute"), HTTP status codes, ALL_CAPS / dotted / camelCase identifiers, naming-convention prefixes ("LSYNC_") — as span-grounded facts (valueSpan is an exact input substring by construction), attributed by clause overlap with speaker fallback, deduped against the LLM facts, capped at 6 per turn, and unioned into the result AFTER denoise. Pure code: no second LLM path, no prompt change. Pairs with the six technical-literal core predicates (rate_limit, service_port, naming_prefix, identifier, http_status, duration_limit). Off (default) → byte-identical extraction. Requires re-ingest.',
-  },
-  {
-    key: 'EXTRACTOR_STATE_VERB_HARVEST',
-    category: 'extractor',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      'Deterministic state-verb harvest lane (state-transition battery follow-up) — sibling of EXTRACTOR_LITERAL_HARVEST: a fixed past-tense transition lexicon (acquire: bought/joined/signed up for/…; dispose: sold/quit/returned/cancelled/…; change: moved to/switched to/replaced/…) harvests COMPLETED state transitions the closed-vocab LLM extraction drops ("quit the chess club", "returned the standing desk") as span-grounded `state_change` facts (the object is the verbatim verb phrase, so valueSpan is an exact input substring by construction), attributed by clause overlap with speaker fallback, guarded against intentions and negations ("thinking about selling", "haven\'t sold", "will quit" harvest nothing), deduped against LLM + literal-harvest facts, capped at 6 per turn, and unioned into the result AFTER the literal lane. Pure code: no second LLM path, no prompt change. Pairs with the `state_change` core predicate (append_only — the timeline of transitions is the point). Off (default) → byte-identical extraction. Requires re-ingest.',
-  },
-  {
-    key: 'EXTRACTOR_TRANSITION_CLASSIFIER',
-    category: 'extractor',
-    defaultValue: '0',
-    runtimeMutable: false,
-    isBooleanFlag: true,
-    description:
-      'Language-agnostic state-transition classifier lane (semantic stage of the state-transition battery follow-up, generalizing EXTRACTOR_STATE_VERB_HARVEST to out-of-lexicon verbs and Russian): compromise-based English morphology plus a bounded Russian past-tense matcher find candidate verb clauses (past-tense, non-negated, non-hypothetical, with a complement), then embedding-prototype matching classifies each clause as completed_acquire / completed_dispose / completed_change / intention / unrelated by max-cosine against a fixed EN+RU prototype bank (BGE-M3 is multilingual, so the classifier generalizes across input languages by construction). Accepted clauses (completed_* above the calibrated score floor + runner-up margin — see eval:transition-calibration) land as span-grounded `state_change` facts with the same holder binding as the lexicon lane; a sentence the lexicon lane already harvested is deferred whole, so the two lanes compose without double emission. Designed and calibrated for EMBEDDER_PROVIDER=bge-m3; with the OpenAI embedder the thresholds are uncalibrated. Off (default) → byte-identical extraction, the embedder is never called. Requires re-ingest.',
   },
   {
     key: 'STATS_VIEWS_ENABLED',

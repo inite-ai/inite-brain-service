@@ -132,11 +132,7 @@ export class MentionExtractionService {
       (speaker?.name || dto.emittedAt)
         ? [speaker?.name, dto.emittedAt?.slice(0, 10)].filter(Boolean).join(', ')
         : '';
-    // Base per-fact index text via the shared builder: under
-    // INGEST_PREDICATE_INDEX_TEXT (default off) it appends the humanized
-    // predicate words ("rate_limit" → "rate limit") so the stored vector
-    // matches natural-language queries that phrase the predicate; off →
-    // the bare `predicate: object`, byte-identical.
+    // Base per-fact index text via the shared builder (`predicate: object`).
     const factTexts = extraction.facts.map((f: { predicate: string; object: string }) => {
       const base = factIndexText(f.predicate, f.object);
       return ctxStamp ? `${ctxStamp} — ${base}` : base;

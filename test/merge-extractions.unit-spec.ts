@@ -1,85 +1,5 @@
-import {
-  detectFacets,
-  hasEnumeration,
-  hasNamedEntity,
-} from '../src/ai/extractor-internals/facet-router';
 import { mergeExtractions } from '../src/ai/extractor-internals/merge';
-import { buildFacetSystemPrompt } from '../src/ai/extractor-internals/prompts';
 import type { ExtractionResult } from '../src/ai/extractor-internals/types';
-
-/**
- * Facet routing (EXTRACTOR_ROUTING_ENABLED) — specialist extraction passes for
- * the two contracts the single generalist prompt measurably drops: list items
- * ("What books has Tim read?" came back partial) and proper names ("Under
- * Armour" came back as "a renowned outdoor gear company").
- *
- * The router is a LOCAL heuristic biased toward NOT firing — a missed facet
- * costs the general pass's output, a facet firing on every turn triples ingest
- * cost for nothing.
- */
-describe('facet router', () => {
-  describe('enumeration detection', () => {
-    it('fires on a three-item list, the shape that loses items', () => {
-      expect(hasEnumeration('we do pottery, camping, and painting')).toBe(true);
-      expect(hasEnumeration("I've read The Hobbit, Dune and most of Discworld")).toBe(true);
-    });
-
-    it('does not fire on two items — those already survive', () => {
-      expect(hasEnumeration('I went to Rome and Paris')).toBe(false);
-    });
-
-    it('does not fire on comma-spliced conversational filler', () => {
-      expect(hasEnumeration('Well, yes, ok')).toBe(false);
-      expect(hasEnumeration('That is great!')).toBe(false);
-    });
-  });
-
-  describe('named-entity detection', () => {
-    it('fires on a proper noun anywhere past the sentence opener', () => {
-      expect(hasNamedEntity('I think Sarah left already')).toBe(true);
-      expect(hasNamedEntity('he signed with Under Armour')).toBe(true);
-    });
-
-    it('does not fire on a sentence-initial capital alone', () => {
-      expect(hasNamedEntity('Yesterday was rough.')).toBe(false);
-      expect(hasNamedEntity('Nothing much happened.')).toBe(false);
-    });
-
-    it('does not treat the first-person "I" as a name', () => {
-      expect(hasNamedEntity('honestly I am tired')).toBe(false);
-    });
-  });
-
-  it('returns no facets for an ordinary turn (single pass, byte-identical)', () => {
-    expect(detectFacets('yeah, that sounds nice')).toEqual([]);
-  });
-
-  it('can return both facets for a turn that has both shapes', () => {
-    expect(detectFacets('I read The Hobbit, Dune, and Discworld last year')).toEqual([
-      'enumeration',
-      'entity',
-    ]);
-  });
-
-  describe('facet prompts', () => {
-    it('narrows the enumeration pass to one contract', () => {
-      const p = buildFacetSystemPrompt('enumeration');
-      expect(p).toContain('LIST ITEMS ONLY');
-      expect(p).toContain('ONE FACT PER ITEM');
-    });
-
-    it('forbids the entity pass from substituting a description for a name', () => {
-      const p = buildFacetSystemPrompt('entity');
-      expect(p).toContain('NAMED THINGS ONLY');
-      expect(p).toContain('Under Armour');
-    });
-
-    it('degrades an unknown facet to the plain dialogue prompt', () => {
-      expect(buildFacetSystemPrompt('nonsense')).toBe(buildFacetSystemPrompt('nonsense'));
-      expect(buildFacetSystemPrompt('nonsense')).not.toContain('THIS PASS');
-    });
-  });
-});
 
 /**
  * The union step. Every pass numbers entities independently, so facts and edges
@@ -166,7 +86,7 @@ describe('mergeExtractions', () => {
     expect(merged.facts.map((f) => f.object).sort()).toEqual(['Dune', 'The Hobbit']);
   });
 
-  it('omits self-consistency stats across facets — different jobs, not re-rolls', () => {
+  it('omits self-consistency stats unless asked', () => {
     const merged = mergeExtractions([
       pass([['Tim', 'customer']], [[0, 'read', 'Dune']]),
       pass([['Tim', 'customer']], [[0, 'lives_in', 'Dublin']]),

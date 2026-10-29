@@ -242,37 +242,7 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // Targets the measured recall loss (catch-all predicates + raw-fragment
   // objects). Off (default) → byte-identical closed-vocab extraction.
   'EXTRACTOR_DIALOGUE_PROFILE',
-  // Facet routing (dialogue profile). On → a turn containing a list or a proper
-  // name also gets a SPECIALIST extraction pass whose only job is that one
-  // thing, unioned with the general pass. Strictly additive recall; costs one
-  // extra LLM call per detected facet. Off (default) → single pass.
-  'EXTRACTOR_ROUTING_ENABLED',
-  // Memory-fitness lever #1 (Design A): deterministic literal-harvest
-  // lane — regex rules for ports / rate limits / HTTP statuses /
-  // identifiers / naming prefixes, span-grounded by construction and
-  // unioned into the closed-vocab extraction after denoise. No second
-  // LLM path. Default off = byte-identical extraction.
-  'EXTRACTOR_LITERAL_HARVEST',
-  // Deterministic state-verb harvest lane — sibling of the literal
-  // lane: a fixed past-tense transition lexicon (bought / joined /
-  // quit / returned / switched to / …) harvests completed acquire/
-  // dispose/change events as span-grounded `state_change` facts, with
-  // pre-verb intention/negation guards. No second LLM path. Default
-  // off = byte-identical extraction.
-  'EXTRACTOR_STATE_VERB_HARVEST',
-  // State-transition classifier (semantic stage): compromise morphology
-  // finds candidate verb clauses, embedding-prototype matching (BGE-M3,
-  // EN+RU bank) classifies completed-transition vs intention vs
-  // unrelated. Availability gate only — NOT wired into extraction yet
-  // (deliberate follow-up PR). Default off = byte-identical everything.
-  'EXTRACTOR_TRANSITION_CLASSIFIER',
   'INGEST_CONTEXTUAL_FACT_EMBEDDING',
-  // Humanized predicate in the fact's embedding basis (code-memory k07):
-  // append "rate limit" for predicate `rate_limit` (pack `__` prefix
-  // stripped, token-dedup guarded) so the vector matches natural-language
-  // predicate phrasing — parity with the 0007 searchHaystack lexical
-  // surface. Write-time only; default off = byte-identical.
-  'INGEST_PREDICATE_INDEX_TEXT',
   'INGEST_EVENT_TIME_EXTRACTION',
   'INGEST_BATCH_EDGES',
   'INGEST_BATCH_FACTS',

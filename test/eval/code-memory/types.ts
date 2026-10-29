@@ -66,9 +66,9 @@ export interface PackVocabCheck extends BaseCheck {
   valueMarkers: string[];
 }
 
-/** `literal-harvest` — the deterministic literal lane produces its
- *  CORE facts (identifier / service_port / rate_limit) from
- *  identifier-heavy coding prose. Every want must be found. */
+/** `literal-harvest` — extraction produces the technical-literal CORE
+ *  facts (identifier / service_port / rate_limit) from identifier-heavy
+ *  coding prose. Every want must be found. */
 export interface LiteralHarvestCheck extends BaseCheck {
   kind: 'literal-harvest';
   wants: Array<{
