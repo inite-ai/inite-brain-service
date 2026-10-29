@@ -130,9 +130,13 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
       expect(res.status).toBe(201);
       expect(res.body.reason).toBe('low_coverage');
 
+      // Wait for the whole chain, not its first row: the writers are
+      // detached, and the verdict row can land after the abstain row (a
+      // CI run read the table between the two).
       const rows = await waitFor(
         () => decisionRows(),
-        (r) => r.some((x) => x.decisionKind === 'abstain'),
+        (r) =>
+          ['abstain', 'lane_route', 'verdict'].every((k) => r.some((x) => x.decisionKind === k)),
       );
       // The request's full decision chain (0149): the routing decision,
       // the gate that abstained, the exit it produced. Compared as a SET
