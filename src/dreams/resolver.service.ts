@@ -14,6 +14,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
+import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 
 /**
  * DreamsResolverService — auto-resolve competing fact pairs that
@@ -53,6 +54,18 @@ export interface ResolverResult {
   unsurePairs: number;
   /** Per-resolution detail for the admin UI drill-down. */
   resolutions: ResolverResolution[];
+  /** Pairs skipped: the judge already answered this pair and its context (0173). */
+  memoSkipped?: number;
+}
+
+/** Pairs gathered per judged pair, so memoized `unsure` pairs do not starve the rest. */
+const CANDIDATE_OVERFETCH = 4;
+
+interface ResolveTask {
+  pair: { a: CompetingFactRow; b: CompetingFactRow };
+  ctxFacts: string;
+  pairKey: string;
+  signature: string;
 }
 
 interface CompetingFactRow {
@@ -124,18 +137,44 @@ export class DreamsResolverService {
     // per-iteration await never let the Semaphore hold more than one
     // task, so DREAMS_RESOLVE_CONCURRENCY was a no-op and the nightly
     // leg ran at 1× LLM latency per pair.
+    // An `unsure` pair asked again on the same facts and context answers
+    // `unsure` again: it is not paid for twice (0173).
+    const memo = await loadPairMemo(db, 'resolve');
+    const tasks: ResolveTask[] = [];
+    for (const pair of pairs) {
+      if (tasks.length >= this.maxPairs) break;
+      const ctxFacts = await this.fetchEntityContext(
+        db,
+        { entityId: String(pair.a.entityId), userId: pair.a.userId ?? undefined },
+        derivedVersion,
+      );
+      const pairKey = `${String(pair.a.id)}|${String(pair.b.id)}`;
+      const signature = pairSignature(pair.a.object, pair.b.object, ctxFacts);
+      if (alreadyJudged(memo, { pairKey, signature })) {
+        result.memoSkipped = (result.memoSkipped ?? 0) + 1;
+        continue;
+      }
+      tasks.push({ pair, ctxFacts, pairKey, signature });
+    }
+
     const judged = await Promise.all(
-      pairs.map((pair) =>
-        withSpan('dreams.resolve.judge', () =>
-          this.limiter.run(() => this.judge(db, pair, derivedVersion)),
-        ).then((verdict) => ({ pair, verdict })),
+      tasks.map((task) =>
+        withSpan('dreams.resolve.judge', () => this.limiter.run(() => this.judge(task))).then(
+          (verdict) => ({ task, pair: task.pair, verdict }),
+        ),
       ),
     );
 
-    for (const { pair, verdict } of judged) {
+    for (const { task, pair, verdict } of judged) {
       result.llmJudgements++;
       if (verdict.kind === 'unsure') {
         result.unsurePairs++;
+        await recordPairVerdict(db, {
+          kind: 'resolve',
+          pairKey: task.pairKey,
+          signature: task.signature,
+          verdict: 'unsure',
+        });
         this.logger.warn(
           `[dreams.resolve] unsure: entity=${String(pair.a.entityId)} predicate=${pair.a.predicate} a='${pair.a.object}' vs b='${pair.b.object}'`,
         );
@@ -219,7 +258,7 @@ export class DreamsResolverService {
       );
       if (!aged) continue;
       pairs.push({ a: group[0]!, b: group[1]! }); // group.length === 2 (checked)
-      if (pairs.length >= this.maxPairs) break;
+      if (pairs.length >= this.maxPairs * CANDIDATE_OVERFETCH) break;
     }
     return pairs;
   }
@@ -230,20 +269,16 @@ export class DreamsResolverService {
    * carries a one-sentence rationale we log on resolution apply for
    * audit, but never persist server-side.
    */
-  private async judge(
-    db: Surreal,
-    pair: { a: CompetingFactRow; b: CompetingFactRow },
-    derivedVersion: string | null,
-  ): Promise<{ kind: 'a_wins' | 'b_wins' | 'unsure' }> {
-    // Pull a few neighbouring active facts on the same entity to give
-    // the LLM context — sometimes the resolution depends on what's
-    // around the conflict (e.g. status: active vs churned, where a
-    // recent payment fact tilts toward "active").
-    const ctxFacts = await this.fetchEntityContext(
-      db,
-      { entityId: String(pair.a.entityId), userId: pair.a.userId ?? undefined },
-      derivedVersion,
-    );
+  /**
+   * `ctxFacts`: a few neighbouring active facts on the same entity, read by
+   * the caller — sometimes the resolution depends on what's around the
+   * conflict (e.g. status: active vs churned, where a recent payment fact
+   * tilts toward "active"), and the same text keys the memo.
+   */
+  private async judge({
+    pair,
+    ctxFacts,
+  }: ResolveTask): Promise<{ kind: 'a_wins' | 'b_wins' | 'unsure' }> {
     const sys = `You resolve a CONTRADICTION between two facts in a knowledge graph.
 
 Both facts share the same entity and the same predicate but disagree on the object value (e.g. status=active vs status=churned). Decide which is more likely TRUE based on:
