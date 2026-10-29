@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { chatCallParams, offlineServiceTier, DEFAULT_CHAT_MODEL } from '../../ai/openai-client';
 import type { CommitInput, DecisionCandidate, DecisionExtractor, DecisionKind } from './types';
+import { withUsageLedger } from '../../ai/llm-usage-ledger';
 
 /**
  * Layer 2 — LLM extraction of the Decision/Rationale taxonomy from a commit's
@@ -111,6 +112,7 @@ function safeParse(raw: string): unknown {
  */
 export function makeOpenAiCompleter(opts: { apiKey: string; model?: string }): ChatComplete {
   const client = new OpenAI({ apiKey: opts.apiKey });
+  withUsageLedger(client);
   const model = opts.model ?? DEFAULT_CHAT_MODEL;
   return async ({ system, user }) => {
     const res = await client.chat.completions.create({
