@@ -772,26 +772,44 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    * on the first request for that tenant, so anything real belongs on the
    * listener's own timer. Several may register (a Set, not a slot) — the
    * contract is the same for one listener as for five.
+   *
+   * A LATE listener is replayed every tenant whose schema is already
+   * ready. Registration happens in the listeners' `onModuleInit`, and Nest
+   * runs those in module order — while a tenant's schema can be applied
+   * earlier in that same bootstrap (a boot-time pass that touches the
+   * roster's tenants). Without the replay that tenant's one notification
+   * fired into an empty set and never came again in this process: measured
+   * on a fresh `bge-m3` stand, `co_<tenant>` was migrated during bootstrap
+   * with ZERO listeners, so the HNSW provisioner never saw it, no index was
+   * defined, and every KNN query served unranked null-distance rows until a
+   * human called the admin route or the 05:10 sweep ran. "Ready before you
+   * subscribed" is still ready; every listener here is allocation-only and
+   * de-duplicates by tenant, so the replay is the call it would have got.
    */
   onTenantSchemaReady(listener: (companyId: string) => void): void {
     this.schemaReadyListeners.add(listener);
+    for (const database of this.knownDatabases) this.fireSchemaReady(listener, database);
   }
 
   /**
-   * Fire the listener for a TENANT database only — `system` is the
-   * platform's own DB and has no companyId. Never throws: a listener fault
-   * must not fail the request that happened to be first through the door,
-   * and must not poison the schema queue for every other tenant behind it.
+   * Fire every listener for a TENANT database only — `system` is the
+   * platform's own DB and has no companyId.
    */
   private notifySchemaReady(database: string): void {
-    if (this.schemaReadyListeners.size === 0 || !database.startsWith('co_')) return;
-    const companyId = database.slice('co_'.length);
-    for (const listener of this.schemaReadyListeners) {
-      try {
-        listener(companyId);
-      } catch (e) {
-        this.logger.warn(`tenant schema-ready listener threw: ${(e as Error).message}`);
-      }
+    for (const listener of this.schemaReadyListeners) this.fireSchemaReady(listener, database);
+  }
+
+  /**
+   * One listener, one database. Never throws: a listener fault must not
+   * fail the request that happened to be first through the door, and must
+   * not poison the schema queue for every other tenant behind it.
+   */
+  private fireSchemaReady(listener: (companyId: string) => void, database: string): void {
+    if (!database.startsWith('co_')) return;
+    try {
+      listener(database.slice('co_'.length));
+    } catch (e) {
+      this.logger.warn(`tenant schema-ready listener threw: ${(e as Error).message}`);
     }
   }
 

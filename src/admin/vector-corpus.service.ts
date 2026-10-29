@@ -12,6 +12,8 @@ import { JobRunService } from '../jobs/job-run.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { DistributedLeaseGuard, tenantLeaseKey } from '../common/distributed-lease.guard';
 import { InFlightGuard } from '../common/in-flight-guard';
+import { HnswMaintenanceService } from './hnsw-maintenance.service';
+import { HnswProvisionService } from './hnsw-provision.service';
 
 /** One vector column of one tenant, counted by stored width and space. */
 export interface VectorColumnCensus {
@@ -115,6 +117,8 @@ export class VectorCorpusService implements OnModuleInit {
     @Optional() private readonly jobs?: JobRunService,
     @Optional() private readonly metrics?: MetricsService,
     @Optional() private readonly guard?: DistributedLeaseGuard,
+    @Optional() private readonly hnsw?: HnswMaintenanceService,
+    @Optional() private readonly provision?: HnswProvisionService,
   ) {}
 
   onModuleInit(): void {
@@ -264,6 +268,12 @@ export class VectorCorpusService implements OnModuleInit {
       },
     });
     try {
+      // An HNSW index still declared at the OLD width rejects every rewrite
+      // this sweep is about to make (measured on 3.2.4: "Incorrect vector
+      // dimension"), so after a provider switch the repair failed row by row
+      // on every boot. Such an index serves no query at the new width;
+      // removing it first is what lets the repair land at all.
+      await this.hnsw?.removeForeignWidth(companyId);
       // Only the rows the census just counted as non-conforming: the sweep
       // without this narrowing re-embeds every row of every swept table, so
       // one stray vector cost a full-tenant re-embed.
@@ -291,6 +301,11 @@ export class VectorCorpusService implements OnModuleInit {
         });
       }
       const after = await this.inventory(companyId);
+      // The rows conform now, so an index defined at the primary width can
+      // be built (and one whose build failed on an old-width row can be
+      // rebuilt). Provisioning's `ensure` is non-destructive, follows its own
+      // master flag, records the tenant's index state, and never throws.
+      await this.provision?.provisionTenant(companyId, {});
       await this.jobs?.finish(run!, {
         status: 'succeeded',
         result: { ...swept, nonConformingAfter: after.nonConforming },
