@@ -112,7 +112,16 @@ export class RegistryMetaService {
    *  published (any version of) the pack may set/clear it. 404 when the
    *  pack is unknown, 403 when it belongs to someone else. */
   async assertPublisherOwnsPack(args: { packId: string; companyId: string }): Promise<void> {
-    const owned = await this.surreal.withAdminDb(async (db) => {
+    if (await this.isPublishedBy(args)) return;
+    if (!(await this.packExists(args.packId))) {
+      throw new NotFoundException(`pack "${args.packId}" not found in the registry`);
+    }
+    throw new ForbiddenException(`pack "${args.packId}" was not published by this company`);
+  }
+
+  /** True when the company published (any version of) the pack. */
+  async isPublishedBy(args: { packId: string; companyId: string }): Promise<boolean> {
+    return this.surreal.withAdminDb(async (db) => {
       const [rows] = await db.query<[Array<{ id: unknown }>]>(
         `SELECT id FROM registry_pack
            WHERE packId = $packId AND publishedBy = $companyId LIMIT 1`,
@@ -120,11 +129,6 @@ export class RegistryMetaService {
       );
       return ((rows as Array<{ id: unknown }>) ?? []).length > 0;
     });
-    if (owned) return;
-    if (!(await this.packExists(args.packId))) {
-      throw new NotFoundException(`pack "${args.packId}" not found in the registry`);
-    }
-    throw new ForbiddenException(`pack "${args.packId}" was not published by this company`);
   }
 
   async packExists(packId: string): Promise<boolean> {

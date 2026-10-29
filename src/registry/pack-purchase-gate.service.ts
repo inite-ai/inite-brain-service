@@ -13,8 +13,9 @@ import type { PaymentRequiredHint } from '../contracts/registry/marketplace.sche
 
 /**
  * The paid-pack install gate (docs/domain-packs.md "Marketplace") —
- * sits inside PackRegistryService.resolveForInstall, the single install
- * choke point, BEFORE the download counter.
+ * sits inside PackRegistryService.resolveForInstall, BEFORE the download
+ * counter, and (assertAccessible) on the manifest read and the
+ * pasted-manifest install, which would otherwise hand the pack out free.
  *
  * Decision table:
  *   - no meta row / paid=false           → pass (free pack)
@@ -36,6 +37,25 @@ export class PackPurchaseGateService {
     private readonly meta: RegistryMetaService,
     private readonly billing: BillingClientService,
   ) {}
+
+  /**
+   * The same gate for the two doors that do not go through
+   * resolveForInstall: reading a paid pack's manifest
+   * (GET /v1/registry/packs/:packId/:version) and installing a pasted
+   * manifest (POST /v1/admin/packs). Either one alone was the whole
+   * purchase: read the manifest for free, post it back, and the pack was
+   * installed without an entitlement.
+   *
+   * The publishing company passes without one — it is its own pack.
+   * Every other caller goes through assertInstallable's decision table.
+   */
+  async assertAccessible(args: { companyId: string; packId: string }): Promise<void> {
+    const meta = await this.meta.getMeta(args.packId);
+    if (!meta?.paid) return;
+    if (!this.billing.enabled()) return;
+    if (await this.meta.isPublishedBy(args)) return;
+    await this.assertInstallable(args);
+  }
 
   async assertInstallable(args: { companyId: string; packId: string }): Promise<void> {
     const meta = await this.meta.getMeta(args.packId);
