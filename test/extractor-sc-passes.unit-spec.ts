@@ -184,3 +184,37 @@ describe('ExtractorService N-pass driver', () => {
     }
   });
 });
+
+/**
+ * A dry key (2026-10-29, local stand): every pass answered 429 "no credits",
+ * the runner folded it into a status-less "transient failure", and the batch
+ * reader halved the group down to single turns — 1238 refused passes in one
+ * run. The refusal now keeps its status on the background path.
+ */
+describe('ExtractorService — every pass refused by the provider', () => {
+  const dry = () =>
+    Object.assign(new Error('429 You have no credits remaining'), {
+      status: 429,
+      code: 'insufficient_quota',
+    });
+
+  function refusing(): ExtractorService {
+    const svc = mkExtractor(3, [{ entities: [], facts: [], clauses: [], edges: [] }]);
+    (svc as any).runner.llm.callLlm = async () => {
+      throw dry();
+    };
+    return svc;
+  }
+
+  it('a background read throws the refusal itself, status intact', async () => {
+    await expect(
+      refusing().extractBackground({ text: 'hello A', companyId: 'co_test' }),
+    ).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('the request path keeps its contract: an empty result, no throw', async () => {
+    await expect(refusing().extract('hello A', 'co_test')).resolves.toMatchObject({
+      facts: [],
+    });
+  });
+});

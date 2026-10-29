@@ -41,6 +41,7 @@ import {
   buildFacetSystemPrompt,
   type ConversationContext,
 } from './extractor-internals/prompts';
+import { providerSideFailure } from './openai-client';
 
 export type { ConversationContext } from './extractor-internals/prompts';
 
@@ -305,6 +306,7 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
     // Even temperature spread across [0.1, 0.7].
     const temperatures = Array.from({ length: N }, (_, i) => 0.1 + (i * 0.6) / Math.max(N - 1, 1));
 
+    const failures: unknown[] = [];
     const rawJsons = await Promise.all(
       temperatures.map((t) =>
         this.llm
@@ -318,6 +320,7 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
           })
           .catch((e) => {
             this.logger.warn(`sc-pass T=${t.toFixed(2)} failed: ${(e as Error).message}`);
+            failures.push(e);
             return null;
           }),
       ),
@@ -339,6 +342,16 @@ export class ExtractorRunnerService implements OnApplicationBootstrap, OnApplica
       ),
     );
     const surviving = results.filter((r): r is ExtractionResult => !!r);
+    // Every pass failed because the provider refused (no credit, a revoked
+    // key, an outage): rethrow the refusal itself, status intact. Folded
+    // into a null it reached the batch reader as a status-less "transient
+    // failure", which the halving retry read as "too long" and split down
+    // to single turns — 1238 refused passes in one local run on a dry key
+    // (2026-10-29). ExtractorService keeps the request path's null contract.
+    if (surviving.length === 0) {
+      const refusal = failures.find(providerSideFailure);
+      if (refusal) throw refusal;
+    }
     // Every pass failed → transient LLM trouble, not an empty text. Null
     // tells the caller to skip the cache (see run()'s contract).
     if (surviving.length === 0) return null;
