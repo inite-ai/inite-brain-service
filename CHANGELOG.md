@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.0](https://github.com/inite-ai/inite-brain-service/compare/v2.5.1...v2.6.0) (2026-10-29)
+
+
+### Features
+
+* **deploy:** PDFs yield facts, weak language detections stop stamping, homoglyph names are logged ([#790](https://github.com/inite-ai/inite-brain-service/issues/790)) ([5ee96b1](https://github.com/inite-ai/inite-brain-service/commit/5ee96b159f31d3830187c4e784bc5acbe763ba17))
+* **eval:** batteries price their quality — every model token counted, a small drift bought with a multiple of economy wins ([#805](https://github.com/inite-ai/inite-brain-service/issues/805)) ([8b5d394](https://github.com/inite-ai/inite-brain-service/commit/8b5d394c1af0d8aeff6eab6f4d0f3662f7917874))
+* **harness:** harness mode — the connected agent does every model reading, the server spends no key ([#820](https://github.com/inite-ai/inite-brain-service/issues/820)) ([9178f1c](https://github.com/inite-ai/inite-brain-service/commit/9178f1cf8547c9198c7e4ff044c92245509a5d10))
+
+
+### Bug Fixes
+
+* **deps:** raise five override floors past their advisories (17 Dependabot alerts) ([#813](https://github.com/inite-ai/inite-brain-service/issues/813)) ([065393d](https://github.com/inite-ai/inite-brain-service/commit/065393dfb17213dad13513337cdd897a604eb0d7))
+* **deps:** systeminformation ≥5.33.16 via override (GHSA-3f7j-7jwc-fxfj) ([#811](https://github.com/inite-ai/inite-brain-service/issues/811)) ([0cd17d1](https://github.com/inite-ai/inite-brain-service/commit/0cd17d17b4f6b312cf1f7343fae452bc059ecca6))
+* **dreams:** read driver datetimes as ISO — the nightly job failed whole on the first competing pair ([#814](https://github.com/inite-ai/inite-brain-service/issues/814)) ([0c171d1](https://github.com/inite-ai/inite-brain-service/commit/0c171d19b2642891adc0c7037ec024722490723b))
+* **eval:** the nightly judge sees who a fact is about and when, and knows both refusal phrasings ([#792](https://github.com/inite-ai/inite-brain-service/issues/792)) ([e8bd445](https://github.com/inite-ai/inite-brain-service/commit/e8bd445ad1860d26d1a4acb107a04a4e04760f07))
+* **eval:** the temporal false-premise scenario owns its entity; Anya Kovac no longer collapses into Anya Volkov ([#806](https://github.com/inite-ai/inite-brain-service/issues/806)) ([ba4a058](https://github.com/inite-ai/inite-brain-service/commit/ba4a058892eca7f281f5e372915c052da40f1c9a))
+* **extraction:** a failed pattern upsert logs a count, not the user's words ([#804](https://github.com/inite-ai/inite-brain-service/issues/804)) ([d044121](https://github.com/inite-ai/inite-brain-service/commit/d0441212148c89b47f449dea6fd7285a83746df7))
+* **extraction:** a provider refusal keeps its status, so a dry key does not halve groups into a retry storm ([#818](https://github.com/inite-ai/inite-brain-service/issues/818)) ([c2fe8ea](https://github.com/inite-ai/inite-brain-service/commit/c2fe8eaa30364e3dfa8ebaea49f874ae0b52e69a))
+* **hnsw:** a tenant migrated during boot gets its indexes, and a provider switch rebuilds them at the new width ([#822](https://github.com/inite-ai/inite-brain-service/issues/822)) ([5598325](https://github.com/inite-ai/inite-brain-service/commit/5598325b3741e90f3dafa973ee65486ab033803d))
+* **ingest:** same-named different people stay two entities — exact-name rungs ask whether the facts contradict ([#821](https://github.com/inite-ai/inite-brain-service/issues/821)) ([0d36161](https://github.com/inite-ai/inite-brain-service/commit/0d3616169ae8d6025cd448189b658885df29b386))
+* **landing:** admin BFF fails closed on a refused exchange; session tokens pin the issuer ([#802](https://github.com/inite-ai/inite-brain-service/issues/802)) ([19ded75](https://github.com/inite-ai/inite-brain-service/commit/19ded75a72ce582fe4fb7c5654df641d0f21e2c6))
+* **multi-hop:** the planner asks gpt-6-luna without a temperature — every plan since [#617](https://github.com/inite-ai/inite-brain-service/issues/617) was a 400 ([#809](https://github.com/inite-ai/inite-brain-service/issues/809)) ([44a1deb](https://github.com/inite-ai/inite-brain-service/commit/44a1deb2da8bdb1216070ddcbae99dba74c8a458))
+* **security:** close the open code-scanning alerts — webhook query as a Map, pinned actions, a locked mcpb build, dead locals ([#812](https://github.com/inite-ai/inite-brain-service/issues/812)) ([1cb93b8](https://github.com/inite-ai/inite-brain-service/commit/1cb93b8605d31c1a7ca470daea79cbf7fe383c08))
+
+
+### Performance Improvements
+
+* **background:** unchanged scenes keep their enrichment; nightly judges stop re-asking pairs they already answered ([#808](https://github.com/inite-ai/inite-brain-service/issues/808)) ([45bc1e5](https://github.com/inite-ai/inite-brain-service/commit/45bc1e54eafb53eb7f6941db9ae7676225d7d66c))
+* **extraction:** stop paying twice for the same read — staging and provider failures are not halved, flex shortages do not fail over at full price ([#807](https://github.com/inite-ai/inite-brain-service/issues/807)) ([27ad210](https://github.com/inite-ai/inite-brain-service/commit/27ad210fcb28a2646c1ece0c1a028a5b7cae5f1d))
+* **read:** cheaper answers — one rerank call, one zoom, capped quotes and L3, cache-friendly audits, compact MCP JSON ([#810](https://github.com/inite-ai/inite-brain-service/issues/810)) ([a593569](https://github.com/inite-ai/inite-brain-service/commit/a5935692517fedf7ba38ce908a915c7f984311fc))
+
 ## [2.5.1](https://github.com/inite-ai/inite-brain-service/compare/v2.5.0...v2.5.1) (2026-10-27)
 
 
