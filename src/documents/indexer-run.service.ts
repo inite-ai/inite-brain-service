@@ -19,6 +19,8 @@ import type { StoredDocument } from './document-store.service';
 import { renderGroup, splitGroupResult, type GroupDoc } from './extraction-group';
 import { Semaphore } from '../common/semaphore';
 import type { ReadDepth } from './read-depth';
+import { ExtractionStagingError } from './read-failure';
+import { retryOnReadConflict } from '../db/surreal-retry';
 
 export interface IndexerRunResult {
   runId: string;
@@ -279,6 +281,9 @@ export class IndexerRunService {
     if (claimed.length === 0) return results;
 
     const groupDocs = claimed.map(({ doc }) => groupDocOf(doc, p.texts.get(doc.id) ?? ''));
+    // A run already finalized as succeeded keeps its rows when a later
+    // member's staging fails: the catch below used to mark it failed too.
+    const finalized = new Set<string>();
     try {
       if (p.abortSignal?.aborted) throw new Error('aborted');
       const rendered = renderGroup(groupDocs);
@@ -299,35 +304,41 @@ export class IndexerRunService {
       const perDoc = splitGroupResult(groupDocs, extraction);
       for (const [i, { doc, runId }] of claimed.entries()) {
         const part = perDoc[i] as ExtractionResult;
-        const counts = await this.candidates.insertBatch(p.companyId, {
-          docId: doc.id,
-          runId,
-          chunkSeq: 0,
-          batch: {
-            provenance: {
-              indexerId: GENERAL_INDEXER_ID,
-              packVersion: GENERAL_INDEXER_VERSION,
-              executionMode: 'virtual',
-              model,
+        const counts = await staged(() =>
+          this.candidates.insertBatch(p.companyId, {
+            docId: doc.id,
+            runId,
+            chunkSeq: 0,
+            batch: {
+              provenance: {
+                indexerId: GENERAL_INDEXER_ID,
+                packVersion: GENERAL_INDEXER_VERSION,
+                executionMode: 'virtual',
+                model,
+              },
+              entities: part.entities.map((e, k) => ({ ...e, entityIndex: k })),
+              facts: part.facts,
+              relations: part.edges,
             },
-            entities: part.entities.map((e, k) => ({ ...e, entityIndex: k })),
-            facts: part.facts,
-            relations: part.edges,
-          },
-        });
+          }),
+        );
         const stats = {
           chunks: 1,
           ...counts,
           durationMs: Date.now() - startedAt,
           ...(p.depth ? { depth: p.depth } : {}),
         };
-        await this.candidates.finalizeRun(p.companyId, { runId, status: 'succeeded', stats });
+        await staged(() =>
+          this.candidates.finalizeRun(p.companyId, { runId, status: 'succeeded', stats }),
+        );
+        finalized.add(runId);
         this.metrics?.countIndexerRun('succeeded');
         results.push({ runId, packId: GENERAL_INDEXER_ID, status: 'succeeded', stats });
       }
       return results;
     } catch (err) {
       for (const { runId } of claimed) {
+        if (finalized.has(runId)) continue;
         await this.candidates
           .finalizeRun(p.companyId, {
             runId,
@@ -512,3 +523,16 @@ const CHUNK_CONCURRENCY = 4;
 
 /** The ledger's pack id of a focused re-read (runFocused). */
 export const RELEARN_INDEXER_ID = '_relearn';
+
+/**
+ * Store what an extraction produced, retrying a write conflict: the
+ * extraction is paid for, and a conflict thrown out of here used to send
+ * the whole group back through the halving retry to be read again.
+ */
+async function staged<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await retryOnReadConflict(fn);
+  } catch (err) {
+    throw new ExtractionStagingError(err);
+  }
+}

@@ -1,4 +1,5 @@
 import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
+import { ExtractionStagingError } from '../src/documents/read-failure';
 
 /**
  * When the batch pass runs. A held conversation asks for a pass when it
@@ -182,7 +183,7 @@ describe('ExtractionBatchService pass', () => {
 });
 
 describe('ExtractionBatchService — a failed group is read in halves', () => {
-  it('a group whose read times out is read as halves, down to what fits', async () => {
+  function stand(fail: (size: number) => Error | null) {
     const ids = ['a', 'b', 'c', 'd'].map((x) => `source_document:${x}`);
     const docs = new Map(
       ids.map((id, i) => [
@@ -218,8 +219,8 @@ describe('ExtractionBatchService — a failed group is read in halves', () => {
         },
         runGeneralGroup: async (p: { docs: unknown[] }) => {
           reads.push(p.docs.length);
-          // The battery's failure: a long group times out, its halves fit.
-          if (p.docs.length > 2) throw new Error('Request timed out.');
+          const err = fail(p.docs.length);
+          if (err) throw err;
           return { status: 'succeeded' };
         },
       } as never,
@@ -233,11 +234,32 @@ describe('ExtractionBatchService — a failed group is read in halves', () => {
         }),
       } as never,
     );
+    return { pass, reads };
+  }
+
+  it('a group whose read times out is read as halves, down to what fits', async () => {
+    // The battery's failure: a long group times out, its halves fit.
+    const { pass, reads } = stand((n) => (n > 2 ? new Error('Request timed out.') : null));
     expect(await pass.runPass('co', { force: true })).toMatchObject({
       read: 4,
       failed: 0,
       committed: 4,
     });
     expect(reads).toEqual([4, 2, 2]);
+  });
+
+  it('a provider refusal is not halved: the halves would be refused too, each paid in full', async () => {
+    const refused = Object.assign(new Error('429 You have no credits remaining'), { status: 429 });
+    const { pass, reads } = stand(() => refused);
+    expect(await pass.runPass('co', { force: true })).toMatchObject({ read: 0, failed: 4 });
+    expect(reads).toEqual([4]);
+  });
+
+  it('a staging failure is not halved: the extraction was paid for and halves re-read it', async () => {
+    const { pass, reads } = stand((n) =>
+      n === 4 ? new ExtractionStagingError(new Error('Transaction conflict')) : null,
+    );
+    expect(await pass.runPass('co', { force: true })).toMatchObject({ read: 0, failed: 4 });
+    expect(reads).toEqual([4]);
   });
 });
