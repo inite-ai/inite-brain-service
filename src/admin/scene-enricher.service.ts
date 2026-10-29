@@ -30,6 +30,7 @@ import {
   type ScenePredictionError,
 } from './scene-prediction-baseline';
 import { SceneVersionService } from './scene-version';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /**
  * Scene LLM enricher (Brain v2 PR2, SCENES_LLM_ENRICHMENT — default off):
@@ -375,7 +376,67 @@ export interface SceneEnrichResult {
  */
 export const SCENE_ENRICH_MAX_PER_RUN = 50;
 
-interface SceneHead {
+/** What one scene's prompt is built from (prepareScene). */
+export interface PreparedScene {
+  memberTurns: SceneTurnRow[];
+  transcript: string;
+  prediction: ScenePrediction | null;
+}
+
+/** The JSON schema of one scene's enrichment reply. */
+export const SCENE_ENRICHMENT_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    gist: { type: 'string' },
+    memoryValue: {
+      type: 'object',
+      additionalProperties: false,
+      properties: Object.fromEntries(MEMORY_DIMS.map((d) => [d, { type: 'number' }])),
+      required: [...MEMORY_DIMS],
+    },
+    stateDeltas: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          subject: { type: 'string' },
+          field: { type: 'string' },
+          from: { type: 'string' },
+          to: { type: 'string' },
+        },
+        required: ['subject', 'field', 'from', 'to'],
+      },
+    },
+    unexpectedDetails: { type: 'array', items: { type: 'string' } },
+    entityMentions: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['gist', 'memoryValue', 'stateDeltas', 'unexpectedDetails', 'entityMentions'],
+};
+
+/**
+ * The one scene enrichment prompt — the server model's and, in harness
+ * mode, the connected agent's (scene-summary-work.service.ts).
+ */
+export function sceneEnrichmentRequest(
+  transcript: string,
+  prediction: ScenePrediction | null,
+): { system: string; user: string; schema: Record<string, unknown> } {
+  return prediction === null
+    ? {
+        system: SCENE_ENRICHMENT_SYSTEM,
+        user: `Scene transcript:\n${transcript}`,
+        schema: SCENE_ENRICHMENT_SCHEMA,
+      }
+    : {
+        system: SCENE_ENRICHMENT_SYSTEM_V2,
+        user: `${renderBaselineBlock(prediction.beliefs)}\n\nScene transcript:\n${transcript}`,
+        schema: SCENE_ENRICHMENT_SCHEMA,
+      };
+}
+
+export interface SceneHead {
   id: unknown;
   conversationIds: string[];
   /** Present when a previous enrichment pass stamped the row (0118). */
@@ -386,7 +447,7 @@ interface SceneHead {
 }
 
 /** Per-scene expectation snapshot, or null when the scene has none. */
-interface ScenePrediction {
+export interface ScenePrediction {
   beliefs: BaselineBelief[];
   selfSubjects: ReadonlySet<string>;
 }
@@ -437,60 +498,28 @@ export class SceneEnricherService {
     // Defense in depth: the controller already 404s with the flag off; a
     // programmatic caller must not spend LLM calls past a disabled flag.
     if (!sceneLlmEnrichmentEnabled()) return result;
+    // Harness mode: the connected agent writes the summaries
+    // (take_memory_work, kind scene_summary); the pass makes no call.
+    if (serverModelsRefused()) return result;
     if (!this.openai) {
       this.logger.warn('scene enrichment skipped: no OPENAI_API_KEY configured');
       return result;
     }
-    // Effective version + revision composite, resolved ONCE per run: the
-    // scene selection follows the composer's stamps, and the composite is
-    // the idempotency key for the skip below. The prediction flag is
-    // resolved here too (the Drift-3 contract) so a mid-run flip can never
-    // mix prompt versions inside one enriched world.
-    const { version } = this.versions.resolve();
-    const predictionOn = scenePredictionBaselineEnabled();
-    // Resolved ONCE per run for the same Drift-3 reason: a mid-run flip
-    // must not leave half the world linked and half not.
-    const entityLinksOn = sceneEntityLinksEnabled();
-    const enrichmentVersion = sceneEnrichmentVersion(this.model, predictionOn, entityLinksOn);
     await this.surreal.withCompany(companyId, async (db) => {
-      // The scope columns are projected ONLY when a leg actually needs
-      // them — the prediction baseline's #387 fence, or the entity-link
-      // fence, which reads the same single-user stamp. With BOTH off the
-      // SELECT is byte-identical (pinned by unit test).
-      const needsScope = predictionOn || entityLinksOn;
-      const [scenes] = await db.query<[SceneHead[]]>(
-        `SELECT id, conversationIds, enrichmentVersion${needsScope ? ', userId, userIds' : ''} FROM memory_episode
-          WHERE segmenterVersion = $v` +
-          (opts.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : ''),
-        {
-          v: version,
-          ...(opts.conversationId !== undefined ? { conv: opts.conversationId } : {}),
-        },
-      );
-      const all = scenes ?? [];
-      result.scenes = all.length;
-      // Idempotent skip: a scene already carrying the current
-      // prompt|scorer|model revision needs no call — and, resolved BEFORE
-      // the baseline read, no belief query either.
-      const pending: SceneHead[] = [];
-      for (const scene of all) {
-        if (scene.enrichmentVersion === enrichmentVersion) {
-          result.skipped += 1;
-          this.logger.debug(
-            `scene enrichment skipped ${String(scene.id)}: already at ${enrichmentVersion}`,
-          );
-        } else pending.push(scene);
-      }
+      const run = await this.listPending(db, opts);
+      const { enrichmentVersion, predictionOn, entityLinksOn } = run;
+      const pending = run.pending;
+      result.scenes = run.scenes;
+      result.skipped = run.skipped;
       if (pending.length > SCENE_ENRICH_MAX_PER_RUN) {
         result.deferred = pending.length - SCENE_ENRICH_MAX_PER_RUN;
         pending.length = SCENE_ENRICH_MAX_PER_RUN;
       }
       // ONE bounded belief read per run, fenced to the users whose scenes
       // pass #387. Flag off (or nothing to enrich) ⇒ zero extra queries.
-      const beliefsByUser =
-        predictionOn && pending.length > 0
-          ? await loadActiveBeliefBaseline(db, this.baselineUserIds(pending))
-          : new Map<string, BaselineBelief[]>();
+      const beliefsByUser = predictionOn
+        ? await this.beliefBaseline(db, pending)
+        : new Map<string, BaselineBelief[]>();
       // One raw-turn read per conversation, shared across its scenes.
       const turnCache = new Map<string, Map<string, SceneTurnRow>>();
       for (const scene of pending) {
@@ -515,6 +544,80 @@ export class SceneEnricherService {
       }
     });
     return result;
+  }
+
+  /**
+   * The scenes of the CURRENT segmenter version (optionally one
+   * conversation's) still missing the current enrichment revision, with
+   * the run-level switches resolved ONCE (the Drift-3 contract: a mid-run
+   * flip can never mix prompt versions inside one enriched world). Shared
+   * by the server pass and the harness work (scene-summary-work.service.ts).
+   */
+  async listPending(
+    db: EpisodeDb,
+    opts: { conversationId?: string; model?: string } = {},
+  ): Promise<{
+    enrichmentVersion: string;
+    predictionOn: boolean;
+    entityLinksOn: boolean;
+    scenes: number;
+    skipped: number;
+    pending: SceneHead[];
+  }> {
+    const { version } = this.versions.resolve();
+    const predictionOn = scenePredictionBaselineEnabled();
+    const entityLinksOn = sceneEntityLinksEnabled();
+    const enrichmentVersion = sceneEnrichmentVersion(
+      opts.model ?? this.model,
+      predictionOn,
+      entityLinksOn,
+    );
+    // The scope columns are projected ONLY when a leg actually needs
+    // them — the prediction baseline's #387 fence, the entity-link fence,
+    // or the harness scope fence. With all off the SELECT is
+    // byte-identical (pinned by unit test).
+    const needsScope = predictionOn || entityLinksOn || serverModelsRefused();
+    const [scenes] = await db.query<[SceneHead[]]>(
+      `SELECT id, conversationIds, enrichmentVersion${needsScope ? ', userId, userIds' : ''} FROM memory_episode
+          WHERE segmenterVersion = $v` +
+        (opts.conversationId !== undefined ? ` AND conversationIds CONTAINS $conv` : ''),
+      {
+        v: version,
+        ...(opts.conversationId !== undefined ? { conv: opts.conversationId } : {}),
+      },
+    );
+    const all = scenes ?? [];
+    // Idempotent skip: a scene already carrying the current
+    // prompt|scorer|model revision needs no call — and, resolved BEFORE
+    // the baseline read, no belief query either.
+    const pending: SceneHead[] = [];
+    let skipped = 0;
+    for (const scene of all) {
+      if (scene.enrichmentVersion === enrichmentVersion) {
+        skipped += 1;
+        this.logger.debug(
+          `scene enrichment skipped ${String(scene.id)}: already at ${enrichmentVersion}`,
+        );
+      } else pending.push(scene);
+    }
+    return {
+      enrichmentVersion,
+      predictionOn,
+      entityLinksOn,
+      scenes: all.length,
+      skipped,
+      pending,
+    };
+  }
+
+  /** The beliefs a set of scenes may be scored against (one bounded read). */
+  async beliefBaseline(
+    db: EpisodeDb,
+    scenes: readonly SceneHead[],
+  ): Promise<Map<string, BaselineBelief[]>> {
+    return scenes.length > 0
+      ? loadActiveBeliefBaseline(db, this.baselineUserIds(scenes))
+      : new Map<string, BaselineBelief[]>();
   }
 
   /**
@@ -550,7 +653,52 @@ export class SceneEnricherService {
     entityLinksOn: boolean;
     beliefsByUser: ReadonlyMap<string, BaselineBelief[]>;
   }): Promise<boolean> {
-    if (scene.conversationIds.length === 0) return false;
+    const prepared = await this.prepareScene({
+      db,
+      scene,
+      turnCache,
+      predictionOn,
+      beliefsByUser,
+    });
+    if (!prepared) return false;
+    const enrichment = await this.callModel(prepared.transcript, prepared.prediction);
+    if (!enrichment) {
+      this.logger.warn(
+        `scene enrichment reply malformed for ${String(scene.id)} — scene keeps its deterministic gist`,
+      );
+      return false;
+    }
+    await this.applyEnrichment({
+      db,
+      scene,
+      prepared,
+      enrichment,
+      model: this.model,
+      enrichmentVersion,
+      entityLinksOn,
+    });
+    return true;
+  }
+
+  /**
+   * What one scene's prompt is built from: its member turns as a
+   * transcript and the expectation snapshot. null when the scene has no
+   * readable member turn.
+   */
+  async prepareScene({
+    db,
+    scene,
+    turnCache,
+    predictionOn,
+    beliefsByUser,
+  }: {
+    db: EpisodeDb;
+    scene: SceneHead;
+    turnCache: Map<string, Map<string, SceneTurnRow>>;
+    predictionOn: boolean;
+    beliefsByUser: ReadonlyMap<string, BaselineBelief[]>;
+  }): Promise<PreparedScene | null> {
+    if (scene.conversationIds.length === 0) return null;
     // Member lookup merged over ALL of the scene's conversations (the
     // cache stays per-conversation): identical behavior today — the
     // composer only writes single-conversation scenes — but a future
@@ -587,7 +735,7 @@ export class SceneEnricherService {
       .filter((t): t is SceneTurnRow => t !== undefined);
     if (memberTurns.length === 0) {
       this.logger.warn(`scene enrichment skipped ${String(scene.id)}: no member turns readable`);
-      return false;
+      return null;
     }
 
     const transcript = memberTurns
@@ -604,17 +752,35 @@ export class SceneEnricherService {
     const prediction: ScenePrediction | null = predictionOn
       ? this.sceneExpectation({ scene, memberTurns, transcript, beliefsByUser })
       : null;
-    const enrichment = await this.callModel(transcript, prediction);
-    if (!enrichment) {
-      this.logger.warn(
-        `scene enrichment reply malformed for ${String(scene.id)} — scene keeps its deterministic gist`,
-      );
-      return false;
-    }
+    return { memberTurns, transcript, prediction };
+  }
 
+  /**
+   * Write one scene's enrichment — the server model's reply, or the
+   * connected agent's in harness mode, through the same scoring, links
+   * and single-record UPDATE.
+   */
+  async applyEnrichment({
+    db,
+    scene,
+    prepared,
+    enrichment,
+    model,
+    enrichmentVersion,
+    entityLinksOn,
+  }: {
+    db: EpisodeDb;
+    scene: SceneHead;
+    prepared: PreparedScene;
+    enrichment: SceneEnrichment;
+    model: string;
+    enrichmentVersion: string;
+    entityLinksOn: boolean;
+  }): Promise<void> {
     // MEASURED over GUESSED: the deterministic scorer (no model call) is
     // the producer of contradiction / stateChange / identity whenever it
     // can measure them; the rest of the vector stays the model's.
+    const { prediction, memberTurns } = prepared;
     const measured: ScenePredictionError =
       prediction === null
         ? {}
@@ -664,13 +830,12 @@ export class SceneEnricherService {
         },
         stateDeltas: enrichment.stateDeltas,
         unexpectedDetails: enrichment.unexpectedDetails,
-        model: this.model,
+        model,
         enrichmentVersion,
         ...(prediction === null ? {} : { baselineRef: baselineRefPayload(prediction.beliefs) }),
         ...(entityIds === null ? {} : { entityIds }),
       },
     );
-    return true;
   }
 
   /**
@@ -756,6 +921,7 @@ export class SceneEnricherService {
     transcript: string,
     prediction: ScenePrediction | null,
   ): Promise<SceneEnrichment | null> {
+    const req = sceneEnrichmentRequest(transcript, prediction);
     const res = await this.openai!.chat.completions.create({
       model: this.model,
       ...chatCallParams(this.model, {
@@ -764,54 +930,12 @@ export class SceneEnricherService {
         visibleCap: ENRICH_VISIBLE_CAP,
       }),
       messages: [
-        {
-          role: 'system',
-          content: prediction === null ? SCENE_ENRICHMENT_SYSTEM : SCENE_ENRICHMENT_SYSTEM_V2,
-        },
-        {
-          role: 'user',
-          content:
-            prediction === null
-              ? `Scene transcript:\n${transcript}`
-              : `${renderBaselineBlock(prediction.beliefs)}\n\nScene transcript:\n${transcript}`,
-        },
+        { role: 'system', content: req.system },
+        { role: 'user', content: req.user },
       ],
       response_format: {
         type: 'json_schema',
-        json_schema: {
-          name: 'scene_enrichment',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              gist: { type: 'string' },
-              memoryValue: {
-                type: 'object',
-                additionalProperties: false,
-                properties: Object.fromEntries(MEMORY_DIMS.map((d) => [d, { type: 'number' }])),
-                required: [...MEMORY_DIMS],
-              },
-              stateDeltas: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    subject: { type: 'string' },
-                    field: { type: 'string' },
-                    from: { type: 'string' },
-                    to: { type: 'string' },
-                  },
-                  required: ['subject', 'field', 'from', 'to'],
-                },
-              },
-              unexpectedDetails: { type: 'array', items: { type: 'string' } },
-              entityMentions: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['gist', 'memoryValue', 'stateDeltas', 'unexpectedDetails', 'entityMentions'],
-          },
-        },
+        json_schema: { name: 'scene_enrichment', strict: true, schema: req.schema },
       },
     });
     const content = res.choices[0]?.message?.content;

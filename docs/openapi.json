@@ -9681,6 +9681,7 @@
           "verifier_failed",
           "verifier_partial",
           "generator_error",
+          "harness_mode",
           "verifier_error"
         ],
         "type": "string"

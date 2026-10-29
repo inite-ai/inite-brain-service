@@ -90,6 +90,48 @@ export class ExtractorService {
     return this.read({ ...p, background: true });
   }
 
+  /**
+   * A background read prepared and NOT sent (harness mode,
+   * extraction-work.service.ts): the same clamped text, vocabulary and
+   * prompt the server read would use at one sample. Null for empty text.
+   */
+  async prepareRead(p: {
+    text: string;
+    companyId: string;
+    context?: ConversationContext | undefined;
+  }): Promise<PreparedRead | null> {
+    const { value: trimmed } = clampLlmInputText(p.text, 'mentionText');
+    if (!trimmed) return null;
+    const snapshot = await this.loadSnapshot(p.companyId);
+    return {
+      vocabularyHash: snapshot.versionHash,
+      ...this.runner.prepare({ trimmed, snapshot, context: p.context }),
+    };
+  }
+
+  /**
+   * A reply to a prepared read, made by someone else's model, through the
+   * server's own post-processing (ExtractorRunnerService.assembleSubmitted).
+   * Not cached: the extraction cache memoises what OUR model read.
+   */
+  async assembleRead(p: {
+    text: string;
+    companyId: string;
+    context?: ConversationContext | undefined;
+    rawJson: unknown;
+  }): Promise<ExtractionResult> {
+    const { value: trimmed } = clampLlmInputText(p.text, 'mentionText');
+    if (!trimmed) return { entities: [], facts: [], edges: [] };
+    const snapshot = await this.loadSnapshot(p.companyId);
+    return this.runner.assembleSubmitted({
+      companyId: p.companyId,
+      trimmed,
+      snapshot,
+      rawJson: p.rawJson,
+      context: p.context,
+    });
+  }
+
   private async read(p: {
     text: string;
     companyId: string;
@@ -196,4 +238,13 @@ export class ExtractorService {
       };
     }
   }
+}
+
+/** One read as the model would receive it (prepareRead). */
+export interface PreparedRead {
+  /** The predicate vocabulary the prompt was built from. */
+  vocabularyHash: string;
+  systemPrompt: string;
+  userContent: string;
+  schema: Record<string, unknown>;
 }

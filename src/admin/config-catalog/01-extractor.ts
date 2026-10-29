@@ -22,6 +22,15 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
       'How long captures gather before one extract_documents pass reads them: every write of one window asks for the same job.',
   },
   {
+    key: 'EXTRACTION_SOURCE',
+    category: 'extractor',
+    defaultValue: 'server',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Who does the reading the server models would do. `server` (default): the server calls them. `harness`: no model call — background reading (extraction, attribute cardinality, entity, conflict and corroboration judgements, scene summaries, belief sentences) is handed to the connected agent in batches through the MCP tools take_memory_work / submit_memory_work and applied by the server own writes; every other server-side chat call, Jev decisions and the Cohere reranker are refused before the network, and OPENAI_API_KEY may be unset with EMBEDDER_PROVIDER=bge-m3.',
+  },
+  {
     key: 'EXTRACTION_CONVERSATION_SETTLE_SECONDS',
     category: 'extractor',
     defaultValue: '120',

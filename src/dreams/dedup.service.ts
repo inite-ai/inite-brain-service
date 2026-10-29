@@ -87,6 +87,11 @@ export class DreamsDedupService {
     return this.enabled && this.judge.isAvailable();
   }
 
+  /** Configured on, whoever judges (the harness work reads this). */
+  configured(): boolean {
+    return this.enabled;
+  }
+
   /**
    * Run dedup for ONE tenant. The caller (DreamsService) owns the
    * Surreal connection and tenant scoping — we just operate over the
@@ -179,10 +184,7 @@ export class DreamsDedupService {
    * node in every derived world, and the judge's evidence
    * (`fetchTopFacts`) was never world-fenced either.
    */
-  private async findCandidates(
-    db: Surreal,
-    _derivedVersion: string | null,
-  ): Promise<DedupCandidate[]> {
+  async findCandidates(db: Surreal, _derivedVersion: string | null): Promise<DedupCandidate[]> {
     type SeedRow = { id: unknown; type: string; recordedAt: unknown };
     const [seedRows] = await db.query<[SeedRow[]]>(
       `SELECT id, type, recordedAt FROM knowledge_entity
@@ -246,7 +248,7 @@ export class DreamsDedupService {
     return (res[1] as Row[]) ?? [];
   }
 
-  private async identityEdgeExists(db: Surreal, aId: string, bId: string): Promise<boolean> {
+  async identityEdgeExists(db: Surreal, aId: string, bId: string): Promise<boolean> {
     const [rows] = await db.query<[Array<{ id: unknown }>]>(
       `SELECT id FROM knowledge_edge
        WHERE kind = 'identity_of'
@@ -260,7 +262,7 @@ export class DreamsDedupService {
     return ((rows as Array<{ id: unknown }>) ?? []).length > 0;
   }
 
-  private async linkIdentity(db: Surreal, aId: string, bId: string): Promise<void> {
+  async linkIdentity(db: Surreal, aId: string, bId: string): Promise<void> {
     // Direction: aId → bId. The conventional survivor/loser policy
     // (older entity wins) is enforced by the existing identity-merge
     // path in the search service via mergedInto reattribution; from

@@ -25,6 +25,7 @@ import { CandidateCommitService } from './candidate-commit.service';
 import { DocumentIngestService } from './document-ingest.service';
 import { DocumentAsyncService } from './document-async.service';
 import { ExtractionBatchService } from './extraction-batch.service';
+import { ExtractionWorkService } from './extraction-work.service';
 import { ExtractionMetrics } from './extraction.metrics';
 import { ExtractionAdminController } from './extraction-admin.controller';
 import { DocumentReindexService } from './document-reindex.service';
@@ -75,6 +76,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     DocumentIngestService,
     DocumentAsyncService,
     ExtractionBatchService,
+    ExtractionWorkService,
     ExtractionMetrics,
     DocumentReindexService,
     PackSeedIngestService,
@@ -97,6 +99,7 @@ import { EvidenceDocumentBridgeQueueService } from './evidence-document-bridge-q
     ExternalCandidatesService,
     MentionViaDocumentService,
     PackSeedIngestService,
+    ExtractionWorkService,
     SourceDriftStalenessService,
   ],
 })

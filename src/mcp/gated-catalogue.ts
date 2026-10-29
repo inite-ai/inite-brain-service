@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { BrainScope } from '../auth/api-key.types';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
 import { registerCommunityTools } from './community-tools';
+import { registerHarnessWorkTools } from './harness-work-tools';
 import { registerOnboardingTools } from './onboarding-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { PUBLIC_TOOL_NAMES } from './public-tools';
@@ -86,6 +87,7 @@ function record(): Recorded[] {
     deps: none,
   });
   registerCodeMemoryWriteTools({ server, companyId, deps: none });
+  registerHarnessWorkTools({ server, companyId, deps: {} });
   return out;
 }
 

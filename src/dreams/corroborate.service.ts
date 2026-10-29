@@ -15,6 +15,7 @@ import { withSpan } from '../common/tracing';
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /**
  * DreamsCorroborateService — fuzzy cross-source corroboration.
@@ -77,7 +78,7 @@ export interface CorroborateResult {
   corroborations: CorroborationApplied[];
 }
 
-interface ActiveFactRow {
+export interface ActiveFactRow {
   id: unknown;
   entityId: unknown;
   predicate: string;
@@ -93,6 +94,28 @@ interface ActiveFactRow {
 /** Skip groups larger than this — claim-shaped predicates hold a handful
  *  of active rows; dozens means event-shaped data we must not touch. */
 const MAX_GROUP_SIZE = 8;
+
+/** The corroboration judge's instructions — the server model's and the harness agent's. */
+export const CORROBORATE_JUDGE_SYSTEM = `You judge whether two knowledge-graph facts are the SAME ASSERTION worded differently.
+
+Both share the same entity and predicate. Answer same_assertion ONLY when B independently confirms exactly what A claims — a paraphrase, translation, or re-wording of one underlying fact.
+
+Answer different when:
+- the values genuinely differ ("gold" vs "platinum" — a contradiction, not confirmation);
+- they describe two separate occurrences of the same KIND of thing (two visits, two complaints, two payments — repeated events are not one fact);
+- one is more specific in a way that changes the claim.
+
+Answer unsure when you cannot tell. Unsure is always safe.`;
+
+/** One pair as the corroboration judge reads it. */
+export function corroborateUserContent(pair: {
+  incumbent: Pick<ActiveFactRow, 'predicate' | 'recordedAt' | 'object'>;
+  younger: Pick<ActiveFactRow, 'recordedAt' | 'object'>;
+}): string {
+  return `Predicate: ${pair.incumbent.predicate}
+A (recorded ${pair.incumbent.recordedAt}): ${pair.incumbent.object}
+B (recorded ${pair.younger.recordedAt}): ${pair.younger.object}`;
+}
 
 @Injectable()
 export class DreamsCorroborateService {
@@ -140,6 +163,11 @@ export class DreamsCorroborateService {
     return this.enabled && !!this.openai;
   }
 
+  /** Configured on, whoever judges (the harness work reads this). */
+  configured(): boolean {
+    return this.enabled;
+  }
+
   async run(db: Surreal, derivedVersion: string | null = null): Promise<CorroborateResult> {
     const result: CorroborateResult = {
       groupsConsidered: 0,
@@ -179,6 +207,10 @@ export class DreamsCorroborateService {
       }
       const members = await this.fetchGroupMembers(db, group, derivedVersion);
       const pairs = this.selectPairs(members);
+      // Harness mode: exact matches still apply (no judge needed); a
+      // paraphrase waits for the connected agent (kind fact_corroboration),
+      // and the group is not memoized until it has been judged.
+      let deferred = 0;
 
       // Judge in parallel under the semaphore, apply serially. The old
       // per-iteration await never let the Semaphore hold more than one
@@ -191,6 +223,10 @@ export class DreamsCorroborateService {
           result.pairsConsidered++;
           if (pair.younger.object.trim() === pair.incumbent.object.trim()) {
             return Promise.resolve({ pair, verdict: 'exact' as const });
+          }
+          if (serverModelsRefused()) {
+            deferred += 1;
+            return Promise.resolve({ pair, verdict: 'deferred' as const });
           }
           result.llmJudgements++;
           return withSpan('dreams.corroborate.judge', () =>
@@ -208,7 +244,7 @@ export class DreamsCorroborateService {
           );
           continue;
         }
-        if (verdict === 'different') continue;
+        if (verdict === 'different' || verdict === 'deferred') continue;
         const method: 'exact' | 'llm' = verdict === 'exact' ? 'exact' : 'llm';
         await this.applyCorroboration(db, pair);
         result.corroborationsApplied++;
@@ -228,7 +264,7 @@ export class DreamsCorroborateService {
       // re-fetched and re-judged every night. Groups that DID apply a
       // corroboration change their active-member count (the younger row
       // turns 'corroborating'), so the memo self-invalidates for them.
-      await this.markGroupChecked(db, group, members.length);
+      if (deferred === 0) await this.markGroupChecked(db, group, members.length);
     }
     return result;
   }
@@ -265,7 +301,7 @@ export class DreamsCorroborateService {
    * and a group could be starved indefinitely. Returns the windowed slice
    * plus the true eligible backlog so the caller can surface the depth.
    */
-  private async findCandidateGroups(
+  async findCandidateGroups(
     db: Surreal,
     derivedVersion: string | null,
   ): Promise<{
@@ -351,7 +387,7 @@ export class DreamsCorroborateService {
     return memo;
   }
 
-  private async fetchGroupMembers(
+  async fetchGroupMembers(
     db: Surreal,
     group: { entityId: unknown; predicate: string; scope: string },
     derivedVersion: string | null,
@@ -388,7 +424,7 @@ export class DreamsCorroborateService {
    * itself already corroborated stays untouched (retagging it would
    * hide a row other rows point at).
    */
-  private selectPairs(
+  selectPairs(
     members: ActiveFactRow[],
   ): Array<{ incumbent: ActiveFactRow; younger: ActiveFactRow }> {
     const pairs: Array<{ incumbent: ActiveFactRow; younger: ActiveFactRow }> = [];
@@ -414,19 +450,8 @@ export class DreamsCorroborateService {
     incumbent: ActiveFactRow;
     younger: ActiveFactRow;
   }): Promise<'same_assertion' | 'different' | 'unsure'> {
-    const sys = `You judge whether two knowledge-graph facts are the SAME ASSERTION worded differently.
-
-Both share the same entity and predicate. Answer same_assertion ONLY when B independently confirms exactly what A claims — a paraphrase, translation, or re-wording of one underlying fact.
-
-Answer different when:
-- the values genuinely differ ("gold" vs "platinum" — a contradiction, not confirmation);
-- they describe two separate occurrences of the same KIND of thing (two visits, two complaints, two payments — repeated events are not one fact);
-- one is more specific in a way that changes the claim.
-
-Answer unsure when you cannot tell. Unsure is always safe.`;
-    const user = `Predicate: ${pair.incumbent.predicate}
-A (recorded ${pair.incumbent.recordedAt}): ${pair.incumbent.object}
-B (recorded ${pair.younger.recordedAt}): ${pair.younger.object}`;
+    const sys = CORROBORATE_JUDGE_SYSTEM;
+    const user = corroborateUserContent(pair);
     try {
       const res = await withGenAiCall(
         {
@@ -490,7 +515,7 @@ B (recorded ${pair.younger.recordedAt}): ${pair.younger.object}`;
    * origins. Key derivation delegates to the same stored fns the
    * resolver uses — one definition of "origin".
    */
-  private async applyCorroboration(
+  async applyCorroboration(
     db: Surreal,
     pair: { incumbent: ActiveFactRow; younger: ActiveFactRow },
   ): Promise<void> {

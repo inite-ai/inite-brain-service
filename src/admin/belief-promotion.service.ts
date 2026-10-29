@@ -40,6 +40,24 @@ import {
   epochMs,
   type ActiveBeliefRow,
 } from './belief-revision';
+import { serverModelsRefused } from '../common/extraction-source';
+import {
+  BELIEF_NEGATION_VALUE,
+  STATEMENT_MAX_CHARS,
+  beliefStatementRequest,
+  cleanBeliefStatement,
+} from './belief-statement';
+
+// The belief phrasing prompt lives in belief-statement.ts (shared with the
+// harness work); re-exported where its callers have always imported it.
+export {
+  BELIEF_NEGATION_VALUE,
+  BELIEF_SYNTHESIS_NEGATION_CLAUSE,
+  BELIEF_SYNTHESIS_SYSTEM,
+  beliefStatementRequest,
+  cleanBeliefStatement,
+  type BeliefStatementInput,
+} from './belief-statement';
 
 // The lexical fold rule lives in belief-field-fold.ts, the scene
 // selection / row shape / #387 fence / world stamping in
@@ -242,8 +260,6 @@ export { beliefIdTail } from './belief-revision';
  * The deterministic template fold works with no client at all.
  */
 
-/** Belts against runaway payloads (the enricher's cap discipline). */
-const STATEMENT_MAX_CHARS = 500;
 const SYNTHESIS_VISIBLE_CAP = 400;
 
 /** Confidence fold constants: explicitness mean + corroboration bonus. */
@@ -251,25 +267,6 @@ const DEFAULT_EXPLICITNESS = 0.5;
 const CORROBORATION_BONUS = 0.05;
 const CONFIDENCE_CAP = 0.95;
 const CONFIDENCE_FLOOR = 0.05;
-
-export const BELIEF_SYNTHESIS_SYSTEM = `You phrase ONE remembered belief — a (subject, attribute, value) state a user's conversations established — as a single natural sentence. Output strictly the JSON schema: "statement": one concise declarative sentence stating the belief content itself (never meta-language like "the user said"). Include the previous value only when one is given.`;
-
-/**
- * Canonical negation sentinel (#135 seam 1): the folded value of an
- * admitted state-REMOVAL delta (empty `to`, non-empty `from`). A plain
- * string on purpose — it flows through the existing supersede chain,
- * template and lane render unchanged ('subject — field: none (was:
- * prior)').
- */
-export const BELIEF_NEGATION_VALUE = 'none';
-
-/**
- * SCENES_BELIEF_NEGATION_DELTAS synthesis-prompt clause — appended to
- * BELIEF_SYNTHESIS_SYSTEM only when the flag is on AND the write
- * involves the sentinel (the generator-prompt split-constant idiom,
- * #412/#413/#415: flag off ⇒ byte-identical prompt).
- */
-export const BELIEF_SYNTHESIS_NEGATION_CLAUSE = ` A value of "${BELIEF_NEGATION_VALUE}" means the subject NO LONGER has the attribute — phrase it as a natural negation (e.g. "no longer has a car"), never as possessing something called "${BELIEF_NEGATION_VALUE}".`;
 
 /** One delta occurrence, normalized for the fold. */
 export interface BeliefContribution {
@@ -1332,18 +1329,14 @@ export class BeliefPromotionService {
   ): Promise<{ text: string; source: 'template' | 'llm' }> {
     const template = renderBeliefStatement(belief);
     if (!sceneBeliefLlmSynthesisEnabled()) return { text: template, source: 'template' };
+    // Harness mode: the template stands until the connected agent phrases
+    // it (kind belief_statement); no call is made here.
+    if (serverModelsRefused()) return { text: template, source: 'template' };
     if (!this.openai) {
       this.logger.warn('belief statement synthesis skipped: no OPENAI_API_KEY configured');
       return { text: template, source: 'template' };
     }
-    // #135 seam 1: the negation clause joins the system prompt only when
-    // the flag is on AND the write involves the sentinel (split-constant
-    // idiom — flag off, or a non-negation belief, is byte-identical).
-    const system =
-      sceneBeliefNegationDeltasEnabled() &&
-      (belief.value === BELIEF_NEGATION_VALUE || belief.priorValue === BELIEF_NEGATION_VALUE)
-        ? BELIEF_SYNTHESIS_SYSTEM + BELIEF_SYNTHESIS_NEGATION_CLAUSE
-        : BELIEF_SYNTHESIS_SYSTEM;
+    const req = beliefStatementRequest(belief);
     try {
       const res = await this.openai.chat.completions.create({
         model: this.model,
@@ -1353,15 +1346,8 @@ export class BeliefPromotionService {
           visibleCap: SYNTHESIS_VISIBLE_CAP,
         }),
         messages: [
-          { role: 'system', content: system },
-          {
-            role: 'user',
-            content:
-              `subject: ${belief.subject}\nattribute: ${belief.field}\nvalue: ${belief.value}` +
-              (belief.priorValue !== '' && belief.priorValue !== belief.value
-                ? `\nprevious value: ${belief.priorValue}`
-                : ''),
-          },
+          { role: 'system', content: req.system },
+          { role: 'user', content: req.user },
         ],
         response_format: {
           type: 'json_schema',
@@ -1384,9 +1370,9 @@ export class BeliefPromotionService {
         typeof parsed === 'object' && parsed !== null
           ? (parsed as Record<string, unknown>).statement
           : undefined;
-      const text = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
-      if (text === '') return { text: template, source: 'template' };
-      return { text: text.slice(0, STATEMENT_MAX_CHARS), source: 'llm' };
+      const text = cleanBeliefStatement(raw);
+      if (text === null) return { text: template, source: 'template' };
+      return { text, source: 'llm' };
     } catch (e) {
       // Degrade, never fail: the deterministic fold must not depend on
       // the optional synthesis (transport error, malformed reply, ...).

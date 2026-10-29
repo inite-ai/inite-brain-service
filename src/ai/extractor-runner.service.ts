@@ -93,8 +93,7 @@ export class ExtractorRunnerService {
     context?: ConversationContext | undefined;
   }): Promise<ExtractionResult | null> {
     const { trimmed, companyId, snapshot, overrides, context } = args;
-    const systemPrompt = this.llm.composeSystemPrompt(snapshot);
-    const contextPrefix = buildConversationContext(context ?? {});
+    const { systemPrompt, contextPrefix } = this.promptParts(snapshot, context);
 
     const skip = await this.local.trySkip(companyId, trimmed);
     if (skip) return skip;
@@ -130,6 +129,53 @@ export class ExtractorRunnerService {
     const single = await this.assembleResult({ companyId, trimmed, snapshot, rawJson, context });
     // One sample is checked against the text like the samples' union is.
     return (await this.checkRead(single, trimmed, contextPrefix)).result;
+  }
+
+  /** The system prompt and the context prefix of one read — shared by run() and prepare(). */
+  private promptParts(
+    snapshot: Snapshot,
+    context: ConversationContext | undefined,
+  ): { systemPrompt: string; contextPrefix: string } {
+    return {
+      systemPrompt: this.llm.composeSystemPrompt(snapshot),
+      contextPrefix: buildConversationContext(context ?? {}),
+    };
+  }
+
+  /**
+   * What one single-sample read would send the model — system prompt,
+   * user message, response schema — without sending it. A harness read
+   * (EXTRACTION_SOURCE=harness) hands this to the connected agent, whose
+   * own model answers it; the reply comes back through assembleSubmitted.
+   */
+  prepare(args: {
+    trimmed: string;
+    snapshot: Snapshot;
+    context?: ConversationContext | undefined;
+  }): { systemPrompt: string; userContent: string; schema: Record<string, unknown> } {
+    const { systemPrompt, contextPrefix } = this.promptParts(args.snapshot, args.context);
+    return {
+      systemPrompt,
+      userContent: this.llm.userContent(args.trimmed, contextPrefix),
+      schema: this.llm.responseSchema(),
+    };
+  }
+
+  /**
+   * A reply produced outside this process (a harness agent's model) through
+   * the same post-processing as our own model's reply: grounding, entity
+   * grounding, edges, refinement, denoise, harvest lanes. The document check
+   * (checkRead) is NOT run: it asks the decision plane, an external model
+   * lane, which is exactly what a harness tenant does not pay for.
+   */
+  async assembleSubmitted(args: {
+    companyId: string;
+    trimmed: string;
+    snapshot: Snapshot;
+    rawJson: unknown;
+    context?: ConversationContext | undefined;
+  }): Promise<ExtractionResult> {
+    return this.assembleResult(args);
   }
 
   /**

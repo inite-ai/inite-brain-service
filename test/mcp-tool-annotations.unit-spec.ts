@@ -84,6 +84,18 @@ function tools(server: McpServer): Record<string, Registered> {
 
 const ALL_SCOPES = ['brain:read', 'brain:write', 'brain:admin'] as never;
 
+/** Build with EXTRACTION_SOURCE=harness, so the harness extraction tools are listed too. */
+async function inHarness(build: () => Promise<McpServer>): Promise<McpServer> {
+  const before = process.env.EXTRACTION_SOURCE;
+  process.env.EXTRACTION_SOURCE = 'harness';
+  try {
+    return await build();
+  } finally {
+    if (before === undefined) delete process.env.EXTRACTION_SOURCE;
+    else process.env.EXTRACTION_SOURCE = before;
+  }
+}
+
 describe('MCP tool annotations', () => {
   beforeAll(() => {
     process.env.MCP_PACK_TOOLS_ENABLED = '1';
@@ -111,6 +123,13 @@ describe('MCP tool annotations', () => {
         service().buildServer('co_test', ALL_SCOPES, {
           toolProfile: resolveToolProfile('chatgpt'),
         }),
+    ],
+    [
+      'full (harness extraction)',
+      () =>
+        inHarness(() =>
+          service().buildServer('co_test', ALL_SCOPES, { toolProfile: resolveToolProfile('full') }),
+        ),
     ],
     ['public', async () => service().buildPublicServer('https://brain.example')],
   ];

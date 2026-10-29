@@ -1064,6 +1064,7 @@ export class MetricsService implements OnModuleInit {
       | 'verifier_partial'
       | 'verifier_failed'
       | 'generator_error'
+      | 'harness_mode'
       // The generator hit the token cap and the partial answer was
       // salvaged (audit W5 #24) — distinct from generator_error, which
       // means we returned nothing at all.

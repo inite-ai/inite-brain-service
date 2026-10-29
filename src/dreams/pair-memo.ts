@@ -9,7 +9,7 @@ import { RecordId } from 'surrealdb';
  * A pair is skipped while its memo is fresh AND the judge would see the
  * same input (`signature`); new evidence or an old memo means judge again.
  */
-export type PairMemoKind = 'dedup' | 'resolve';
+export type PairMemoKind = 'dedup' | 'resolve' | 'corroborate';
 
 /** Even an unchanged pair is judged again after this long: models and prompts move. */
 export const PAIR_RECHECK_MS = 30 * 24 * 3600 * 1000;

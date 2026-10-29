@@ -1,3 +1,4 @@
+import { ModuleRef } from '@nestjs/core';
 import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -51,6 +52,12 @@ import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { toolObservationsEnabled } from '../common/tool-observation-flags';
+import { registerHarnessWorkTools } from './harness-work-tools';
+import { ExtractionWorkService } from '../documents/extraction-work.service';
+import { DreamsWorkService } from '../dreams/dreams-work.service';
+import { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
+import { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
+import { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 
 const MCP_SERVER_VERSION = '0.3.0';
 
@@ -138,7 +145,24 @@ export class McpService {
     // @Optional for the same reason, and because a deployment without it
     // simply serves no onboarding tools — nothing else changes.
     @Optional() private readonly workspaceStatus?: WorkspaceStatusService,
+    // Harness work (#819): its tools register only under
+    // EXTRACTION_SOURCE=harness; @Optional for positional unit fixtures.
+    @Optional() private readonly extractionWork?: ExtractionWorkService,
+    @Optional() private readonly dreamsWork?: DreamsWorkService,
+    @Optional() private readonly predicateWork?: PredicateSemanticsWorkService,
+    // The scene work lives in AdminModule, which imports McpModule:
+    // resolved per call, not injected.
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
+
+  /** A harness work service of AdminModule (which imports McpModule), resolved per call. */
+  private adminWork<T>(token: new (...args: never[]) => T): T | undefined {
+    try {
+      return this.moduleRef?.get(token, { strict: false });
+    } catch {
+      return undefined;
+    }
+  }
 
   /**
    * ABAC tool gate: wraps server.registerTool so every subsequent
@@ -768,6 +792,17 @@ export class McpService {
         server,
         companyId,
         deps: { ingest: this.ingest },
+      });
+      registerHarnessWorkTools({
+        server,
+        companyId,
+        deps: {
+          extraction: this.extractionWork,
+          predicates: this.predicateWork,
+          dreams: this.dreamsWork,
+          scenes: () => this.adminWork(SceneSummaryWorkService),
+          beliefs: () => this.adminWork(BeliefStatementWorkService),
+        },
       });
     }
     if (scopes.includes('brain:admin')) {

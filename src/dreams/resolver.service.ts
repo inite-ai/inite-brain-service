@@ -16,6 +16,7 @@ import { envFlagEnabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 import { isoDay, isoString } from '../common/surreal-date';
+import { serverModelsRefused } from '../common/extraction-source';
 
 /**
  * DreamsResolverService — auto-resolve competing fact pairs that
@@ -69,7 +70,7 @@ interface ResolveTask {
   signature: string;
 }
 
-interface CompetingFactRow {
+export interface CompetingFactRow {
   id: unknown;
   entityId: unknown;
   predicate: string;
@@ -80,6 +81,37 @@ interface CompetingFactRow {
   source: unknown;
   /** The memory slice the fact belongs to — absent for tenant-global. */
   userId?: string | null;
+}
+
+/** The contradiction judge's instructions — the server model's and the harness agent's. */
+export const RESOLVE_JUDGE_SYSTEM = `You resolve a CONTRADICTION between two facts in a knowledge graph.
+
+Both facts share the same entity and the same predicate but disagree on the object value (e.g. status=active vs status=churned). Decide which is more likely TRUE based on:
+- recency (newer fact > older when there's no other signal)
+- source trust (human_declared > inbox_extraction > voice_transcript)
+- coherence with surrounding context facts about the same entity
+
+Verdict:
+- "a_wins": fact A is more likely true; fact B should be marked superseded
+- "b_wins": vice versa
+- "unsure": evidence does not disambiguate; leave both for human review
+
+Be conservative — pick "unsure" when there's no clear signal. Better to leave a competing pair than to silently drop the wrong one.
+
+Output strictly the JSON shape requested.`;
+
+/** One competing pair as the judge reads it. */
+export function resolveJudgeUserContent(
+  pair: { a: CompetingFactRow; b: CompetingFactRow },
+  ctxFacts: string,
+): string {
+  return (
+    `Entity context:\n${ctxFacts}\n\n` +
+    `Fact A: ${pair.a.predicate} = "${pair.a.object}" ` +
+    `(confidence=${pair.a.confidence.toFixed(2)}, validFrom=${isoDay(pair.a.validFrom)}, recordedAt=${isoDay(pair.a.recordedAt)})\n` +
+    `Fact B: ${pair.b.predicate} = "${pair.b.object}" ` +
+    `(confidence=${pair.b.confidence.toFixed(2)}, validFrom=${isoDay(pair.b.validFrom)}, recordedAt=${isoDay(pair.b.recordedAt)})`
+  );
 }
 
 @Injectable()
@@ -113,7 +145,15 @@ export class DreamsResolverService {
   }
 
   isEnabled(): boolean {
-    return this.enabled && !!this.openai;
+    // Harness mode: the nightly pass asks nothing — an unsure verdict from
+    // a refused call would be memoized and the pair never asked again; the
+    // connected agent judges it instead (kind fact_conflict).
+    return this.enabled && !!this.openai && !serverModelsRefused();
+  }
+
+  /** Configured on, whoever judges (the harness work reads this). */
+  configured(): boolean {
+    return this.enabled;
   }
 
   async run(db: Surreal, derivedVersion: string | null = null): Promise<ResolverResult> {
@@ -207,7 +247,7 @@ export class DreamsResolverService {
    * If a group has 3+ competing facts, skip — that's a multi-way
    * disagreement that needs operator attention, not auto-resolution.
    */
-  private async findCompetingPairs(
+  async findCompetingPairs(
     db: Surreal,
     derivedVersion: string | null,
   ): Promise<Array<{ a: CompetingFactRow; b: CompetingFactRow }>> {
@@ -279,27 +319,8 @@ export class DreamsResolverService {
     pair,
     ctxFacts,
   }: ResolveTask): Promise<{ kind: 'a_wins' | 'b_wins' | 'unsure' }> {
-    const sys = `You resolve a CONTRADICTION between two facts in a knowledge graph.
-
-Both facts share the same entity and the same predicate but disagree on the object value (e.g. status=active vs status=churned). Decide which is more likely TRUE based on:
-- recency (newer fact > older when there's no other signal)
-- source trust (human_declared > inbox_extraction > voice_transcript)
-- coherence with surrounding context facts about the same entity
-
-Verdict:
-- "a_wins": fact A is more likely true; fact B should be marked superseded
-- "b_wins": vice versa
-- "unsure": evidence does not disambiguate; leave both for human review
-
-Be conservative — pick "unsure" when there's no clear signal. Better to leave a competing pair than to silently drop the wrong one.
-
-Output strictly the JSON shape requested.`;
-    const user =
-      `Entity context:\n${ctxFacts}\n\n` +
-      `Fact A: ${pair.a.predicate} = "${pair.a.object}" ` +
-      `(confidence=${pair.a.confidence.toFixed(2)}, validFrom=${isoDay(pair.a.validFrom)}, recordedAt=${isoDay(pair.a.recordedAt)})\n` +
-      `Fact B: ${pair.b.predicate} = "${pair.b.object}" ` +
-      `(confidence=${pair.b.confidence.toFixed(2)}, validFrom=${isoDay(pair.b.validFrom)}, recordedAt=${isoDay(pair.b.recordedAt)})`;
+    const sys = RESOLVE_JUDGE_SYSTEM;
+    const user = resolveJudgeUserContent(pair, ctxFacts);
 
     try {
       const res = await withGenAiCall(
@@ -359,7 +380,7 @@ Output strictly the JSON shape requested.`;
     }
   }
 
-  private async fetchEntityContext(
+  async fetchEntityContext(
     db: Surreal,
     subject: { entityId: string; userId?: string | undefined },
     derivedVersion: string | null,
@@ -389,7 +410,7 @@ Output strictly the JSON shape requested.`;
     return r.map((f) => `- [${isoDay(f.recordedAt)}] ${f.predicate}: ${f.object}`).join('\n');
   }
 
-  private async markSuperseded(db: Surreal, loserId: string, winnerId: string): Promise<void> {
+  async markSuperseded(db: Surreal, loserId: string, winnerId: string): Promise<void> {
     const loser = new StringRecordId(loserId);
     const winner = new StringRecordId(winnerId);
     // Match fn::resolve_fact's supersede shape (migration 0033). The old
@@ -441,5 +462,13 @@ Output strictly the JSON shape requested.`;
         ...(loserRow.validUntil != null ? { priorValidUntil: new Date(loserRow.validUntil) } : {}),
       },
     );
+    // The pair was the whole disagreement (exactly two competing facts,
+    // findCompetingPairs): with the loser closed the winner is the value,
+    // not one side of a dispute. It used to stay `competing` forever —
+    // every read kept hedging an answer the pass had already settled
+    // (key-less stand, 2026-10-29).
+    await db.query(`UPDATE $winner SET status = 'active' WHERE status = 'competing'`, {
+      winner,
+    });
   }
 }

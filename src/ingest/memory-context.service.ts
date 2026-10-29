@@ -249,7 +249,7 @@ export class MemoryContextService {
         WHERE conversationId = $c AND kind = 'turn' AND ${userGate}
           ${p.messageId ? 'AND messageId != $m' : ''}
           ${p.before ? 'AND occurredAt < type::datetime($before)' : ''}
-        ORDER BY occurredAt DESC LIMIT $k`,
+        ORDER BY occurredAt DESC, messageId DESC LIMIT $k`,
       {
         c: p.conversationId,
         m: p.messageId,
@@ -325,16 +325,44 @@ export class MemoryContextService {
     },
   ): Promise<string[]> {
     const found = await Promise.all(
-      names.map((name) => this.entities.resolveExistingByName(db, { name }, { userId })),
+      names.map(async (name) => {
+        const whole = await this.entities.resolveExistingByName(db, { name }, { userId });
+        return whole ?? (await this.entities.resolveExistingByNamePart(db, { name }, { userId }));
+      }),
     );
+    const linked = own ? await this.linkedToOwn(db, own, userId) : [];
     const ids: string[] = [];
     // The user first, then the names (the turn's own subjects), then
-    // what the conversation's last turns were filed under.
-    for (const id of [own, ...found, ...remembered]) {
+    // what the conversation's last turns were filed under, then what the
+    // user is linked to.
+    for (const id of [own, ...found, ...remembered, ...linked]) {
       if (id && !ids.includes(id)) ids.push(id);
       if (ids.length >= MAX_ENTITIES) break;
     }
     return ids;
+  }
+
+  /**
+   * The entities the user's own entity is linked to (owns, lives_in,
+   * sibling_of …), newest first. A first-person turn names its things by
+   * a word the graph does not file them under — "the laptop", "my bike",
+   * "the flat" — and in a NEW conversation nothing remembers them either:
+   * "I replaced the ThinkPad" did not show the ThinkPad it replaced.
+   */
+  private async linkedToOwn(
+    db: Surreal,
+    own: string,
+    userId: string | undefined,
+  ): Promise<string[]> {
+    const tags = scopeFenceSql(userId, 'memOwnScopeTag');
+    const userGate = `${userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${tags.clause}`;
+    const [rows] = await db.query<[Array<{ in: unknown; out: unknown }>]>(
+      `SELECT in, out, createdAt, id FROM knowledge_edge
+        WHERE (in = $own OR out = $own) AND invalidatedAt IS NONE AND ${userGate}
+        ORDER BY createdAt DESC, id ASC LIMIT $k`,
+      { own: recordRef(own), u: userId, k: MAX_ENTITIES, ...tags.params },
+    );
+    return (rows ?? []).map((r) => (String(r.in) === own ? String(r.out) : String(r.in)));
   }
 
   private async knownEntities(db: Surreal, ids: string[]): Promise<MemoryEntity[]> {
@@ -382,7 +410,7 @@ export class MemoryContextService {
       `SELECT id, entityId, predicate, object, validFrom, validUntil, expectedUntil FROM knowledge_fact
         WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
           AND ${userGate}${saidBy ? ` AND ${SAID_AT('recordedAt')} <= type::datetime($said)` : ''}
-        ORDER BY validFrom DESC LIMIT $k`,
+        ORDER BY validFrom DESC, id ASC LIMIT $k`,
       {
         ids: ids.map(recordRef),
         u: userId,
@@ -456,7 +484,7 @@ export class MemoryContextService {
       `SELECT id, in, out, kind, in.canonicalName AS fromName, out.canonicalName AS toName, createdAt, validFrom
          FROM knowledge_edge
         WHERE (in IN $ids OR out IN $ids) AND invalidatedAt IS NONE AND ${userGate}${saidBy ? ` AND ${SAID_AT('createdAt')} <= type::datetime($said)` : ''}
-        ORDER BY createdAt DESC LIMIT $k`,
+        ORDER BY createdAt DESC, id ASC LIMIT $k`,
       {
         ids: ids.map(recordRef),
         u: userId,
@@ -500,7 +528,7 @@ export class MemoryContextService {
     if (hit && Date.now() - hit.at < PREDICATES_TTL_MS) return hit.predicates;
     const [rows] = await db.query<[Array<{ predicate: string; n: number }>]>(
       `SELECT predicate, count() AS n FROM knowledge_fact
-        WHERE status = 'active' GROUP BY predicate ORDER BY n DESC LIMIT $k`,
+        WHERE status = 'active' GROUP BY predicate ORDER BY n DESC, predicate ASC LIMIT $k`,
       { k: MEMORY_PREDICATES },
     );
     const predicates = (rows ?? []).map((r) => r.predicate).filter((p) => typeof p === 'string');
