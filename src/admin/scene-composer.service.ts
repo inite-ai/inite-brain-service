@@ -34,6 +34,7 @@ import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
 import { SceneEvidenceLinkerService } from './scene-evidence-linker.service';
 import { SceneGistEmbeddingService } from './scene-gist-embedding.service';
+import { CARRIED_SCENE_FIELDS, carrySceneEnrichment, sceneMemberHash } from './scene-carry';
 import {
   POST_PASS_KEY,
   emptyBatchOutcome,
@@ -89,6 +90,8 @@ export interface SceneRunResult {
    * the composer into the enricher.
    */
   enriched?: number;
+  /** Rebuilt scenes that inherited their enrichment unchanged (scene-carry.ts). */
+  carried?: number;
   /**
    * Scenes the post-swap gist-encoder pass gave a vector (PR3, the
    * SCENES_GIST_EMBEDDING leg). ABSENT unless the flag is on and the pass
@@ -470,7 +473,10 @@ export class SceneComposerService {
         }),
         segmenterVersion: version,
         generation,
-        source: { recorder: SCENE_RECORDER },
+        source: {
+          recorder: SCENE_RECORDER,
+          memberHash: sceneMemberHash(scene.map((t) => String(t.id))),
+        },
       });
       for (const [ord, turn] of scene.entries()) {
         memberRows.push({
@@ -515,6 +521,14 @@ export class SceneComposerService {
     // planner entirely (same bug class as preSweepOutcomeRows, PR #372).
     // A silent no-op here would abort the whole swap on the UNIQUE
     // (in, out) index at re-insert time.
+    // An unchanged scene keeps what was paid for it (scene-carry.ts).
+    const [prior] = await db.query<[Array<Record<string, unknown> & { id: unknown }>]>(
+      `SELECT id, gist, source, ${CARRIED_SCENE_FIELDS.join(', ')} FROM memory_episode
+        WHERE conversationIds = [$conv] AND segmenterVersion = $v`,
+      { conv: conversationId, v: version },
+    );
+    const carried = carrySceneEnrichment(sceneRows, prior ?? []);
+
     await runTransaction(db as unknown as Surreal, (tx) =>
       tx
         .add(
@@ -534,6 +548,8 @@ export class SceneComposerService {
         .bind('memberRows', memberRows),
     );
     result.scenes += sceneRows.length;
+    // Counted once the swap landed: a failed swap carried nothing.
+    result.carried = (result.carried ?? 0) + carried;
   }
 
   /**

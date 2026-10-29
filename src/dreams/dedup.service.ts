@@ -5,6 +5,7 @@ import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
 import { sameWidthGate } from '../db/vector-width';
+import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 
 /** The index the entity-dedup seed KNN rides — for the diagnostic. */
 
@@ -50,7 +51,12 @@ export interface DedupResult {
   unsurePairs: number;
   /** Per-link detail for the admin UI drill-down. Empty when dedup didn't run. */
   identityLinks: DedupIdentityLink[];
+  /** Pairs skipped: the judge already answered this evidence (0173). */
+  memoSkipped?: number;
 }
+
+/** Candidates gathered per judged pair, so memoized pairs do not starve the rest. */
+const CANDIDATE_OVERFETCH = 4;
 
 @Injectable()
 export class DreamsDedupService {
@@ -105,17 +111,31 @@ export class DreamsDedupService {
     result.suspectsEvaluated = candidates.length;
     if (candidates.length === 0) return result;
 
+    // A pair judged `different`/`unsure` on the same evidence is not paid
+    // for again (0173); the candidate list is over-fetched so memoized
+    // pairs no longer hold the night's slots.
+    const memo = await loadPairMemo(db, 'dedup');
     for (const cand of candidates) {
+      if (result.llmJudgements >= this.maxPairs) break;
       // Skip pairs that already have an identity_of edge — idempotent.
       const exists = await this.identityEdgeExists(db, cand.aId, cand.bId);
       if (exists) continue;
 
-      const verdict = await withSpan('dreams.dedup.judge', async () => {
-        const factsA = await this.judge.fetchTopFacts(db, cand.aId);
-        const factsB = await this.judge.fetchTopFacts(db, cand.bId);
-        return this.judge.judge(factsA, factsB, { cosine: cand.cosine });
-      });
+      const factsA = await this.judge.fetchTopFacts(db, cand.aId);
+      const factsB = await this.judge.fetchTopFacts(db, cand.bId);
+      const pairKey = `${cand.aId}|${cand.bId}`;
+      const signature = pairSignature(factsA, factsB);
+      if (alreadyJudged(memo, { pairKey, signature })) {
+        result.memoSkipped = (result.memoSkipped ?? 0) + 1;
+        continue;
+      }
+      const verdict = await withSpan('dreams.dedup.judge', () =>
+        this.judge.judge(factsA, factsB, { cosine: cand.cosine, offline: true }),
+      );
       result.llmJudgements++;
+      if (verdict !== 'same') {
+        await recordPairVerdict(db, { kind: 'dedup', pairKey, signature, verdict });
+      }
       if (verdict === 'same') {
         await this.linkIdentity(db, cand.aId, cand.bId);
         result.identityLinksCreated++;
@@ -193,7 +213,7 @@ export class DreamsDedupService {
           bId: aId < bId ? bId : aId,
           cosine: n.sim,
         });
-        if (out.length >= this.maxPairs) return out;
+        if (out.length >= this.maxPairs * CANDIDATE_OVERFETCH) return out;
       }
     }
     return out;

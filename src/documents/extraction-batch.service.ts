@@ -26,6 +26,7 @@ import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { Semaphore } from '../common/semaphore';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
+import { halvingCanHelp } from './read-failure';
 
 /**
  * Extraction off the write path. A document is remembered when it
@@ -389,7 +390,9 @@ export class ExtractionBatchService implements OnModuleInit {
    * A group of 13–14 long turns timed out on every attempt while its halves
    * fit (battery stand, 2026-10-27), and a retry pass rebuilt the same
    * group and failed the same way. Halving stops at the pass deadline:
-   * what is left fails and waits for the retry pass.
+   * what is left fails and waits for the retry pass. It never follows a
+   * staging failure or a provider refusal (read-failure.ts): halves cannot
+   * fix either, and each level re-reads the whole text at full depth.
    */
   private async readSplitting(
     ctx: PassContext,
@@ -399,7 +402,7 @@ export class ExtractionBatchService implements OnModuleInit {
     const r = await this.withLeaseHeartbeat(ctx, () => this.readGroup(ctx, { group, depth }, page));
     if (r.ok) return { read: r.members, failed: [] };
     const tooLate = ctx.abortSignal?.aborted || Date.now() > ctx.deadline;
-    if (group.length < 2 || tooLate) return { read: [], failed: r.members };
+    if (group.length < 2 || tooLate || !r.halvingCanHelp) return { read: [], failed: r.members };
     const mid = Math.ceil(group.length / 2);
     this.logger.log(
       `extract_documents ${ctx.companyId}: reading the failed group of ${group.length} as ${mid} + ${group.length - mid}`,
@@ -428,7 +431,7 @@ export class ExtractionBatchService implements OnModuleInit {
     ctx: PassContext,
     { group, depth }: { group: GroupDoc[]; depth: Exclude<ReadDepth, 'raw'> },
     page: Page,
-  ): Promise<{ ok: boolean; members: StoredDocument[] }> {
+  ): Promise<{ ok: boolean; members: StoredDocument[]; halvingCanHelp?: boolean }> {
     const members = group.map((g) => page.byId.get(g.id) as StoredDocument);
     const { texts } = page;
     try {
@@ -462,7 +465,7 @@ export class ExtractionBatchService implements OnModuleInit {
       this.logger.warn(
         `extract_documents ${ctx.companyId}: a group of ${members.length} failed: ${(err as Error).message}`,
       );
-      return { ok: false, members };
+      return { ok: false, members, halvingCanHelp: halvingCanHelp(err) };
     }
   }
 

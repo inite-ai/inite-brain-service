@@ -87,9 +87,22 @@ export function withOfflineTimeout(target: OpenAI, timeoutMs: number): void {
   const inner = completions.create.bind(target.chat.completions);
   completions.create = (body, opts) =>
     body.service_tier === 'flex'
-      ? inner(body, { timeout: timeoutMs, ...(opts as Record<string, unknown> | undefined) })
+      ? inner(body, {
+          timeout: timeoutMs,
+          maxRetries: OFFLINE_MAX_RETRIES,
+          ...(opts as Record<string, unknown> | undefined),
+        })
       : inner(body, opts);
 }
+
+/**
+ * One SDK retry for a flex call, not the request path's three. A flex read
+ * that times out after 180 s is, by every sign, still generated and billed
+ * on the provider's side; three blind re-sends could pay for it four times
+ * (LLM spend audit, 2026-10-28). The job's own retry pass reschedules
+ * what is still missing.
+ */
+const OFFLINE_MAX_RETRIES = 1;
 
 /**
  * One chat provider: the SDK client and the namespace its model ids live
@@ -141,6 +154,11 @@ function routeChat(target: OpenAI, primary: ChatRoute, fallback: ChatRoute | und
       return await call(primary, body, opts);
     } catch (err) {
       if (!fallback || !providerSideFailure(err)) throw err;
+      // Flex said "no capacity right now", not "this account cannot pay":
+      // failing over strips the tier and re-sends at full price plus the
+      // aggregator's markup — every flex shortage turned half-price offline
+      // work into full price. The job reschedules; flex frees up.
+      if (body.service_tier === 'flex' && !quotaRefusal(err) && statusOf(err) === 429) throw err;
       if (quotaRefusal(err)) primaryDownUntil = Date.now() + FAILOVER_WINDOW_MS;
       failoverLog.warn(
         `[llm] primary provider refused (${String((err as { status?: number }).status)}); ` +
@@ -187,8 +205,12 @@ function quotaRefusal(err: unknown): boolean {
  * no credit, a revoked key, an outage — or a rate limit that outlived the
  * SDK's own retries (the provider has no capacity for us right now).
  */
+function statusOf(err: unknown): number | undefined {
+  return (err as { status?: number })?.status;
+}
+
 function providerSideFailure(err: unknown): boolean {
-  const status = (err as { status?: number })?.status;
+  const status = statusOf(err);
   return (
     status === 429 ||
     status === 401 ||

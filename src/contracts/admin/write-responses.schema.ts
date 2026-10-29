@@ -117,6 +117,8 @@ const DedupResultSchema = z.object({
   identityLinksCreated: z.number(),
   unsurePairs: z.number(),
   identityLinks: z.array(DedupIdentityLinkSchema),
+  /** Pairs skipped because the judge already answered the same evidence. */
+  memoSkipped: z.number().optional(),
 });
 
 const ResolverResolutionSchema = z.object({
@@ -134,6 +136,8 @@ const ResolverResultSchema = z.object({
   resolutionsApplied: z.number(),
   unsurePairs: z.number(),
   resolutions: z.array(ResolverResolutionSchema),
+  /** Pairs skipped because the judge already answered the same pair. */
+  memoSkipped: z.number().optional(),
 });
 
 export const DreamsRunResponseSchema = z.object({
