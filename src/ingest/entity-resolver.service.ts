@@ -53,6 +53,26 @@ export interface ResolveByNameOptions {
   incomingFacts: string[];
 }
 
+/** An entity the deterministic naming rungs found under the very same name. */
+export interface SameNameCandidate {
+  entityId: string;
+  canonicalName?: string | undefined;
+}
+
+export interface ConfirmSameNameOptions {
+  db: Surreal;
+  name: string;
+  /** In the order the rung found them; the first non-contradicted one wins. */
+  candidates: SameNameCandidate[];
+  incomingFacts: string[];
+}
+
+/**
+ * `reuse` — file the mention under `entityId`; `distinct` — every candidate
+ * was judged a different thing that shares the name, so mint a new entity.
+ */
+export type SameNameOutcome = { kind: 'reuse'; entityId: string } | { kind: 'distinct' };
+
 @Injectable()
 export class EntityResolverService {
   private readonly logger = new Logger(EntityResolverService.name);
@@ -194,6 +214,73 @@ export class EntityResolverService {
       );
       return null;
     }
+  }
+
+  /**
+   * The check the deterministic rungs of the naming ladder (exact
+   * canonical name / alias, identical transliterated key) used to skip.
+   * They reused the first entity carrying the same name, unconditionally
+   * and before anything looked at a fact — so two different people who
+   * share a name became one node the moment the second was mentioned: an
+   * "Anna Schmidt" who is a vet in Munich and an "Anna Schmidt" who is a
+   * software engineer in Lisbon (#815). Once fused, nothing downstream can
+   * see it: the dreams dedup looks for PAIRS, and there is only one node.
+   *
+   * The name stays the strong signal it is: the judge is asked only
+   * whether the facts CONTRADICT it (the `same-name` hint), and only when
+   * there is something to contradict — the mention brings facts AND the
+   * candidate holds some. A mention with no facts, a candidate with none,
+   * the resolver off or the judge unavailable all reuse the first
+   * candidate exactly as before; so does `unsure`. Only a `different`
+   * verdict on every candidate mints a new entity.
+   *
+   * Never throws: a failing fact read counts as "nothing to contradict".
+   */
+  async confirmSameName({
+    db,
+    name,
+    candidates,
+    incomingFacts,
+  }: ConfirmSameNameOptions): Promise<SameNameOutcome> {
+    const first = candidates[0];
+    if (!first) return { kind: 'distinct' };
+    if (!this.isEnabled() || incomingFacts.length === 0) {
+      return { kind: 'reuse', entityId: first.entityId };
+    }
+    const incoming = incomingFacts.map((f) => `- ${f}`).join('\n');
+    // The first candidate nothing contradicted, kept while a later one
+    // might still be judged outright "same".
+    let fallback: string | undefined;
+    for (const c of candidates) {
+      const existingFacts = await this.judge
+        .fetchTopFacts(db, c.entityId)
+        .catch(() => '(no facts)');
+      const verdict =
+        existingFacts === '(no facts)'
+          ? 'unsure'
+          : await this.judge.judge(existingFacts, incoming, {
+              cosine: 1,
+              similarity: 'same-name',
+              names: { a: c.canonicalName, b: name },
+            });
+      traceArtifact('ingest.entity.same_name', {
+        name,
+        candidate: { entityId: c.entityId, canonicalName: c.canonicalName },
+        existingFacts,
+        incoming,
+        verdict,
+      });
+      if (verdict === 'same') return { kind: 'reuse', entityId: c.entityId };
+      if (verdict === 'unsure') fallback ??= c.entityId;
+    }
+    if (fallback) return { kind: 'reuse', entityId: fallback };
+    // Ids only: the name is memory content.
+    this.logger.log(
+      `[ingest.inline_resolution] same-name candidates ` +
+        `${candidates.map((c) => c.entityId).join(', ')} contradicted by the mention's facts — ` +
+        `creating new`,
+    );
+    return { kind: 'distinct' };
   }
 
   /**
