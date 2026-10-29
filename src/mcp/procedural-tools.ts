@@ -48,7 +48,7 @@ export function registerProceduralReadTools(
         ...(args.minSimilarity !== undefined ? { minSimilarity: args.minSimilarity } : {}),
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent({ matches: out }),
       };
     },
@@ -73,7 +73,7 @@ export function registerProceduralReadTools(
         ...(args.includeRetired !== undefined ? { includeRetired: args.includeRetired } : {}),
       });
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent({ procedures: out }),
       };
     },

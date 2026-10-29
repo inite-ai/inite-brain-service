@@ -32,7 +32,7 @@ export function registerSourceReadTools(opts: {
     async (args) => {
       const out = await deps.sources.detail(companyId, args.sourceKey);
       return {
-        content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+        content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
       };
     },
