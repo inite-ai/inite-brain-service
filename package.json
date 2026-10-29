@@ -75,7 +75,7 @@
     "skills:bump": "ts-node -T scripts/bump-skill-versions.ts --staged",
     "skills:pack": "pnpm skills:build && pnpm plugin:sync && ts-node -T scripts/package-skills.ts",
     "plugin:sync": "ts-node -T scripts/sync-plugin-skills.ts",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "release": "sh scripts/family.sh release"
   },
   "dependencies": {
