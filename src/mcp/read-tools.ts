@@ -14,6 +14,7 @@ import type { BrainScope } from '../auth/api-key.types';
 import { NOOP_REPORTER, type ProgressEvent, type ProgressReporter } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
+import { compactSearch, compactTimeline } from './compact-read';
 
 /**
  * The per-user scope argument every read tool takes. A user-bound token
@@ -130,10 +131,16 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           ),
         minConfidence: z.number().min(0).max(1).optional(),
         userId: userScopeArg,
+        detail: z
+          .enum(['compact', 'full'])
+          .optional()
+          .describe(
+            'compact (default): names, entity ids, facts (predicate, object, since) and relations. full: adds fact and edge ids, scores with their breakdown, trust keys',
+          ),
       },
     },
     async (args) => {
-      const out = await deps.search.search(
+      const found = await deps.search.search(
         companyId,
         {
           query: args.query,
@@ -145,6 +152,9 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         },
         scopes,
       );
+      // The model reads the evidence, not the engine's bookkeeping
+      // (compact-read.ts: 3545 → ~330 tokens on the same answer).
+      const out = args.detail === 'full' ? found : compactSearch(found);
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
@@ -439,10 +449,14 @@ function registerEntityReadTools({
         since: isoDateTime().optional(),
         until: isoDateTime().optional(),
         userId: userScopeArg,
+        detail: z
+          .enum(['compact', 'full'])
+          .optional()
+          .describe('compact (default): fact id, value, day. full: adds sources and confidence'),
       },
     },
     async (args) => {
-      const out = await deps.entities.getTimeline({
+      const timeline = await deps.entities.getTimeline({
         companyId,
         entityIdRaw: args.entityId,
         sinceRaw: args.since,
@@ -450,6 +464,7 @@ function registerEntityReadTools({
         ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
+      const out = args.detail === 'full' ? timeline : compactTimeline(timeline);
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),

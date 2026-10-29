@@ -42,27 +42,24 @@ search_knowledge({
 
 ## Reading the result
 
-Each hit looks like:
+Each hit looks like this (the default, compact shape):
 
 ```json
 {
-  "entity": {
-    "id": "knowledge_entity:01HXYZ...",
-    "name": "Alice Smith",
-    "type": "person",
-    "externalRefs": [{ "vertical": "rent", "id": "cust_42" }]
-  },
+  "canonicalName": "Alice Smith",
+  "entityId": "knowledge_entity:01HXYZ...",
   "facts": [
-    { "factId": "...", "predicate": "tier", "object": "platinum",
-      "validFrom": "2026-04-01T00:00:00Z", "confidence": 0.92 }
+    { "predicate": "tier", "object": "platinum", "since": "2026-04-01" },
+    { "predicate": "tier", "object": "gold", "since": "2025-11-02", "until": "2026-04-01", "status": "superseded" }
   ],
-  "score": 0.81
+  "relations": ["→ works_at Acme", "← manages Bob"]
 }
 ```
 
-- **`entity.externalRefs`** is the bridge back to the originating vertical — use it to rehydrate the live record via `@inite/api-kit` if the user wants to act on the result. Brain is *system of insight*, not record.
-- **`facts[]`** are pre-filtered to the bitemporal window of the query. A fact you don't see in the result either didn't match the query, was retracted before `asOf`, or was outside `validFrom..validUntil`.
-- **`score`** is the post-rerank fused score. Treat it as ordinal, not calibrated probability.
+- **`facts[]`** are pre-filtered to the bitemporal window of the query. `since` / `until` are the days a value held; `status` appears only when the value is not the current one. A fact you don't see either didn't match the query, was retracted before `asOf`, or was outside its valid window.
+- **`relations`** are the entity's 1-hop links (`→` it is the subject, `←` the object); a link that restates a listed fact is not repeated.
+- **`entityId`** is what `get_entity_timeline` (what held before, with dates) and `get_entity_profile` take.
+- **`detail: "full"`** adds fact and edge ids, the fused score with its per-leg breakdown, trust keys and external refs (the bridge back to the originating vertical, to rehydrate the live record via `@inite/api-kit`). It costs ~8× the tokens — ask for it only when you need one of those.
 
 ## Common patterns
 

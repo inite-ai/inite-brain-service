@@ -16,8 +16,8 @@ import { z } from 'zod';
  */
 
 /**
- * Per-fact score provenance, returned only for callers that asked for
- * it. Deliberately NOT field-level contracted: `breakdown` is an
+ * Per-fact score provenance, on every REST hit (MCP search_knowledge
+ * returns it only with detail: "full"). Deliberately NOT field-level contracted: `breakdown` is an
  * `explain`-mode DEBUG payload whose components track the retrieval
  * pipeline's internals (ScoreBreakdown, src/search/internals/types.ts)
  * and change with every scoring lever. Pinning it here would publish a
