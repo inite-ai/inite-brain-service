@@ -1,0 +1,8 @@
+# Vulnerabilities OSV (and the OpenSSF Scorecard "Vulnerabilities" check)
+# should not count against this repository, each with the reason and a
+# date to look again. Keep it short: every entry is a decision.
+
+[[IgnoredVulns]]
+id = "GHSA-gcqx-w48m-w2h4"
+ignoreUntil = 2027-01-31T00:00:00Z
+reason = "deepmerge 4.2.0-4.3.1 prototype poisoning (LOW). Dev-only: reached through jest-config and @nestjs/cli > fork-ts-checker, never in the runtime image; merges our own config objects, not request data. No patched release exists. Dependabot alert dismissed as tolerable risk on 2026-10-29."
