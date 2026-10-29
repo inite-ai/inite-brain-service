@@ -20,6 +20,7 @@ import {
   SCENE_ENRICHMENT_SYSTEM,
   SCENE_ENRICHMENT_SYSTEM_V2,
   SCENE_SCORER_LLM_VERSION,
+  SCENE_ENRICH_MAX_PER_RUN,
 } from '../src/admin/scene-enricher.service';
 import { SCENE_BASELINE_VERSION } from '../src/admin/scene-prediction-baseline';
 import { matchFactsToScene } from '../src/admin/scene-backlink.service';
@@ -173,6 +174,8 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     scope?: Record<string, unknown>;
     /** Rows the semantic_belief read returns (default: none). */
     beliefs?: Array<Record<string, unknown>>;
+    /** How many identical pending scenes the scene read returns (default 1). */
+    sceneCount?: number;
   }
 
   function build(
@@ -195,16 +198,14 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
         }
         if (sql.includes('FROM memory_episode')) {
           return [
-            [
-              {
-                id: 'memory_episode:s1',
-                conversationIds: ['conv'],
-                ...(opts.scope ?? { userId: 'u1', userIds: ['u1'] }),
-                ...(opts.sceneEnrichmentVersion !== undefined
-                  ? { enrichmentVersion: opts.sceneEnrichmentVersion }
-                  : {}),
-              },
-            ],
+            Array.from({ length: opts.sceneCount ?? 1 }, (_, i) => ({
+              id: `memory_episode:s${i + 1}`,
+              conversationIds: ['conv'],
+              ...(opts.scope ?? { userId: 'u1', userIds: ['u1'] }),
+              ...(opts.sceneEnrichmentVersion !== undefined
+                ? { enrichmentVersion: opts.sceneEnrichmentVersion }
+                : {}),
+            })),
           ];
         }
         throw new Error(`unexpected query: ${sql}`);
@@ -284,6 +285,15 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     expect(params.unexpectedDetails).toEqual(WELL_FORMED.unexpectedDetails);
     expect(params.model).toBe(DEFAULT_CHAT_MODEL);
     expect(params.enrichmentVersion).toBe(sceneEnrichmentVersion(DEFAULT_CHAT_MODEL));
+  });
+
+  it('one run makes at most SCENE_ENRICH_MAX_PER_RUN calls; the rest wait for the next run', async () => {
+    const { svc, captured } = build(JSON.stringify(WELL_FORMED), {
+      sceneCount: SCENE_ENRICH_MAX_PER_RUN + 7,
+    });
+    const result = await svc.enrich('co_test');
+    expect(captured.modelCalls).toBe(SCENE_ENRICH_MAX_PER_RUN);
+    expect(result).toMatchObject({ enriched: SCENE_ENRICH_MAX_PER_RUN, deferred: 7 });
   });
 
   it('skips a scene already at the current enrichmentVersion — zero model calls', async () => {
