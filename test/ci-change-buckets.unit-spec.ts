@@ -122,7 +122,7 @@ describe('CI change detection is deny-list shaped and cannot silently skip a gat
   it('runs everything when the CI workflow itself changes', () => {
     // A pipeline edit whose own verdict you cannot see on the PR that
     // introduces it is unreviewable.
-    const { engine, web } = classify(['.github/workflows/ci.yml']);
+    const { engine, web } = classify(['.github/workflows/checks.yml']);
     expect(engine).toBe(true);
     expect(web).toBe(true);
   });

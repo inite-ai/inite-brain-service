@@ -11,6 +11,11 @@ on:
   # workflow (the same trap `image` and `mcp-registry` are wired around).
   # Merging to main still runs CI; it no longer touches production.
   # test/deploy-trigger-truth.unit-spec.ts pins both directions.
+  # `release: published` is the family's trigger (inite-shared
+  # family-standards-2026-10): it fires for a release a person publishes;
+  # release-please's own releases arrive through workflow_call.
+  release:
+    types: [published]
   workflow_call:
   workflow_dispatch:
     inputs:
@@ -60,6 +65,16 @@ permissions:
   contents: read
 
 jobs:
+  # The family release gate: only a commit main took through a green `ci`
+  # (the commit's own, or its PR's), or a released tag, goes out. It runs
+  # before `verify`, which then waits for this repo's own CI run.
+  gate:
+    uses: inite-ai/inite-shared/.github/workflows/release-gate.yml@main
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+
   # ---------------------------------------------------------------------
   # The deploy no longer builds anything.
   #
@@ -96,6 +111,7 @@ jobs:
     # A release call (event_name is the caller's, never workflow_dispatch)
     # always deploys; a manual dispatch only for action=deploy.
     if: github.event_name != 'workflow_dispatch' || (github.event.inputs.action == 'deploy' || github.event.inputs.action == '')
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -1511,3 +1527,12 @@ jobs:
           docker-compose ps
           docker-compose logs --tail=120 "${PROJECT_NAME}"
           exit 1
+
+  # From outside the host, once the release is promoted (family
+  # verify-deploy): the engine answers on brain.inite.ai.
+  verify-deploy:
+    needs: [smoke, finalize]
+    if: needs.smoke.result == 'success' && needs.finalize.result == 'success'
+    uses: inite-ai/inite-shared/.github/workflows/verify-deploy.yml@main
+    with:
+      urls: https://brain.inite.ai/health

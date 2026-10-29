@@ -1,0 +1,8 @@
+{
+ "profile": "node",
+ "debt": {
+  "tsconfig": "tsconfig.json is the service's own Nest config (decorators, path aliases, a separate tsconfig.spec.json for tests); moving onto @inite/tsconfig changes compiler options and is its own PR",
+  "prettier": "the service has its own .prettierrc, checked by format:check in CI; adopting @inite/prettier-config reformats src and test and is its own PR",
+  "node-version": "brain-landing/ is its own Next app (own package.json and image) on node:22 while the engine runs node:24; moving the landing image is a runtime change released on its own"
+ }
+}

@@ -2,7 +2,7 @@
 // Reads the deploy manifest CI published for this commit and emits the
 // image reference the deploy must pin.
 //
-// The manifest is written by ci.yml's `docker` job on main, after that
+// The manifest is written by checks.yml's `docker` job on main, after that
 // job has pushed the image AND pulled the published digest back and
 // smoke-tested it. It carries a digest, not a tag: a tag is a mutable
 // pointer that resolves to whatever the registry says at pull time, and

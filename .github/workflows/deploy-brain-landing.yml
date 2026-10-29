@@ -5,16 +5,17 @@ name: Deploy brain.inite.ai landing
 # (brain.inite.ai). Backend's Traefik router is restricted to
 # /v1, /mcp, /health, /metrics — see deploy-brain.yml.
 
+# PRODUCTION MOVES ON A RELEASE, NOT ON A MERGE (family standard, 29.10.2026;
+# inite-shared/.planning/family-standards-2026-10.md), like the engine
+# (deploy-brain.yml). release-please.yml calls this workflow in the run that
+# cut the release (a release made with GITHUB_TOKEN starts no `release`
+# workflow); `release: published` is for a release a person publishes. The
+# `changes` job keeps the old path filter, measured against the previous
+# release. `workflow_dispatch` deploys, restarts or shows logs by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'brain-landing/**'
-      - 'skills/**'
-      - 'scripts/build-skill-versions.ts'
-      - 'scripts/bump-skill-versions.ts'
-      - 'scripts/package-skills.ts'
-      - '.github/workflows/deploy-brain-landing.yml'
+  release:
+    types: [published]
+  workflow_call:
   workflow_dispatch:
     inputs:
       action:
@@ -22,9 +23,10 @@ on:
         required: false
         default: 'deploy'
 
+# One landing deploy at a time, queued; never cancelled halfway.
 concurrency:
-  group: deploy-brain-landing-${{ github.event_name }}
-  cancel-in-progress: true
+  group: deploy-brain-landing
+  cancel-in-progress: false
 
 env:
   PROJECT_NAME: inite-brain-landing
@@ -37,8 +39,56 @@ permissions:
   contents: read
 
 jobs:
+  # Only a commit main took through a green ci (or a released tag) goes out.
+  gate:
+    uses: inite-ai/inite-shared/.github/workflows/release-gate.yml@main
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+
+  # What changed since the previous release (it is what production runs):
+  # the same paths that used to trigger this workflow on a push, brain-landing/, skills/ and the skill-pack scripts.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      landing: ${{ steps.diff.outputs.landing }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Paths changed since the previous release
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          # The newest published release behind this commit (not this commit
+          # itself); without one, everything counts as changed.
+          base=""
+          for tag in $(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 20 --json tagName -q '.[].tagName'); do
+            git fetch -q origin "refs/tags/$tag:refs/tags/$tag" || continue
+            c=$(git rev-list -n 1 "$tag")
+            if [ "$c" != "$SHA" ] && git merge-base --is-ancestor "$c" "$SHA"; then base="$c"; break; fi
+          done
+          if [ -z "$base" ]; then
+            echo "no previous release behind ${SHA:0:8}: deploying"
+            echo "landing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base" "$SHA" | grep -E '^(brain-landing/|skills/|scripts/(build-skill-versions|bump-skill-versions|package-skills)\.ts$|\.github/workflows/deploy-brain-landing\.yml$)' || true)
+          echo "since ${base:0:8}:"; echo "${changed:-  (nothing for this lane)}"
+          if [ -n "$changed" ]; then echo "landing=true"; else echo "landing=false"; fi >> "$GITHUB_OUTPUT"
+
   build-and-push:
-    if: github.event_name == 'push' || (github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs')
+    needs: [gate, changes]
+    # A release builds when the landing's paths changed; a dispatch builds
+    # unless it only restarts or shows logs. (A release call carries the
+    # caller's event name, push; a published release carries `release`.)
+    if: |
+      (github.event_name != 'workflow_dispatch' && needs.changes.outputs.landing == 'true') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs')
     runs-on: [self-hosted, sfo]
 
     steps:
@@ -95,7 +145,7 @@ jobs:
     needs: build-and-push
     if: |
       always() && (
-        (github.event_name == 'push' && needs.build-and-push.result == 'success') ||
+        (github.event_name != 'workflow_dispatch' && needs.build-and-push.result == 'success') ||
         (github.event_name == 'workflow_dispatch' && (needs.build-and-push.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs'))
       )
     runs-on: [self-hosted, sfo]
@@ -269,3 +319,11 @@ jobs:
           SMOKE_BASE_URL: https://${{ env.DOMAIN }}
           SMOKE_SURFACE: landing
         run: node scripts/ci/smoke.mjs
+
+  # From outside the host (family verify-deploy): the landing answers.
+  verify:
+    needs: smoke
+    if: needs.smoke.result == 'success'
+    uses: inite-ai/inite-shared/.github/workflows/verify-deploy.yml@main
+    with:
+      urls: https://brain.inite.ai/en

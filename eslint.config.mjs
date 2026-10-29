@@ -4,6 +4,7 @@ import eslintPluginPrettier from 'eslint-plugin-prettier/recommended';
 import sonarjs from 'eslint-plugin-sonarjs';
 import importPlugin from 'eslint-plugin-import';
 import globals from 'globals';
+import { familyIgnores } from '@inite/eslint-config/family-ignores';
 
 /**
  * ESLint config — Nest backend.
@@ -58,6 +59,9 @@ const sizeGates = {
 export default tseslint.config(
   {
     ignores: [
+      // What no family repo lints (build output, vendored and generated code):
+      // @inite/eslint-config's shared list, then this service's own.
+      ...familyIgnores,
       'dist/**',
       'node_modules/**',
       'coverage/**',
@@ -65,6 +69,19 @@ export default tseslint.config(
       'brain-landing/**',
       'skills/**',
       'scripts/**',
+      // The published npm clients and the SDK quickstart: each has its own
+      // package.json, tsconfig and release, outside this service's TS project.
+      'clients/**',
+      'examples/sdk-quickstart/**',
+      // Run by hand like scripts/ (`pnpm indexer:reference`), not part of
+      // the service's TS project.
+      'examples/reference-indexer.ts',
+      // The Claude Code plugin: files shipped to agents and run by their
+      // runtime, like skills/, outside the service's TS project.
+      'plugins/**',
+      // This file: plain JS, not in a TS project, so typed linting cannot
+      // parse it.
+      'eslint.config.mjs',
     ],
   },
   ...tseslint.configs.recommended,
