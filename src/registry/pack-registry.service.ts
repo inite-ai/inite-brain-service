@@ -271,9 +271,22 @@ export class PackRegistryService {
 
   /** Resolve a manifest for inspection. version omitted → latest non-yanked.
    *  An exact version is returned even if yanked (carrying the flag). */
-  async getManifest(packId: string, version?: string): Promise<RegistryManifestResponse | null> {
+  /**
+   * `viewer` is the reading tenant. A paid pack's manifest IS the pack,
+   * so it is served only to a company that may install it (entitled, or
+   * its publisher); everyone else gets the same 402 the install answers.
+   * Free packs and billing-off instances are untouched.
+   */
+  async getManifest(
+    packId: string,
+    version?: string,
+    viewer?: { companyId: string },
+  ): Promise<RegistryManifestResponse | null> {
     const row = await this.findRow(packId, version);
     if (!row || !row.manifest) return null;
+    if (viewer) {
+      await this.purchaseGate.assertAccessible({ companyId: viewer.companyId, packId });
+    }
     return {
       packId,
       version: row.version,
@@ -281,6 +294,15 @@ export class PackRegistryService {
       yanked: Boolean(row.yanked),
       manifest: row.manifest as unknown as Record<string, unknown>,
     };
+  }
+
+  /**
+   * The paid-pack gate for a manifest posted straight to
+   * POST /v1/admin/packs: a pack id the registry sells installs only for
+   * a company that bought it (or published it), whichever door it uses.
+   */
+  async assertDirectInstallAllowed(args: { companyId: string; packId: string }): Promise<void> {
+    await this.purchaseGate.assertAccessible(args);
   }
 
   /** Resolve a manifest for INSTALL. Throws NotFound when nothing matches,
