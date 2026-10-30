@@ -1327,7 +1327,12 @@ jobs:
 
       - name: Cleanup
         if: always() && github.event.inputs.action != 'logs'
-        run: docker system prune -f
+        run: |
+          # Only this repo's own images go: the newest three stay for rollback and
+          # an image a container uses cannot be removed. Never a host-wide prune:
+          # the host is shared, and `docker system prune` deleted the stopped shared
+          # postgres on 25.10 and 30.10.2026.
+          docker images "${{ secrets.DOCKERHUB_USERNAME }}/inite-brain-service" --format '{{if eq .Tag "<none>"}}{{.ID}}{{else}}{{.Repository}}:{{.Tag}}{{end}}' | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
 
   # ---------------------------------------------------------------------
   # Post-deploy smoke test of the real surface, off-box and through
