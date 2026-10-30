@@ -10,6 +10,7 @@ import { DreamsDedupService } from './dedup.service';
 import { DreamsResolverService } from './resolver.service';
 import { DreamsCorroborateService } from './corroborate.service';
 import { DreamsWorkService } from './dreams-work.service';
+import { FactResolutionService } from './fact-resolution.service';
 
 /**
  * DreamsModule — the off-hours self-improvement pass for brain.
@@ -33,7 +34,8 @@ import { DreamsWorkService } from './dreams-work.service';
     DreamsResolverService,
     DreamsCorroborateService,
     DreamsWorkService,
+    FactResolutionService,
   ],
-  exports: [DreamsService, DreamsWorkService],
+  exports: [DreamsService, DreamsWorkService, FactResolutionService],
 })
 export class DreamsModule {}

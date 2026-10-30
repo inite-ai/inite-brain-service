@@ -57,6 +57,7 @@ import { ExtractionWorkService } from '../documents/extraction-work.service';
 import { DreamsWorkService } from '../dreams/dreams-work.service';
 import { FactSourceTurnsService } from '../facts/fact-source-turns.service';
 import { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
+import { FactResolutionService } from '../dreams/fact-resolution.service';
 import { IntentClassifierService } from '../admin/intent-classifier.service';
 import { BeliefLaneService } from '../synthesize/belief-lane.service';
 import { CrossEncoderService } from '../ai/cross-encoder.service';
@@ -154,6 +155,7 @@ export class McpService {
     @Optional() private readonly extractionWork?: ExtractionWorkService,
     @Optional() private readonly dreamsWork?: DreamsWorkService,
     @Optional() private readonly predicateWork?: PredicateSemanticsWorkService,
+    @Optional() private readonly factResolution?: FactResolutionService,
     // The turns behind facts, for search_knowledge's focus view.
     @Optional() private readonly sourceTurns?: FactSourceTurnsService,
     // The focus view's coarse level (beliefs) and its relevance scorer.
@@ -820,6 +822,7 @@ export class McpService {
         companyId,
         deps: {
           extraction: this.extractionWork,
+          resolution: this.factResolution,
           predicates: this.predicateWork,
           dreams: this.dreamsWork,
           scenes: () => this.adminWork(SceneSummaryWorkService),

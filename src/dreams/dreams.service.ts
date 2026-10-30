@@ -9,6 +9,7 @@ import { withSpan } from '../common/tracing';
 import { DreamsDedupService, DedupResult } from './dedup.service';
 import { DreamsResolverService, ResolverResult } from './resolver.service';
 import { DreamsCorroborateService, CorroborateResult } from './corroborate.service';
+import { FactResolutionService } from './fact-resolution.service';
 import { CompactionService } from '../compaction/compaction.service';
 import {
   CommunityBuilderService,
@@ -106,6 +107,9 @@ export class DreamsService implements OnModuleInit {
     @Optional() private readonly community?: CommunityBuilderService,
     // @Optional for the same positional-test reason; provided by DreamsModule.
     @Optional() private readonly corroborate?: DreamsCorroborateService,
+    // #828: new facts judged against the memory they resemble (the
+    // direct writes no extraction pass committed), before lingering pairs.
+    @Optional() private readonly factResolution?: FactResolutionService,
     // @Optional for the same positional-test reason; provided by
     // EpisodesModule. Legs fenced to the live derived world (audit W2 #10).
     @Optional() private readonly readPin?: ReadPinService,
@@ -443,6 +447,7 @@ export class DreamsService implements OnModuleInit {
     }
     if (opSet.has('resolve')) {
       this.assertNotAborted(signal);
+      await this.factResolution?.runPending(companyId);
       stats.resolve = await withSpan(
         'dreams.resolve',
         () => this.resolver.run(db, derivedVersion),

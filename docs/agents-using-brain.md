@@ -102,20 +102,21 @@ Writes work as usual. `ingest_document`, the mention routes and the plugin's
 capture store text raw, and it is searchable at once through the episode
 lanes. The rest comes in batches:
 
-| `kind`                | What you read                                             | What the server does with your reply                              |
-| --------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- |
-| `extraction`          | stored turns and documents, with the memory context       | grounds every value against the text, resolves entities, commits  |
-| `predicate_semantics` | new attributes: can a subject hold one value or several   | sets the attribute's policy, so the next value supersedes or adds |
-| `entity_match`        | pairs of entities whose names are close, with their facts | links the same thing (`identity_of`), or remembers "different"    |
-| `fact_conflict`       | pairs of competing facts, with the subject's other facts  | supersedes the loser and makes the winner the current value       |
-| `fact_corroboration`  | pairs of facts that may state one thing in two wordings   | records the second as corroborating the first                     |
-| `scene_summary`       | conversation scenes as transcripts                        | stores the gist, memory value, state changes and entity mentions  |
-| `belief_statement`    | remembered states (subject, attribute, value)             | replaces the template sentence with yours                         |
+| `kind`                | What you read                                             | What the server does with your reply                                                                                                      |
+| --------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `predicate_semantics` | new attributes: can a subject hold one value or several   | sets the attribute's policy, so the next value supersedes or adds                                                                         |
+| `extraction`          | stored turns and documents, with the memory context       | grounds every value against the text, resolves entities, commits                                                                          |
+| `fact_resolution`     | each new fact beside the memory facts most like it        | same → corroborates; replaces → closes the value that holds from the earlier time (whichever arrived first); contradicts → both competing |
+| `entity_match`        | pairs of entities whose names are close, with their facts | links the same thing (`identity_of`), or remembers "different"                                                                            |
+| `fact_conflict`       | pairs of competing facts, with the subject's other facts  | supersedes the loser and makes the winner the current value                                                                               |
+| `fact_corroboration`  | pairs of facts that may state one thing in two wordings   | records the second as corroborating the first                                                                                             |
+| `scene_summary`       | conversation scenes as transcripts                        | stores the gist, memory value, state changes and entity mentions                                                                          |
+| `belief_statement`    | remembered states (subject, attribute, value)             | replaces the template sentence with yours                                                                                                 |
 
 1. When you are idle (between tasks, at the end of a session), call
    `take_memory_work`. `{work: null}` means nothing is waiting, so stop.
-   Kinds come in the order above: facts first, because the judgements and
-   summaries read them. `kinds` limits a call to some of them.
+   Kinds come in the order above: attributes, then facts and how each new
+   fact relates to memory, because the judgements and summaries read them. `kinds` limits a call to some of them.
 2. Otherwise `work` holds `kind`, `systemPrompt`, `userContent`, `schema`
    (the JSON schema of the reply), `items` (how many turns, pairs, scenes,
    attributes or beliefs the batch covers), `token` and `expiresAt`. Answer
