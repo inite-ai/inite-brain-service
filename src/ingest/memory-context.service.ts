@@ -6,8 +6,6 @@ import { LocalNerService } from '../ai/local-ner.service';
 import {
   MEMORY_EDGES_PER_ENTITY,
   MEMORY_FACTS_PER_ENTITY,
-  MEMORY_FACT_CANDIDATES_PER_ENTITY,
-  pickKnownFacts,
   MEMORY_PREDICATES,
   MEMORY_RECENT_TURNS,
   type MemoryContext,
@@ -155,11 +153,7 @@ export class MemoryContextService {
             this.predicates(db, p.companyId),
           ]);
           const saidBy = isoOf(p.saidBy ?? p.before);
-          const facts = await this.knownFacts(db, entities, {
-            userId: p.userId,
-            saidBy,
-            text: p.text,
-          });
+          const facts = await this.knownFacts(db, entities, { userId: p.userId, saidBy });
           const edges = await this.knownEdges(db, entities, {
             userId: p.userId,
             saidBy,
@@ -392,7 +386,7 @@ export class MemoryContextService {
   private async knownFacts(
     db: Surreal,
     entities: MemoryEntity[],
-    opts: { userId: string | undefined; saidBy: string | undefined; text: string },
+    opts: { userId: string | undefined; saidBy: string | undefined },
   ): Promise<MemoryFact[]> {
     const { userId, saidBy } = opts;
     if (entities.length === 0) return [];
@@ -421,24 +415,17 @@ export class MemoryContextService {
         ids: ids.map(recordRef),
         u: userId,
         said: saidBy,
-        k: MEMORY_FACT_CANDIDATES_PER_ENTITY * ids.length,
+        k: MEMORY_FACTS_PER_ENTITY * ids.length,
         ...tags.params,
       },
     );
-    // Per entity: the facts the turn names first, then the newest (pickKnownFacts).
-    const byEntity = new Map<string, NonNullable<typeof rows>>();
+    const perEntity = new Map<string, number>();
+    const out: MemoryFact[] = [];
     for (const r of rows ?? []) {
       const entityId = String(r.entityId);
-      const list = byEntity.get(entityId) ?? [];
-      if (list.length < MEMORY_FACT_CANDIDATES_PER_ENTITY) list.push(r);
-      byEntity.set(entityId, list);
-    }
-    const shown = [...byEntity.values()].flatMap((list) =>
-      pickKnownFacts(list, opts.text, MEMORY_FACTS_PER_ENTITY),
-    );
-    const out: MemoryFact[] = [];
-    for (const r of shown) {
-      const entityId = String(r.entityId);
+      const n = perEntity.get(entityId) ?? 0;
+      if (n >= MEMORY_FACTS_PER_ENTITY) continue;
+      perEntity.set(entityId, n + 1);
       const entityHandle = handleOf.get(entityId);
       if (!entityHandle) continue;
       out.push({
