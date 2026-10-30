@@ -17,8 +17,8 @@ import { shutdownTracing } from './tracing';
  *   ≤12 s  WorkerLoopService drains in-flight dispatches, hands back any
  *          claim that outlived the budget, then releases its lease
  *   then   HTTP close, OTel flush, pool close
- *   25 s   HARD_STOP_MS: process.exit(1) if any of that hangs, ahead of
- *          docker's SIGKILL
+ *   25 s   HARD_STOP_MS: SIGKILL to itself if any of that hangs, ahead of
+ *          docker's own at stop_grace_period
  */
 const READINESS_DRAIN_MS = 6_000;
 const HARD_STOP_MS = 25_000;
@@ -43,7 +43,11 @@ export class GracefulShutdownService
     this.health.markShuttingDown();
     this.hardStop = setTimeout(() => {
       this.logger.error(`Shutdown still running after ${HARD_STOP_MS} ms; forcing exit`);
-      process.exit(1);
+      // SIGKILL to ourselves, not process.exit(): exit waits for every
+      // worker thread to terminate, and a worker inside a native ONNX call
+      // (embedder, NER, cross-encoder, NLI) never does — the stand hung on
+      // every restart with "forcing exit" logged and the process alive.
+      process.kill(process.pid, 'SIGKILL');
     }, HARD_STOP_MS);
     this.hardStop.unref();
   }
