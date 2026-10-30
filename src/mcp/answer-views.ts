@@ -3,7 +3,13 @@ import type { MultiHopResult } from '../multi-hop/multi-hop.types';
 import { z } from 'zod';
 import type { BrainScope } from '../auth/api-key.types';
 import { countTokens } from '../common/token-counter';
-import { focusSelect, renderFocus } from './compact-read';
+import {
+  focusHypothesis,
+  focusSelect,
+  renderFocus,
+  type FocusSourceTurn,
+  type Kept,
+} from './compact-read';
 import type { ReadToolDeps } from './read-tools';
 
 /**
@@ -55,16 +61,45 @@ export async function focusOf(
   ctx: { deps: ReadToolDeps; companyId: string; scopes: BrainScope[]; userId?: string | undefined },
   found: Parameters<typeof renderFocus>[0]['out'],
 ): Promise<string> {
-  const factIds = focusSelect(found).kept.map((k) => k.fact.factId);
+  const { kept } = focusSelect(found);
   const sources = ctx.deps.sourceTurns
     ? await ctx.deps.sourceTurns.turnsOf({
         companyId: ctx.companyId,
-        factIds,
+        factIds: kept.map((k) => k.fact.factId),
         scopes: ctx.scopes,
         userId: ctx.userId,
       })
-    : new Map();
-  return renderFocus({ out: found, sources, tokens: countTokens });
+    : new Map<string, FocusSourceTurn[]>();
+  const entailed = await entailedBySource(kept, sources, ctx.deps.entails);
+  return renderFocus({ out: found, sources, tokens: countTokens, entailed });
+}
+
+/**
+ * The kept facts their first source turn entails, one NLI call per turn.
+ * No NLI available → none: the facts are shown, never a quote unchecked.
+ */
+async function entailedBySource(
+  kept: Kept[],
+  sources: Map<string, FocusSourceTurn[]>,
+  entails: ReadToolDeps['entails'],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!entails) return out;
+  const byTurn = new Map<string, { text: string; facts: Kept[] }>();
+  for (const k of kept) {
+    const turn = sources.get(k.fact.factId)?.[0];
+    if (!turn) continue;
+    const g = byTurn.get(turn.episodeId) ?? { text: turn.text, facts: [] };
+    g.facts.push(k);
+    byTurn.set(turn.episodeId, g);
+  }
+  for (const { text, facts } of byTurn.values()) {
+    const verdicts = await entails(text, facts.map(focusHypothesis));
+    facts.forEach((k, i) => {
+      if (verdicts[i] === true) out.add(k.fact.factId);
+    });
+  }
+  return out;
 }
 
 export const answerDetailArg = z

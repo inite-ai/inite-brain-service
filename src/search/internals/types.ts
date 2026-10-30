@@ -168,6 +168,14 @@ export type FusedRow = FactRow & { fusedScore: number };
 export interface ScoreBreakdown {
   fusedScore: number;
   confidence: number;
+  /**
+   * The cross-encoder's relevance of this fact to the query, a
+   * probability in [0, 1] (SEARCH_FACT_RERANK). The one query-specific,
+   * calibrated relevance the read path has — what the focus view selects
+   * on. Omitted when the fact was not scored (pass off, outside the
+   * window, past the deadline).
+   */
+  relevance?: number;
   /** Phase 3: isotonic-mapped raw → calibrated. Omitted when disabled. */
   calibratedConfidence?: number;
   /** Phase 3: semantic-entropy across N extraction passes. Omitted on N=1. */

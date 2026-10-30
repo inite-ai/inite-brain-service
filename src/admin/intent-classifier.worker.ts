@@ -15,6 +15,7 @@
  * `{ id, ok, result | error }`. id demuxes concurrent requests.
  */
 import { parentPort } from 'node:worker_threads';
+import { entailmentLabels, type NliPipelineParts } from './nli-entailment';
 
 interface WorkerConfig {
   modelId: string;
@@ -32,6 +33,7 @@ type ZeroShotPipeline = (
 
 type Inbound =
   | { id: number; kind: 'warmup'; payload: WorkerConfig }
+  | { id: number; kind: 'entail'; payload: { premise: string; hypotheses: string[] } }
   | {
       id: number;
       kind: 'classify';
@@ -92,6 +94,17 @@ const onMessage = async (msg: Inbound): Promise<void> => {
     if (warmupPromise) await warmupPromise;
     if (msg.kind === 'classify') {
       reply({ id: msg.id, ok: true, result: await classify(msg.payload) });
+      return;
+    }
+    if (msg.kind === 'entail') {
+      if (!classifier) throw new Error('NLI classifier not ready');
+      // The zero-shot pipeline object carries the tokenizer and the model.
+      const parts = classifier as unknown as NliPipelineParts;
+      reply({
+        id: msg.id,
+        ok: true,
+        result: await entailmentLabels(parts, msg.payload.premise, msg.payload.hypotheses),
+      });
       return;
     }
   } catch (e) {

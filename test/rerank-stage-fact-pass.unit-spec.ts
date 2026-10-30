@@ -25,6 +25,7 @@ function bucket(entityId: string, scores: number[]): EntityBucket {
     rankScore: Math.max(...scores),
     facts: scores.map((score, i) => ({
       score,
+      breakdown: {},
       row: {
         predicate: `p${i}`,
         object: `fact ${i} of ${entityId}`,
@@ -58,18 +59,18 @@ describe('rerank stage — the fact pass rides beside the LLM rerank', () => {
     const crossEncoder = {
       isEnabled: () => true,
       isLocalOnly: () => true,
-      rerank: jest.fn(async (_q: string, inputs: Array<{ label: string }>) => {
-        // The entity pass sees "<name> [type]" labels; the fact pass sees
-        // "<name> — <predicate>" labels.
-        if (inputs[0]!.label.includes(' [')) {
-          events.push('ce:entity');
-          return inputs.map((_, i) => i);
-        }
+      // The entity pass orders "<name> [type]" labels.
+      rerank: jest.fn(async (_q: string, inputs: unknown[]) => {
+        events.push('ce:entity');
+        return inputs.map((_, i) => i);
+      }),
+      // The fact pass scores "<name> — <predicate>" labels.
+      relevance: jest.fn(async (_q: string, inputs: unknown[]) => {
         events.push('ce:fact:start');
         await factDone;
         events.push('ce:fact:end');
-        // Invert the 4-fact window: the lowest fused fact becomes top.
-        return inputs.map((_, i) => inputs.length - 1 - i);
+        // Invert the 4-fact window: the lowest fused fact is most relevant.
+        return inputs.map((_, i) => (i + 1) / (inputs.length + 1));
       }),
     } as unknown as CrossEncoderService;
     const reranker = {
@@ -95,6 +96,9 @@ describe('rerank stage — the fact pass rides beside the LLM rerank', () => {
     expect([...scores].sort((x, y) => y - x)).toEqual([0.9, 0.8, 0.2, 0.1, 0.05]);
     expect(byEntity.get('c')!.facts[0]!.score).toBe(0.9);
     expect(byEntity.get('a')!.facts[0]!.score).toBe(0.05);
+    // The relevance itself stays on each scored fact's breakdown.
+    expect(byEntity.get('c')!.facts[0]!.breakdown.relevance).toBeCloseTo(5 / 6);
+    expect(byEntity.get('a')!.facts[0]!.breakdown.relevance).toBeCloseTo(1 / 6);
   });
 
   it('the entity pass is skipped when the LLM reranker orders the same set, and when every candidate fits', async () => {

@@ -5,7 +5,7 @@
  * search answer 3683 → ~440 compact → 35 on average in focus (the
  * default); one timeline 2784 → ~515.
  */
-import { compactSearch, compactTimeline, renderFocus } from '../src/mcp/compact-read';
+import { adaptiveK, compactSearch, compactTimeline, renderFocus } from '../src/mcp/compact-read';
 import type { SearchHit } from '../src/search/search.types';
 import type { TimelineEvent } from '../src/entities/entities.service';
 
@@ -198,24 +198,30 @@ describe('compactTimeline', () => {
 
 describe('renderFocus — the fovea: only what the query is about, in its cheapest form', () => {
   const chars = (s: string) => s.length;
-  const fact = (id: string, predicate: string, object: string, score: number) => ({
+  // `relevance` is the cross-encoder's probability (breakdown.relevance);
+  // the retrieval score is set to the same value for simplicity.
+  const fact = (id: string, predicate: string, object: string, relevance: number) => ({
     factId: id,
     predicate,
     object,
     confidence: 0.9,
     validFrom: '2026-10-05T10:00:00.000Z',
     status: 'active',
-    score,
+    score: relevance,
+    breakdown: { relevance },
   });
   const sasha = hit({
     facts: [
-      fact('knowledge_fact:moto', 'owns_motorcycle', 'no motorcycle anymore', 0.25),
-      fact('knowledge_fact:sold', 'sold', 'Kawasaki Ninja motorcycle', 0.21),
-      fact('knowledge_fact:a', 'founded_startup', 'INITE', 0.14),
-      fact('knowledge_fact:b', 'music_service', 'Yandex Music', 0.13),
-      fact('knowledge_fact:c', 'name', 'Sasha', 0.13),
+      fact('knowledge_fact:moto', 'owns_motorcycle', 'no motorcycle anymore', 0.95),
+      fact('knowledge_fact:sold', 'sold', 'Kawasaki Ninja motorcycle', 0.9),
+      fact('knowledge_fact:a', 'founded_startup', 'INITE', 0.2),
+      fact('knowledge_fact:b', 'music_service', 'Yandex Music', 0.15),
+      fact('knowledge_fact:c', 'name', 'Sasha', 0.12),
     ] as never,
   });
+  const exact = { buffer: 0 };
+  /** The facts the NLI model found entailed by their turn. */
+  const entailed = new Set(['knowledge_fact:moto', 'knowledge_fact:sold']);
   const turn = {
     episodeId: 'episode:t5',
     text: 'I sold the Ninja, no motorcycle anymore.',
@@ -223,22 +229,61 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
     speaker: 'sasha',
   };
 
-  it('keeps the facts standing out of this answer noise floor, and says how many it left', () => {
-    const text = renderFocus({ out: { results: [sasha] }, sources: new Map(), tokens: chars });
+  it('keeps the facts above the largest relevance drop, and says how many it left', () => {
+    const text = renderFocus({
+      out: { results: [sasha] },
+      sources: new Map(),
+      tokens: chars,
+      opts: exact,
+    });
     expect(text).toContain('owns_motorcycle = no motorcycle anymore');
     expect(text).toContain('sold = Kawasaki Ninja motorcycle');
     expect(text).not.toContain('founded_startup');
     expect(text).toContain('(+3 more: detail "compact")');
   });
 
-  it('quotes the source turn when it is cheaper than the facts read from it', () => {
+  it('keeps the buffer past the drop by default (Adaptive-k B)', () => {
+    const text = renderFocus({ out: { results: [sasha] }, sources: new Map(), tokens: chars });
+    expect(text).toContain('founded_startup = INITE');
+    expect(text).toContain('(+2 more: detail "compact")');
+  });
+
+  it('ranks unscored facts below every scored one', () => {
+    const mixed = hit({
+      relations: [],
+      facts: [
+        { ...fact('knowledge_fact:u', 'unscored', 'high retrieval score', 0.99), breakdown: {} },
+        fact('knowledge_fact:s', 'scored', 'relevant', 0.6),
+      ] as never,
+    });
+    const text = renderFocus({
+      out: { results: [mixed] },
+      sources: new Map(),
+      tokens: chars,
+      opts: exact,
+    });
+    expect(text).toContain('scored = relevant');
+    expect(text).not.toContain('unscored');
+  });
+
+  it('quotes the source turn when it entails the facts and is cheaper than them', () => {
     const sources = new Map([
       ['knowledge_fact:moto', [turn]],
       ['knowledge_fact:sold', [turn]],
     ]);
-    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars });
+    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars, entailed });
     expect(text).toContain('[2026-10-05] sasha: "I sold the Ninja, no motorcycle anymore."');
     expect(text).not.toContain('owns_motorcycle');
+  });
+
+  it('without an entailment verdict shows the facts, never an unchecked quote', () => {
+    const sources = new Map([
+      ['knowledge_fact:moto', [turn]],
+      ['knowledge_fact:sold', [turn]],
+    ]);
+    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars, opts: exact });
+    expect(text).toContain('owns_motorcycle = no motorcycle anymore');
+    expect(text).not.toContain('I sold the Ninja');
   });
 
   it('keeps the facts when the turn they came from is longer', () => {
@@ -254,7 +299,13 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
       ['knowledge_fact:moto', [turn]],
       ['knowledge_fact:sold', [turn]],
     ]);
-    const text = renderFocus({ out: { results: [sasha] }, sources, tokens: chars });
+    const text = renderFocus({
+      out: { results: [sasha] },
+      sources,
+      tokens: chars,
+      entailed,
+      opts: exact,
+    });
     // The evidence lines; links and the "more" line are the memory's own map.
     const evidence = text.split('\n').filter((l) => !l.startsWith('(+') && !l.startsWith('links:'));
     expect(evidence.join('\n').length).toBeLessThanOrEqual(
@@ -296,7 +347,12 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
         fact('knowledge_fact:x', 'sold', 'Ninja', 0.29),
       ] as never,
     });
-    const lines = renderFocus({ out: { results: [ranked] }, sources, tokens: chars }).split('\n');
+    const lines = renderFocus({
+      out: { results: [ranked] },
+      sources,
+      tokens: chars,
+      entailed: new Set(['knowledge_fact:moto']),
+    }).split('\n');
     expect(lines[0]).toContain('I sold the Ninja');
     expect(lines[1]).toContain('sold = Ninja');
   });
@@ -321,13 +377,18 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
       canonicalName: 'Meridian',
       relations: [],
       facts: [
-        { ...fact('knowledge_fact:p', 'payout_cutoff', '17:00 UTC', 0.4), status: 'competing' },
-        fact('knowledge_fact:r', 'rate_limit', '50 rpm', 0.12),
-        fact('knowledge_fact:s', 'sandbox', 'yes', 0.11),
-        { ...fact('knowledge_fact:d', 'payout_cutoff', '16:30 UTC', 0.1), status: 'competing' },
+        { ...fact('knowledge_fact:p', 'payout_cutoff', '17:00 UTC', 0.9), status: 'competing' },
+        fact('knowledge_fact:r', 'rate_limit', '50 rpm', 0.3),
+        fact('knowledge_fact:s', 'sandbox', 'yes', 0.28),
+        { ...fact('knowledge_fact:d', 'payout_cutoff', '16:30 UTC', 0.05), status: 'competing' },
       ] as never,
     });
-    const text = renderFocus({ out: { results: [meridian] }, sources: new Map(), tokens: chars });
+    const text = renderFocus({
+      out: { results: [meridian] },
+      sources: new Map(),
+      tokens: chars,
+      opts: exact,
+    });
     expect(text).toContain('17:00 UTC');
     expect(text).toContain('16:30 UTC');
     expect(text).not.toContain('rate_limit');
@@ -357,7 +418,7 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
     expect(withFacts).toContain('LS-12 payout retries');
   });
 
-  it('never quotes a turn that only refers to the value — the extractor read it with its conversation', () => {
+  it('never quotes a turn that does not entail the fact — the extractor read it with its conversation', () => {
     const vague = { ...turn, text: 'Update the runbooks for the new retry policy.' };
     const sources = new Map([['knowledge_fact:r', [vague]]]);
     const retry = hit({
@@ -387,5 +448,24 @@ describe('renderFocus — the fovea: only what the query is about, in its cheape
         tokens: chars,
       }),
     ).toContain('search degraded: embedder_unavailable');
+  });
+});
+
+describe('adaptiveK (Taguchi et al., EMNLP 2025)', () => {
+  it('cuts at the largest drop, plus the buffer', () => {
+    expect(adaptiveK([0.95, 0.9, 0.2, 0.15, 0.1], 0)).toBe(2);
+    expect(adaptiveK([0.95, 0.9, 0.2, 0.15, 0.1], 1)).toBe(3);
+  });
+
+  it('searches the drop within the top 90% only', () => {
+    // The widest drop sits in the last 10%: it is not a cut point.
+    const s = [0.9, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45, 0.4, 0.35, 0.3, 0.0];
+    expect(adaptiveK(s, 0)).toBe(1);
+  });
+
+  it('one score keeps one; none keeps none; the buffer never exceeds what there is', () => {
+    expect(adaptiveK([0.4], 1)).toBe(1);
+    expect(adaptiveK([], 1)).toBe(0);
+    expect(adaptiveK([0.9, 0.1], 5)).toBe(2);
   });
 });

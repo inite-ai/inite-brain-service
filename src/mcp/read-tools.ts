@@ -49,6 +49,9 @@ export interface ReadToolDeps {
   embedderDescription: () => string;
   /** The raw turns behind facts (search_knowledge focus view); absent → facts only. */
   sourceTurns?: FactSourceTurnsService | undefined;
+  /** NLI: whether a premise entails each hypothesis (a quote may stand in for facts). */
+  entails?:
+    ((premise: string, hypotheses: string[]) => Promise<Array<boolean | undefined>>) | undefined;
 }
 
 /**

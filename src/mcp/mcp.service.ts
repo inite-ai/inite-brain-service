@@ -57,6 +57,7 @@ import { ExtractionWorkService } from '../documents/extraction-work.service';
 import { DreamsWorkService } from '../dreams/dreams-work.service';
 import { FactSourceTurnsService } from '../facts/fact-source-turns.service';
 import { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
+import { IntentClassifierService } from '../admin/intent-classifier.service';
 import { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 
@@ -733,6 +734,9 @@ export class McpService {
         summarizer: this.summarizer,
         embedderDescription: () => this.embedderDescription(),
         sourceTurns: this.sourceTurns,
+        entails: (premise, hypotheses) =>
+          this.adminWork(IntentClassifierService)?.entails(premise, hypotheses) ??
+          Promise.resolve(hypotheses.map(() => undefined)),
       },
     });
     registerProceduralReadTools(server, companyId, {

@@ -139,12 +139,13 @@ export function compactTimeline(out: { entityId: string; events: TimelineEvent[]
  * raw turns cost). The focus view keeps what the question is about and
  * spends on it the cheapest faithful form:
  *
- *  - SELECT: facts scoring within `lambda` of the spread between the
- *    top score and the median (the noise floor of this answer), at least
- *    one, at most `maxFacts`. Scale-free — the fused scores move with
- *    the corpus, their spread above the median does not. Measured on the
- *    stand: the answer-bearing facts sat at 0.21–0.27 against a 0.13
- *    median, and were exactly the ones kept.
+ *  - SELECT: Adaptive-k (Taguchi et al., EMNLP 2025): sort the facts
+ *    by relevance, cut at the largest drop between neighbours within the
+ *    top 90%, keep `buffer` more. Relevance is the cross-encoder's
+ *    probability that the fact answers the query (SEARCH_FACT_RERANK);
+ *    facts it did not score rank below every scored one, and with no
+ *    scores at all the fused retrieval score stands in. No fixed count,
+ *    no threshold: the answer's own score distribution decides its size.
  *  - SPEND: facts grouped by the turn they were read from; a group is
  *    shown as its facts or as that turn quoted, whichever costs fewer
  *    tokens. So the evidence never costs more than the raw it came from,
@@ -165,22 +166,21 @@ export interface FocusSourceTurn {
 }
 
 export interface FocusOptions {
-  lambda?: number;
-  maxFacts?: number;
+  /** Adaptive-k's B: facts kept past the largest drop. */
+  buffer?: number;
   topRelations?: boolean;
 }
 
-const FOCUS_LAMBDA = 0.4;
-const FOCUS_MAX_FACTS = 8;
-const NEAR_TOP = 0.9;
+/** Adaptive-k: the share of the ranking the largest drop is searched in (the paper's 90%). */
+const ADAPTIVE_K_SEARCH_SHARE = 0.9;
+/** Adaptive-k's buffer B, chosen on the accuracy/token curve (see the PR). */
+const ADAPTIVE_K_BUFFER = 1;
 const QUOTE_MAX_CHARS = 400;
-/** Share of a value's words its turn must contain to stand in for the fact. */
-const QUOTE_MIN_VALUE_COVERAGE = 0.6;
 /** Linked-source answers (W7) shown per source, and the excerpt kept of each. */
 const LINKED_HITS = 3;
 const LINKED_SNIPPET_CHARS = 200;
 
-type Kept = { hit: SearchHit; fact: SearchHit['facts'][number] };
+export type Kept = { hit: SearchHit; fact: SearchHit['facts'][number] };
 
 /** The facts the question is about (SELECT above), best first, and how many were left. */
 export function focusSelect(
@@ -189,24 +189,62 @@ export function focusSelect(
 ): { kept: Kept[]; omitted: number } {
   const all: Kept[] = out.results.flatMap((hit) => hit.facts.map((fact) => ({ hit, fact })));
   if (all.length === 0) return { kept: [], omitted: 0 };
-  const ranked = [...all].sort((a, b) => (b.fact.score ?? 0) - (a.fact.score ?? 0));
-  const scores = ranked.map((k) => k.fact.score ?? 0).sort((a, b) => a - b);
-  const top = scores[scores.length - 1] ?? 0;
-  // Lower median: with two facts the upper one IS the top, and the cut
-  // would drop a near-equal second. A fact within 10% of the top always
-  // stays — two answers to one question score alike.
-  const median = scores[Math.floor((scores.length - 1) / 2)] ?? 0;
-  const cut = Math.min(top - (opts.lambda ?? FOCUS_LAMBDA) * (top - median), NEAR_TOP * top);
-  const max = opts.maxFacts ?? FOCUS_MAX_FACTS;
-  const kept = ranked.filter((k, i) => i === 0 || (k.fact.score ?? 0) >= cut).slice(0, max);
+  const ranked = rankByRelevance(all);
+  const k = adaptiveK(
+    ranked.map((r) => r.relevance),
+    opts.buffer ?? ADAPTIVE_K_BUFFER,
+  );
+  const kept = ranked.slice(0, k).map((r) => r.kept);
   // A dispute is shown whole: the other side of a kept competing value
   // stays whatever it scored, or the cut would settle the conflict the
   // memory deliberately left open.
-  const disputed = new Set(kept.filter((k) => k.fact.status === 'competing').map((k) => slotOf(k)));
-  for (const k of ranked) {
-    if (k.fact.status === 'competing' && disputed.has(slotOf(k)) && !kept.includes(k)) kept.push(k);
+  const disputed = new Set(kept.filter((x) => x.fact.status === 'competing').map(slotOf));
+  for (const { kept: x } of ranked) {
+    if (x.fact.status === 'competing' && disputed.has(slotOf(x)) && !kept.includes(x)) kept.push(x);
   }
   return { kept, omitted: all.length - kept.length };
+}
+
+/**
+ * Facts by the cross-encoder's relevance; those it did not score after
+ * every scored one, in retrieval order. With no relevance at all (pass
+ * off or timed out) the fused retrieval score is the ranking signal.
+ */
+function rankByRelevance(all: Kept[]): Array<{ kept: Kept; relevance: number }> {
+  const rel = (x: Kept) => x.fact.breakdown?.relevance;
+  const scored = all.filter((x) => rel(x) !== undefined);
+  const signal = (x: Kept) => (scored.length > 0 ? rel(x) : x.fact.score);
+  const byRetrieval = [...all].sort((a, b) => (b.fact.score ?? 0) - (a.fact.score ?? 0));
+  const ordered =
+    scored.length > 0
+      ? [
+          ...[...scored].sort((a, b) => (rel(b) ?? 0) - (rel(a) ?? 0)),
+          ...byRetrieval.filter((x) => rel(x) === undefined),
+        ]
+      : byRetrieval;
+  return ordered.map((kept) => ({ kept, relevance: signal(kept) ?? 0 }));
+}
+
+/**
+ * Adaptive-k (Taguchi, Maekawa, Bhutani — EMNLP 2025, Algorithm 1): over
+ * scores sorted descending, k is the position of the largest drop
+ * s[i] − s[i+1] searched within the top 90%, plus a buffer of B. One
+ * score: k = 1.
+ */
+export function adaptiveK(sortedDesc: number[], buffer: number): number {
+  const n = sortedDesc.length;
+  if (n <= 1) return n;
+  const searchable = Math.max(2, Math.ceil(n * ADAPTIVE_K_SEARCH_SHARE));
+  let cut = 0;
+  let widest = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < Math.min(searchable, n) - 1; i++) {
+    const gap = (sortedDesc[i] ?? 0) - (sortedDesc[i + 1] ?? 0);
+    if (gap > widest) {
+      widest = gap;
+      cut = i;
+    }
+  }
+  return Math.min(n, cut + 1 + Math.max(0, buffer));
 }
 
 function slotOf(k: Kept): string {
@@ -218,6 +256,8 @@ export function renderFocus(p: {
   out: SearchOut;
   sources: Map<string, FocusSourceTurn[]>;
   tokens: (s: string) => number;
+  /** Facts their first source turn entails (focusHypothesis) — only those may be quoted. */
+  entailed?: Set<string>;
   opts?: FocusOptions;
 }): string {
   const { kept, omitted } = focusSelect(p.out, p.opts);
@@ -227,7 +267,11 @@ export function renderFocus(p: {
     if (linked.length > 0) return [...linked, ...(degraded ? [degraded] : [])].join('\n');
     return degraded ?? 'No facts in memory match this question.';
   }
-  const lines = evidenceLines(kept, p.sources, p.tokens);
+  const lines = evidenceLines(kept, {
+    sources: p.sources,
+    tokens: p.tokens,
+    entailed: p.entailed ?? new Set(),
+  });
   const links = connectingLinks(kept, p.opts?.topRelations ?? true);
   if (links.length > 0) lines.push(`links: ${links.join('; ')}`);
   lines.push(...linked);
@@ -252,15 +296,21 @@ function degradedNote(degraded: unknown): string | undefined {
  * The kept facts as lines, in rank order: a group of facts read from one
  * turn becomes that turn quoted when the quote is shorter, an entity's
  * remaining facts one line where its best fact ranked. A fact with no
- * readable source is its own group. A fact the turn alone would misstate
- * — competing, or ended since — is never quoted: the quote cannot carry
+ * readable source is its own group. A turn stands in for a fact only if
+ * it entails it (NLI, nli-entailment.ts: the extractor reads a turn with
+ * its conversation, so a fact can carry a value the turn only refers
+ * to), and never for a competing or ended fact — the quote cannot carry
  * its status or its end.
  */
 function evidenceLines(
   kept: Kept[],
-  sources: Map<string, FocusSourceTurn[]>,
-  tokens: (s: string) => number,
+  ctx: {
+    sources: Map<string, FocusSourceTurn[]>;
+    tokens: (s: string) => number;
+    entailed: Set<string>;
+  },
 ): string[] {
+  const { sources, tokens, entailed } = ctx;
   const keyOf = new Map<Kept, string>();
   const groups = new Map<string, { turn?: FocusSourceTurn; items: Kept[] }>();
   for (const k of kept) {
@@ -270,7 +320,7 @@ function evidenceLines(
       turn.text.length <= QUOTE_MAX_CHARS &&
       (!k.fact.status || k.fact.status === 'active') &&
       !day(k.fact.validUntil) &&
-      statedIn(k.fact.object, turn.text);
+      entailed.has(k.fact.factId);
     const key = quotable ? turn.episodeId : k.fact.factId;
     const g = groups.get(key) ?? { ...(quotable ? { turn } : {}), items: [] };
     g.items.push(k);
@@ -301,22 +351,6 @@ function evidenceLines(
     lines.push(`${k.hit.canonicalName}: ${facts.map((x) => factSegment(x.fact)).join('; ')}`);
   }
   return lines;
-}
-
-/**
- * Whether a turn states a value itself. The extractor reads a turn WITH
- * its conversation, so a fact can carry a value the turn only refers to
- * ("update the runbooks for the new retry policy" → retry_policy =
- * exponential backoff, said three turns earlier) — quoting that turn
- * would drop the value. Most of the value's words must be in the turn.
- */
-function statedIn(value: string, text: string): boolean {
-  const words = value.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._:-]*/gu) ?? [];
-  const significant = words.filter((w) => w.length >= 3 || /\d/.test(w));
-  if (significant.length === 0) return false;
-  const turn = text.toLowerCase();
-  const found = significant.filter((w) => turn.includes(w)).length;
-  return found / significant.length >= QUOTE_MIN_VALUE_COVERAGE;
 }
 
 function factSegment(f: SearchHit['facts'][number]): string {
@@ -431,4 +465,9 @@ export function renderTimeline(out: { entityId: string; events: TimelineEvent[] 
     return `${day(e.at) ?? '?'} − ${valueOf.get(e.factId) ?? e.factId}${why}`;
   });
   return lines.length > 0 ? lines.join('\n') : 'No events.';
+}
+
+/** The sentence an NLI model checks a source turn against for one fact. */
+export function focusHypothesis(k: Kept): string {
+  return `${k.hit.canonicalName} ${k.fact.predicate.replace(/_/g, ' ')}: ${k.fact.object}`;
 }
