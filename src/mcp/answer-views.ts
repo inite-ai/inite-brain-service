@@ -7,6 +7,7 @@ import {
   focusHypothesis,
   focusSelect,
   renderFocus,
+  type FocusBelief,
   type FocusSourceTurn,
   type Kept,
 } from './compact-read';
@@ -58,10 +59,17 @@ export function multiHopView(out: MultiHopResult, evidence: string): MultiHopVie
  * answer.
  */
 export async function focusOf(
-  ctx: { deps: ReadToolDeps; companyId: string; scopes: BrainScope[]; userId?: string | undefined },
+  ctx: {
+    deps: ReadToolDeps;
+    companyId: string;
+    scopes: BrainScope[];
+    query: string;
+    userId?: string | undefined;
+  },
   found: Parameters<typeof renderFocus>[0]['out'],
 ): Promise<string> {
-  const { kept } = focusSelect(found);
+  const beliefs = await scoredBeliefs(ctx);
+  const { kept } = focusSelect(found, {}, beliefs);
   const sources = ctx.deps.sourceTurns
     ? await ctx.deps.sourceTurns.turnsOf({
         companyId: ctx.companyId,
@@ -71,7 +79,32 @@ export async function focusOf(
       })
     : new Map<string, FocusSourceTurn[]>();
   const entailed = await entailedBySource(kept, sources, ctx.deps.entails);
-  return renderFocus({ out: found, sources, tokens: countTokens, entailed });
+  return renderFocus({ out: found, sources, tokens: countTokens, entailed, beliefs });
+}
+
+/**
+ * The beliefs the query reaches, each with the cross-encoder's relevance
+ * of its statement — the coarse level of the focus pool. None without a
+ * scoped user (the belief lane's fence) or without relevance scores.
+ */
+async function scoredBeliefs(ctx: {
+  deps: ReadToolDeps;
+  companyId: string;
+  query: string;
+  userId?: string | undefined;
+}): Promise<FocusBelief[]> {
+  const { beliefs, relevance } = ctx.deps;
+  if (!beliefs || !relevance || ctx.userId === undefined) return [];
+  const found = await beliefs({ companyId: ctx.companyId, query: ctx.query, userId: ctx.userId });
+  if (found.length === 0) return [];
+  const scores = await relevance(
+    ctx.query,
+    found.map((b) => ({ label: `${b.subject} — ${b.field}`, body: b.statement })),
+  );
+  return found.flatMap((b, i) => {
+    const r = scores[i];
+    return r === undefined ? [] : [{ ...b, relevance: r }];
+  });
 }
 
 /**

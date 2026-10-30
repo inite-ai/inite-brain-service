@@ -165,6 +165,16 @@ export interface FocusSourceTurn {
   speaker?: string | undefined;
 }
 
+/** A belief (src/synthesize/belief-lane.service.ts) in the focus pool. */
+export interface FocusBelief {
+  beliefId: string;
+  subject: string;
+  statement: string;
+  since?: string;
+  /** The cross-encoder's relevance of the statement to the query. */
+  relevance: number;
+}
+
 export interface FocusOptions {
   /** Adaptive-k's B: facts kept past the largest drop. */
   buffer?: number;
@@ -186,23 +196,59 @@ export type Kept = { hit: SearchHit; fact: SearchHit['facts'][number] };
 export function focusSelect(
   out: SearchOut,
   opts: FocusOptions = {},
-): { kept: Kept[]; omitted: number } {
+  beliefs: FocusBelief[] = [],
+): { kept: Kept[]; beliefs: FocusBelief[]; order: Array<Kept | FocusBelief>; omitted: number } {
   const all: Kept[] = out.results.flatMap((hit) => hit.facts.map((fact) => ({ hit, fact })));
-  if (all.length === 0) return { kept: [], omitted: 0 };
-  const ranked = rankByRelevance(all);
+  const ranked = rankUnits(rankByRelevance(all), beliefs);
+  if (ranked.length === 0) return { kept: [], beliefs: [], order: [], omitted: 0 };
   const k = adaptiveK(
     ranked.map((r) => r.relevance),
     opts.buffer ?? ADAPTIVE_K_BUFFER,
   );
-  const kept = ranked.slice(0, k).map((r) => r.kept);
+  const order = ranked.slice(0, k).map((r) => r.unit);
   // A dispute is shown whole: the other side of a kept competing value
   // stays whatever it scored, or the cut would settle the conflict the
   // memory deliberately left open.
-  const disputed = new Set(kept.filter((x) => x.fact.status === 'competing').map(slotOf));
-  for (const { kept: x } of ranked) {
-    if (x.fact.status === 'competing' && disputed.has(slotOf(x)) && !kept.includes(x)) kept.push(x);
+  const keptFacts = order.filter(isKept);
+  const disputed = new Set(keptFacts.filter((x) => x.fact.status === 'competing').map(slotOf));
+  for (const { unit } of ranked) {
+    if (!isKept(unit) || order.includes(unit)) continue;
+    if (unit.fact.status === 'competing' && disputed.has(slotOf(unit))) order.push(unit);
   }
-  return { kept, omitted: all.length - kept.length };
+  const kept = order.filter(isKept);
+  const keptBeliefs = order.filter((u): u is FocusBelief => !isKept(u));
+  return {
+    kept,
+    beliefs: keptBeliefs,
+    order,
+    omitted: all.length + beliefs.length - order.length,
+  };
+}
+
+/**
+ * One relevance ranking over facts and beliefs — RAPTOR's collapsed tree
+ * (Sarthi et al., ICLR 2024): summaries and the leaves they summarise
+ * compete in one pool, which beat level-by-level traversal there. A
+ * belief joins only when the facts carry cross-encoder relevance too —
+ * the same scale; beside fused retrieval scores it would not compare.
+ */
+function rankUnits(
+  facts: Array<{ kept: Kept; relevance: number; scored: boolean }>,
+  beliefs: FocusBelief[],
+): Array<{ unit: Kept | FocusBelief; relevance: number }> {
+  const scored = facts.filter((f) => f.scored);
+  const units: Array<{ unit: Kept | FocusBelief; relevance: number }> = [
+    ...scored.map((f) => ({ unit: f.kept, relevance: f.relevance })),
+    ...(scored.length > 0 ? beliefs.map((b) => ({ unit: b, relevance: b.relevance })) : []),
+  ].sort((a, b) => b.relevance - a.relevance);
+  return [
+    ...units,
+    ...facts.filter((f) => !f.scored).map((f) => ({ unit: f.kept, relevance: f.relevance })),
+  ];
+}
+
+function isKept(u: Kept | FocusBelief): u is Kept {
+  return 'fact' in u;
 }
 
 /**
@@ -210,7 +256,7 @@ export function focusSelect(
  * every scored one, in retrieval order. With no relevance at all (pass
  * off or timed out) the fused retrieval score is the ranking signal.
  */
-function rankByRelevance(all: Kept[]): Array<{ kept: Kept; relevance: number }> {
+function rankByRelevance(all: Kept[]): Array<{ kept: Kept; relevance: number; scored: boolean }> {
   const rel = (x: Kept) => x.fact.breakdown?.relevance;
   const scored = all.filter((x) => rel(x) !== undefined);
   const signal = (x: Kept) => (scored.length > 0 ? rel(x) : x.fact.score);
@@ -222,7 +268,11 @@ function rankByRelevance(all: Kept[]): Array<{ kept: Kept; relevance: number }> 
           ...byRetrieval.filter((x) => rel(x) === undefined),
         ]
       : byRetrieval;
-  return ordered.map((kept) => ({ kept, relevance: signal(kept) ?? 0 }));
+  return ordered.map((kept) => ({
+    kept,
+    relevance: signal(kept) ?? 0,
+    scored: rel(kept) !== undefined,
+  }));
 }
 
 /**
@@ -258,20 +308,32 @@ export function renderFocus(p: {
   tokens: (s: string) => number;
   /** Facts their first source turn entails (focusHypothesis) — only those may be quoted. */
   entailed?: Set<string>;
+  /** Beliefs the query reaches, with the cross-encoder's relevance — ranked with the facts. */
+  beliefs?: FocusBelief[];
   opts?: FocusOptions;
 }): string {
-  const { kept, omitted } = focusSelect(p.out, p.opts);
+  const { kept, beliefs, order, omitted } = focusSelect(p.out, p.opts, p.beliefs);
   const degraded = degradedNote(p.out.degraded);
   const linked = linkedLines(p.out.linked);
-  if (kept.length === 0) {
+  if (order.length === 0) {
     if (linked.length > 0) return [...linked, ...(degraded ? [degraded] : [])].join('\n');
     return degraded ?? 'No facts in memory match this question.';
   }
-  const lines = evidenceLines(kept, {
-    sources: p.sources,
-    tokens: p.tokens,
-    entailed: p.entailed ?? new Set(),
-  });
+  const pos = new Map(order.map((u, i) => [u, i] as const));
+  const lines = [
+    ...evidenceLines(kept, {
+      sources: p.sources,
+      tokens: p.tokens,
+      entailed: p.entailed ?? new Set(),
+      pos,
+    }),
+    ...beliefs.map((b) => ({
+      pos: pos.get(b) ?? 0,
+      line: `${b.statement}${b.since ? ` (since ${b.since})` : ''}`,
+    })),
+  ]
+    .sort((a, b) => a.pos - b.pos)
+    .map((l) => l.line);
   const links = connectingLinks(kept, p.opts?.topRelations ?? true);
   if (links.length > 0) lines.push(`links: ${links.join('; ')}`);
   lines.push(...linked);
@@ -308,9 +370,11 @@ function evidenceLines(
     sources: Map<string, FocusSourceTurn[]>;
     tokens: (s: string) => number;
     entailed: Set<string>;
+    /** Each unit's place in the focus ranking; a line takes its best fact's. */
+    pos: Map<Kept | FocusBelief, number>;
   },
-): string[] {
-  const { sources, tokens, entailed } = ctx;
+): Array<{ pos: number; line: string }> {
+  const { sources, tokens, entailed, pos } = ctx;
   const keyOf = new Map<Kept, string>();
   const groups = new Map<string, { turn?: FocusSourceTurn; items: Kept[] }>();
   for (const k of kept) {
@@ -334,21 +398,25 @@ function evidenceLines(
     const facts = g.items.map((k) => `${k.hit.canonicalName}: ${factSegment(k.fact)}`).join('\n');
     if (tokens(quote) < tokens(facts)) quoted.set(key, quote);
   }
-  const lines: string[] = [];
+  const lines: Array<{ pos: number; line: string }> = [];
   const done = new Set<string>();
   for (const k of kept) {
     const quote = quoted.get(keyOf.get(k) as string);
     const slot = quote !== undefined ? (keyOf.get(k) as string) : k.hit.entityId;
     if (done.has(slot)) continue;
     done.add(slot);
+    const at = pos.get(k) ?? 0;
     if (quote !== undefined) {
-      lines.push(quote);
+      lines.push({ pos: at, line: quote });
       continue;
     }
     const facts = kept.filter(
       (x) => x.hit.entityId === k.hit.entityId && !quoted.has(keyOf.get(x) as string),
     );
-    lines.push(`${k.hit.canonicalName}: ${facts.map((x) => factSegment(x.fact)).join('; ')}`);
+    lines.push({
+      pos: at,
+      line: `${k.hit.canonicalName}: ${facts.map((x) => factSegment(x.fact)).join('; ')}`,
+    });
   }
   return lines;
 }

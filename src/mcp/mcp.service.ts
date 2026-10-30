@@ -19,7 +19,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { registerCommunityTools } from './community-tools';
 import { MetricsService } from '../metrics/metrics.service';
-import { registerReadTools, READ_RESOURCE_ACTIONS } from './read-tools';
+import { registerReadTools, READ_RESOURCE_ACTIONS, type ReadToolDeps } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
@@ -58,6 +58,8 @@ import { DreamsWorkService } from '../dreams/dreams-work.service';
 import { FactSourceTurnsService } from '../facts/fact-source-turns.service';
 import { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
 import { IntentClassifierService } from '../admin/intent-classifier.service';
+import { BeliefLaneService } from '../synthesize/belief-lane.service';
+import { CrossEncoderService } from '../ai/cross-encoder.service';
 import { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 
@@ -154,10 +156,36 @@ export class McpService {
     @Optional() private readonly predicateWork?: PredicateSemanticsWorkService,
     // The turns behind facts, for search_knowledge's focus view.
     @Optional() private readonly sourceTurns?: FactSourceTurnsService,
+    // The focus view's coarse level (beliefs) and its relevance scorer.
+    @Optional() private readonly beliefLane?: BeliefLaneService,
+    @Optional() private readonly crossEncoder?: CrossEncoderService,
     // The scene work lives in AdminModule, which imports McpModule:
     // resolved per call, not injected.
     @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
+
+  /** What the read tools read with — split out of buildServer for its complexity gate. */
+  private readToolDeps(): ReadToolDeps {
+    return {
+      search: this.search,
+      entities: this.entities,
+      facts: this.facts,
+      multiHop: this.multiHop,
+      synth: this.synth,
+      memoryDiff: this.memoryDiff,
+      predictor: this.predictor,
+      summarizer: this.summarizer,
+      embedderDescription: () => this.embedderDescription(),
+      sourceTurns: this.sourceTurns,
+      beliefs: this.beliefLane ? (opts) => this.beliefLane!.candidates(opts) : undefined,
+      relevance: this.crossEncoder?.isEnabled()
+        ? (query, candidates) => this.crossEncoder!.relevance(query, candidates)
+        : undefined,
+      entails: (premise, hypotheses) =>
+        this.adminWork(IntentClassifierService)?.entails(premise, hypotheses) ??
+        Promise.resolve(hypotheses.map(() => undefined)),
+    };
+  }
 
   /** A harness work service of AdminModule (which imports McpModule), resolved per call. */
   private adminWork<T>(token: new (...args: never[]) => T): T | undefined {
@@ -723,21 +751,7 @@ export class McpService {
       server,
       companyId,
       scopes,
-      deps: {
-        search: this.search,
-        entities: this.entities,
-        facts: this.facts,
-        multiHop: this.multiHop,
-        synth: this.synth,
-        memoryDiff: this.memoryDiff,
-        predictor: this.predictor,
-        summarizer: this.summarizer,
-        embedderDescription: () => this.embedderDescription(),
-        sourceTurns: this.sourceTurns,
-        entails: (premise, hypotheses) =>
-          this.adminWork(IntentClassifierService)?.entails(premise, hypotheses) ??
-          Promise.resolve(hypotheses.map(() => undefined)),
-      },
+      deps: this.readToolDeps(),
     });
     registerProceduralReadTools(server, companyId, {
       procedural: this.procedural,

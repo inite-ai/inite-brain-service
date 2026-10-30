@@ -6,6 +6,8 @@ import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { FactsService } from '../facts/facts.service';
 import type { FactSourceTurnsService } from '../facts/fact-source-turns.service';
+import type { BeliefCandidate } from '../synthesize/belief-lane.service';
+import type { CrossEncoderCandidate } from '../ai/cross-encoder.service';
 import type { MultiHopService } from '../multi-hop/multi-hop.service';
 import type { SynthesizeService } from '../synthesize/synthesize.service';
 import type { MemoryDiffService } from '../diff/memory-diff.service';
@@ -49,6 +51,18 @@ export interface ReadToolDeps {
   embedderDescription: () => string;
   /** The raw turns behind facts (search_knowledge focus view); absent → facts only. */
   sourceTurns?: FactSourceTurnsService | undefined;
+  /** Beliefs a query reaches (the belief lane's retrieval) — the focus view's coarse level. */
+  beliefs?:
+    | ((opts: {
+        companyId: string;
+        query: string;
+        userId?: string | undefined;
+      }) => Promise<BeliefCandidate[]>)
+    | undefined;
+  /** The cross-encoder's relevance per candidate (CrossEncoderService.relevance). */
+  relevance?:
+    | ((query: string, candidates: CrossEncoderCandidate[]) => Promise<Array<number | undefined>>)
+    | undefined;
   /** NLI: whether a premise entails each hypothesis (a quote may stand in for facts). */
   entails?:
     ((premise: string, hypotheses: string[]) => Promise<Array<boolean | undefined>>) | undefined;
@@ -163,7 +177,10 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
       // by default only the part the query is about, in its cheapest
       // faithful form (compact-read.ts: 3683 → under the raw turns).
       if (args.detail === undefined || args.detail === 'focus') {
-        const text = await focusOf({ deps, companyId, scopes, userId: args.userId }, found);
+        const text = await focusOf(
+          { deps, companyId, scopes, query: args.query, userId: args.userId },
+          found,
+        );
         return { content: [{ type: 'text', text }] };
       }
       const out = args.detail === 'full' ? found : compactSearch(found);
@@ -247,7 +264,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           : multiHopView(
               found,
               await focusOf(
-                { deps, companyId, scopes, userId: args.userId },
+                { deps, companyId, scopes, query: args.query, userId: args.userId },
                 { results: found.finalHits },
               ),
             );
@@ -334,7 +351,10 @@ function registerSynthesizeTool({
           : synthesizeView(
               found,
               found.answer === null
-                ? await focusOf({ deps, companyId, scopes, userId: args.userId }, found)
+                ? await focusOf(
+                    { deps, companyId, scopes, query: args.query, userId: args.userId },
+                    found,
+                  )
                 : undefined,
             );
       return {

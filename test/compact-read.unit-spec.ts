@@ -469,3 +469,61 @@ describe('adaptiveK (Taguchi et al., EMNLP 2025)', () => {
     expect(adaptiveK([0.9, 0.1], 5)).toBe(2);
   });
 });
+
+describe('focus pool — beliefs ranked with the facts (RAPTOR collapsed tree)', () => {
+  const chars = (s: string) => s.length;
+  const f = (id: string, predicate: string, object: string, relevance?: number) => ({
+    factId: id,
+    predicate,
+    object,
+    confidence: 0.9,
+    validFrom: '2026-03-18T10:00:00.000Z',
+    status: 'active',
+    score: relevance ?? 0.3,
+    breakdown: relevance === undefined ? {} : { relevance },
+  });
+  const ls = hit({
+    canonicalName: 'ledger-sync',
+    relations: [],
+    facts: [
+      f('knowledge_fact:a', 'pilot_launch_date', '2026-04-15', 0.4),
+      f('knowledge_fact:b', 'launch_status', 'on track', 0.05),
+    ] as never,
+  });
+  const launch = {
+    beliefId: 'semantic_belief:l',
+    subject: 'ledger-sync',
+    statement: 'The ledger-sync pilot launch date is 2026-05-06, moved from 2026-04-15.',
+    since: '2026-03-18',
+    relevance: 0.95,
+  };
+
+  it('a more relevant belief leads, in rank order', () => {
+    const text = renderFocus({
+      out: { results: [ls] },
+      sources: new Map(),
+      tokens: chars,
+      beliefs: [launch],
+      opts: { buffer: 0 },
+    });
+    expect(text.split('\n')[0]).toBe(
+      'The ledger-sync pilot launch date is 2026-05-06, moved from 2026-04-15. (since 2026-03-18)',
+    );
+  });
+
+  it('beliefs join only when the facts carry relevance on the same scale', () => {
+    const unscored = hit({
+      canonicalName: 'ledger-sync',
+      relations: [],
+      facts: [f('knowledge_fact:a', 'pilot_launch_date', '2026-04-15')] as never,
+    });
+    const text = renderFocus({
+      out: { results: [unscored] },
+      sources: new Map(),
+      tokens: chars,
+      beliefs: [launch],
+    });
+    expect(text).not.toContain('moved from');
+    expect(text).toContain('pilot_launch_date = 2026-04-15');
+  });
+});
