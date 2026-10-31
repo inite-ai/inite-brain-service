@@ -9,7 +9,11 @@
  *    for its user only — before, its cosine scan had no user filter;
  *  - a fact with no user written under an org connection's `team:`
  *    scope carries it (before, only a personal fact was stamped, so a
- *    private repository's facts were tenant-global).
+ *    private repository's facts were tenant-global);
+ *  - `graph_retrieve` (SearchService.graphRetrieve) reads through the
+ *    same fence: a personal fact for its user, a team-tagged fact only
+ *    for a principal holding the tag. Before, every query there said
+ *    `userId IS NONE` and nothing else.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -17,6 +21,7 @@ import { CodeMemorySearchService } from '../src/code-memory/code-memory-search.s
 import { IngestService } from '../src/ingest/ingest.service';
 import { runWithWriteScope } from '../src/auth/write-scope';
 import type { IngestFactDto } from '../src/ingest/dto/ingest-fact.dto';
+import { SearchService } from '../src/search/search.service';
 
 describe('read fences — REST profile userId, recall_decisions (real SurrealDB)', () => {
   let f: AppFixture;
@@ -113,5 +118,67 @@ describe('read fences — REST profile userId, recall_decisions (real SurrealDB)
       return rows[0];
     });
     expect(scope).toEqual([team]);
+  });
+
+  it('graph_retrieve: personal facts for their user, team-tagged facts only for a holder', async () => {
+    const prev = process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '1';
+    try {
+      const entityRef = { vertical: 'eng', id: 'svc_graph' };
+      const base = {
+        entityRef,
+        validFrom: '2026-03-02',
+        confidence: 0.9,
+        source: { vertical: 'eng', recorder: 'e2e' },
+      };
+      const post = (body: Record<string, unknown>) =>
+        f.http
+          .post('/v1/ingest/fact')
+          .set(auth())
+          .send({ ...base, ...body });
+      const shared = await post({ predicate: 'runtime', object: 'Node 22' });
+      await post({ predicate: 'pager', object: 'my phone', userId: 'u_fence' });
+      await runWithWriteScope(['team:gl1:sre'], () =>
+        f.app.get(IngestService).ingestFact(f.companyId, {
+          ...base,
+          predicate: 'oncall_runbook',
+          object: 'private runbook',
+        } as unknown as IngestFactDto),
+      );
+      const entityId = await entityOf(String(shared.body.factId));
+      const [name] = await f.app.get(SurrealService).withCompany(f.companyId, async (db) => {
+        const [rows] = await db.query<[string[]]>(
+          `SELECT VALUE canonicalName FROM type::record('knowledge_entity', $t)`,
+          { t: entityId.split(':')[1] },
+        );
+        return rows;
+      });
+      const graph = (userId?: string) =>
+        f.app
+          .get(SearchService)
+          .graphRetrieve({
+            companyId: f.companyId,
+            queryText: name!,
+            entityRefs: [name!],
+            predicateHints: [],
+            asOf: undefined,
+            callerScopes: ['brain:read'],
+            userId,
+          })
+          .then((r) => r.results.flatMap((h) => h.facts.map((x) => x.object)));
+
+      const mine = await graph('u_fence');
+      expect(mine).toEqual(expect.arrayContaining(['Node 22', 'my phone']));
+      // u_fence holds no `team:gl1:sre` membership.
+      expect(mine).not.toContain('private runbook');
+      expect(await graph('u_other')).not.toContain('my phone');
+      // Tenant-wide authority is the tenant boundary (scope-visibility.ts).
+      const tenant = await graph();
+      expect(tenant).toEqual(expect.arrayContaining(['Node 22', 'private runbook']));
+      expect(tenant).not.toContain('my phone');
+    } finally {
+      if (prev === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+      else process.env.SCOPE_TAGS_ENABLED = prev;
+    }
   });
 });

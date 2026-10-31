@@ -370,6 +370,7 @@ function registerGraphRetrieveTool({
           .describe(
             'Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)',
           ),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -380,6 +381,7 @@ function registerGraphRetrieveTool({
         predicateHints: args.predicateHints ?? [],
         asOf: args.asOf,
         callerScopes: scopes,
+        userId: args.userId,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
