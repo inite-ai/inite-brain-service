@@ -42,6 +42,7 @@ interface OpenFactRow {
   validUntil?: unknown;
   recordedAt: unknown;
   userId?: unknown;
+  scope?: unknown;
   embedding?: number[];
   source?: { episodeIds?: unknown; evidence?: unknown; recorder?: unknown } | null;
 }
@@ -192,9 +193,9 @@ export class FactResolutionService {
     for (let page = 0; page < 4 && items.length < want; page++) {
       const [rows] = await db.query<[OpenFactRow[]]>(
         `SELECT id, entityId, entityId.canonicalName AS entityName, predicate, object,
-                validFrom, validUntil, recordedAt, userId, embedding, source
+                validFrom, validUntil, recordedAt, userId, scope, embedding, source
            FROM knowledge_fact
-          WHERE resolutionCheckedAt IS NONE AND ${OPEN} ${scope}
+          WHERE resolutionCheckedAt IS NONE AND ${OPEN} AND derivedVersion IS NONE ${scope}
           ORDER BY recordedAt ASC LIMIT $k START $off`,
         { u: opts.userId, k: want * 2, off: offset },
       );
@@ -244,18 +245,35 @@ export class FactResolutionService {
     }
   }
 
-  /** The entity's open facts nearest to `row` (same user scope), nearest first. */
+  /**
+   * The entity's open facts nearest to `row`, nearest first, from the
+   * pool fn::resolve_fact (0172) resolves in: the same user, the same
+   * trust-circle tags, the live world. A fact said in one circle is never
+   * judged against — nor can it close — another circle's.
+   */
   private async candidates(db: Surreal, row: OpenFactRow): Promise<ResolvableFact[]> {
     if (!Array.isArray(row.embedding) || row.embedding.length === 0) return [];
     const userGate = row.userId ? 'userId = $u' : 'userId IS NONE';
+    const circles = (Array.isArray(row.scope) ? row.scope.map(String) : [])
+      .filter((t) => t.startsWith('circle:'))
+      .sort();
     const [rows] = await db.query<[OpenFactRow[]]>(
       `SELECT id, predicate, object, validFrom, validUntil, recordedAt, source,
               vector::similarity::cosine(embedding, $v) AS sim
          FROM knowledge_fact
         WHERE entityId = $e AND id != $id AND ${OPEN} AND ${userGate}
+          AND derivedVersion IS NONE
+          AND array::sort((scope ?? []).filter(|$t| string::starts_with($t, 'circle:'))) = $circles
           AND embedding != NONE AND array::len(embedding) = array::len($v)
         ORDER BY sim DESC LIMIT $k`,
-      { e: row.entityId, id: row.id, u: row.userId, v: row.embedding, k: RESOLUTION_CANDIDATES },
+      {
+        e: row.entityId,
+        id: row.id,
+        u: row.userId,
+        v: row.embedding,
+        k: RESOLUTION_CANDIDATES,
+        circles,
+      },
     );
     return (rows ?? []).map(resolvable);
   }

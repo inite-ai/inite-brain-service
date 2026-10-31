@@ -137,4 +137,26 @@ describe('fact resolution — take, judge, apply (real SurrealDB)', () => {
     const out = await svc.submit(f.companyId, payload, result);
     expect(out.stale).toBeGreaterThan(0);
   });
+
+  it('a fact said in a trust circle is never judged against one outside it (the 0172 pool)', async () => {
+    const inCircle = await ingest('svc_e', 'deploy_target', 'Hetzner', '2026-03-02');
+    const outside = await ingest('svc_e', 'deployed_to', 'Render', '2026-03-03');
+    await f.app.get(SurrealService).withCompany(f.companyId, (db) =>
+      db.query(`UPDATE type::record('knowledge_fact', $t) SET scope = ['circle:ops']`, {
+        t: inCircle.split(':')[1],
+      }),
+    );
+    const svc = f.app.get(FactResolutionService);
+    const work = await svc.take(f.companyId);
+    const tuples = work
+      ? (verifyWorkToken(work.token) as { payload: ResolutionTokenPayload }).payload.f
+      : [];
+    for (const [fact, candidates] of tuples) {
+      if (fact === inCircle) expect(candidates).not.toContain(outside);
+      if (fact === outside) expect(candidates).not.toContain(inCircle);
+    }
+    // With no candidate in its own pool, each is marked judged at once.
+    expect((await row(inCircle)).resolutionCheckedAt).toBeDefined();
+    expect((await row(outside)).resolutionCheckedAt).toBeDefined();
+  });
 });
