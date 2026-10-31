@@ -1,3 +1,5 @@
+import { BeliefsService, BELIEFS_LIST_MAX } from '../beliefs/beliefs.service';
+import { ScenesService } from '../scenes/scenes.service';
 import { ModuleRef } from '@nestjs/core';
 import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -161,6 +163,9 @@ export class McpService {
     // The focus view's coarse level (beliefs) and its relevance scorer.
     @Optional() private readonly beliefLane?: BeliefLaneService,
     @Optional() private readonly crossEncoder?: CrossEncoderService,
+    // The coarse level of profile / timeline: beliefs and scenes.
+    @Optional() private readonly beliefsRead?: BeliefsService,
+    @Optional() private readonly scenesRead?: ScenesService,
     // The scene work lives in AdminModule, which imports McpModule:
     // resolved per call, not injected.
     @Optional() private readonly moduleRef?: ModuleRef,
@@ -186,6 +191,27 @@ export class McpService {
       entails: (premise, hypotheses) =>
         this.adminWork(IntentClassifierService)?.entails(premise, hypotheses) ??
         Promise.resolve(hypotheses.map(() => undefined)),
+      gist: this.entityGistDeps(),
+    };
+  }
+
+  private entityGistDeps(): ReadToolDeps['gist'] {
+    const beliefs = this.beliefsRead;
+    const scenes = this.scenesRead;
+    if (!beliefs || !scenes) return undefined;
+    return {
+      beliefsAbout: async ({ companyId, scopes, userId, subject }) =>
+        (
+          await beliefs.listBeliefs({
+            companyId,
+            scopes,
+            userId,
+            subject,
+            status: 'active',
+            limit: BELIEFS_LIST_MAX,
+          })
+        ).beliefs,
+      scenesOf: (opts) => scenes.scenesOfEpisodes(opts),
     };
   }
 

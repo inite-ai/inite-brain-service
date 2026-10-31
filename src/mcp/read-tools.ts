@@ -1,6 +1,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isoDateTime } from './iso-datetime';
+import { userScopeArg } from './user-scope-arg';
 import { envFlagNotDisabled } from '../common/env-validation';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
@@ -17,20 +18,13 @@ import type { BrainScope } from '../auth/api-key.types';
 import { NOOP_REPORTER, type ProgressEvent, type ProgressReporter } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
-import { compactSearch, compactTimeline, renderProfile, renderTimeline } from './compact-read';
+import { compactSearch } from './compact-read';
+import {
+  registerEntityProfileTool,
+  registerEntityTimelineTool,
+  type EntityGistDeps,
+} from './entity-gist-tools';
 import { answerDetailArg, focusOf, multiHopView, synthesizeView } from './answer-views';
-
-/**
- * The per-user scope argument every read tool takes. A user-bound token
- * is pinned to its own user whether or not it passes one.
- */
-const userScopeArg = z
-  .string()
-  .max(200)
-  .optional()
-  .describe(
-    "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
-  );
 
 /**
  * Collaborators the read surface needs. Mirrors the constructor seam of
@@ -66,6 +60,8 @@ export interface ReadToolDeps {
   /** NLI: whether a premise entails each hypothesis (a quote may stand in for facts). */
   entails?:
     ((premise: string, hypotheses: string[]) => Promise<Array<boolean | undefined>>) | undefined;
+  /** The coarse level of an entity's memory: its beliefs and the scenes of its facts. */
+  gist?: EntityGistDeps | undefined;
 }
 
 /**
@@ -463,50 +459,6 @@ function registerGraphRetrieveTool({
 }
 
 // Split out of registerEntityReadTools for the max-lines-per-function gate.
-function registerEntityProfileTool({
-  server,
-  companyId,
-  scopes,
-  deps,
-}: RegisterReadToolsOptions): void {
-  // ── get_entity_profile ────────────────────────────────────────────
-  server.registerTool(
-    'get_entity_profile',
-    {
-      title: 'Get entity profile',
-      description:
-        'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. externalRefs point back to the originating vertical, where fresh state can be rehydrated via @inite/api-kit.',
-      inputSchema: {
-        entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
-        asOf: isoDateTime()
-          .optional()
-          .describe(
-            'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
-          ),
-        userId: userScopeArg,
-        detail: z
-          .enum(['text', 'full'])
-          .optional()
-          .describe('text (default): one line per attribute. full: JSON with fact ids'),
-      },
-    },
-    async (args) => {
-      const out = await deps.entities.getProfile({
-        companyId,
-        entityIdRaw: args.entityId,
-        asOfRaw: args.asOf,
-        ...(args.userId !== undefined ? { userId: args.userId } : {}),
-        scopes,
-      });
-      if (args.detail !== 'full') return { content: [{ type: 'text', text: renderProfile(out) }] };
-      return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
-      };
-    },
-  );
-}
-
 function registerEntityReadTools({
   server,
   companyId,
@@ -515,45 +467,7 @@ function registerEntityReadTools({
 }: RegisterReadToolsOptions): void {
   registerEntityProfileTool({ server, companyId, scopes, deps });
 
-  // ── get_entity_timeline ───────────────────────────────────────────
-  server.registerTool(
-    'get_entity_timeline',
-    {
-      title: 'Get entity timeline',
-      description:
-        'Chronological audit of all facts brain has learned about this entity, including retracted ones. Useful for "what did we know when" investigations.',
-      inputSchema: {
-        entityId: z.string(),
-        since: isoDateTime().optional(),
-        until: isoDateTime().optional(),
-        userId: userScopeArg,
-        detail: z
-          .enum(['text', 'compact', 'full'])
-          .optional()
-          .describe(
-            'text (default): one line per change. compact: JSON with fact ids. full: adds sources and confidence',
-          ),
-      },
-    },
-    async (args) => {
-      const timeline = await deps.entities.getTimeline({
-        companyId,
-        entityIdRaw: args.entityId,
-        sinceRaw: args.since,
-        untilRaw: args.until,
-        ...(args.userId !== undefined ? { userId: args.userId } : {}),
-        scopes,
-      });
-      if (args.detail === undefined || args.detail === 'text') {
-        return { content: [{ type: 'text', text: renderTimeline(timeline) }] };
-      }
-      const out = args.detail === 'full' ? timeline : compactTimeline(timeline);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
-      };
-    },
-  );
+  registerEntityTimelineTool({ server, companyId, scopes, deps });
 
   // ── summarize_entity ──────────────────────────────────────────────
   server.registerTool(
