@@ -258,7 +258,7 @@ describe('user scope (0055) on the fact read', () => {
     });
   });
 
-  it("M2M (no user-bound token) reads a user-scoped fact, and the episode fetch is keyed to the FACT's user", async () => {
+  it("M2M acting for a user reads that user's fact, and the episode fetch is keyed to the FACT's user; acting for no one, it is a 404", async () => {
     const { svc, queries } = makeStack({
       factsByCompany: { co_a: [USER_FACT] },
       episodesByCompany: {
@@ -268,16 +268,26 @@ describe('user scope (0055) on the fact read', () => {
         ],
       },
     });
+    // Omitting userId reads tenant-global memory only (AGENTS.md rule 2):
+    // a tenant-wide key no longer reads any user's personal fact by id.
+    await expect(svc.getFact({ companyId: 'co_a', factId: 'f1', scopes: READ })).rejects.toThrow(
+      NotFoundException,
+    );
+    await expect(
+      svc.getFact({ companyId: 'co_a', factId: 'f1', scopes: READ, userId: 'u3' }),
+    ).rejects.toThrow(NotFoundException);
     const fact = await svc.getFact({
       companyId: 'co_a',
       factId: 'f1',
       scopes: READ,
+      userId: 'u2',
     });
     expect(fact.userId).toBe('u2');
     const prov = await svc.getProvenance({
       companyId: 'co_a',
       factId: 'f1',
       scopes: READ,
+      userId: 'u2',
     });
     expect(prov.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:e2']);
     const episodeQuery = queries.find((q) => q.sql.includes('FROM episode'));
@@ -597,12 +607,13 @@ describe('PROVENANCE_RECURSIVE_CLOSURE — recursive support closure', () => {
       },
       episodesByCompany: { co_a: [...EPISODES, userEpisode] },
     });
-    // M2M caller: sees the u2 member; its episode fetch must be keyed to
-    // u2 (the generalized :317-320 rule), the global group to no user.
+    // M2M caller acting for u2: sees the u2 member; its episode fetch is
+    // keyed to u2, the global group to the caller's scope.
     const res = await svc.getProvenance({
       companyId: 'co_a',
       factId: 'sum1',
       scopes: READ,
+      userId: 'u2',
     });
     expect(res.episodes.map((e) => e.episodeId)).toEqual(['episode:e1', 'episode:eu']);
     const episodeQueries = queries.filter((q) => q.sql.includes('FROM episode'));
@@ -825,6 +836,7 @@ describe('PROVENANCE_EPISODE_NEIGHBOURS — sibling-turn widening', () => {
       companyId: 'co_a',
       factId: 'f1',
       scopes: READ,
+      userId: 'u2',
     });
     expect(res.episodes.map((e) => e.episodeId)).toEqual([
       'episode:e1',

@@ -2594,7 +2594,13 @@ function memoryReadPaths(): Json {
           'policy) answers 404 — existence never leaks. 404 until ' +
           'FACTS_API_ENABLED=1. Source: src/facts/facts.controller.ts.',
         scope: 'brain:read',
-        parameters: [pathParam('id', 'Fact record id (`knowledge_fact:…`).')],
+        parameters: [
+          pathParam('id', 'Fact record id (`knowledge_fact:…`).'),
+          queryParam(
+            'userId',
+            "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+          ),
+        ],
         responses: {
           '200': jsonResponse('The fact.', ref('FactReadResponse')),
           ...DRIVER_404,
@@ -2613,7 +2619,13 @@ function memoryReadPaths(): Json {
           'PII-classed episode text. Same 404 fences as ' +
           'GET /v1/facts/{id}. 404 until FACTS_API_ENABLED=1.',
         scope: 'brain:read',
-        parameters: [pathParam('id', 'Fact record id (`knowledge_fact:…`).')],
+        parameters: [
+          pathParam('id', 'Fact record id (`knowledge_fact:…`).'),
+          queryParam(
+            'userId',
+            "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+          ),
+        ],
         responses: {
           '200': jsonResponse('The grounding episodes.', ref('FactProvenanceResponse')),
           ...DRIVER_404,

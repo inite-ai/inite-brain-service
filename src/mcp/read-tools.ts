@@ -634,6 +634,7 @@ function registerFactReadTools({
         'Read a single fact as stored — predicate (aspect), object (statement), confidence, validity window, source attribution (vertical / recorder / conversationId), and lifecycle state. Retracted facts still resolve (retracted: true) — "why did I stop remembering this" is part of the trust story; only visibility fences turn into not-found. groundingStatus (grounded | ungrounded) appears on facts stamped by the claim-grounding plane (EVIDENCE_GROUNDING_STAMP); legacy rows carry no key. Same shape as GET /v1/facts/:id. Takes a factId as returned by searches and writes and returns the full trust record behind it.',
       inputSchema: {
         factId: z.string().describe('Fact id (knowledge_fact:...) or short id'),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -641,6 +642,7 @@ function registerFactReadTools({
         companyId,
         factId: args.factId,
         scopes,
+        userId: args.userId,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
@@ -657,6 +659,7 @@ function registerFactReadTools({
         'Return the grounding provenance behind one fact: the verbatim conversation turns it was derived from (episodes, chronological, with char-span quotes when the deriver stamped them). When the server runs with the recursive-closure flag the response additionally carries derivedFacts + closure (the transitive derivedFrom support graph); a plain deployment returns episodes only — the response is a passthrough of GET /v1/facts/:id/provenance, no field filtering. Traversal depth is a server-side policy (flag + caps), not a caller knob. Lets a surprising fact be audited before it is trusted or retracted.',
       inputSchema: {
         factId: z.string().describe('Fact id (knowledge_fact:...) or short id'),
+        userId: userScopeArg,
       },
     },
     async (args) => {
@@ -664,6 +667,7 @@ function registerFactReadTools({
         companyId,
         factId: args.factId,
         scopes,
+        userId: args.userId,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],

@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -39,12 +40,17 @@ export class FactsController {
   @Get(':id')
   @RequireScopes('brain:read')
   @PolicyAction('get_fact')
-  async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async get(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Query('userId') userId?: string,
+  ) {
     this.assertEnabled();
     return this.facts.getFact({
       companyId: req.brainAuth.companyId,
       factId: id,
       scopes: req.brainAuth.scopes,
+      userId,
     });
   }
 
@@ -52,12 +58,17 @@ export class FactsController {
   @Get(':id/provenance')
   @RequireScopes('brain:read')
   @PolicyAction('get_fact_provenance')
-  async provenance(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  async provenance(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Query('userId') userId?: string,
+  ) {
     this.assertEnabled();
     return this.facts.getProvenance({
       companyId: req.brainAuth.companyId,
       factId: id,
       scopes: req.brainAuth.scopes,
+      userId,
     });
   }
 

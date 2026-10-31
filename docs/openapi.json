@@ -13539,6 +13539,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -13578,6 +13587,15 @@
             "in": "path",
             "name": "id",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
             "schema": {
               "type": "string"
             }

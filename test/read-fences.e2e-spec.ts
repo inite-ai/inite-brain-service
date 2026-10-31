@@ -181,4 +181,25 @@ describe('read fences — REST profile userId, recall_decisions (real SurrealDB)
       else process.env.SCOPE_TAGS_ENABLED = prev;
     }
   });
+
+  it('get_fact: a personal fact resolves for its own user only; with no user it is a 404', async () => {
+    const prev = process.env.FACTS_API_ENABLED;
+    process.env.FACTS_API_ENABLED = '1';
+    try {
+      const factId = await ingest('desk', 'by the window', 'u_fence');
+      const get = (q: string) => f.http.get(`/v1/facts/${factId}${q}`).set(auth());
+      expect((await get('')).status).toBe(404);
+      expect((await get('?userId=u_other')).status).toBe(404);
+      const mine = await get('?userId=u_fence');
+      expect(mine.status).toBe(200);
+      expect(mine.body.statement).toBe('by the window');
+      expect((await f.http.get(`/v1/facts/${factId}/provenance`).set(auth())).status).toBe(404);
+      expect(
+        (await f.http.get(`/v1/facts/${factId}/provenance?userId=u_fence`).set(auth())).status,
+      ).toBe(200);
+    } finally {
+      if (prev === undefined) delete process.env.FACTS_API_ENABLED;
+      else process.env.FACTS_API_ENABLED = prev;
+    }
+  });
 });
