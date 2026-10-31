@@ -527,3 +527,40 @@ describe('focus pool — beliefs ranked with the facts (RAPTOR collapsed tree)',
     expect(text).toContain('pilot_launch_date = 2026-04-15');
   });
 });
+
+describe('expected end of a temporary state (0166)', () => {
+  const ill = {
+    factId: 'knowledge_fact:ill',
+    predicate: 'health',
+    object: 'has the flu',
+    confidence: 0.9,
+    validFrom: '2026-10-01T00:00:00.000Z',
+    expectedUntil: '2026-10-08T00:00:00.000Z',
+    status: 'active',
+    score: 1,
+  } as unknown as SearchHit['facts'][number];
+
+  it('compact search carries it while the value is open', () => {
+    const out = compactSearch({ results: [hit({ facts: [ill], relations: [] })] });
+    expect(out.results[0]!.facts[0]).toMatchObject({
+      since: '2026-10-01',
+      expectedUntil: '2026-10-08',
+    });
+  });
+
+  it('the focus view says when it was meant to end', () => {
+    const text = renderFocus({
+      out: { results: [hit({ facts: [ill], relations: [] })] },
+      sources: new Map(),
+      tokens: (s: string) => s.length,
+      entailed: new Set(),
+    });
+    expect(text).toContain('health = has the flu (2026-10-01, expected to end 2026-10-08)');
+  });
+
+  it('a stated end wins over the expected one', () => {
+    const ended = { ...ill, validUntil: '2026-10-05T00:00:00.000Z' };
+    const out = compactSearch({ results: [hit({ facts: [ended], relations: [] })] });
+    expect(out.results[0]!.facts[0]).not.toHaveProperty('expectedUntil');
+  });
+});

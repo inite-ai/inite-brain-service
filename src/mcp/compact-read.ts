@@ -36,6 +36,8 @@ export interface CompactSearchHit {
     object: string;
     since?: string;
     until?: string;
+    /** A temporary state's expected end (0166), shown while the value is open. */
+    expectedUntil?: string;
     status?: string;
   }>;
   relations?: string[];
@@ -56,11 +58,13 @@ export function compactSearch(out: SearchOut): CompactSearchResponse {
       const facts = hit.facts.map((f) => {
         const since = day(f.validFrom);
         const until = day(f.validUntil);
+        const expected = until ? undefined : day(f.expectedUntil);
         return {
           predicate: f.predicate,
           object: f.object,
           ...(since ? { since } : {}),
           ...(until ? { until } : {}),
+          ...(expected ? { expectedUntil: expected } : {}),
           ...(f.status && f.status !== 'active' ? { status: f.status } : {}),
         };
       });
@@ -421,10 +425,28 @@ function evidenceLines(
   return lines;
 }
 
-function factSegment(f: SearchHit['facts'][number]): string {
+/**
+ * When a value holds: `(since…until)`, `(since)`, or — for a temporary
+ * state with an expected end and no stated one (0166) — `(since, expected
+ * to end D)`. Without it an agent reading the focus view a month later saw
+ * "has the flu" with nothing saying it was meant to be over
+ * (bitemporal-semantics.md promised search hits and the profile carry it).
+ */
+function whenOf(f: {
+  validFrom?: string | undefined;
+  validUntil?: string | undefined;
+  expectedUntil?: string | undefined;
+}): string {
   const since = day(f.validFrom);
   const until = day(f.validUntil);
-  const when = since && until ? ` (${since}…${until})` : since ? ` (${since})` : '';
+  const expected = until ? undefined : day(f.expectedUntil);
+  if (since && until) return ` (${since}…${until})`;
+  if (expected) return ` (${since ? `${since}, ` : ''}expected to end ${expected})`;
+  return since ? ` (${since})` : '';
+}
+
+function factSegment(f: SearchHit['facts'][number]): string {
+  const when = whenOf(f);
   const status = f.status && f.status !== 'active' ? ` [${f.status}]` : '';
   return `${f.predicate} = ${f.object}${when}${status}`;
 }
@@ -493,9 +515,7 @@ export function renderProfile(p: EntityProfile): string {
   const head = `${p.canonicalName} (${p.type})${p.mergedInto ? ` — merged into ${p.mergedInto}` : ''}`;
   const byPredicate = new Map<string, string[]>();
   for (const f of p.facts) {
-    const since = day(f.validFrom);
-    const until = day(f.validUntil);
-    const when = since && until ? ` (${since}…${until})` : since ? ` (${since})` : '';
+    const when = whenOf(f);
     const status = f.status && f.status !== 'active' ? ` [${f.status}]` : '';
     byPredicate.set(f.predicate, [
       ...(byPredicate.get(f.predicate) ?? []),
