@@ -103,6 +103,24 @@ export class MemoryDiffService {
         { from, to, cap, ...scoping.params },
       );
 
+      // SUPERSEDED without a retraction: a supersede closes the loser's
+      // valid time and stamps no transaction time of its own (bitemporal
+      // semantics) — brain learned the change when it recorded the
+      // replacing fact. The same reading the profile's `?recordedAt=`
+      // snapshot makes (entity-read.helpers.ts). Before, only rows with a
+      // retractedAt reached changedFacts, so every value replaced through
+      // the resolver showed up as two unrelated creates.
+      const supersededRows = await queryRows<FactRow>(
+        db,
+        `SELECT ${FACT_FIELDS}, supersededBy
+           FROM knowledge_fact
+           WHERE supersededBy IS NOT NONE AND retractedAt IS NONE
+                 AND supersededBy.recordedAt >= $from AND supersededBy.recordedAt < $to
+                 ${scoping.factClause}
+           ORDER BY recordedAt ASC LIMIT $cap`,
+        { from, to, cap, ...scoping.params },
+      );
+
       // NEW ENTITIES — knowledge_entity.createdAt within window.
       const newEntityRows = await queryRows<NewEntityRow>(
         db,
@@ -146,7 +164,7 @@ export class MemoryDiffService {
         return list;
       };
       const createdClipped = clip(createdRows);
-      const retractedClipped = clip(retractedRows);
+      const retractedClipped = clip([...(retractedRows ?? []), ...(supersededRows ?? [])]);
       const newEntityClipped = clip(newEntityRows);
       const forgottenClipped = clip(forgottenRows);
       const lapsedExpectations = clip(lapsedRows)
