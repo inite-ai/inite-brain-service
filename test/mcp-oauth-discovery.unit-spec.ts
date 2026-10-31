@@ -12,6 +12,8 @@ import {
   registerClient,
   resourceMetadataUrlOf,
 } from '../src/source-plane/oauth/mcp-oauth-discovery';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { startFakeMcpOAuth, type FakeMcpOAuth } from './fixtures/fake-mcp-oauth';
 
 describe('mcp oauth discovery', () => {
@@ -82,6 +84,41 @@ describe('mcp oauth discovery', () => {
         { allowPrivate: true },
       ),
     ).rejects.toThrow(/no dynamic client registration/);
+  });
+
+  it('ignores metadata naming another issuer, and refuses a server without PKCE', async () => {
+    let doc: Record<string, unknown> = {};
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(doc));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const endpoints = { authorization_endpoint: `${base}/a`, token_endpoint: `${base}/t` };
+    try {
+      // RFC 8414 §3.3: an issuer other than the one asked for is not used.
+      doc = {
+        ...endpoints,
+        issuer: 'https://evil.example',
+        code_challenge_methods_supported: ['S256'],
+      };
+      await expect(authorizationServerMetadata(base, { allowPrivate: true })).rejects.toThrow(
+        /publishes no authorization server metadata/,
+      );
+      // MCP authorization: no S256 advertised → refuse.
+      doc = { ...endpoints, issuer: base };
+      await expect(authorizationServerMetadata(base, { allowPrivate: true })).rejects.toThrow(
+        /does not advertise PKCE/,
+      );
+      doc = { ...endpoints, issuer: `${base}/`, code_challenge_methods_supported: ['S256'] };
+      await expect(
+        authorizationServerMetadata(base, { allowPrivate: true }),
+      ).resolves.toMatchObject({
+        tokenEndpoint: `${base}/t`,
+      });
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   });
 
   it('never reaches a private host without the double opt-in', async () => {
