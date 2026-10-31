@@ -34,8 +34,8 @@ const response = await client.beta.messages.create({
 // in your tool_use dispatch:
 for (const block of response.content) {
   if (block.type === 'tool_use' && block.name === 'memory') {
-    const result = await memory.handle(block.input as never)
-    // → push a tool_result block with `result`
+    const { content, is_error } = await memory.run(block.input as never)
+    // → push { type: 'tool_result', tool_use_id: block.id, content, is_error }
   }
 }
 ```
