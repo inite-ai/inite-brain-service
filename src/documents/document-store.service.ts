@@ -21,7 +21,7 @@ import { sanitizeIngestText } from '../common/text-sanitizer';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
-import { scopeForUser } from '../auth/scope-tags';
+import { scopeForUser, teamTagsOf } from '../auth/scope-tags';
 import { actingCircleTags, circleTagsOf } from '../auth/circle-scope';
 import { MembershipService } from '../auth/membership.service';
 import { chunkDocument, DocumentChunk } from './chunker';
@@ -60,6 +60,13 @@ export interface StoredDocument {
    * that circle, so derived rows stay in it.
    */
   circles?: string[] | undefined;
+  /**
+   * The `team:` groups of an org connection's document (write-scope.ts).
+   * A job that commits it writes under them again, so the facts,
+   * entities and turns read from a private repository stay fenced like
+   * the document itself.
+   */
+  teams?: string[] | undefined;
   /**
    * Operator-supplied document metadata (IngestDocumentDto.meta).
    * Projected onto derived facts' `source.meta` by the commit writer
@@ -466,6 +473,9 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     ...(row.userId ? { userId: String(row.userId) } : {}),
     ...(Array.isArray(row.scope) && circleTagsOf(row.scope as string[]).length > 0
       ? { circles: circleTagsOf(row.scope as string[]) }
+      : {}),
+    ...(Array.isArray(row.scope) && teamTagsOf(row.scope as string[]).length > 0
+      ? { teams: teamTagsOf(row.scope as string[]) }
       : {}),
     ...(row.meta && typeof row.meta === 'object'
       ? { meta: row.meta as Record<string, unknown> }

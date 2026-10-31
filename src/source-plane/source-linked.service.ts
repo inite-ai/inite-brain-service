@@ -3,6 +3,9 @@ import { sourceLinkedEnabled, sourceLinkedPerQuery } from '../common/source-plan
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import type { ConnectorCtx, LinkedHit } from './connector';
 import { SourceConnectionService } from './source-connection.service';
+import { getRequestContext } from '../common/request-context';
+import { heldTagsFor } from '../auth/scope-principal';
+import { TENANT_WIDE, visibleUnderScope } from '../auth/scope-visibility';
 
 /**
  * The linked lane (W7): a source that keeps its own index, asked at
@@ -63,12 +66,17 @@ export class SourceLinkedService {
    * Ask every linked connection. Never throws: a lane that can fail a
    * search is a lane an operator turns off.
    */
-  async search(companyId: string, query: string, k: number): Promise<LinkedLaneOutcome> {
+  async search(
+    companyId: string,
+    { query, k, userId }: { query: string; k: number; userId?: string | undefined },
+  ): Promise<LinkedLaneOutcome> {
     const out: LinkedLaneOutcome = { results: [], degraded: [] };
     if (!this.enabled() || query.trim().length === 0) return out;
     let rows;
     try {
-      rows = await this.connections.linked(companyId);
+      rows = (await this.connections.linked(companyId)).filter((row) =>
+        connectionReadable(row, userId),
+      );
     } catch (e) {
       this.logger.warn(`linked connections read for ${companyId} failed: ${(e as Error).message}`);
       return out;
@@ -156,4 +164,24 @@ function trim(hit: LinkedHit): LinkedHit {
     ...(hit.score !== undefined ? { score: hit.score } : {}),
     ...(hit.modifiedAt !== undefined ? { modifiedAt: hit.modifiedAt } : {}),
   };
+}
+
+/**
+ * Whether the asker may put a question to this connection. A linked
+ * connection answers with its owner's credential, so the lane applies the
+ * fences the rows it would have written carry: a personal connection
+ * only for its user (never for a caller who names no one — the
+ * tenant-global-only rule), a team-tagged one only for a principal
+ * holding its tags (`visibleUnderScope`; a tenant-wide M2M caller is the
+ * tenant boundary and passes, as on every scope-tag fence).
+ */
+export function connectionReadable(
+  row: { userId?: string | null; scope?: string[] },
+  userId: string | undefined,
+): boolean {
+  const asker = userId ?? getRequestContext()?.authUserId;
+  if (row.userId) return asker === row.userId;
+  const scope = row.scope ?? [];
+  if (scope.length === 0) return true;
+  return visibleUnderScope(scope, asker ? heldTagsFor(asker) : TENANT_WIDE);
 }
