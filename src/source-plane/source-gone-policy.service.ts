@@ -12,8 +12,9 @@ import type { SourceItemRow } from './source-item.service';
  *   close   (default) — the facts stay believed for their interval and
  *           get `validUntil = goneAt`: a deleted file is history, not a
  *           lie. Only facts that are still open (`validUntil IS NONE`)
- *           and still active — or corroborating one that is (a later
- *           render of the same record re-asserting a value) — are
+ *           and still active, competing (#830: a disputed value of a
+ *           deleted record must not stay open forever) or corroborating
+ *           one that is (a later render re-asserting a value) — are
  *           touched, on every document the item produced.
  *   retract — reserved: the cascade-retract path lands with the first
  *             native that can observe deletions reliably (W1); today it
@@ -146,7 +147,7 @@ export class SourceGonePolicyService {
       for (;;) {
         const rows = await queryRows<{ id: unknown }>(
           db,
-          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status IN ['active', 'corroborating'] AND validUntil IS NONE LIMIT 200`,
+          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status IN ['active', 'corroborating', 'competing'] AND validUntil IS NONE LIMIT 200`,
           { docId },
         );
         if (rows.length === 0) break;
@@ -169,7 +170,7 @@ export class SourceGonePolicyService {
       for (;;) {
         const rows = await queryRows<{ id: unknown }>(
           db,
-          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status IN ['active', 'corroborating'] AND validUntil = $at LIMIT 200`,
+          `SELECT id FROM knowledge_fact WHERE source.documentId = $docId AND status IN ['active', 'corroborating', 'competing'] AND validUntil = $at LIMIT 200`,
           { docId, at },
         );
         if (rows.length === 0) break;

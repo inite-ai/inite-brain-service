@@ -542,6 +542,9 @@ export class CommitWriterService {
       recorder: mf.recorder,
       documentId: doc.id,
       originKey: originKeyOf(doc.contentHash),
+      // A record door's fact says so: a system of record decides its own
+      // slot, and fact resolution must not change its status (#830).
+      ...(doc.kind === 'source_record' ? { kind: 'source_record' } : {}),
       ...(episodeId ? { episodeIds: [episodeId] } : {}),
       ...(meta ? { meta } : {}),
       ...sourceVersionOf(mf, doc),

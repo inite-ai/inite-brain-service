@@ -16,6 +16,8 @@
 import { StringRecordId } from 'surrealdb';
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { FactResolutionService } from '../src/dreams/fact-resolution.service';
+import { verifyWorkToken, type ResolutionTokenPayload } from '../src/common/harness-work-token';
 import { SceneBacklinkService } from '../src/admin/scene-backlink.service';
 import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
 import { FactResolverService } from '../src/ingest/fact-resolver.service';
@@ -173,7 +175,7 @@ describe('typed support graph (real SurrealDB)', () => {
     expect(rows[0]!.writer).toBe('scene_backlink');
   });
 
-  it('a COMPETING resolver verdict records the mutual contradicted_by pair', async () => {
+  it('a contradicts verdict records the mutual contradicted_by pair', async () => {
     // single_active ALWAYS supersedes (the V9 slot doctrine — see
     // 0085's `$supersede`), so a genuine standoff needs a `bitemporal`
     // predicate: overlapping validity + cosine-similar values + a score
@@ -205,15 +207,25 @@ describe('typed support graph (real SurrealDB)', () => {
     expect(first.result.outcome).toBe('INSERTED');
     standingFactId = String(first.result.factId);
 
-    // Identical embedding (similarity 1 ≥ threshold), overlapping
-    // open-ended validity, same confidence/trust/authority and
-    // near-equal recency ⇒ score margin ≈ 0 < margin_for_supersede ⇒
-    // COMPETING.
+    // Same slot, same valid time, another value: since #830 write time
+    // leaves the pair to fact resolution (#828), whose `contradicts`
+    // verdict is what makes them compete and records the edges.
     const second = await surreal.withCompany(f.companyId, (db) =>
       resolver.resolve(db, { ...base, object: 'platinum tier' }),
     );
-    expect(second.result.outcome).toBe('COMPETING');
+    expect(second.result.outcome).toBe('INSERTED');
     newFactId = String(second.result.factId);
+    const judge = f.app.get(FactResolutionService);
+    const work = await judge.take(f.companyId, { userId: 'user-gone' });
+    expect(work).not.toBeNull();
+    const verified = verifyWorkToken(work!.token);
+    const payload = (verified as { payload: ResolutionTokenPayload }).payload;
+    await judge.submit(f.companyId, payload, {
+      items: payload.f.map(([, candidates], i) => ({
+        item: `r${i + 1}`,
+        verdicts: candidates.map((_, j) => ({ candidate: `c${j + 1}`, verdict: 'contradicts' })),
+      })),
+    });
 
     const pair = await surreal.withCompany(f.companyId, async (db) => {
       const [r] = await db.query<[Array<{ in: unknown; out: unknown }>]>(

@@ -11,6 +11,8 @@ import {
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { serverModelsRefused } from '../common/extraction-source';
 import { isoString } from '../common/surreal-date';
+import { supportEdgesEnabled } from '../common/provenance-flags';
+import { buildConflictEdgeRows } from '../common/support-edges';
 import { batchInstructions, workExpiry, workNonce, type HarnessWork } from '../common/harness-work';
 import { mintWorkToken, type ResolutionTokenPayload } from '../common/harness-work-token';
 import { SurrealService } from '../db/surreal.service';
@@ -23,6 +25,7 @@ import {
   RESOLUTION_CANDIDATES,
   RESOLUTION_FACTS_PER_BATCH,
   parseResolution,
+  keepRecordSlots,
   resolutionActions,
   resolutionSchema,
   resolutionUserContent,
@@ -44,7 +47,7 @@ interface OpenFactRow {
   userId?: unknown;
   scope?: unknown;
   embedding?: number[];
-  source?: { episodeIds?: unknown; evidence?: unknown; recorder?: unknown } | null;
+  source?: { episodeIds?: unknown; evidence?: unknown; recorder?: unknown; kind?: unknown } | null;
 }
 
 /** One new fact with the memory facts it is judged against. */
@@ -311,14 +314,54 @@ export class FactResolutionService {
     const out = emptyOutcome();
     out.facts = 1;
     out.judged = verdicts.size > 0 ? 1 : 0;
-    for (const action of resolutionActions(item.fact, item.candidates, verdicts)) {
+    const records = new Set(
+      [item.fact, ...item.candidates].filter((f) => f.ofRecord).map((f) => f.id),
+    );
+    const actions = keepRecordSlots(resolutionActions(item.fact, item.candidates, verdicts), (id) =>
+      records.has(id),
+    );
+    for (const action of actions) {
       await this.write(db, action);
+      await this.writeSupportEdges(db, action);
       if (action.kind === 'supersede') out.superseded += 1;
       else if (action.kind === 'corroborate') out.corroborated += 1;
       else out.competing += 1;
     }
     await markChecked(db, item.fact.id);
     return out;
+  }
+
+  /**
+   * The typed support graph (PROVENANCE_SUPPORT_EDGES) records what the
+   * write resolver used to record when it decided a conflict: a replaced
+   * value `superseded_by` its successor, and both sides of a dispute
+   * `contradicted_by` each other. Since #830 those decisions are made
+   * here, so the edges are written here, through the same row builder.
+   */
+  private async writeSupportEdges(db: Surreal, action: ResolutionAction): Promise<void> {
+    if (!supportEdgesEnabled()) return;
+    const verdict =
+      action.kind === 'supersede'
+        ? { outcome: 'SUPERSEDED', factId: action.winner, supersededFactIds: [action.loser] }
+        : action.kind === 'compete'
+          ? { outcome: 'COMPETING', factId: action.a, competingFactIds: [action.b] }
+          : action.kind === 'dispute'
+            ? { outcome: 'COMPETING', factId: action.claim, competingFactIds: [action.record] }
+            : null;
+    if (!verdict) return;
+    const rows = buildConflictEdgeRows(verdict, 2);
+    if (rows.length === 0) return;
+    try {
+      await db.query(`INSERT RELATION IGNORE INTO memory_support $rows`, {
+        rows: rows.map((r) => ({
+          ...r,
+          in: new StringRecordId(r.in),
+          out: new StringRecordId(r.out),
+        })),
+      });
+    } catch (e) {
+      this.logger.warn(`resolution support-edge write failed (non-fatal): ${(e as Error).message}`);
+    }
   }
 
   private async write(db: Surreal, action: ResolutionAction): Promise<void> {
@@ -334,6 +377,19 @@ export class FactResolutionService {
           incumbent: { id: action.incumbent } as never,
           younger: { id: action.younger } as never,
         });
+        return;
+      case 'dispute':
+        // The claim competes beside the record value, linked to it so it
+        // keeps a rival (fn::fact_has_rival); the record is not touched.
+        await db.query(
+          `IF array::len(SELECT VALUE id FROM [$claim, $record] WHERE ${OPEN}) = 2 {
+             UPDATE $claim SET
+               status = 'competing',
+               conflictTrace.competingFactIds =
+                 array::union(conflictTrace.competingFactIds ?? [], [$record]);
+           };`,
+          { claim: new StringRecordId(action.claim), record: new StringRecordId(action.record) },
+        );
         return;
       case 'compete': {
         // Both must still be open — a lone competing row is what 0175
@@ -423,6 +479,7 @@ function resolvable(row: OpenFactRow): ResolvableFact {
     recordedAt: isoString(row.recordedAt),
     ...(eps[0] ? { episodeId: eps[0] } : {}),
     ...(direct ? { source: direct } : {}),
+    ...(row.source?.kind === 'source_record' ? { ofRecord: true } : {}),
   };
 }
 
