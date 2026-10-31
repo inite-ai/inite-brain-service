@@ -18,7 +18,17 @@ Do **not** use for:
 - Walking one entity's full history → use `brain-recall` (it combines profile + timeline + connections)
 - You already know WHICH entities the question is about → use **`graph_retrieve`** (resolves the named entities, walks their 1-hop neighbourhood, returns facts across seeds ∪ neighbours — "who runs engineering at Acme" lives on a neighbour, not on Acme itself; it soft-fails to empty so you can fall back to `search_knowledge`)
 - Questions that combine evidence across multiple entities or sessions → use **`search_multi_hop`** (it runs a planner-LLM and chains sub-queries; the running entity set is anchored across hops so compute stays bounded)
-- Direct natural-language answers with citations → use **`synthesize`** (the LLM generator runs a verifier; the strict guardrail returns `null` when grounding is thin, lenient returns the verdict)
+- Direct natural-language answers with citations → use **`synthesize`** (the LLM generator runs a verifier; the strict guardrail returns `null` when grounding is thin, lenient returns the verdict). `answer: null` always comes with a `reason`: on a server in harness mode (`reason: "harness_mode"`) brain spends no model of its own, so read the `evidence` lines it returns and answer from them yourself. `synthesize` and `search_multi_hop` default to `detail: "answer"` (the answer, its citations and compact evidence); `detail: "full"` adds every hit, id and score
+
+## Whose memory — pass `userId`
+
+When you act for a particular person, pass their id as `userId` on every read and write. Brain keeps each person's memory apart from the shared, tenant-wide memory:
+
+- reads with `userId` return the shared facts plus that person's own; reads without it return shared facts only;
+- writes with `userId` land in that person's memory; without it they are shared with the whole tenant;
+- some views exist only per person: the beliefs in `get_entity_profile` and the belief lines of the focus view.
+
+The Claude Code plugin's hooks capture under the `user_id` you configured; pass the same id, or your calls will not see what the hooks remembered. A user-bound token is pinned to its own user whether or not you pass one.
 
 ## How to invoke
 
@@ -29,6 +39,7 @@ search_knowledge({
   predicates: ["complained_about"],  // optional filter
   asOf: "2026-04-01T00:00:00Z",      // optional bitemporal cutoff
   minConfidence: 0.6,    // optional 0..1 floor on fact confidence
+  userId: "u_42",        // the person you act for (see above)
 })
 ```
 
@@ -42,27 +53,22 @@ search_knowledge({
 
 ## Reading the result
 
-Each hit looks like:
+By default (`detail: "focus"`) the answer is a few lines — only what the query is about, each piece of evidence as the facts or as the turn they were read from, whichever is shorter:
 
-```json
-{
-  "entity": {
-    "id": "knowledge_entity:01HXYZ...",
-    "name": "Alice Smith",
-    "type": "person",
-    "externalRefs": [{ "vertical": "rent", "id": "cust_42" }]
-  },
-  "facts": [
-    { "factId": "...", "predicate": "tier", "object": "platinum",
-      "validFrom": "2026-04-01T00:00:00Z", "confidence": 0.92 }
-  ],
-  "score": 0.81
-}
+```
+Sasha: lives_in = Porto (2026-10-01)
+Diego: lives_in = Braga (2026-10-08)
+links: Ana sibling_of Sasha; Diego colleague_of Ana
+[2026-10-05] sasha: "Update: I sold the Ninja last week, I don't own a motorcycle anymore."
+(+11 more: detail "compact")
 ```
 
-- **`entity.externalRefs`** is the bridge back to the originating vertical — use it to rehydrate the live record via `@inite/api-kit` if the user wants to act on the result. Brain is *system of insight*, not record.
-- **`facts[]`** are pre-filtered to the bitemporal window of the query. A fact you don't see in the result either didn't match the query, was retracted before `asOf`, or was outside `validFrom..validUntil`.
-- **`score`** is the post-rerank fused score. Treat it as ordinal, not calibrated probability.
+- A fact line is `Entity: predicate = value (since…until) [status]`; a status shows only when the value is not the current one.
+- `links:` are the relations connecting the entities shown — the hop a two-step question needs.
+- `(+N more …)` is what was left out. Ask for it only if the lines above do not answer the question.
+- `detail: "compact"` returns JSON: every fact of the matched entities with `since`/`until`, relations, and `entityId` (what `get_entity_timeline` and `get_entity_profile` take).
+- `detail: "full"` adds fact and edge ids, the fused score with its per-leg breakdown, trust keys and external refs (the bridge back to the originating vertical). Ask for it only when you need one of those.
+- A memory answer never costs more context than the raw turns it came from; when a turn is cheaper than its facts, you get the turn.
 
 ## Common patterns
 
@@ -90,7 +96,7 @@ If the search needs `email`, `phone`, `dob`, or `address`, the caller must hold 
 
 ## Pitfalls
 
-- **Empty results** ≠ "no such entity". Search is recall-limited; if you suspect the entity exists, fall back to `find_related_entities` from a known anchor, or ask the user for a vertical+id pair you can pass to `get_entity_profile` directly.
+- **Empty results** ≠ "no such entity". Search is recall-limited; if you suspect the entity exists, rephrase, fall back to `find_related_entities` from a known anchor, or check you passed the right `userId` (a personal fact is invisible without it). For a code anchor use `why`.
 - **Don't loop on a single search**. If the first call returns nothing, change the query phrasing or drop the predicate filter — don't retry the same args expecting different output.
 - **Latency floor ~300ms**. If the user needs three lookups, batch them as separate calls in parallel rather than sequencing.
 

@@ -1,10 +1,14 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isoDateTime } from './iso-datetime';
+import { userScopeArg } from './user-scope-arg';
 import { envFlagNotDisabled } from '../common/env-validation';
 import type { SearchService } from '../search/search.service';
 import type { EntitiesService } from '../entities/entities.service';
 import type { FactsService } from '../facts/facts.service';
+import type { FactSourceTurnsService } from '../facts/fact-source-turns.service';
+import type { BeliefCandidate } from '../synthesize/belief-lane.service';
+import type { CrossEncoderCandidate } from '../ai/cross-encoder.service';
 import type { MultiHopService } from '../multi-hop/multi-hop.service';
 import type { SynthesizeService } from '../synthesize/synthesize.service';
 import type { MemoryDiffService } from '../diff/memory-diff.service';
@@ -14,18 +18,13 @@ import type { BrainScope } from '../auth/api-key.types';
 import { NOOP_REPORTER, type ProgressEvent, type ProgressReporter } from './progress-reporter';
 import { summarizeViaClientSampling } from './sampling';
 import { asStructuredContent } from './structured';
-
-/**
- * The per-user scope argument every read tool takes. A user-bound token
- * is pinned to its own user whether or not it passes one.
- */
-const userScopeArg = z
-  .string()
-  .max(200)
-  .optional()
-  .describe(
-    "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
-  );
+import { compactSearch } from './compact-read';
+import {
+  registerEntityProfileTool,
+  registerEntityTimelineTool,
+  type EntityGistDeps,
+} from './entity-gist-tools';
+import { answerDetailArg, focusOf, multiHopView, synthesizeView } from './answer-views';
 
 /**
  * Collaborators the read surface needs. Mirrors the constructor seam of
@@ -44,6 +43,25 @@ export interface ReadToolDeps {
   predictor: IngestPredictionService;
   summarizer: SummarizeEntityService;
   embedderDescription: () => string;
+  /** The raw turns behind facts (search_knowledge focus view); absent → facts only. */
+  sourceTurns?: FactSourceTurnsService | undefined;
+  /** Beliefs a query reaches (the belief lane's retrieval) — the focus view's coarse level. */
+  beliefs?:
+    | ((opts: {
+        companyId: string;
+        query: string;
+        userId?: string | undefined;
+      }) => Promise<BeliefCandidate[]>)
+    | undefined;
+  /** The cross-encoder's relevance per candidate (CrossEncoderService.relevance). */
+  relevance?:
+    | ((query: string, candidates: CrossEncoderCandidate[]) => Promise<Array<number | undefined>>)
+    | undefined;
+  /** NLI: whether a premise entails each hypothesis (a quote may stand in for facts). */
+  entails?:
+    ((premise: string, hypotheses: string[]) => Promise<Array<boolean | undefined>>) | undefined;
+  /** The coarse level of an entity's memory: its beliefs and the scenes of its facts. */
+  gist?: EntityGistDeps | undefined;
 }
 
 /**
@@ -117,7 +135,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Search company knowledge',
       description:
-        'Semantic search over the company knowledge graph. Returns entities with their top facts and external references back to the originating verticals. Apply asOf for historical "what was true on X" queries (valid time: a fact brain learned after X still shows).' +
+        'Semantic search over the company knowledge graph. Returns, as a few lines, the facts the query is about (or the turn they were read from, when shorter), the links between their entities and what was left out; detail "compact" gives every fact of the matched entities with entity ids, "full" adds fact ids, scores and external references. Apply asOf for historical "what was true on X" queries (valid time: a fact brain learned after X still shows).' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
@@ -130,10 +148,16 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           ),
         minConfidence: z.number().min(0).max(1).optional(),
         userId: userScopeArg,
+        detail: z
+          .enum(['focus', 'compact', 'full'])
+          .optional()
+          .describe(
+            'focus (default): only what the query is about, as facts or the turn they came from, whichever is shorter. compact: every fact of the matched entities, with entity ids. full: adds fact and edge ids, scores and trust keys',
+          ),
       },
     },
     async (args) => {
-      const out = await deps.search.search(
+      const found = await deps.search.search(
         companyId,
         {
           query: args.query,
@@ -145,6 +169,17 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         },
         scopes,
       );
+      // The model reads the evidence, not the engine's bookkeeping, and
+      // by default only the part the query is about, in its cheapest
+      // faithful form (compact-read.ts: 3683 → under the raw turns).
+      if (args.detail === undefined || args.detail === 'focus') {
+        const text = await focusOf(
+          { deps, companyId, scopes, query: args.query, userId: args.userId },
+          found,
+        );
+        return { content: [{ type: 'text', text }] };
+      }
+      const out = args.detail === 'full' ? found : compactSearch(found);
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),
@@ -158,7 +193,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Multi-hop search across the knowledge graph',
       description:
-        'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set so the engine never spends compute on candidates already disqualified. Built for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns finalEntityIds + supportingFactIds (HotpotQA-style evidence chain) so the caller can audit which facts drove the answer.' +
+        'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set so the engine never spends compute on candidates already disqualified. Built for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns the hops, the answer when asked, and the evidence as focus lines; detail "full" adds finalEntityIds + supportingFactIds (HotpotQA-style evidence chain) to audit which facts drove the answer.' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
@@ -190,6 +225,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           ),
         predicates: z.array(z.string()).optional().describe('Filter to these predicates only'),
         limit: z.number().int().min(1).max(100).optional(),
+        detail: answerDetailArg,
         userId: z
           .string()
           .max(200)
@@ -201,7 +237,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     },
     async (args, extra) => {
       const reporter = buildProgressReporter(extra as never);
-      const out = await deps.multiHop.run({
+      const found = await deps.multiHop.run({
         companyId,
         dto: {
           query: args.query,
@@ -218,15 +254,37 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         callerScopes: scopes,
         onProgress: reporter,
       });
+      const view =
+        args.detail === 'full'
+          ? found
+          : multiHopView(
+              found,
+              await focusOf(
+                { deps, companyId, scopes, query: args.query, userId: args.userId },
+                { results: found.finalHits },
+              ),
+            );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
+        content: [{ type: 'text', text: JSON.stringify(view) }],
+        structuredContent: asStructuredContent(view),
       };
     },
   );
 
   registerGraphRetrieveTool({ server, companyId, scopes, deps });
 
+  registerSynthesizeTool({ server, companyId, scopes, deps });
+  registerMemoryDiffTool({ server, companyId, scopes, deps });
+}
+
+// Split out of registerSearchTools for the max-lines-per-function gate.
+function registerSynthesizeTool({
+  server,
+  companyId,
+  scopes,
+  deps,
+}: RegisterReadToolsOptions): void {
+  const embedderHint = ` Embedding model on this tenant: ${deps.embedderDescription()}.`;
   // ── synthesize ────────────────────────────────────────────────────
   server.registerTool(
     'synthesize',
@@ -255,6 +313,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .enum(['strict', 'lenient', 'off'])
           .optional()
           .describe('Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)'),
+        detail: answerDetailArg,
         userId: z
           .string()
           .max(200)
@@ -266,7 +325,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     },
     async (args, extra) => {
       const reporter = buildProgressReporter(extra as never);
-      const out = await deps.synth.synthesize({
+      const found = await deps.synth.synthesize({
         companyId,
         dto: {
           query: args.query,
@@ -282,14 +341,24 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
         callerScopes: scopes,
         onProgress: reporter,
       });
+      const view =
+        args.detail === 'full'
+          ? found
+          : synthesizeView(
+              found,
+              found.answer === null
+                ? await focusOf(
+                    { deps, companyId, scopes, query: args.query, userId: args.userId },
+                    found,
+                  )
+                : undefined,
+            );
       return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
+        content: [{ type: 'text', text: JSON.stringify(view) }],
+        structuredContent: asStructuredContent(view),
       };
     },
   );
-
-  registerMemoryDiffTool({ server, companyId, scopes, deps });
 }
 
 // Split out of registerSearchTools for the max-lines-per-function gate.
@@ -389,73 +458,16 @@ function registerGraphRetrieveTool({
   );
 }
 
+// Split out of registerEntityReadTools for the max-lines-per-function gate.
 function registerEntityReadTools({
   server,
   companyId,
   scopes,
   deps,
 }: RegisterReadToolsOptions): void {
-  // ── get_entity_profile ────────────────────────────────────────────
-  server.registerTool(
-    'get_entity_profile',
-    {
-      title: 'Get entity profile',
-      description:
-        'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. externalRefs point back to the originating vertical, where fresh state can be rehydrated via @inite/api-kit.',
-      inputSchema: {
-        entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
-        asOf: isoDateTime()
-          .optional()
-          .describe(
-            'Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)',
-          ),
-        userId: userScopeArg,
-      },
-    },
-    async (args) => {
-      const out = await deps.entities.getProfile({
-        companyId,
-        entityIdRaw: args.entityId,
-        asOfRaw: args.asOf,
-        ...(args.userId !== undefined ? { userId: args.userId } : {}),
-        scopes,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
-      };
-    },
-  );
+  registerEntityProfileTool({ server, companyId, scopes, deps });
 
-  // ── get_entity_timeline ───────────────────────────────────────────
-  server.registerTool(
-    'get_entity_timeline',
-    {
-      title: 'Get entity timeline',
-      description:
-        'Chronological audit of all facts brain has learned about this entity, including retracted ones. Useful for "what did we know when" investigations.',
-      inputSchema: {
-        entityId: z.string(),
-        since: isoDateTime().optional(),
-        until: isoDateTime().optional(),
-        userId: userScopeArg,
-      },
-    },
-    async (args) => {
-      const out = await deps.entities.getTimeline({
-        companyId,
-        entityIdRaw: args.entityId,
-        sinceRaw: args.since,
-        untilRaw: args.until,
-        ...(args.userId !== undefined ? { userId: args.userId } : {}),
-        scopes,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
-        structuredContent: asStructuredContent(out),
-      };
-    },
-  );
+  registerEntityTimelineTool({ server, companyId, scopes, deps });
 
   // ── summarize_entity ──────────────────────────────────────────────
   server.registerTool(

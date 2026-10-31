@@ -1,3 +1,4 @@
+import { buildLexMatchLeg } from './lex-leg';
 import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
@@ -229,6 +230,19 @@ export async function runLexicalLeg({
   // confidence, asOf, predicates, entityIds). Caught by a
   // memory-lifecycle eval failure where retracted facts surfaced
   // with status='retracted' on a query that hit searchHaystack.
+  //
+  // Disjunctive BM25 over the query's content words (lex-leg.ts
+  // 'or_terms'): a fact matching ANY of them is a hit, scored by the sum
+  // of its per-term BM25 — what BM25 is. The matches operator is AND
+  // over analyzed tokens, so the whole question fed to one matcher
+  // required every word of "where does ledger-sync deploy to" in one
+  // fact: on the memory-fitness questions the leg contributed one row
+  // in 21 queries, leaving the hybrid pool vector-only.
+  const lex = buildLexMatchLeg({
+    fields: ['searchHaystack', 'object'],
+    topic: query,
+    mode: 'or_terms',
+  });
   const sql = `
       SELECT
         id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
@@ -236,9 +250,9 @@ export async function runLexicalLeg({
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         ${highlightProjection(tuning.highlightEnabled)}
-        math::max([search::score(1), search::score(2)]) AS bm25Score
+        ${lex.score} AS bm25Score
       FROM knowledge_fact
-      WHERE (searchHaystack @1@ $query OR object @2@ $query)
+      WHERE ${lex.where}
         ${baseWhere.sql}
       ORDER BY bm25Score DESC
       LIMIT $k
@@ -246,7 +260,7 @@ export async function runLexicalLeg({
   try {
     const [rows] = await db.query<[FactRow[]]>(sql, {
       ...baseWhere.params,
-      query,
+      ...lex.params,
       k,
     });
     return (rows as FactRow[]) ?? [];

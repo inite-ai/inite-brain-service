@@ -542,7 +542,11 @@ export class EntitiesService {
     recordedAtRaw,
     userId,
     scopes,
-  }: GetTimelineOptions): Promise<{ entityId: string; events: TimelineEvent[] }> {
+  }: GetTimelineOptions): Promise<{
+    entityId: string;
+    canonicalName?: string;
+    events: TimelineEvent[];
+  }> {
     const ref = normalizeEntityId(entityIdRaw);
     const since = sinceRaw ? new Date(sinceRaw) : null;
     const until = untilRaw ? new Date(untilRaw) : null;
@@ -637,7 +641,14 @@ export class EntitiesService {
       }
       events.sort((a, b) => a.at.localeCompare(b.at));
 
-      return { entityId: ref.full, events };
+      // The name a scene's state deltas use for this entity (the text
+      // timeline keeps only this entity's changes from a shared scene).
+      const [names] = await db.query<[string[]]>(
+        `SELECT VALUE canonicalName FROM type::record('knowledge_entity', $rid)`,
+        { rid: ref.id },
+      );
+      const canonicalName = names?.[0];
+      return { entityId: ref.full, ...(canonicalName ? { canonicalName } : {}), events };
     });
   }
 

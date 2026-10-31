@@ -1,3 +1,5 @@
+import { BeliefsService, BELIEFS_LIST_MAX } from '../beliefs/beliefs.service';
+import { ScenesService } from '../scenes/scenes.service';
 import { ModuleRef } from '@nestjs/core';
 import { HttpException, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -19,7 +21,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { registerCommunityTools } from './community-tools';
 import { MetricsService } from '../metrics/metrics.service';
-import { registerReadTools, READ_RESOURCE_ACTIONS } from './read-tools';
+import { registerReadTools, READ_RESOURCE_ACTIONS, type ReadToolDeps } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
@@ -55,7 +57,12 @@ import { toolObservationsEnabled } from '../common/tool-observation-flags';
 import { registerHarnessWorkTools } from './harness-work-tools';
 import { ExtractionWorkService } from '../documents/extraction-work.service';
 import { DreamsWorkService } from '../dreams/dreams-work.service';
+import { FactSourceTurnsService } from '../facts/fact-source-turns.service';
 import { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
+import { FactResolutionService } from '../dreams/fact-resolution.service';
+import { IntentClassifierService } from '../admin/intent-classifier.service';
+import { BeliefLaneService } from '../synthesize/belief-lane.service';
+import { CrossEncoderService } from '../ai/cross-encoder.service';
 import { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 
@@ -150,10 +157,63 @@ export class McpService {
     @Optional() private readonly extractionWork?: ExtractionWorkService,
     @Optional() private readonly dreamsWork?: DreamsWorkService,
     @Optional() private readonly predicateWork?: PredicateSemanticsWorkService,
+    @Optional() private readonly factResolution?: FactResolutionService,
+    // The turns behind facts, for search_knowledge's focus view.
+    @Optional() private readonly sourceTurns?: FactSourceTurnsService,
+    // The focus view's coarse level (beliefs) and its relevance scorer.
+    @Optional() private readonly beliefLane?: BeliefLaneService,
+    @Optional() private readonly crossEncoder?: CrossEncoderService,
+    // The coarse level of profile / timeline: beliefs and scenes.
+    @Optional() private readonly beliefsRead?: BeliefsService,
+    @Optional() private readonly scenesRead?: ScenesService,
     // The scene work lives in AdminModule, which imports McpModule:
     // resolved per call, not injected.
     @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
+
+  /** What the read tools read with — split out of buildServer for its complexity gate. */
+  private readToolDeps(): ReadToolDeps {
+    return {
+      search: this.search,
+      entities: this.entities,
+      facts: this.facts,
+      multiHop: this.multiHop,
+      synth: this.synth,
+      memoryDiff: this.memoryDiff,
+      predictor: this.predictor,
+      summarizer: this.summarizer,
+      embedderDescription: () => this.embedderDescription(),
+      sourceTurns: this.sourceTurns,
+      beliefs: this.beliefLane ? (opts) => this.beliefLane!.candidates(opts) : undefined,
+      relevance: this.crossEncoder?.isEnabled()
+        ? (query, candidates) => this.crossEncoder!.relevance(query, candidates)
+        : undefined,
+      entails: (premise, hypotheses) =>
+        this.adminWork(IntentClassifierService)?.entails(premise, hypotheses) ??
+        Promise.resolve(hypotheses.map(() => undefined)),
+      gist: this.entityGistDeps(),
+    };
+  }
+
+  private entityGistDeps(): ReadToolDeps['gist'] {
+    const beliefs = this.beliefsRead;
+    const scenes = this.scenesRead;
+    if (!beliefs || !scenes) return undefined;
+    return {
+      beliefsAbout: async ({ companyId, scopes, userId, subject }) =>
+        (
+          await beliefs.listBeliefs({
+            companyId,
+            scopes,
+            userId,
+            subject,
+            status: 'active',
+            limit: BELIEFS_LIST_MAX,
+          })
+        ).beliefs,
+      scenesOf: (opts) => scenes.scenesOfEpisodes(opts),
+    };
+  }
 
   /** A harness work service of AdminModule (which imports McpModule), resolved per call. */
   private adminWork<T>(token: new (...args: never[]) => T): T | undefined {
@@ -719,17 +779,7 @@ export class McpService {
       server,
       companyId,
       scopes,
-      deps: {
-        search: this.search,
-        entities: this.entities,
-        facts: this.facts,
-        multiHop: this.multiHop,
-        synth: this.synth,
-        memoryDiff: this.memoryDiff,
-        predictor: this.predictor,
-        summarizer: this.summarizer,
-        embedderDescription: () => this.embedderDescription(),
-      },
+      deps: this.readToolDeps(),
     });
     registerProceduralReadTools(server, companyId, {
       procedural: this.procedural,
@@ -798,6 +848,7 @@ export class McpService {
         companyId,
         deps: {
           extraction: this.extractionWork,
+          resolution: this.factResolution,
           predicates: this.predicateWork,
           dreams: this.dreamsWork,
           scenes: () => this.adminWork(SceneSummaryWorkService),

@@ -19,10 +19,19 @@ import { credentialKeys } from './secret-cipher';
  * then do not survive a restart or cross replicas (a submit there is
  * refused and the work is simply taken again). No new secret.
  */
-/** The kinds of deferred work a connected agent can take, in the order they are offered. */
+/**
+ * The kinds of deferred work a connected agent can take, in the order
+ * they are offered. Attribute classification comes before extraction: a
+ * predicate a direct write coined waits as append_only until classified,
+ * and a fact extracted under it meanwhile is resolved by that default —
+ * on the memory-fitness run, extraction went first and every revision
+ * of `queue_backend` / `deploy_target` / `pilot_launch_date` stayed
+ * current beside the value it replaced. Classifying is one short batch.
+ */
 export const HARNESS_WORK_KINDS = [
-  'extraction',
   'predicate_semantics',
+  'extraction',
+  'fact_resolution',
   'entity_match',
   'fact_conflict',
   'fact_corroboration',
@@ -84,8 +93,15 @@ export interface BeliefsTokenPayload extends TokenBase {
   b: Array<[string, string]>;
 }
 
+export interface ResolutionTokenPayload extends TokenBase {
+  t: 'fact_resolution';
+  /** [fact id, candidate ids in prompt order, signature of what was shown] per item (r1, r2, …). */
+  f: Array<[string, string[], string]>;
+}
+
 export type WorkTokenPayload =
   | ExtractionTokenPayload
+  | ResolutionTokenPayload
   | PairsTokenPayload
   | ScenesTokenPayload
   | PredicatesTokenPayload
@@ -181,16 +197,23 @@ function wellFormed(p: WorkTokenPayload): boolean {
     case 'entity_match':
     case 'fact_conflict':
     case 'fact_corroboration':
-      return (
-        Array.isArray(p.p) && p.p.length > 0 && p.p.every((x) => Array.isArray(x) && x.length === 3)
-      );
+      return tuples(p.p, 3);
+    case 'fact_resolution':
+      return tuples(p.f, 3) && p.f.every((x) => Array.isArray(x[1]));
     case 'scene_summary':
       return Array.isArray(p.s) && p.s.length > 0 && typeof p.ev === 'string';
     case 'predicate_semantics':
       return Array.isArray(p.q) && p.q.length > 0 && p.q.every((x) => typeof x === 'string');
     case 'belief_statement':
-      return (
-        Array.isArray(p.b) && p.b.length > 0 && p.b.every((x) => Array.isArray(x) && x.length === 2)
-      );
+      return tuples(p.b, 2);
   }
+}
+
+/** A non-empty array of fixed-length tuples. */
+function tuples(xs: unknown, length: number): boolean {
+  return (
+    Array.isArray(xs) &&
+    xs.length > 0 &&
+    xs.every((x) => Array.isArray(x) && (x as unknown[]).length === length)
+  );
 }

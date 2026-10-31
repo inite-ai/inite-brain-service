@@ -133,24 +133,36 @@ export class CrossEncoderService implements OnApplicationBootstrap, OnApplicatio
    */
   async rerank(query: string, candidates: CrossEncoderCandidate[]): Promise<number[]> {
     const identity = candidates.map((_, i) => i);
-    if (candidates.length <= 1 || !query.trim()) {
-      return identity;
-    }
-    // Primary path is Cohere. When that isn't configured, fall back to
-    // the local cross-encoder — a self-hoster with no rerank vendor
-    // still gets a joint-encoder pass.
-    if (!this.cohereConfigured()) {
-      if (this.local) {
-        return this.rerankLocal(query, candidates, identity);
-      }
-      return identity;
-    }
+    const scores = await this.relevance(query, candidates);
+    if (scores.every((v) => v === undefined)) return identity;
+    // Unscored candidates (a deadline stopped the local loop) keep their
+    // input order below every scored one; `|| a - b` keeps ties stable.
+    const key = (i: number) => scores[i] ?? Number.NEGATIVE_INFINITY;
+    return identity.sort((a, b) => key(b) - key(a) || a - b);
+  }
 
+  /**
+   * The cross-encoder's relevance of each candidate to `query` as a
+   * probability in [0, 1], in input order; `undefined` where it was not
+   * scored (failure, timeout, a deadline). The rerank stage used to
+   * reduce this to a permutation and throw it away, which left the read
+   * path with no calibrated, query-specific relevance at all — only a
+   * fused score (0.5 × cosine when BM25 is silent). Cohere returns a
+   * relevance_score; the local bge-reranker returns a logit, mapped
+   * through the sigmoid as its authors do (FlagEmbedding `normalize`).
+   */
+  async relevance(
+    query: string,
+    candidates: CrossEncoderCandidate[],
+  ): Promise<Array<number | undefined>> {
+    const none = candidates.map((): number | undefined => undefined);
+    if (candidates.length === 0 || !query.trim()) return none;
     const documents = candidates.map((c) => (c.body ? `${c.label}\n${c.body}` : c.label));
-
+    if (!this.cohereConfigured()) {
+      return this.local ? this.relevanceLocal(query, documents, none) : none;
+    }
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.timeoutMs).unref();
-
     try {
       return await this.limiter.run(async () => {
         const res = await fetch(this.endpoint, {
@@ -159,45 +171,22 @@ export class CrossEncoderService implements OnApplicationBootstrap, OnApplicatio
             'content-type': 'application/json',
             authorization: `Bearer ${this.apiKey}`,
           },
-          body: JSON.stringify({
-            model: this.model,
-            query,
-            documents,
-            top_n: documents.length,
-          }),
+          body: JSON.stringify({ model: this.model, query, documents, top_n: documents.length }),
           signal: ac.signal,
         });
         if (!res.ok) {
-          this.logger.warn(`Cross-encoder HTTP ${res.status} — falling back to identity`);
-          return identity;
+          this.logger.warn(`Cross-encoder HTTP ${res.status} — no relevance this time`);
+          return none;
         }
         const json = (await res.json()) as {
           results?: Array<{ index: number; relevance_score: number }>;
         };
-        const results = json?.results;
-        if (!Array.isArray(results) || results.length === 0) {
-          return identity;
-        }
-        // Validate it's a permutation of [0..N). Cohere returns
-        // exactly that, but defensive parsing keeps a malformed
-        // response from poisoning the candidate set.
-        const seen = new Set<number>();
-        const out: number[] = [];
-        for (const r of results) {
-          if (typeof r?.index !== 'number' || !Number.isInteger(r.index)) {
-            return identity;
-          }
-          if (r.index < 0 || r.index >= candidates.length) return identity;
-          if (seen.has(r.index)) return identity;
-          seen.add(r.index);
-          out.push(r.index);
-        }
-        // Cohere returns ranked subset when fewer than top_n — fill
-        // any missing indices in original order at the tail so the
-        // result is always a full permutation.
-        if (out.length < candidates.length) {
-          for (let i = 0; i < candidates.length; i++) {
-            if (!seen.has(i)) out.push(i);
+        // Defensive: a malformed entry is skipped, never trusted.
+        const out = [...none];
+        for (const r of json?.results ?? []) {
+          if (!Number.isInteger(r?.index) || r.index < 0 || r.index >= out.length) continue;
+          if (typeof r.relevance_score === 'number' && Number.isFinite(r.relevance_score)) {
+            out[r.index] = r.relevance_score;
           }
         }
         return out;
@@ -207,42 +196,34 @@ export class CrossEncoderService implements OnApplicationBootstrap, OnApplicatio
       this.logger.warn(
         `Cross-encoder ${e.name === 'AbortError' ? 'timed out' : 'failed'}: ${e.message}`,
       );
-      return identity;
+      return none;
     } finally {
       clearTimeout(timer);
     }
   }
 
   /**
-   * Local-model rerank branch. Scores each candidate with the local
-   * cross-encoder and returns the descending-relevance permutation. Any failure
-   * (warmup miss, mismatched score count) falls back to identity — retrieval
-   * never breaks because the optional local reranker hiccupped, same contract
-   * as the Cohere path.
+   * Local-model branch. Any failure (warmup miss, mismatched score count)
+   * yields no relevance — retrieval never breaks because the optional
+   * local reranker hiccupped, same contract as the Cohere path.
    */
-  private async rerankLocal(
+  private async relevanceLocal(
     query: string,
-    candidates: CrossEncoderCandidate[],
-    identity: number[],
-  ): Promise<number[]> {
-    const documents = candidates.map((c) => (c.body ? `${c.label}\n${c.body}` : c.label));
+    documents: string[],
+    none: Array<number | undefined>,
+  ): Promise<Array<number | undefined>> {
     // The deadline is absolute and taken BEFORE the limiter: time spent
     // waiting for a slot is time the caller's stage budget is already
     // spending, and the provider's loop must stop inside that budget,
     // not inside a fresh one that starts when the slot frees.
     const deadlineAt = Date.now() + this.localDeadlineMs;
     try {
-      const scores = await this.limiter.run(() => this.local!.score(query, documents, deadlineAt));
-      if (scores.length !== candidates.length) return identity;
-      // `|| 0` keeps the sort stable when two scores tie or are both
-      // -Infinity (docs the deadline left unscored) — their difference is
-      // NaN, which would otherwise make the comparator non-deterministic.
-      return candidates.map((_, i) => i).sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || 0);
+      const logits = await this.limiter.run(() => this.local!.score(query, documents, deadlineAt));
+      if (logits.length !== documents.length) return none;
+      return logits.map((v) => (Number.isFinite(v) ? 1 / (1 + Math.exp(-v)) : undefined));
     } catch (e) {
-      this.logger.warn(
-        `Local cross-encoder failed: ${(e as Error).message} — falling back to identity`,
-      );
-      return identity;
+      this.logger.warn(`Local cross-encoder failed: ${(e as Error).message} — no relevance`);
+      return none;
     }
   }
 }

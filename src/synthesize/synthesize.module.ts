@@ -69,6 +69,8 @@ import { IngestCoreModule } from '../ingest/ingest-core.module';
     // the TTL; acceptable staleness for an ordering-only hint.
     MemoryModelReaderService,
   ],
-  exports: [SynthesizeService],
+  // BeliefLaneService: the focus view of search_knowledge ranks beliefs
+  // with the facts (src/mcp/answer-views.ts).
+  exports: [SynthesizeService, BeliefLaneService],
 })
 export class SynthesizeModule {}

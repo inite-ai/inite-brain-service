@@ -65,7 +65,9 @@ describe('READ_SURFACE_USER_SCOPE read fence', () => {
     process.env.READ_SURFACE_USER_SCOPE = '0';
     const { svc, captured } = makeEntities();
     await timeline(svc, 'user-42');
-    expect(captured).toHaveLength(1);
+    // One fact query (the other statement reads only the entity's name).
+    expect(captured.filter((c) => c.sql.includes('FROM knowledge_fact'))).toHaveLength(1);
+    expect(captured.every((c) => !c.sql.includes('$scopeUserId'))).toBe(true);
     expect(captured[0]!.sql).toContain(
       `entityId = type::record('knowledge_entity', $rid) AND userId IS NONE`,
     );

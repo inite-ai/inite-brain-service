@@ -271,16 +271,16 @@ export class SearchRerankService {
         body: String(row.row.object ?? ''),
       };
     });
-    const identityPerm = inputs.map((_, i) => i);
+    const unscored = inputs.map((): number | undefined => undefined);
     let timedOut = false;
-    const perm = await withSpan(
+    const relevance = await withSpan(
       'search.fact_rerank',
       () =>
         withStageBudget({
           stage: 'crossEncoder',
           budgetMs: budgetsOf(ctx).crossEncoder,
-          fn: () => this.crossEncoder.rerank(ctx.dto.query, inputs),
-          fallback: identityPerm,
+          fn: () => this.crossEncoder.relevance(ctx.dto.query, inputs),
+          fallback: unscored,
           logger: this.logger,
           onFallback: () => {
             timedOut = true;
@@ -289,7 +289,16 @@ export class SearchRerankService {
       { 'fact_rerank.candidates': inputs.length },
     );
     this.metrics?.countCrossEncoder(timedOut ? 'fact_error' : 'fact_invoked');
-    return timedOut ? null : { rows, perm };
+    if (timedOut || relevance.every((v) => v === undefined)) return null;
+    // The relevance rides on the fact's breakdown — the read views select
+    // on it; the permutation it implies feeds the rank-preserving remap.
+    relevance.forEach((p, i) => {
+      const scored = rows[i]?.row;
+      if (scored && p !== undefined) scored.breakdown.relevance = p;
+    });
+    const key = (i: number) => relevance[i] ?? Number.NEGATIVE_INFINITY;
+    const perm = inputs.map((_, i) => i).sort((a, b) => key(b) - key(a) || a - b);
+    return { rows, perm };
   }
 
   /**
