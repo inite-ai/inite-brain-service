@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.6.1](https://github.com/inite-ai/inite-brain-service/compare/v2.6.0...v2.6.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **deploy:** remove only this repo's own images, never host-wide ([a5b44c4](https://github.com/inite-ai/inite-brain-service/commit/a5b44c49ec81d945e39c512ec47ef339f2d30087))
+* **deploy:** remove only this repo's own images, never host-wide ([6b4de30](https://github.com/inite-ai/inite-brain-service/commit/6b4de307251113cc8338696b6657af66c89e6e15))
+* **registry:** a paid pack is not free to read and paste back ([8fc353d](https://github.com/inite-ai/inite-brain-service/commit/8fc353d68d4af5529e395ca99062e597d04c8e35))
+* **registry:** a paid pack is not free to read and paste back ([55275ec](https://github.com/inite-ai/inite-brain-service/commit/55275eca453bbbe9091cc172db9a74f6fbda5317))
+
 ## [2.6.0](https://github.com/inite-ai/inite-brain-service/compare/v2.5.1...v2.6.0) (2026-10-29)
 
 
