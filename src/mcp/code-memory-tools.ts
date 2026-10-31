@@ -109,6 +109,13 @@ export function registerCodeMemoryReadTools(opts: {
       inputSchema: {
         query: z.string().describe('Natural-language topic to recall the "why" for'),
         limit: z.number().int().min(1).max(50).optional(),
+        userId: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "Per-user memory scope: tenant-global decisions plus this user's own; omit for tenant-global only",
+          ),
       },
     },
     async (args) => {
@@ -116,6 +123,7 @@ export function registerCodeMemoryReadTools(opts: {
         companyId,
         query: args.query,
         ...(args.limit !== undefined ? { limit: args.limit } : {}),
+        ...(args.userId !== undefined ? { userId: args.userId } : {}),
         scopes,
       });
       const out = { query: args.query, found: decisions.length, decisions };

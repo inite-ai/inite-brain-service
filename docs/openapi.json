@@ -12702,6 +12702,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Per-user scope: tenant-global facts plus this user's own; omitted → tenant-global only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {

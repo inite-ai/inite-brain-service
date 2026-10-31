@@ -1359,6 +1359,10 @@ function entitiesPaths(): Json {
           pathParam('id', 'Entity id — short (`cuid_abc`) or full (`knowledge_entity:cuid_abc`).'),
           queryParam('asOf', 'ISO-8601 world-time slice.'),
           queryParam('recordedAt', 'ISO-8601 transaction-time slice.'),
+          queryParam(
+            'userId',
+            "Per-user scope: tenant-global facts plus this user's own; omitted → tenant-global only. A user-bound token is pinned to its own end user (mismatch → 403).",
+          ),
         ],
         responses: {
           '200': jsonResponse('The profile.', ref('EntityProfileResponse')),

@@ -18,17 +18,6 @@ import type { ActionKind } from '../policy/policy.types';
  * and `openWorldHint` both true when absent), so every hint is stated.
  */
 
-/** Tools outside the action registry: the meta, ChatGPT and public surfaces. */
-const SURFACE_KINDS: Readonly<Record<string, ActionKind>> = {
-  find_tool: 'read',
-  // Dispatches to any tool the profile hides, writes and forget included.
-  run_tool: 'write',
-  search: 'read',
-  fetch: 'read',
-  about_brain: 'read',
-  how_to_connect: 'read',
-};
-
 /**
  * Writes that remove or close something. Every other write adds: a new
  * fact supersedes an old one through the conflict resolver, it does not
@@ -67,7 +56,7 @@ export function classifyTool(
   } = {},
 ): ToolClassification {
   const packKind = opts.packKinds?.get(name);
-  const kind = ACTIONS[name]?.kind ?? SURFACE_KINDS[name] ?? packKind;
+  const kind = ACTIONS[name]?.kind ?? packKind;
   const title = opts.title ?? ACTIONS[name]?.title ?? humanize(name);
   if (kind === undefined) {
     return {

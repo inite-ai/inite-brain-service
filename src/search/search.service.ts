@@ -510,7 +510,11 @@ export class SearchService {
     // the response; bounded and failure-swallowing, because a lane that
     // can fail a search is a lane an operator turns off.
     if (this.linked?.enabled()) {
-      const lane = await this.linked.search(companyId, dto.query, limit);
+      const lane = await this.linked.search(companyId, {
+        query: dto.query,
+        k: limit,
+        userId: dto.userId,
+      });
       if (lane.results.length > 0) return { ...out, linked: lane.results };
     }
     return out;
