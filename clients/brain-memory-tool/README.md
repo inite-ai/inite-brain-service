@@ -52,10 +52,16 @@ for (const block of response.content) {
 
 ## Behaviour worth knowing
 
-**`handle()` never throws.** A thrown error inside a tool dispatch ends
-the turn; a string the model can read lets it recover, which is what a
-filesystem backend's `ENOENT` does too. Failures come back as
-`Error: …`.
+**Answers match the reference implementation** (`memory_20250818`): the
+same headers, 6-wide line numbers, directory sizes and error strings, so a
+model behaves as it does against the SDKs' filesystem tool. `rename` never
+overwrites an existing file, and the `/memories` root cannot be deleted or
+renamed.
+
+**Neither `run()` nor `handle()` throws.** `run()` returns
+`{ content, is_error }`, ready for a `tool_result` block; `handle()`
+returns just the text. A thrown error inside a tool dispatch ends the
+turn, while an error the model can read lets it recover.
 
 **`str_replace` refuses an ambiguous edit.** Two matches means the model
 gets told to include more surrounding text, not a guess at which one it

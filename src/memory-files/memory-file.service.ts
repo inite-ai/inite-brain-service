@@ -98,13 +98,13 @@ export class MemoryFileService {
    */
   async list(
     ref: Omit<MemoryFileRef, 'path'> & { prefix?: string | undefined },
-  ): Promise<string[]> {
+  ): Promise<Array<{ path: string; size: number }>> {
     const raw = normalizeMemoryPath(ref.prefix ?? MEMORY_ROOT);
     const path = raw.endsWith('/') ? raw.slice(0, -1) : raw;
     const userId = pinUserScope(ref.userId);
     const rows = await this.surreal.withCompany(ref.companyId, async (db) => {
       const [out] = await db.query<Row[][]>(
-        `SELECT path FROM memory_file
+        `SELECT path, string::len(content) AS size FROM memory_file
            WHERE (path = $path OR string::starts_with(path, $dirPrefix))
              AND userId ${userId === undefined ? 'IS NONE' : '= $userId'}
            ORDER BY path ASC
@@ -115,7 +115,7 @@ export class MemoryFileService {
       );
       return out ?? [];
     });
-    return rows.map((r) => r.path);
+    return rows.map((r) => ({ path: r.path, size: Number((r as { size?: unknown }).size ?? 0) }));
   }
 
   /** Create or replace — the tool's `create`, and the tail of every edit. */
