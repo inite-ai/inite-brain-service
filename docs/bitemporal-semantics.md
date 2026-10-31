@@ -52,8 +52,8 @@ is stored as `expectedUntil`:
 - **Valid time is untouched.** The fact stays current. `asOf`, "actual now"
   and every lifecycle rule read it as before.
 - **The answer plane renders it.** A line reads `(temporary — expected until
-  D)` while D is ahead of the query's `asOf` (else now), and `(temporary —
-  expected over by D; not confirmed since)` once D has passed. The code makes
+D)` while D is ahead of the query's `asOf` (else now), and `(temporary —
+expected over by D; not confirmed since)` once D has passed. The code makes
   that comparison, not the model. When a line carries an expectation, the
   generator is told not to state a lapsed one as the current state. The user
   profile text uses the same suffix.
@@ -87,6 +87,15 @@ Open-ended intervals (`validUntil IS NONE`) are treated as extending to +∞:
 | `[Apr1, May1)` | `[Apr15, ∞)`   | Yes — overlap on `[Apr15, May1)`, conflict           |
 
 Single-active predicates (`name`, `email`, `phone`, `dob`) bypass the overlap check — by definition only one row at a time, every prior active conflicts with the new one. Append-only (`said`, `complained_about`, `interacted_with`) never conflict — but since migration 0082 they DO corroborate: an exact-object claim from a different origin strengthens the incumbent (`status='corroborating'`) instead of piling up as a duplicate active row.
+
+### A competing fact needs a rival (migration 0175)
+
+`competing` is a relation between facts, so a fact keeps that status only while it has an open rival. A rival is either of:
+
+- another `competing` row in the same slot: entity, canonical predicate, user, circle tags and derivedVersion, the pool `fn::resolve_fact` resolves in;
+- a row linked to it by its conflict trace: `bestOpponentId`, or `competingFactIds`, which fact resolution (#828) writes for two facts that contradict across predicate names.
+
+When a competing row leaves for any status other than `active` (superseded, retracted, corroborating, compacted), a DB event makes every other competing row of that entity that no longer has a rival `active`, in the same transaction, whichever writer closed it. Before this, a value whose rival was retracted, or turned out to be its own paraphrase and now corroborates it, stayed `competing` alone. The graph lane and the user profile skip `competing` rows, so that value was missing from both.
 
 ### Coined predicates: canonical alias + append_only (migration 0082)
 

@@ -306,12 +306,10 @@ export class FactResolutionService {
   private async write(db: Surreal, action: ResolutionAction): Promise<void> {
     switch (action.kind) {
       case 'supersede':
+        // A winner that was competing against the loser becomes active
+        // through the 0175 event (and stays competing if it has another
+        // rival).
         await this.resolver.markSuperseded(db, action.loser, action.winner);
-        // A winner left competing only against the loser is now current.
-        await db.query(
-          `UPDATE $w SET status = 'active' WHERE status = 'competing' AND retractedAt IS NONE`,
-          { w: new StringRecordId(action.winner) },
-        );
         return;
       case 'corroborate':
         await this.corroborate.applyCorroboration(db, {
@@ -319,11 +317,25 @@ export class FactResolutionService {
           younger: { id: action.younger } as never,
         });
         return;
-      case 'compete':
-        await db.query(`UPDATE $ids SET status = 'competing' WHERE ${OPEN}`, {
-          ids: [action.a, action.b].map((id) => new StringRecordId(id)),
-        });
+      case 'compete': {
+        // Both must still be open — a lone competing row is what 0175
+        // forbids. Each side names the other: two facts that contradict
+        // across predicate names share no slot, and the link is what keeps
+        // them rivals (fn::fact_has_rival).
+        const [a, b] = [action.a, action.b].map((id) => new StringRecordId(id));
+        await db.query(
+          `IF array::len(SELECT VALUE id FROM [$a, $b] WHERE ${OPEN}) = 2 {
+             FOR $pair IN [[$a, $b], [$b, $a]] {
+               UPDATE $pair[0] SET
+                 status = 'competing',
+                 conflictTrace.competingFactIds =
+                   array::union(conflictTrace.competingFactIds ?? [], [$pair[1]]);
+             };
+           };`,
+          { a, b },
+        );
         return;
+      }
     }
   }
 

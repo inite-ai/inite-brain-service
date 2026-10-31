@@ -88,6 +88,41 @@ describe('fact resolution — take, judge, apply (real SurrealDB)', () => {
     await svc.submit(f.companyId, payload, result);
     expect((await row(a)).status).toBe('competing');
     expect((await row(b)).status).toBe('competing');
+
+    // 0175: the two share no slot — only the link keeps them rivals, and
+    // when one leaves the other is current again.
+    await f.app
+      .get(SurrealService)
+      .withCompany(f.companyId, (db) =>
+        db.query(
+          `UPDATE type::record('knowledge_fact', $t) SET status = 'retracted', retractedAt = time::now()`,
+          { t: b.split(':')[1] },
+        ),
+      );
+    expect((await row(a)).status).toBe('active');
+  });
+
+  it('same: a paraphrase that competed with the incumbent corroborates it, and the incumbent is current again', async () => {
+    // fn::resolve_fact marks a reworded value competing by a score margin.
+    const incumbent = await ingest('svc_d', 'admin_console_port', '8081', '2026-03-25');
+    const paraphrase = await ingest(
+      'svc_d',
+      'admin_port',
+      '8081 (internal admin console)',
+      '2026-03-25',
+    );
+    await f.app.get(SurrealService).withCompany(f.companyId, (db) =>
+      db.query(
+        `UPDATE type::record('knowledge_fact', $p) SET status = 'competing',
+           conflictTrace = { bestOpponentId: type::record('knowledge_fact', $i) };
+         UPDATE type::record('knowledge_fact', $i) SET status = 'competing';`,
+        { p: paraphrase.split(':')[1], i: incumbent.split(':')[1] },
+      ),
+    );
+    const { svc, payload, result } = await judgeAll('same');
+    await svc.submit(f.companyId, payload, result);
+    expect((await row(paraphrase)).status).toBe('corroborating');
+    expect((await row(incumbent)).status).toBe('active');
   });
 
   it('a reply to evidence that changed since is skipped as stale', async () => {
