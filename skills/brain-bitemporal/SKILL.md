@@ -41,16 +41,21 @@ memory_diff({
   to:   "2026-05-22T00:00:00Z",
   entityIds: undefined,         // optional — scope to a set of entities
   predicates: ["status", "tier"], // optional — scope to a predicate family
+  userId: "u_42",                 // the person you act for
 })
 ```
 
-Returns five buckets for the half-open window `[from, to)`:
+By default (`detail: "text"`) the answer reads as a changelog of the half-open window `[from, to)`:
 
-- `createdFacts` — net-new active facts (excludes rows that were superseded in-window — those go in changedFacts so consecutive diffs never double-count)
-- `retractedFacts` — pure retracts with no successor
-- `changedFacts` — superseded transitions, each carrying `{ before, after }`
-- `newEntities` — `knowledge_entity.createdAt` in-window
-- `forgottenEntities` — GDPR-erased tombstones in-window
+- `changed:` one line per attribute that took a new value, oldest first: `ledger-sync — queue_backend: Redis Streams (2026-03-02) → NATS JetStream (2026-03-18)`;
+- `learned:` everything else brain learned, under one heading per day, each piece as its facts or as the turn it was read from, whichever is shorter. When the window's turns cost less than the facts restating them (a window spanning most of a memory), you get the turns themselves under `said`;
+- then `retracted:` (walked back, with the day), `new:` entities, `forgotten:` (GDPR-erased), and `expected to be over, not confirmed since:` (temporary states, like ill or away, whose expected end passed with nothing confirming it: worth asking about).
+
+`detail: "full"` returns the JSON buckets with ids:
+- `createdFacts`: net-new facts (rows superseded in-window go in `changedFacts`, so consecutive diffs never double-count);
+- `retractedFacts`: pure retracts with no successor;
+- `changedFacts`: superseded transitions, each carrying `{ before, after }`;
+- `newEntities`, `forgottenEntities`, `lapsedExpectations`, and `truncated` when a bucket hit its cap.
 
 The killer use case: a session-resume agent fetches `memory_diff(lastSessionEnd, now)` and uses the result to brief the user on what brain learned while they were away. Cheaper than re-fetching every relevant profile from scratch.
 

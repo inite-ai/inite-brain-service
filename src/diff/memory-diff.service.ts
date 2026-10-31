@@ -181,6 +181,7 @@ export class MemoryDiffService {
           retractedFacts.push({
             factId: f.factId,
             entityId: f.entityId,
+            ...(f.entityName ? { entityName: f.entityName } : {}),
             predicate: f.predicate,
             object: f.object,
             confidence: f.confidence,
@@ -273,7 +274,8 @@ export class MemoryDiffService {
 
 const FACT_FIELDS =
   'id, entityId, predicate, object, confidence, validFrom, validUntil, expectedUntil, ' +
-  'recordedAt, retractedAt, userId, source, trustSnapshot, corroboration';
+  'recordedAt, retractedAt, status, userId, source, trustSnapshot, corroboration, ' +
+  'entityId.canonicalName AS entityName';
 
 /**
  * Open facts whose expectation (0166) passed in [from, to) — and has
@@ -312,6 +314,8 @@ interface FactRow extends PolicyFilterableRow {
   expectedUntil?: unknown;
   recordedAt: unknown;
   retractedAt?: unknown;
+  entityName?: unknown;
+  status?: unknown;
   /** Present only on the retracted-bucket SELECT (`, supersededBy`). */
   supersededBy?: unknown;
 }
@@ -377,6 +381,9 @@ function rowToFactRef(r: FactRow): FactRef {
   return {
     factId: String(r.id),
     entityId: String(r.entityId),
+    ...(typeof r.entityName === 'string' && r.entityName ? { entityName: r.entityName } : {}),
+    ...(typeof r.status === 'string' ? { status: r.status } : {}),
+    ...sourceKindOf(r.source),
     predicate: String(r.predicate),
     object: String(r.object),
     confidence: typeof r.confidence === 'number' ? r.confidence : 0,
@@ -386,6 +393,11 @@ function rowToFactRef(r: FactRow): FactRef {
     recordedAt: toIso(r.recordedAt),
     retractedAt: r.retractedAt ? toIso(r.retractedAt) : undefined,
   };
+}
+
+function sourceKindOf(source: unknown): { sourceKind?: string } {
+  const kind = (source as { kind?: unknown } | null | undefined)?.kind;
+  return typeof kind === 'string' ? { sourceKind: kind } : {};
 }
 
 function toIso(value: unknown): string {
@@ -414,6 +426,12 @@ export interface MemoryDiffArgs {
 export interface FactRef {
   factId: string;
   entityId: string;
+  /** The entity's canonical name — what a reader of the diff recognises. */
+  entityName?: string | undefined;
+  /** Lifecycle status now (active, superseded, corroborating, compacted, …). */
+  status?: string | undefined;
+  /** What wrote it, when not a reading of the conversation (`compaction-summary`, …). */
+  sourceKind?: string | undefined;
   predicate: string;
   object: string;
   confidence: number;

@@ -25,6 +25,7 @@ import {
   type EntityGistDeps,
 } from './entity-gist-tools';
 import { answerDetailArg, focusOf, multiHopView, synthesizeView } from './answer-views';
+import { diffOf } from './diff-view';
 
 /**
  * Collaborators the read surface needs. Mirrors the constructor seam of
@@ -384,6 +385,10 @@ function registerMemoryDiffTool({
           .describe('Scope to these entities (short or full ids)'),
         predicates: z.array(z.string()).optional().describe('Scope to these predicates'),
         userId: userScopeArg,
+        detail: z
+          .enum(['text', 'full'])
+          .optional()
+          .describe('text (default): the changes per entity, one line each. full: JSON with ids'),
       },
     },
     async (args) => {
@@ -398,6 +403,10 @@ function registerMemoryDiffTool({
         },
         scopes,
       );
+      if (args.detail !== 'full') {
+        const text = await diffOf({ deps, companyId, scopes, userId: args.userId }, out);
+        return { content: [{ type: 'text', text }] };
+      }
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),

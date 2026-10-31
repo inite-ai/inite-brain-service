@@ -185,7 +185,7 @@ export interface FocusOptions {
 const ADAPTIVE_K_SEARCH_SHARE = 0.9;
 /** Adaptive-k's buffer B, chosen on the accuracy/token curve (see the PR). */
 const ADAPTIVE_K_BUFFER = 1;
-const QUOTE_MAX_CHARS = 400;
+export const QUOTE_MAX_CHARS = 400;
 /** Linked-source answers (W7) shown per source, and the excerpt kept of each. */
 const LINKED_HITS = 3;
 const LINKED_SNIPPET_CHARS = 200;
