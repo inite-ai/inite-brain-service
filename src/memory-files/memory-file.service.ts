@@ -90,20 +90,28 @@ export class MemoryFileService {
     return { path: row.path, content: row.content, updatedAt: String(row.updatedAt) };
   }
 
-  /** Paths under a prefix — the tool's `view` on a directory. */
+  /**
+   * The file at a path and the paths inside it — the tool's `view` on a
+   * directory. A prefix is a directory, not a string: `/memories/notes`
+   * holds `/memories/notes/a.md`, never `/memories/notes2.md` (the same
+   * boundary `remove` draws).
+   */
   async list(
     ref: Omit<MemoryFileRef, 'path'> & { prefix?: string | undefined },
   ): Promise<string[]> {
-    const prefix = normalizeMemoryPath(ref.prefix ?? MEMORY_ROOT);
+    const raw = normalizeMemoryPath(ref.prefix ?? MEMORY_ROOT);
+    const path = raw.endsWith('/') ? raw.slice(0, -1) : raw;
     const userId = pinUserScope(ref.userId);
     const rows = await this.surreal.withCompany(ref.companyId, async (db) => {
       const [out] = await db.query<Row[][]>(
         `SELECT path FROM memory_file
-           WHERE string::starts_with(path, $prefix)
+           WHERE (path = $path OR string::starts_with(path, $dirPrefix))
              AND userId ${userId === undefined ? 'IS NONE' : '= $userId'}
            ORDER BY path ASC
            LIMIT 1000`,
-        userId === undefined ? { prefix } : { prefix, userId },
+        userId === undefined
+          ? { path, dirPrefix: `${path}/` }
+          : { path, dirPrefix: `${path}/`, userId },
       );
       return out ?? [];
     });

@@ -194,7 +194,9 @@ export class McpController {
    */
   private async servePublic(req: Request, res: Response): Promise<void> {
     const base = requestBaseUrl(req as never) ?? 'https://brain.inite.ai';
-    const server = this.mcp.buildPublicServer(base);
+    // The URL's `?tools=` holds before sign-in too; a typo is the same 400.
+    const profile = resolveToolProfile(profileParam(req.query as Record<string, unknown>));
+    const server = this.mcp.buildPublicServer(base, profile);
     const transport = new StreamableHTTPServerTransport({});
     res.on('close', () => {
       transport.close().catch(() => {});

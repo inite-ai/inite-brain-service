@@ -135,3 +135,37 @@ export function registerSamplingPassthrough({
     return server.createMessage(request.params);
   });
 }
+
+const DEFAULT_BASE_URL = 'https://brain.inite.ai';
+const COMPANY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The brain MCP endpoint this connector talks to. The key names its own
+ * tenant, so the tenant-less `/mcp` is enough; `BRAIN_COMPANY_ID` pins
+ * the per-tenant spelling (`/mcp/<companyId>`), which brain refuses when
+ * it disagrees with the key — a guard for a config that serves several
+ * tenants. `BRAIN_MCP_URL` overrides both.
+ */
+export function resolveEndpoint(
+  env: Record<string, string | undefined>,
+): { url: string } | { error: string } {
+  const explicit = (env.BRAIN_MCP_URL ?? '').trim();
+  if (explicit) {
+    try {
+      // Validate shape early so failures are obvious, not buried in a fetch.
+      new URL(explicit);
+    } catch {
+      return { error: `BRAIN_MCP_URL is not a valid URL: ${explicit}` };
+    }
+    return { url: explicit };
+  }
+  let base = (env.BRAIN_BASE_URL ?? DEFAULT_BASE_URL).trim();
+  // A loop, not `/\/+$/`: that regex is quadratic on a run of slashes (CodeQL js/polynomial-redos).
+  while (base.endsWith('/')) base = base.slice(0, -1);
+  const companyId = (env.BRAIN_COMPANY_ID ?? '').trim();
+  if (!companyId) return { url: `${base}/mcp` };
+  if (!COMPANY_ID_RE.test(companyId)) {
+    return { error: `BRAIN_COMPANY_ID "${companyId}" is malformed — expected [A-Za-z0-9_-]{1,64}.` };
+  }
+  return { url: `${base}/mcp/${companyId}` };
+}

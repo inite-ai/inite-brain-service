@@ -56,6 +56,7 @@ interface MemoryFile {
 
 const DEFAULT_BASE = 'https://brain.inite.ai';
 const DEFAULT_TIMEOUT = 15_000;
+const MEMORY_ROOT = '/memories';
 
 class BrainMemoryError extends Error {}
 
@@ -164,6 +165,10 @@ export class BrainMemory {
     if (asDirectory && asDirectory.paths.length > 0 && !asDirectory.paths.includes(input.path)) {
       return [`Directory: ${input.path}`, ...asDirectory.paths.map((p) => `- ${p}`)].join('\n');
     }
+    // The root is a directory even before anything is written in it: a
+    // fresh store answers its first `view` with an empty listing, not
+    // with "no such file".
+    if (trimTrailingSlashes(input.path) === MEMORY_ROOT) return `Directory: ${MEMORY_ROOT}`;
     const file = await this.read(input.path);
     const lines = file.content.split('\n');
     const [from, to] = input.view_range ?? [1, lines.length];

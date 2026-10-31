@@ -4008,6 +4008,9 @@
             },
             "type": "array"
           },
+          "pending": {
+            "type": "boolean"
+          },
           "reason": {
             "type": "string"
           },

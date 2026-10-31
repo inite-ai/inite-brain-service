@@ -43,8 +43,11 @@ function stubBrain(initial: Record<string, string> = {}) {
       return ok({ path, content: files.get(path), updatedAt: 'now' });
     }
     if (url.endsWith('/list')) {
-      const prefix = String(body.prefix ?? '');
-      return ok({ paths: [...files.keys()].filter((p) => p.startsWith(prefix)).sort() });
+      // brain's directory semantics: the path itself and what is inside it.
+      const prefix = String(body.prefix ?? '').replace(/\/$/, '');
+      return ok({
+        paths: [...files.keys()].filter((p) => p === prefix || p.startsWith(`${prefix}/`)).sort(),
+      });
     }
     if (url.endsWith('/delete')) {
       const existed = files.delete(path);
@@ -97,6 +100,20 @@ describe('brain memory tool adapter', () => {
       expect(out).toContain('Directory: /memories/p');
       expect(out).toContain('- /memories/p/a.md');
       expect(out).toContain('- /memories/p/b.md');
+    });
+
+    it('shows an empty root as an empty directory, not a missing file', async () => {
+      const stub = stubBrain();
+      expect(await memory(stub).handle({ command: 'view', path: '/memories' })).toBe(
+        'Directory: /memories',
+      );
+    });
+
+    it('reads a file whose name a sibling directory extends', async () => {
+      const stub = stubBrain({ '/memories/notes': 'mine', '/memories/notes2/x.md': 'other' });
+      expect(await memory(stub).handle({ command: 'view', path: '/memories/notes' })).toBe(
+        '1: mine',
+      );
     });
 
     it('honours view_range, including -1 for "to the end"', async () => {

@@ -3,13 +3,13 @@
  * @inite/brain-mcp — first-party stdio MCP connector for the INITE Brain.
  *
  * Why this exists: brain speaks MCP over **Streamable HTTP** with a Bearer
- * API key (`POST /mcp/:companyId`). Many harnesses (openclaw, hermes, Goose
+ * API key (`POST /mcp`). Many harnesses (openclaw, hermes, Goose
  * 1.x, Aider, …) only know how to spawn **stdio** MCP servers as subprocesses
  * and have no way to attach an Authorization header. This binary bridges the
  * two: the harness spawns it over stdio, and it transparently proxies every
  * tool the key is scoped for to the remote brain.
  *
- *   harness ──stdio──▶ brain-mcp ──HTTP+Bearer──▶ https://brain.inite.ai/mcp/<company>
+ *   harness ──stdio──▶ brain-mcp ──HTTP+Bearer──▶ https://brain.inite.ai/mcp
  *
  * It is a thin, transparent passthrough — it does NOT curate or rename tools.
  * `tools/list`, `tools/call`, and the resource surface (`resources/list`,
@@ -22,7 +22,7 @@
  *
  * Config is entirely via environment (harnesses pass `env` to the subprocess):
  *   BRAIN_API_KEY      (required)  e.g. brain_xxxxx
- *   BRAIN_COMPANY_ID   (required unless BRAIN_MCP_URL is set)
+ *   BRAIN_COMPANY_ID   (optional)  pins the per-tenant URL; the key names its tenant either way
  *   BRAIN_BASE_URL     (optional)  default https://brain.inite.ai
  *   BRAIN_MCP_URL      (optional)  full endpoint override; wins over BASE_URL+COMPANY_ID
  *
@@ -32,12 +32,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { createBridgeServer, registerSamplingPassthrough } from './bridge.js';
+import { createBridgeServer, registerSamplingPassthrough, resolveEndpoint } from './bridge.js';
 
 const PKG_NAME = '@inite/brain-mcp';
 const PKG_VERSION = '0.2.0';
-const DEFAULT_BASE_URL = 'https://brain.inite.ai';
-const COMPANY_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Log to stderr only — stdout is the JSON-RPC channel. */
 function log(...args: unknown[]): void {
@@ -58,39 +56,14 @@ function resolveConfig(): Resolved {
   const apiKey = (process.env.BRAIN_API_KEY ?? '').trim();
   if (!apiKey) {
     fail(
-      'BRAIN_API_KEY is required. Get one at https://brain.inite.ai/admin/keys ' +
+      'BRAIN_API_KEY is required. Get one at https://brain.inite.ai/en/app/keys ' +
         'and pass it via the harness `env` for this server.',
     );
   }
 
-  const explicit = (process.env.BRAIN_MCP_URL ?? '').trim();
-  if (explicit) {
-    try {
-      // Validate shape early so failures are obvious, not buried in a fetch.
-      new URL(explicit);
-    } catch {
-      fail(`BRAIN_MCP_URL is not a valid URL: ${explicit}`);
-    }
-    return { url: explicit, apiKey };
-  }
-
-  const companyId = (process.env.BRAIN_COMPANY_ID ?? '').trim();
-  if (!companyId) {
-    fail(
-      'BRAIN_COMPANY_ID is required (or set BRAIN_MCP_URL to the full endpoint). ' +
-        'Your companyId is shown at https://brain.inite.ai/admin/keys.',
-    );
-  }
-  if (!COMPANY_ID_RE.test(companyId)) {
-    fail(
-      `BRAIN_COMPANY_ID "${companyId}" is malformed — expected [A-Za-z0-9_-]{1,64}.`,
-    );
-  }
-
-  const baseUrl = (process.env.BRAIN_BASE_URL ?? DEFAULT_BASE_URL)
-    .trim()
-    .replace(/\/+$/, '');
-  return { url: `${baseUrl}/mcp/${companyId}`, apiKey };
+  const endpoint = resolveEndpoint(process.env);
+  if ('error' in endpoint) fail(endpoint.error);
+  return { url: endpoint.url, apiKey };
 }
 
 async function connectUpstream({ url, apiKey }: Resolved): Promise<Client> {

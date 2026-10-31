@@ -9,7 +9,8 @@
  *  - the runner drives the protocol in batches, fetches only what the
  *    brain named, redacts, finishes with the checkpoint, and reports a
  *    failed run as such;
- *  - the protocol client surfaces the brain's error text.
+ *  - the protocol client surfaces the brain's error text and waits out
+ *    a rate limit for as long as the brain asks.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
@@ -21,7 +22,7 @@ import {
   includeMatcher,
   normaliseRemote,
 } from '../clients/brain-agent/src/connectors/git';
-import { BrainAgentClient, BrainApiError } from '../clients/brain-agent/src/protocol';
+import { BrainAgentClient, BrainApiError, retryAfterMs } from '../clients/brain-agent/src/protocol';
 import { redactSecrets } from '../clients/brain-agent/src/redact';
 import { connectorFor, runConnection } from '../clients/brain-agent/src/runner';
 import type {
@@ -454,6 +455,69 @@ describe('runConnection', () => {
     expect(() =>
       connectorFor(registry, { connection: connection({ connector: 's3' }), source: null }),
     ).toThrow('no "s3" connector');
+  });
+
+  it('the protocol client waits out a 429 for as long as the brain asks, then carries on', async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const client = new BrainAgentClient({
+      baseUrl: 'http://brain.test',
+      apiKey: 'k',
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+      fetch: async () => {
+        calls++;
+        if (calls === 1) {
+          return new Response('{"message":"ThrottlerException"}', {
+            status: 429,
+            headers: { 'Retry-After': '12', 'Retry-After-expensive': '3' },
+          });
+        }
+        return new Response(JSON.stringify({ status: 'ingested' }), { status: 200 });
+      },
+    });
+    await expect(
+      client.item('source_connection:a1', 'r1', 'a.md', { text: 'x' } as unknown as FetchedItem),
+    ).resolves.toEqual({ status: 'ingested' });
+    expect(waits).toEqual([12_000]);
+  });
+
+  it('a 429 with no Retry-After backs off a bounded number of times; a bare 503 is not retried', async () => {
+    let calls = 0;
+    const throttled = new BrainAgentClient({
+      baseUrl: 'http://brain.test',
+      apiKey: 'k',
+      sleep: async () => undefined,
+      fetch: async () => {
+        calls++;
+        return new Response('{"message":"ThrottlerException"}', { status: 429 });
+      },
+    });
+    await expect(throttled.begin('source_connection:a1', { agentId: 'x' })).rejects.toThrow('429');
+    expect(calls).toBe(3);
+
+    calls = 0;
+    const down = new BrainAgentClient({
+      baseUrl: 'http://brain.test',
+      apiKey: 'k',
+      sleep: async () => undefined,
+      fetch: async () => {
+        calls++;
+        return new Response('', { status: 503 });
+      },
+    });
+    await expect(down.begin('source_connection:a1', { agentId: 'x' })).rejects.toThrow('503');
+    expect(calls).toBe(1);
+  });
+
+  it('reads Retry-After as seconds or an HTTP date', () => {
+    const now = Date.parse('2026-10-31T12:00:00Z');
+    expect(retryAfterMs(new Headers({ 'Retry-After': '5' }), now)).toBe(5000);
+    expect(retryAfterMs(new Headers({ 'Retry-After': 'Sat, 31 Oct 2026 12:00:30 GMT' }), now)).toBe(
+      30_000,
+    );
+    expect(retryAfterMs(new Headers({}), now)).toBeNull();
   });
 
   it('the protocol client surfaces the brain’s message on errors', async () => {

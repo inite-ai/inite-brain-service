@@ -1,5 +1,6 @@
 import { isAnonymousJsonRpc } from '../src/mcp/anonymous-jsonrpc';
 import { PUBLIC_TOOL_NAMES } from '../src/mcp/public-tools';
+import { resolveToolProfile } from '../src/mcp/tool-profiles';
 import { McpOptionalAuthGuard } from '../src/mcp/mcp-optional-auth.guard';
 import type { ApiKeyGuard } from '../src/auth/api-key.guard';
 import { UnauthorizedException, type ExecutionContext } from '@nestjs/common';
@@ -139,7 +140,7 @@ describe('the anonymous tool list — lazy authentication', () => {
   // A client starts sign-in when a tools/call comes back 401, and it only
   // calls tools it saw listed. Two public tools alone meant no client ever
   // reached the challenge.
-  async function publicServer() {
+  async function publicServer(profile?: string) {
     const { McpService } = await import('../src/mcp/mcp.service');
     const none = {} as never;
     const svc = new McpService(
@@ -163,7 +164,10 @@ describe('the anonymous tool list — lazy authentication', () => {
       none,
       none,
     );
-    return svc.buildPublicServer('https://brain.example') as unknown as {
+    return svc.buildPublicServer(
+      'https://brain.example',
+      profile === undefined ? undefined : resolveToolProfile(profile),
+    ) as unknown as {
       _registeredTools: Record<string, { handler: (...a: unknown[]) => unknown }>;
     };
   }
@@ -176,6 +180,16 @@ describe('the anonymous tool list — lazy authentication', () => {
     );
     // Admin-scoped tools are not what the challenge asks for.
     expect(names).not.toContain('forget_entity');
+  });
+
+  it('lists what the URL profile lists: ?tools=core before sign-in is core after it', async () => {
+    const names = Object.keys((await publicServer('core'))._registeredTools);
+    const core = new Set(resolveToolProfile('core').listed);
+    for (const name of names) {
+      if (!PUBLIC_TOOL_NAMES.includes(name)) expect(core.has(name)).toBe(true);
+    }
+    expect(names).toEqual(expect.arrayContaining(['search_knowledge', 'record_fact']));
+    expect(names).not.toContain('graph_retrieve');
   });
 
   it('every listed memory tool is gated by the guard and refuses on its own', async () => {
