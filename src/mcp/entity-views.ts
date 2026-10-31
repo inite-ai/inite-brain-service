@@ -84,8 +84,25 @@ export function timelineGist(
       ? [`${day(e.validFrom)} + ${e.predicate} = ${e.object}`]
       : [],
   );
+  // A walked-back fact is part of the history whichever scene it came
+  // from: the gist of a scene says what was said, not what was retracted.
+  const valueOf = new Map(
+    out.events.flatMap((e) =>
+      e.type === 'fact.recorded' ? [[e.factId, `${e.predicate} = ${e.object}`] as const] : [],
+    ),
+  );
+  const retracted = out.events.flatMap((e) =>
+    e.type === 'fact.retracted'
+      ? [
+          `${day(e.at)} − ${valueOf.get(e.factId) ?? e.factId}${
+            typeof e.reason === 'string' && e.reason ? ` (${e.reason})` : ''
+          }`,
+        ]
+      : [],
+  );
   return [
     ...sceneLines,
     ...(outside.length > 0 ? ['not from a conversation:', ...outside] : []),
+    ...(retracted.length > 0 ? ['retracted:', ...retracted] : []),
   ].join('\n');
 }

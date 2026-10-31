@@ -126,6 +126,26 @@ describe('entity views at the gist level (ReadAgent)', () => {
     ]);
   });
 
+  it('timeline: a retraction is listed whichever scene its fact came from', () => {
+    const events: TimelineEvent[] = [
+      recorded('queue_backend', 'Kafka', ['episode:t1']),
+      {
+        type: 'fact.retracted',
+        at: '2026-03-20T00:00:00Z',
+        factId: 'knowledge_fact:queue_backend',
+        retractedBy: 'user',
+        reason: 'misheard',
+      },
+    ];
+    const text = timelineGist({ canonicalName: 'ledger-sync', events }, [
+      scene(['episode:t1'], []),
+    ])!;
+    expect(text.split('\n').slice(-2)).toEqual([
+      'retracted:',
+      '2026-03-20 − queue_backend = Kafka (misheard)',
+    ]);
+  });
+
   it('timeline: no visible scene → no gist', () => {
     expect(timelineGist({ events: [recorded('a', 'b', ['episode:x'])] }, [])).toBeNull();
   });

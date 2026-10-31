@@ -44,7 +44,7 @@ export function registerEntityProfileTool({
     {
       title: 'Get entity profile',
       description:
-        'Full profile of one entity: canonical name, type, externalRefs (cross-vertical ids), and active facts. externalRefs point back to the originating vertical, where fresh state can be rehydrated via @inite/api-kit.',
+        'One entity: canonical name, type and what brain holds about it — with userId, its current state as beliefs, the facts in dispute and an index of attributes; detail "compact" lists every active fact, "full" adds fact ids and externalRefs (cross-vertical ids, rehydratable in the originating vertical via @inite/api-kit).',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         asOf: isoDateTime()
