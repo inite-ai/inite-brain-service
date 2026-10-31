@@ -131,7 +131,9 @@ describe('TenantThrottlerGuard — verified tier on the first request', () => {
     const guard = await makeGuard(storage, resolver);
     const { context } = makeRequest('forged-key');
     await guard.run(props(context, guard));
-    expect(seenLimits).toEqual([10]);
+    // Two hits, neither widened: the per-IP failed-auth budget and the
+    // request's own (IP) bucket.
+    expect(seenLimits).toEqual([10, 10]);
   });
 
   it('keeps the default limit, without throwing, when the resolver fails', async () => {

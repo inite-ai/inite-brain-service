@@ -77,6 +77,28 @@ export class SurrealThrottlerStorage implements ThrottlerStorage, OnApplicationS
     }
   }
 
+  /**
+   * Whether a bucket is blocked right now — read without counting a hit.
+   * The guard asks it before the work a hit would pay for (verifying an
+   * unknown credential), so a blocked caller costs nothing downstream.
+   */
+  async isBlocked(key: string, throttlerName: string): Promise<boolean> {
+    if (!this.surreal) return this.localBlocked(key);
+    try {
+      const [row] = await this.surreal.withAdminDb((db) =>
+        queryRows<{ blockedUntil?: string | Date | null }>(
+          db,
+          `SELECT blockedUntil FROM type::record('throttle_bucket', $id)`,
+          { id: `${throttlerName}:${key}` },
+        ),
+      );
+      return row?.blockedUntil ? new Date(row.blockedUntil).getTime() > Date.now() : false;
+    } catch (e) {
+      this.noteFailure(e as Error);
+      return this.localBlocked(key);
+    }
+  }
+
   onApplicationShutdown(): void {
     this.local.onApplicationShutdown();
   }
@@ -107,6 +129,11 @@ export class SurrealThrottlerStorage implements ThrottlerStorage, OnApplicationS
       await retryOnReadConflict(() => db.query(`DELETE $ids`, { ids }));
       return ids.length;
     });
+  }
+
+  private localBlocked(key: string): boolean {
+    const record = this.local.storage.get(key);
+    return record !== undefined && record.isBlocked && record.blockExpiresAt > Date.now();
   }
 
   private localIncrement(hit: Hit): Promise<StorageRecord> {

@@ -44,6 +44,29 @@ const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_REDIRECTS = 5;
 
+/**
+ * A redirect to another origin keeps only these of the caller's headers.
+ * The caller's credential must not follow it — the WHATWG fetch rule
+ * strips `Authorization` on a cross-origin redirect, and hand-following
+ * redirects (to re-check each hop's address) bypassed that rule: a source
+ * URL or a cloud API that redirected elsewhere handed that host the
+ * connector's token. An allowlist, not a denylist, because a connection
+ * may carry its key in any header it names (`authScheme: 'header:X'`).
+ */
+const CROSS_ORIGIN_HEADERS = new Set(['accept', 'accept-language', 'content-type']);
+
+/** The headers to send to `next` after a redirect from `prev`. */
+export function headersForRedirect(
+  headers: Record<string, string>,
+  prev: string,
+  next: string,
+): Record<string, string> {
+  if (new URL(prev).origin === new URL(next).origin) return headers;
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => CROSS_ORIGIN_HEADERS.has(name.toLowerCase())),
+  );
+}
+
 export async function safeFetch(
   rawUrl: string,
   opts: SafeFetchOptions = {},
@@ -52,6 +75,7 @@ export async function safeFetch(
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
   const maxRedirects = opts.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   let url = rawUrl;
+  let headers: Record<string, string> = { ...(opts.headers ?? {}) };
   for (let hop = 0; ; hop++) {
     await assertPublicHttpUrl(url, { allowHttp });
     if (allowHttp) await refuseLinkLocal(url);
@@ -62,7 +86,7 @@ export async function safeFetch(
     try {
       const res = await fetch(url, {
         method: opts.method ?? 'GET',
-        headers: { 'user-agent': 'inite-brain-source/1.0', ...(opts.headers ?? {}) },
+        headers: { 'user-agent': 'inite-brain-source/1.0', ...headers },
         ...(opts.method === 'POST' && opts.body !== undefined ? { body: opts.body } : {}),
         redirect: 'manual',
         signal: controller.signal,
@@ -74,7 +98,9 @@ export async function safeFetch(
         // A POST is never replayed at another host: a token endpoint or
         // an API that redirects is a misconfiguration, not a hop to follow.
         if (opts.method === 'POST') throw new Error(`POST to ${url} redirected — refused`);
-        url = new URL(location, url).toString();
+        const next = new URL(location, url).toString();
+        headers = headersForRedirect(headers, url, next);
+        url = next;
         await res.body?.cancel().catch(() => undefined);
         continue;
       }
