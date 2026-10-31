@@ -5,16 +5,15 @@ description: Walk a developer through connecting a fresh MCP client (Claude Desk
 
 # brain-mcp-setup
 
-INITE Brain ships a Streamable HTTP MCP endpoint at `/mcp/:companyId`. Each tenant has its own URL, scoped by API key. This skill walks the user from zero to "tools visible in Claude".
+INITE Brain ships a Streamable HTTP MCP endpoint at `/mcp`. The API key names its tenant; `/mcp/<companyId>` is the same endpoint pinned to one tenant. This skill walks the user from zero to "tools visible in Claude".
 
 ## What the user needs
 
 1. A **brain API key** for their company (format `brain_<base64>`).
-2. The **companyId** the key was issued for (visible at `https://brain.inite.ai/admin/keys`).
-3. The **MCP URL**: `https://brain.inite.ai/mcp/<companyId>`.
-4. One of: Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, or a raw `@modelcontextprotocol/sdk` client.
+2. The **MCP URL**: `https://brain.inite.ai/mcp` (or `https://brain.inite.ai/mcp/<companyId>`, which brain refuses when the companyId is not the key's — useful when one config serves several tenants).
+3. One of: Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, or a raw `@modelcontextprotocol/sdk` client.
 
-If they don't have a key yet, point them to `https://brain.inite.ai/admin/keys` and pause. Brain refuses unsigned MCP calls — there's no anonymous mode.
+If they don't have a key yet, point them to `https://brain.inite.ai/en/app/keys` and pause. Brain refuses unsigned MCP calls — there's no anonymous mode.
 
 ## Claude Desktop
 
@@ -24,7 +23,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "url": "https://brain.inite.ai/mcp",
       "transport": "http",
       "headers": {
         "Authorization": "Bearer <api-key>"
@@ -44,7 +43,7 @@ Edit `.cursor/mcp.json` in the user's workspace (or `~/.cursor/mcp.json` for glo
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "url": "https://brain.inite.ai/mcp",
       "transport": "http",
       "headers": {
         "Authorization": "Bearer <api-key>"
@@ -64,7 +63,7 @@ Edit `~/.config/goose/config.yaml`:
 extensions:
   brain:
     type: streamable_http
-    uri: https://brain.inite.ai/mcp/<companyId>
+    uri: https://brain.inite.ai/mcp
     headers:
       Authorization: Bearer <api-key>
     enabled: true
@@ -78,7 +77,7 @@ extensions:
 Aider gained MCP support in 0.95. Pass the brain URL on the command line:
 
 ```bash
-aider --mcp brain.inite.ai/mcp/<companyId> \
+aider --mcp brain.inite.ai/mcp \
       --mcp-header "Authorization: Bearer <api-key>"
 ```
 
@@ -87,7 +86,7 @@ Or in `~/.aider.conf.yml`:
 ```yaml
 mcp-servers:
   brain:
-    url: https://brain.inite.ai/mcp/<companyId>
+    url: https://brain.inite.ai/mcp
     headers:
       Authorization: Bearer <api-key>
 ```
@@ -100,7 +99,7 @@ Edit `~/.continue/config.yaml`:
 mcpServers:
   - name: brain
     type: streamable-http
-    url: https://brain.inite.ai/mcp/<companyId>
+    url: https://brain.inite.ai/mcp
     requestOptions:
       headers:
         Authorization: Bearer <api-key>
@@ -112,7 +111,7 @@ Reload the editor. Tools appear in the `@` mention list.
 
 Use the **MCP Client** node in n8n:
 
-- URL: `https://brain.inite.ai/mcp/<companyId>`
+- URL: `https://brain.inite.ai/mcp`
 - Transport: HTTP (Streamable)
 - Header: `Authorization: Bearer <api-key>`
 
@@ -127,7 +126,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const transport = new StreamableHTTPClientTransport(
-  new URL("https://brain.inite.ai/mcp/<companyId>"),
+  new URL("https://brain.inite.ai/mcp"),
   {
     requestInit: {
       headers: { Authorization: "Bearer <api-key>" },
@@ -173,7 +172,7 @@ The detailed taxonomy (which tool for which question) lives in the workflow skil
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `400: MCP path companyId (...) does not match ApiKey companyId` | URL has wrong companyId for this key | Use the companyId from the `/admin/keys` row, not from another tenant |
+| `400: MCP path companyId (...) does not match ApiKey companyId` | URL has wrong companyId for this key | Use the companyId shown on the keys page for this key, or drop it and use `/mcp` |
 | `401: Unauthorized` | Key missing, expired, or wrong format | Check the `Authorization` header is `Bearer brain_…` exactly; no quotes, no extra spaces |
 | `403: scope brain:write required` | The user has `brain:read` only and tried `record_fact` | Either elevate the key to `brain:write` (admin only) or drop the write call |
 | Tools list empty | Client never reached brain — check the URL is HTTPS and reachable | Opening `https://brain.inite.ai/.well-known/oauth-protected-resource/mcp` in a browser should show a JSON document (not a 404 or a DNS error) |
