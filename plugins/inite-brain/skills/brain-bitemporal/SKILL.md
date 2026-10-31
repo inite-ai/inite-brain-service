@@ -75,10 +75,11 @@ Returns the fact that was valid on that date.
 
 ```
 "On April 1, what did brain believe about this dispute?"
-→ get_entity_profile({ entityId: "...", asOf: "2026-04-01T00:00:00Z" })
+→ get_entity_timeline({ entityId: "...", detail: "compact" })
+  keep fact.recorded events with at <= 2026-04-01, drop those retracted by then
 ```
 
-Returns the snapshot of beliefs as of that wall-clock moment — including facts that have since been retracted but were believed then.
+`asOf` on the profile is valid time (what was true then), not a knowledge snapshot: a fact retracted since is not shown. The knowledge-time snapshot is the REST route `GET /v1/entities/:id?recordedAt=2026-04-01T00:00:00Z`, or the timeline events above.
 
 ### 3. Pre-incident reconstruction
 
@@ -91,21 +92,16 @@ Same as case 2 but with a sharper temporal frame — useful for postmortems wher
 
 ## Reading retracted facts in timeline
 
-`get_entity_timeline` returns the audit trail — retracted facts included. Each row carries:
+`get_entity_timeline` with `detail: "compact"` returns the audit trail as events — retractions included:
 
 ```json
-{
-  "factId": "...",
-  "predicate": "tier",
-  "object": "platinum",
-  "validFrom": "2026-04-01T00:00:00Z",
-  "validUntil": null,
-  "recordedAt": "2026-04-02T08:33:00Z",
-  "retractedAt": "2026-04-10T14:00:00Z",   // ← present means retracted
-  "retractionReason": "Source misattributed; was Bob, not Alice.",
-  "status": "retracted"
-}
+{ "type": "fact.recorded", "at": "2026-04-02T08:33:00Z", "validFrom": "2026-04-01T00:00:00Z",
+  "factId": "...", "predicate": "tier", "object": "platinum" }
+{ "type": "fact.retracted", "at": "2026-04-10T14:00:00Z", "factId": "...",
+  "reason": "Source misattributed; was Bob, not Alice." }
 ```
+
+`at` is when brain learned (or unlearned) it; `validFrom` is when it became true in the world.
 
 How to surface to the user:
 
@@ -137,7 +133,7 @@ Default to no `asOf`. Brain's "actual now" answers ~95% of agent questions corre
 
 ## "When did we first learn this?"
 
-The `recordedAt` axis on `get_entity_timeline` is the transaction-time question. Sorting the timeline by `recordedAt` gives you brain's learning order; sorting by `validFrom` gives the real-world order. They're often different — a fact "valid from 2026-01-01" might be `recordedAt = 2026-05-12` if a backfill landed late.
+The `at` of a timeline event is the transaction-time question. Sorting the events by `at` gives you brain's learning order; sorting by `validFrom` gives the real-world order. They're often different — a fact "valid from 2026-01-01" might be `recordedAt = 2026-05-12` if a backfill landed late.
 
 ## Companion docs
 

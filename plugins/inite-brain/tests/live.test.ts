@@ -40,7 +40,7 @@ const FOCUS_TEXT = [
 
 function engine(
   on: On,
-  opts: { delayMs?: number; connected?: boolean; focusText?: boolean } = {},
+  opts: { delayMs?: number; connected?: boolean; focusText?: boolean | string } = {},
 ): Seen {
   const seen: Seen = { calls: [], context: undefined, clock: mock.clock(on) }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -60,9 +60,11 @@ function engine(
     const text =
       e.tool === 'workspace_status'
         ? JSON.stringify(STATUS)
-        : opts.focusText
-          ? FOCUS_TEXT
-          : JSON.stringify(SEARCH)
+        : typeof opts.focusText === 'string'
+          ? opts.focusText
+          : opts.focusText
+            ? FOCUS_TEXT
+            : JSON.stringify(SEARCH)
     return { value: { content: [{ type: 'text', text }], isError: false } }
   })
   on('prompt.submit', ($, e) => {
@@ -98,6 +100,30 @@ describe('recall on every prompt', () => {
     expect(seen.context?.[0]).toContain('we moved the queue to Redis last week')
     // The closing note is for the model asking brain directly, not a hit.
     expect(seen.context?.[0]).not.toContain('detail "compact"')
+  })
+
+  test('one entity per hit: its lines merge, a quote joins it, links and notes are none', { options: OPTIONS }, async ($, on) => {
+    const seen = engine(on, {
+      focusText: [
+        'Ledger Sync — queue: NATS (was: Redis) (since 2026-03-18)',
+        'Ledger Sync: owned by = Ana (2026-09-01)',
+        '[2026-10-02] mike: "we moved the queue to NATS"',
+        'Meridian: cutoff = 16:30 UTC [competing]; cutoff = 17:00 UTC [competing]',
+        'links: Ledger Sync calls Meridian',
+        '(search degraded: reranker skipped)',
+        '(+3 more: detail "compact")',
+      ].join('\n'),
+    })
+    await start($)
+    await submit($, 'who owns the ledger sync service?')
+    const context = seen.context?.[0] ?? ''
+    expect(context).toContain(
+      '- Ledger Sync: queue: NATS (was: Redis) (since 2026-03-18); owned by = Ana (2026-09-01); [2026-10-02] mike: "we moved the queue to NATS"',
+    )
+    expect(context).toContain('- Meridian: cutoff = 16:30 UTC [competing]; cutoff = 17:00 UTC [competing]')
+    expect(context).not.toContain('- [2026-10-02]')
+    expect(context).not.toContain('- links')
+    expect(context).not.toContain('degraded')
   })
 
   test('asks for the configured user only', { options: { ...OPTIONS, user_id: 'u_7' } }, async ($, on) => {

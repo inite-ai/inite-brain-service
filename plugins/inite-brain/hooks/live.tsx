@@ -60,17 +60,41 @@ function payload(result: McpToolResult) {
 
 /**
  * search_knowledge's default (focus) answer is already lines for a model:
- * `Name: fact; fact`, a quoted source turn, `links: …`, and a closing
- * `(+N …)` note. Each line is one hit; the note and the empty answer are none.
+ * `Name: fact; fact`, a belief `Name — field: value`, a quoted source turn
+ * `[day] speaker: "…"` standing in for the facts above it, `links: …`
+ * between the entities shown, and closing `(…)` notes. A hit is one
+ * entity: its lines merge, a quote joins the entity it came after, and
+ * links and notes are no entity (the model asks brain for them).
  */
 export function hitsOfText(text: string | null): BrainHit[] {
   if (!text || text.startsWith('No facts in memory')) return []
   const hits: BrainHit[] = []
-  for (const line of text.split('\n')) {
-    if (!line.trim() || line.startsWith('(+')) continue
+  const byName = new Map<string, BrainHit>()
+  const add = (name: string, facts: string[]) => {
+    const hit = byName.get(name) ?? { name, facts: [] }
+    if (!byName.has(name)) {
+      byName.set(name, hit)
+      hits.push(hit)
+    }
+    hit.facts.push(...facts)
+    return hit
+  }
+  let last: BrainHit | undefined
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('(') || line.startsWith('links: ')) continue
+    if (line.startsWith('[')) {
+      if (last) last.facts.push(line)
+      else last = add(line.slice(0, line.indexOf(']') + 1), [line])
+      continue
+    }
+    const belief = / — /.exec(line)
     const at = line.indexOf(': ')
-    if (at > 0) hits.push({ name: line.slice(0, at), facts: line.slice(at + 2).split('; ') })
-    else hits.push({ name: line, facts: [] })
+    if (belief && (at < 0 || belief.index < at)) {
+      last = add(line.slice(0, belief.index), [line.slice(belief.index + 3)])
+    } else if (at > 0) {
+      last = add(line.slice(0, at), line.slice(at + 2).split('; '))
+    }
   }
   return hits.slice(0, HITS)
 }
