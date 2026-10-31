@@ -93,7 +93,7 @@ describe('FactResolverService — write-side stamp gate', () => {
     const db = {
       query: jest.fn(async (sql: string, params: Record<string, unknown>) => {
         queries.push({ sql, params });
-        if (sql.includes('fn::resolve_fact(')) {
+        if (sql.includes('fn::settle_fact(')) {
           return [{ factId: 'knowledge_fact:x1', outcome: 'INSERTED' }];
         }
         return [];
@@ -125,7 +125,7 @@ describe('FactResolverService — write-side stamp gate', () => {
   });
 
   const factCall = (qs: Array<{ sql: string; params: Record<string, unknown> }>) =>
-    qs.find((q) => q.sql.includes('fn::resolve_fact('));
+    qs.find((q) => q.sql.includes('fn::settle_fact('));
   const stampCall = (qs: Array<{ sql: string; params: Record<string, unknown> }>) =>
     qs.find((q) => q.sql.includes('langSource ='));
 

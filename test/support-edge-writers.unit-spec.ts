@@ -135,7 +135,7 @@ describe('FactResolverService — contradicted_by edges at the postResolve seam'
     const db = {
       query: jest.fn(async (sql: string, params?: Record<string, unknown>) => {
         calls.push({ sql, params });
-        if (sql.includes('fn::resolve_fact')) return [outcome];
+        if (sql.includes('fn::settle_fact')) return [outcome];
         return [[]];
       }),
     };
@@ -231,7 +231,7 @@ describe('FactResolverService — contradicted_by edges at the postResolve seam'
     });
     db.query.mockImplementation(async (sql: string) => {
       if (sql.includes('memory_support')) throw new Error('unique index blew up');
-      if (sql.includes('fn::resolve_fact')) {
+      if (sql.includes('fn::settle_fact')) {
         return [
           {
             outcome: 'SUPERSEDED',

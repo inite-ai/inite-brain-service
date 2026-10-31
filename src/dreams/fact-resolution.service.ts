@@ -247,15 +247,15 @@ export class FactResolutionService {
 
   /**
    * The entity's open facts nearest to `row`, nearest first, from the
-   * pool fn::resolve_fact (0172) resolves in: the same user, the same
-   * trust-circle tags, the live world. A fact said in one circle is never
+   * pool fn::resolve_fact (0177) resolves in: the same user, the same
+   * circle and team tags, the live world. A fact said in one circle is never
    * judged against — nor can it close — another circle's.
    */
   private async candidates(db: Surreal, row: OpenFactRow): Promise<ResolvableFact[]> {
     if (!Array.isArray(row.embedding) || row.embedding.length === 0) return [];
     const userGate = row.userId ? 'userId = $u' : 'userId IS NONE';
     const circles = (Array.isArray(row.scope) ? row.scope.map(String) : [])
-      .filter((t) => t.startsWith('circle:'))
+      .filter((t) => t.startsWith('circle:') || t.startsWith('team:'))
       .sort();
     const [rows] = await db.query<[OpenFactRow[]]>(
       `SELECT id, predicate, object, validFrom, validUntil, recordedAt, source,
@@ -263,7 +263,7 @@ export class FactResolutionService {
          FROM knowledge_fact
         WHERE entityId = $e AND id != $id AND ${OPEN} AND ${userGate}
           AND derivedVersion IS NONE
-          AND array::sort((scope ?? []).filter(|$t| string::starts_with($t, 'circle:'))) = $circles
+          AND array::sort((scope ?? []).filter(|$t| string::starts_with($t, 'circle:') OR string::starts_with($t, 'team:'))) = $circles
           AND embedding != NONE AND array::len(embedding) = array::len($v)
         ORDER BY sim DESC LIMIT $k`,
       {
