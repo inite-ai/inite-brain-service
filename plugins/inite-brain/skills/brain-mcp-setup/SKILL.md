@@ -168,6 +168,17 @@ A key with only `brain:read` sees only the read tools — that's the security in
 
 The detailed taxonomy (which tool for which question) lives in the workflow skills — `brain-search`, `brain-recall`, `brain-bitemporal`, `brain-write`, `brain-conflict`.
 
+## Harness mode: brain's model work is yours
+
+A server running in harness mode (`EXTRACTION_SOURCE=harness`) calls no model of its own. It lists `take_memory_work` and `submit_memory_work`, and its background reading waits for the connected agent: extraction, fact resolution, entity matching, scene summaries, belief sentences. Until someone drains it, conversations are remembered but not understood. Drain it between tasks:
+
+1. `take_memory_work({ userId })`, with the same `userId` your other calls use, returns one batch: a `systemPrompt`, `userContent`, the JSON schema of the reply, and a signed `token`.
+2. Answer it as the prompt asks, in that schema.
+3. `submit_memory_work({ token, result })`. The server grounds, validates and applies the reply with its own code.
+4. Repeat until `take_memory_work` returns `{ work: null }`.
+
+The Claude Code plugin's start-of-session hook says so when it finds a server in this mode.
+
 ## Common failures
 
 | Symptom | Cause | Fix |
