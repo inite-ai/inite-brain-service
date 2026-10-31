@@ -139,5 +139,5 @@ export const answerDetailArg = z
   .enum(['answer', 'full'])
   .optional()
   .describe(
-    'answer (default): the answer and its citations, or the focus view of the evidence when there is none. full: adds every retrieved hit with scores and ids',
+    'answer (default): the answer and its citations, or the evidence when there is none. full: adds every hit with scores and ids',
   );

@@ -135,7 +135,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Search company knowledge',
       description:
-        'Semantic search over the company knowledge graph. Returns, as a few lines, the facts the query is about (or the turn they were read from, when shorter), the links between their entities and what was left out; detail "compact" gives every fact of the matched entities with entity ids, "full" adds fact ids, scores and external references. Apply asOf for historical "what was true on X" queries (valid time: a fact brain learned after X still shows).' +
+        'Semantic search over the company knowledge graph: the facts the query is about, the links between their entities and what was left out. Apply asOf for historical "what was true on X" queries.' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),
@@ -152,7 +152,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
           .enum(['focus', 'compact', 'full'])
           .optional()
           .describe(
-            'focus (default): only what the query is about, as facts or the turn they came from, whichever is shorter. compact: every fact of the matched entities, with entity ids. full: adds fact and edge ids, scores and trust keys',
+            'focus (default): only what the query is about, as facts or the source turn, whichever is shorter. compact: every fact of the matched entities, with entity ids. full: adds ids, scores, trust keys',
           ),
       },
     },
@@ -193,7 +193,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
     {
       title: 'Multi-hop search across the knowledge graph',
       description:
-        'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set so the engine never spends compute on candidates already disqualified. Built for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns the hops, the answer when asked, and the evidence as focus lines; detail "full" adds finalEntityIds + supportingFactIds (HotpotQA-style evidence chain) to audit which facts drove the answer.' +
+        'Planner-LLM decomposes the query into ≤ maxHops anchored sub-queries; later hops are anchored to the running entity set. Built for questions that combine evidence across turns / sessions, or that require reasoning over multiple entities ("tenants who complained in April AND upgraded after"). Set synthesize=true to get a grounded answer with citations alongside the per-hop trace. Returns the hops, the answer when asked, and the evidence as focus lines.' +
         embedderHint,
       inputSchema: {
         query: z.string().describe('Natural-language query'),

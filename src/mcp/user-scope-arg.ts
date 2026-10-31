@@ -9,5 +9,5 @@ export const userScopeArg = z
   .max(200)
   .optional()
   .describe(
-    "Per-user memory scope: results include tenant-global facts plus this user's personal ones; omit for tenant-global only (fail-closed)",
+    "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
   );

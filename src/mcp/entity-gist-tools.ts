@@ -44,7 +44,7 @@ export function registerEntityProfileTool({
     {
       title: 'Get entity profile',
       description:
-        'One entity: canonical name, type and what brain holds about it — with userId, its current state as beliefs, the facts in dispute and an index of attributes; detail "compact" lists every active fact, "full" adds fact ids and externalRefs (cross-vertical ids, rehydratable in the originating vertical via @inite/api-kit).',
+        'One entity: canonical name, type and what brain holds about it now; detail "full" adds externalRefs, the ids of its records in the originating vertical.',
       inputSchema: {
         entityId: z.string().describe('Brain entity id (knowledge_entity:...) or short id'),
         asOf: isoDateTime()
@@ -57,7 +57,7 @@ export function registerEntityProfileTool({
           .enum(['text', 'compact', 'full'])
           .optional()
           .describe(
-            'text (default): current state, disputes and an index of attributes. compact: every current fact, one line per attribute. full: JSON with fact ids',
+            'text (default): with userId, current state as beliefs, disputes and an attribute index. compact: every current fact. full: JSON with ids',
           ),
       },
     },
@@ -114,7 +114,7 @@ export function registerEntityTimelineTool({
           .enum(['text', 'compact', 'full'])
           .optional()
           .describe(
-            'text (default): the scenes its facts came from, with the state changes in each, then facts from no conversation. compact: JSON with fact ids. full: adds sources and confidence',
+            'text (default): the scenes its facts came from and the state changes in each, then the rest. compact: JSON events with ids. full: adds sources',
           ),
       },
     },
