@@ -13,7 +13,7 @@
  * EACH of {flag off, flag on} snapshots what user-A, user-B, and an M2M
  * caller see through search + get-fact + provenance. Asserts the two
  * snapshots are byte-identical (parity), that A never sees B's rows (and
- * vice versa), and that M2M sees every fact by id.
+ * vice versa), and that M2M reads a personal fact by id only for its user.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -96,8 +96,10 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
   const getFactVisible = async (
     headers: Record<string, string>,
     factId: string,
+    userId?: string,
   ): Promise<boolean> => {
-    const r = await f.http.get(`/v1/facts/${encodeURIComponent(factId)}`).set(headers);
+    const q = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    const r = await f.http.get(`/v1/facts/${encodeURIComponent(factId)}${q}`).set(headers);
     if (r.status === 200) return true;
     expect(r.status).toBe(404);
     return false;
@@ -216,15 +218,19 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
     delete process.env.SCOPE_TAGS_ENABLED;
   });
 
-  it('M2M sees every fact by id; its unscoped search stays tenant-global', async () => {
+  it('M2M reads a personal fact by id only for its user; its unscoped search stays tenant-global', async () => {
     for (const flag of [undefined, '1'] as const) {
       if (flag === undefined) delete process.env.SCOPE_TAGS_ENABLED;
       else process.env.SCOPE_TAGS_ENABLED = flag;
 
-      // Tenant-wide authority: reads any user's fact by id.
+      // Omitting userId reads tenant-global memory only, by id as by search
+      // (#831); acting for a user, M2M reads that user's facts and no one
+      // else's.
       expect(await getFactVisible(m2m(), globalFactId)).toBe(true);
-      expect(await getFactVisible(m2m(), aFactId)).toBe(true);
-      expect(await getFactVisible(m2m(), bFactId)).toBe(true);
+      expect(await getFactVisible(m2m(), aFactId)).toBe(false);
+      expect(await getFactVisible(m2m(), bFactId)).toBe(false);
+      expect(await getFactVisible(m2m(), aFactId, 'user_a')).toBe(true);
+      expect(await getFactVisible(m2m(), bFactId, 'user_a')).toBe(false);
 
       // An M2M search that asserts no userId still sees tenant-global only
       // (matching today's userGate) — personal rows need an explicit scope.

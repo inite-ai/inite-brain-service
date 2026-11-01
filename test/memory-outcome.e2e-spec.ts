@@ -120,8 +120,11 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     return res.body;
   };
 
-  const vote = async (factId: string, verdict: string) => {
-    const res = await f.http.post('/v1/feedback').set(auth()).send({ factId, verdict });
+  const vote = async (factId: string, verdict: string, userId?: string) => {
+    const res = await f.http
+      .post('/v1/feedback')
+      .set(auth())
+      .send({ factId, verdict, ...(userId ? { userId } : {}) });
     expect([200, 201]).toContain(res.status);
   };
 
@@ -266,7 +269,7 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     const userFact = await ingestFact('outcome_user_subj', 'name', 'Outcome User Subject', {
       userId: 'user_outcome_1',
     });
-    await vote(userFact.factId, 'helpful');
+    await vote(userFact.factId, 'helpful', 'user_outcome_1');
     await waitFor(
       () => statFor(userFact.factId),
       (s) => (s?.confirmedCount ?? 0) >= 1,
