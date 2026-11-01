@@ -1,10 +1,22 @@
 import { ExecutionContext, Inject, Injectable, Optional } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerRequest } from '@nestjs/throttler';
+import { ThrottlerException, ThrottlerGuard, ThrottlerRequest } from '@nestjs/throttler';
 import { envFlagEnabled } from '../common/env-validation';
 import { CredentialResolverService } from '../auth/credential-resolver.service';
 import { tierMultiplierFor, tokenTrackerKey } from '../auth/tier-multiplier';
 
 /** The bearer token off a request, or null when the header is absent/malformed. */
+/** The throttler name the failed-authentication budget is kept under. */
+const AUTH_FAIL_THROTTLER = 'authfail';
+
+/** A storage that can say a bucket is blocked without counting a hit (SurrealThrottlerStorage). */
+interface BlockAwareStorage {
+  isBlocked(key: string, throttlerName: string): Promise<boolean>;
+}
+
+function isBlockAware(storage: unknown): storage is BlockAwareStorage {
+  return typeof (storage as Partial<BlockAwareStorage>).isBlocked === 'function';
+}
+
 function bearerToken(req: Record<string, unknown>): string | null {
   const headers = (req.headers as Record<string, string> | undefined) ?? {};
   const auth = headers.authorization;
@@ -21,9 +33,14 @@ function bearerToken(req: Record<string, unknown>): string | null {
  * different buckets. We hash the token (truncated SHA-256) so the tracker
  * is bounded length and never embeds the secret in metrics or memory dumps.
  *
- * Unauthenticated requests still fall through to IP. They never get past
- * the ApiKeyGuard anyway, but bucketing them by IP prevents an unauth
- * flood from spending one tenant's quota.
+ * A token that does not verify is bucketed by IP, not by its own hash:
+ * keyed by the token, every random bearer got a fresh bucket and a flood
+ * was never throttled at all. Failed verifications also count against a
+ * per-IP budget (`authfail`, the default window's limit) that is checked
+ * BEFORE verifying: an unknown `ik_` token costs a remote introspection
+ * call, and the auth-service allows only so many, so a flood of junk
+ * tokens used to exhaust that quota until real keys failed on a cache
+ * miss (OWASP ASVS V2.2.1: throttle failed authentication by source).
  *
  * Per-tier limits: this guard runs before authentication, so it never
  * reads claims off the raw token — an unverified "enterprise" claim must
@@ -60,7 +77,25 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
 
   protected override async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
     const req = requestProps.context.switchToHttp().getRequest();
-    const multiplier = await this.verifiedTierMultiplier(req);
+    const token = bearerToken(req);
+    const failKey = `ip:${(req.ip as string | undefined) ?? 'unknown'}`;
+    const counts = requestProps.throttler.name === 'default';
+    if (token && this.credentials && isBlockAware(this.storageService)) {
+      if (await this.storageService.isBlocked(failKey, AUTH_FAIL_THROTTLER)) {
+        throw new ThrottlerException();
+      }
+    }
+    const verified = await this.verifiedRecord(req);
+    if (token && this.credentials && verified === null && counts) {
+      await this.storageService.increment(
+        failKey,
+        requestProps.ttl,
+        requestProps.limit,
+        requestProps.blockDuration,
+        AUTH_FAIL_THROTTLER,
+      );
+    }
+    const multiplier = verified ? tierMultiplierFor(verified.entitlements) : 1;
     if (multiplier > 1) {
       return super.handleRequest({
         ...requestProps,
@@ -72,22 +107,31 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
 
   protected override async getTracker(req: Record<string, unknown>): Promise<string> {
     const token = bearerToken(req);
-    if (token) return tokenTrackerKey(token);
+    // Only a verified credential earns a bucket of its own; the resolver
+    // memoises on the request, so this is the verification already done.
+    if (token && (!this.credentials || (await this.verifiedRecord(req)))) {
+      return tokenTrackerKey(token);
+    }
     const ip = (req.ip as string | undefined) ?? 'unknown';
     return `ip:${ip}`;
   }
 
-  /** Multiplier from the VERIFIED credential; default tier when there is none. */
-  private async verifiedTierMultiplier(req: Record<string, unknown>): Promise<number> {
+  /**
+   * The VERIFIED credential, null when the token does not verify, and
+   * undefined when there is no token, no resolver, or the resolver failed.
+   */
+  private async verifiedRecord(
+    req: Record<string, unknown>,
+  ): Promise<{ entitlements?: readonly string[] | undefined } | null | undefined> {
     const token = bearerToken(req);
-    if (!token || !this.credentials) return 1;
+    if (!token || !this.credentials) return undefined;
     try {
-      const record = await this.credentials.resolve(token, req);
-      return tierMultiplierFor(record?.entitlements);
+      return await this.credentials.resolve(token, req);
     } catch {
-      // A resolver failure is the auth guard's to report; here it only
-      // means the default tier.
-      return 1;
+      // A resolver failure (an auth-service outage) is the auth guard's to
+      // report. It is not a failed authentication, so it spends nothing of
+      // the caller's failed-auth budget; the request is bucketed by IP.
+      return undefined;
     }
   }
 }

@@ -71,6 +71,14 @@ export interface UserForgetResult {
   purgedCandidates: number;
   /** indexer_run rows erased with those exclusive docs. */
   purgedIndexerRuns: number;
+  /** memory_file rows (0146): the user's verbatim notes from the memory tool. */
+  memoryFilesDeleted: number;
+  /**
+   * The user's links and connections outside memory proper: external
+   * identities (0169), personal source connections with their catalogue
+   * items, OAuth grants (stored credentials) and pending OAuth states.
+   */
+  accountRowsDeleted: number;
 }
 
 @Injectable()
@@ -346,6 +354,8 @@ export class UserForgetService {
         { u: userId, facts: factIds, ents: entityIds },
       );
 
+      const { memoryFilesDeleted, accountRowsDeleted } = await this.eraseUserRows(db, userId);
+
       // Purge the materialised audit mirror (same contract as entity
       // forget): recordId is the full `table:id` string. The changefeed
       // consumer's PII redaction covers any still-unconsumed lag.
@@ -375,14 +385,57 @@ export class UserForgetService {
         purgedSourceChunks,
         purgedCandidates: docRows.candidates,
         purgedIndexerRuns: docRows.indexerRuns,
+        memoryFilesDeleted,
+        accountRowsDeleted,
       };
       this.logger.log(
         `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} beliefs=${result.beliefsDeleted} ` +
           `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted} evidenceGrants=${result.evidenceGrantsDeleted} ` +
-          `docs=${result.purgedSourceDocs} chunks=${result.purgedSourceChunks} candidates=${result.purgedCandidates} indexerRuns=${result.purgedIndexerRuns}`,
+          `docs=${result.purgedSourceDocs} chunks=${result.purgedSourceChunks} candidates=${result.purgedCandidates} indexerRuns=${result.purgedIndexerRuns} ` +
+          `memoryFiles=${result.memoryFilesDeleted} accountRows=${result.accountRowsDeleted}`,
       );
       return result;
     });
+  }
+
+  /**
+   * The user's rows that hold no fact but are theirs: the memory tool's
+   * verbatim notes (memory_file), the links from this user to accounts
+   * elsewhere (external_identity), and their personal source connections
+   * with every catalogue item, OAuth grant (a stored credential) and
+   * pending OAuth state. Each was written with the user's id and was
+   * missing from this cascade (ground rule 4: a table holding user content
+   * is wired into forget). Select ids, then DELETE by id: the 3.2.4
+   * planner contract every step above follows.
+   */
+  private async eraseUserRows(
+    db: QueryHandle,
+    userId: string,
+  ): Promise<{ memoryFilesDeleted: number; accountRowsDeleted: number }> {
+    const [files, links, conns] = await db.query<[unknown[], unknown[], unknown[]]>(
+      `SELECT VALUE id FROM memory_file WHERE userId = $u;
+       SELECT VALUE id FROM external_identity WHERE userId = $u;
+       SELECT VALUE id FROM source_connection WHERE userId = $u;`,
+      { u: userId },
+    );
+    const connIds = conns ?? [];
+    const [items, grants, states] = await db.query<[unknown[], unknown[], unknown[]]>(
+      `SELECT VALUE id FROM source_item WHERE userId = $u OR connectionId INSIDE $conns;
+       SELECT VALUE id FROM source_oauth_grant WHERE userId = $u;
+       SELECT VALUE id FROM source_oauth_state WHERE userId = $u;`,
+      { u: userId, conns: connIds },
+    );
+    const account = [
+      ...(links ?? []),
+      ...(items ?? []),
+      ...connIds,
+      ...(grants ?? []),
+      ...(states ?? []),
+    ];
+    const memoryFiles = files ?? [];
+    if (memoryFiles.length > 0) await db.query(`DELETE $ids`, { ids: memoryFiles });
+    if (account.length > 0) await db.query(`DELETE $ids`, { ids: account });
+    return { memoryFilesDeleted: memoryFiles.length, accountRowsDeleted: account.length };
   }
 
   /**

@@ -20,7 +20,7 @@ import { EgressDeniedError } from '../src/common/egress-guard';
 import { htmlToText } from '../src/common/html-text';
 import { UrlConnector, locs } from '../src/source-plane/connectors/url.connector';
 import { parseRobots } from '../src/source-plane/connectors/robots';
-import { safeFetch } from '../src/source-plane/connectors/safe-fetch';
+import { headersForRedirect, safeFetch } from '../src/source-plane/connectors/safe-fetch';
 import type { ConnectorCtx, ItemDelta } from '../src/source-plane/connector';
 
 let server: Server;
@@ -280,6 +280,23 @@ describe('UrlConnector', () => {
     });
     expect(seen.at(-1)!.headers['x-api-key']).toBe('k');
     expect(seen.at(-1)!.headers['user-agent']).toBe('inite-brain-source/1.0');
+  });
+
+  it('a redirect to another origin drops every credential-bearing header; same origin keeps them', () => {
+    const headers = {
+      authorization: 'Bearer tok',
+      'X-Api-Key': 'k',
+      cookie: 's=1',
+      accept: 'application/json',
+    };
+    expect(headersForRedirect(headers, 'https://a.example/x', 'https://a.example/y')).toBe(headers);
+    expect(headersForRedirect(headers, 'https://a.example/x', 'https://cdn.example/y')).toEqual({
+      accept: 'application/json',
+    });
+    // Another port or scheme is another origin.
+    expect(headersForRedirect(headers, 'https://a.example/x', 'https://a.example:8443/y')).toEqual({
+      accept: 'application/json',
+    });
   });
 
   it('pure helpers: locs, parseRobots, htmlToText', () => {
