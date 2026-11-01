@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FactTruthSchema } from '../search/search.schema';
 
 /**
  * Wire contracts for the entity READ surface — autocomplete, profile,
@@ -33,6 +34,7 @@ export const EntityProfileFactSchema = z.object({
   /** When a temporary state is expected to be over (0166) — an expectation inferred at write time, not an end. */
   expectedUntil: z.string().optional(),
   status: z.string(),
+  truth: FactTruthSchema.optional(),
 });
 
 export const EntityProfileResponseSchema = z.object({

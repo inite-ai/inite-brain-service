@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
-import { entailmentLabels, type NliPipelineParts } from './nli-entailment';
+import { nliLabels, type NliLabel, type NliPipelineParts } from './nli-entailment';
 import { ConfigService } from '@nestjs/config';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
@@ -255,16 +255,23 @@ export class IntentClassifierService implements OnModuleInit, OnApplicationShutd
    * keeps its facts rather than trusting a quote.
    */
   async entails(premise: string, hypotheses: string[]): Promise<Array<boolean | undefined>> {
-    const unknown = hypotheses.map((): boolean | undefined => undefined);
+    return (await this.nli(premise, hypotheses)).map((l) =>
+      l === undefined ? undefined : l === 'entailment',
+    );
+  }
+
+  /**
+   * Each hypothesis's three-way label under `premise` (entailment,
+   * neutral, contradiction); `undefined` for every hypothesis when no
+   * model can answer now.
+   */
+  async nli(premise: string, hypotheses: string[]): Promise<Array<NliLabel | undefined>> {
+    const unknown = hypotheses.map((): NliLabel | undefined => undefined);
     if (hypotheses.length === 0 || !this.hasNliRuntime()) return unknown;
     try {
       return this.classifier
-        ? await entailmentLabels(
-            this.classifier as unknown as NliPipelineParts,
-            premise,
-            hypotheses,
-          )
-        : await this.rpc<boolean[]>('entail', { premise, hypotheses });
+        ? await nliLabels(this.classifier as unknown as NliPipelineParts, premise, hypotheses)
+        : await this.rpc<NliLabel[]>('entail', { premise, hypotheses });
     } catch (e) {
       this.logger.warn(`NLI entailment failed: ${(e as Error).message}`);
       return unknown;

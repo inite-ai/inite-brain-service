@@ -1,6 +1,7 @@
 import type { EntityProfile, TimelineEvent } from '../entities/entities.service';
 import type { BeliefReadResult } from '../beliefs/beliefs.service';
 import type { SceneReadResult } from '../scenes/scenes.service';
+import { likelihood } from './compact-read';
 
 /**
  * get_entity_profile / get_entity_timeline at the coarse level of the
@@ -32,10 +33,15 @@ export function profileGist(p: EntityProfile, beliefs: BeliefReadResult[]): stri
       (b) =>
         `  ${b.field}: ${b.value}${b.priorValue ? ` (was: ${b.priorValue})` : ''} — since ${day(b.validFrom)}`,
     );
+  // A dispute lists its values most likely first, each with what truth
+  // discovery learned about it (#847), and none of them hidden.
   const disputed = new Map<string, string[]>();
-  for (const f of p.facts) {
-    if (f.status !== 'competing') continue;
-    disputed.set(f.predicate, [...(disputed.get(f.predicate) ?? []), f.object]);
+  const contested = p.facts
+    .filter((f) => f.status === 'competing')
+    .sort((a, b) => (b.truth?.posterior ?? 0) - (a.truth?.posterior ?? 0));
+  for (const f of contested) {
+    const label = f.truth ? ` (${likelihood(f).slice(2)})` : '';
+    disputed.set(f.predicate, [...(disputed.get(f.predicate) ?? []), `${f.object}${label}`]);
   }
   const counts = new Map<string, number>();
   for (const f of p.facts) counts.set(f.predicate, (counts.get(f.predicate) ?? 0) + 1);

@@ -22,12 +22,15 @@ export interface NliPipelineParts {
   };
 }
 
-/** Whether each hypothesis is entailed by the premise (the model's argmax label). */
-export async function entailmentLabels(
+/** The model's own top label for a (premise, hypothesis) pair. */
+export type NliLabel = 'entailment' | 'neutral' | 'contradiction';
+
+/** Each hypothesis's top label under the premise (the model's argmax). */
+export async function nliLabels(
   nli: NliPipelineParts,
   premise: string,
   hypotheses: string[],
-): Promise<boolean[]> {
+): Promise<NliLabel[]> {
   if (hypotheses.length === 0) return [];
   const inputs = await nli.tokenizer(new Array<string>(hypotheses.length).fill(premise), {
     text_pair: hypotheses,
@@ -36,11 +39,7 @@ export async function entailmentLabels(
   });
   const out = await nli.model(inputs);
   const labels = out.logits.dims[1] ?? 0;
-  const entailment = Object.entries(nli.model.config.id2label).find(([, l]) =>
-    l.toLowerCase().startsWith('entail'),
-  );
-  if (!entailment || labels === 0) return hypotheses.map(() => false);
-  const entailIdx = Number(entailment[0]);
+  const names = nli.model.config.id2label;
   return hypotheses.map((_, row) => {
     let best = 0;
     for (let j = 1; j < labels; j++) {
@@ -48,6 +47,20 @@ export async function entailmentLabels(
         best = j;
       }
     }
-    return best === entailIdx;
+    const name = (names[String(best)] ?? '').toLowerCase();
+    return name.startsWith('entail')
+      ? 'entailment'
+      : name.startsWith('contra')
+        ? 'contradiction'
+        : 'neutral';
   });
+}
+
+/** Whether each hypothesis is entailed by the premise (the model's argmax label). */
+export async function entailmentLabels(
+  nli: NliPipelineParts,
+  premise: string,
+  hypotheses: string[],
+): Promise<boolean[]> {
+  return (await nliLabels(nli, premise, hypotheses)).map((l) => l === 'entailment');
 }

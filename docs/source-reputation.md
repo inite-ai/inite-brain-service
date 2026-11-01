@@ -91,6 +91,10 @@ No model is called, and there are no hand-set weights.
   claims, model, computedAt }`, the probability that its value is the true
   one. That is a read-side estimate; it never supersedes, retracts or hides
   anything.
+- **Served.** Search hits and the entity profile carry `truth` on a
+  contested fact. The focus view marks it `[competing, likely 0.82]`, and the
+  profile gist lists a dispute's values most likely first. The rival stays in
+  view.
 
 On the battery (sources of known accuracy, copiers, a source that reports
 changes; 10 seeds the prior was not tuned on), it picks the true value 92.7%

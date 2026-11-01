@@ -93,6 +93,8 @@ export interface FactRow {
    * off the row so trust can enter ranking without a join. Absent on
    * pre-0044 facts (degrades to the neutral 0.5 in scoring).
    */
+  /** Truth discovery (#847, 0181): set only on a fact whose value is contested. */
+  truth?: { posterior: number; claims: number } | null;
   trustSnapshot?: {
     sourceKey?: string;
     domain?: string;

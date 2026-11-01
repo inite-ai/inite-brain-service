@@ -116,6 +116,23 @@ describe('retrieval feedback loop', () => {
       expect(rate.get('rent:fb_crm')!).toBeGreaterThan(0.5);
       expect((rows ?? []).every((r) => r.method === 'dawid_skene')).toBe(true);
     });
+
+    // The read side carries it: the entity profile's contested value says
+    // how likely it is (#847).
+    const [ent] = await surreal.withCompany(f.companyId, async (db) => {
+      const [r] = await db.query<[Array<{ entityId: unknown }>]>(
+        `SELECT entityId FROM knowledge_fact WHERE predicate = 'tier' AND object = 'silver' LIMIT 1`,
+      );
+      return r ?? [];
+    });
+    const profile = await f.http
+      .get(`/v1/entities/${encodeURIComponent(String(ent!.entityId))}`)
+      .set(auth());
+    expect(profile.status).toBe(200);
+    const silver = (profile.body.facts as Array<{ object: string; truth?: unknown }>).find(
+      (x) => x.object === 'silver',
+    );
+    expect(silver?.truth).toEqual({ posterior: 1, claims: 2 });
   });
 
   it("a user-bound key cannot rate another user's personal fact — 404, never 201", async () => {
