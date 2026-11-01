@@ -11,8 +11,8 @@
  *      incumbent carries the fact); no duplicate results.
  *   4. Retracting the incumbent leaves corroborating rows untouched
  *      (accepted v1 semantics — they are records of claims).
- *   5. The nightly refit counts a corroborating row as a WIN for its
- *      source.
+ *   5. Truth discovery (#847) counts independent agreement as evidence:
+ *      a source whose value another origin restates gains accuracy.
  */
 import { Surreal } from 'surrealdb';
 import { SurrealService } from '../src/db/surreal.service';
@@ -177,18 +177,33 @@ describe('cross-source corroboration (Phase 4)', () => {
     expect(bravoRow.retractedAt).toBeUndefined();
   });
 
-  it('the refit counts corroborating rows as wins for their source', async () => {
+  it('a source whose value another origin restates gains accuracy', async () => {
+    const first = await ingest({
+      entityId: 'site_99',
+      predicate: 'tier',
+      object: 'gold',
+      source: ALPHA,
+    });
+    const second = await ingest({
+      entityId: 'site_99',
+      predicate: 'tier',
+      object: 'gold',
+      source: BRAVO,
+    });
+    expect(second.body.outcome).toBe('CORROBORATED');
+    expect(first.body.factId).toBeTruthy();
     await f.app.get(CalibrationRefitRunnerService).refitSourceTrust();
     const rows = await withDb(async (db) => {
       const [r] = await db.query<[any[]]>(
-        `SELECT domain, winCount, lossCount FROM source_trust
-           WHERE sourceKey = 'ops:scout_bravo' AND domain IS NONE`,
+        `SELECT winCount, lossCount, agreementRate FROM source_trust
+           WHERE sourceKey = 'ops:scout_bravo' AND domain = 'tier'`,
       );
       return r as any[];
     });
+    // Two origins naming the same value, with no rival: agreement is
+    // evidence both were right.
     expect(rows).toHaveLength(1);
-    // bravo produced only corroborating rows (+1 superseded 'shut down'
-    // supersede-winner is ALPHA's loss, not bravo's) — wins must be > 0.
-    expect(rows[0].winCount).toBeGreaterThanOrEqual(2);
+    expect(rows[0]).toMatchObject({ winCount: 1, lossCount: 0 });
+    expect(rows[0].agreementRate).toBeGreaterThan(0.5);
   });
 });

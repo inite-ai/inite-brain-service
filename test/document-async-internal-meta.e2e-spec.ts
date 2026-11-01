@@ -34,7 +34,7 @@ describe('async document ingest keeps the internal header keys (e2e)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
     delete process.env.DOCUMENT_MULTI_INDEXER_ENABLED;
     delete process.env.INGEST_MENTION_VIA_DOCUMENT;

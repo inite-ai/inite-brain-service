@@ -99,7 +99,7 @@ describe('feedback — one standing vote, one rollup delta, under concurrency (F
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
   });
   afterEach(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
   });
 
   it('two concurrent helpful votes from one actor net exactly +1 confirmedCount', async () => {

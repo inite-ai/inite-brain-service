@@ -181,15 +181,8 @@ jobs:
           mkdir -p "${PROJECT_DIR}"
           tee "${PROJECT_DIR}/enablement.env" > /dev/null << 'EOF'
           # ── L0 episode substrate + read APIs ──
-          EPISODE_SUBSTRATE_ENABLED=1
-          EPISODES_API_ENABLED=1
           EPISODE_SUBSCRIPTIONS_ENABLED=1
-          PROJECTIONS_API_ENABLED=1
-          FACTS_API_ENABLED=1
-          USER_PROFILE_API_ENABLED=1
-          STATS_VIEWS_ENABLED=1
           LIVE_SUBSCRIPTIONS_ENABLED=1
-          AUDIT_CHANGEFEED_ENABLED=1
           # ── Ingest / extraction quality ──
           EXTRACTION_OBJECT_NORMALIZE=1
           # The open (dialogue) extraction profile: the model coins a
@@ -214,7 +207,6 @@ jobs:
           # memory-fitness 31 -> 32/32, state-transitions 10 -> 11/12,
           # multilingual T0 = baseline; latency unchanged (parallel),
           # three extractor calls per turn.
-          EXTRACTOR_SC_PASSES=3
           # Extraction is off the write path (extraction-batch.service.ts):
           # nobody waits on it, so it — like scenes, beliefs and the dream
           # jobs — runs on the flex tier: the same model at half the price.
@@ -252,8 +244,6 @@ jobs:
           DERIVER_MENTION_STAMP=1
           DERIVER_TURN_HEADERS=1
           DERIVER_DATE_RESOLVE=1
-          DERIVER_DATE_AUDIT=1
-          DERIVER_ASPECT_ROLLUPS=1
           DERIVER_COMPOSE_PASS=1
           DERIVER_SCENE_TRACE=1
           DERIVER_TYPED_ATOMS=1
@@ -265,7 +255,6 @@ jobs:
           # PIN: legacy lane flags imply verbatim='always' (dialogue
           # profile) when RETRIEVAL_VERBATIM_EVIDENCE is unset — pin the
           # assistant-chat mode so the lanes do NOT flip the genre.
-          RETRIEVAL_VERBATIM_EVIDENCE=shape_conditioned
           SEARCH_EPISODIC_LANE_ENABLED=1
           SYNTHESIZE_SOURCE_EXCERPTS=1
           SEARCH_SEGMENT_LANE_ENABLED=1
@@ -297,7 +286,6 @@ jobs:
           RETRIEVAL_VERIFIER_TOPIC_COVERAGE=1
           RETRIEVAL_MENTION_DATES=1
           RETRIEVAL_ENUM_STRICT=1
-          RETRIEVAL_SCENE_TRACES=1
           RETRIEVAL_RAW_WINDOW=1
           RETRIEVAL_ASSISTANT_LANE=1
           RETRIEVAL_FACTS_AS_KEYS=1
@@ -342,19 +330,15 @@ jobs:
           SCENES_BELIEF_LLM_SYNTHESIS=1
           SCENES_EVIDENCE_LINKS=1
           PACK_MEMORY_PROJECTIONS_ENABLED=1
-          BELIEFS_API_ENABLED=1
           BELIEFS_SERVING_LANE=1
           BELIEFS_FACT_DAMPING=1
           # ── Evidence plane (grounding + lifecycle + raw-read) ──
-          EVIDENCE_SUBSTRATE_ENABLED=1
-          EVIDENCE_INGEST_ENABLED=1
           EVIDENCE_GROUNDING_STAMP=1
           EVIDENCE_FAIL_CLOSED_CAPTURE=1
           EVIDENCE_UNGROUNDED_EXCLUDE=1
           EVIDENCE_UNGROUNDED_SERVING_GATE=1
           EVIDENCE_PROCESSOR_BROKER=1
           EVIDENCE_QUARANTINE=1
-          EVIDENCE_RAW_READ_ENABLED=1
           EVIDENCE_FRAGMENT_CITATIONS=1
           # An uploaded PDF's extracted text goes through the ordinary
           # document pipeline, so it yields facts — off, a PDF gave
@@ -368,12 +352,6 @@ jobs:
           PROVENANCE_SUPPORT_EDGES=1
           PROVENANCE_SUPPORT_GRAPH_READ=1
           # ── Outcome telemetry + tool observations ──
-          OUTCOME_TELEMETRY_ENABLED=1
-          OUTCOME_RETRIEVED_EVENTS=1
-          OUTCOME_TX_WRITES=1
-          OUTCOME_DECISION_CAPTURE=1
-          TOOL_OBSERVATIONS_ENABLED=1
-          TOOL_OBSERVATION_CONTENT=1
           # ── Fovea optics + serving integrity ──
           FOVEA_FOCUS_CAPTURE=1
           FOVEA_ADAPTIVE_L3=1
@@ -412,7 +390,6 @@ jobs:
           AGENT_QA_TOOLS_V2=1
           # ── Memory-fitness fix wave (#415-#417, measured on the stand:
           # same-memory re-ask 16/30 -> 20/29; D2 timeline 3/3, D6 2/2) ──
-          READ_SURFACE_USER_SCOPE=1
           CONFLICT_DIRECT_FACT_SLOT=1
           BELIEFS_LANE_DATE_DISAMBIGUATION=1
           PROVENANCE_EPISODE_NEIGHBOURS=1

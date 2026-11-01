@@ -230,8 +230,8 @@ write and rename leaves behind, which no ref can address.
 
 | Flag                              | Default | Purpose                                                                                                                                                                                  |
 | --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TOOL_OBSERVATIONS_ENABLED`       | `0`     | Per-request MCP builds apply the content-free observation wrapper (tool, digests, ok, durationMs); ingest accepts `toolObservationRef`; nightly prune runs. Denied calls record nothing. |
-| `TOOL_OBSERVATION_CONTENT`        | `0`     | Opt-in for the ONE content-bearing column (`contentExcerpt`, sanitized, ≤512 chars) on top of the master flag. Off = digest-only rows (the content-free contract).                       |
+| `TOOL_OBSERVATIONS_ENABLED`       | `1`     | Per-request MCP builds apply the content-free observation wrapper (tool, digests, ok, durationMs); ingest accepts `toolObservationRef`; nightly prune runs. Denied calls record nothing. |
+| `TOOL_OBSERVATION_CONTENT`        | `1`     | The ONE content-bearing column (`contentExcerpt`, sanitized, ≤512 chars) on top of the master flag. `0` = digest-only rows (the content-free contract).                       |
 | `TOOL_OBSERVATION_RETENTION_DAYS` | `30`    | Days raw observation rows are kept (03:41 UTC prune).                                                                                                                                    |
 
 ### `SCENES_*` — scene substrate + belief promotion (Brain v2)
@@ -321,11 +321,10 @@ segment-serving mode is on, cross-user verbatim disclosure is possible.
 
 | Flag                              | Default | Purpose                                                                                                                                                                                                           |
 | --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OUTCOME_TELEMETRY_ENABLED`       | `0`     | Writers append `memory_outcome` events + fold the `memory_outcome_stat` rollup; nightly raw-log prune. Feeds the verified-use activation of ranking (`RETRIEVAL_VERIFIED_USE_*`, search/internals/activation.ts). |
-| `OUTCOME_RETRIEVED_EVENTS`        | `0`     | Extra gate on the high-volume `retrieved` stream (one event per surfaced fact per search).                                                                                                                        |
+| `OUTCOME_TELEMETRY_ENABLED`       | `1`     | Writers append `memory_outcome` events + fold the `memory_outcome_stat` rollup; nightly raw-log prune. Feeds the verified-use activation of ranking (`RETRIEVAL_VERIFIED_USE_*`, search/internals/activation.ts). |
+| `OUTCOME_RETRIEVED_EVENTS`        | `1`     | Extra gate on the high-volume `retrieved` stream (one event per surfaced fact per search).                                                                                                                        |
 | `OUTCOME_EVENT_RETENTION_DAYS`    | `30`    | Raw event log retention (the stat rollup is never pruned).                                                                                                                                                        |
-| `OUTCOME_TX_WRITES`               | `0`     | Transactional idempotent outcome writes (one BEGIN/COMMIT, deterministic ids, replay folds nothing twice).                                                                                                        |
-| `OUTCOME_DECISION_CAPTURE`        | `0`     | Content-free `memory_decision` rows at the abstain gate + L3 trigger (0119); independent master, not coupled to `OUTCOME_TELEMETRY_ENABLED`.                                                                      |
+| `OUTCOME_DECISION_CAPTURE`        | `1`     | Content-free `memory_decision` rows at the abstain gate + L3 trigger (0119); independent master, not coupled to `OUTCOME_TELEMETRY_ENABLED`.                                                                      |
 | `OUTCOME_DECISION_RETENTION_DAYS` | `30`    | Decision-row retention (03:41 UTC prune, gated on the capture flag).                                                                                                                                              |
 
 Related read-surface flags documented in [api.md](api.md):

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Surreal } from 'surrealdb';
+import { StringRecordId, Surreal } from 'surrealdb';
 import { ApiKeyService } from '../../auth/api-key.service';
 import { SurrealService } from '../../db/surreal.service';
 import { fitIsotonic, type CalibrationPair, type CalibrationMap } from './isotonic';
@@ -9,6 +9,18 @@ import {
   BOOTSTRAP_PROMPT_KEY,
 } from './calibration.service';
 import { DEFAULT_CHAT_MODEL } from '../openai-client';
+import { CORE_PREDICATES } from '../predicate-registry-internals/core-seed';
+import { discoverTruth, type FactTruth } from './truth-discovery';
+import {
+  TRUTH_METHOD,
+  TRUTH_MODEL,
+  TRUTH_PRIOR_STRENGTH,
+  sourceKeyOf,
+  toTruthAnchors,
+  toTruthFacts,
+  type TruthFactRow,
+  type TruthFeedbackRow,
+} from './truth-discovery-input';
 
 /** Per-tenant progress callback so the caller can track a job_run row. */
 export type RefitProgress = (detail: Record<string, unknown>) => void;
@@ -149,96 +161,73 @@ export class CalibrationRefitRunnerService {
   }
 
   /**
-   * Recompute learned source trust for one tenant at BOTH grains: the
-   * global per-source rate (domain NONE — what existed pre-0045) and the
-   * domain-scoped rate ((sourceKey, domain), domain = predicate for now).
-   * fn::source_trust_scoped resolves scoped → global → 0.5, so scoped rows
-   * simply sharpen the picture where a source has enough same-predicate
-   * history. Rate movements (or first sightings) append to
-   * source_trust_history — the reputation-over-time trail; the hot
-   * source_trust row stays an in-place UPSERT cache.
+   * Fit truth discovery for one tenant (#847) and write what it learned:
+   * per-source accuracy at both grains ((sourceKey, domain) and the
+   * source across domains) into source_trust, and the posterior of each
+   * contested fact's value onto the fact. Replaces the win/loss tally,
+   * which scored every valid-time succession as a loss. Rows of sources
+   * that took part in no contest this run are removed: there is no
+   * evidence for them, and fn::source_trust_scoped then falls back to 0.5.
+   * Rate movements (or first sightings) still append to
+   * source_trust_history.
    */
   private async refitSourceTrustForTenant(companyId: string): Promise<number> {
-    // Opt-in recency window (CALIBRATION_REFIT_WINDOW_DAYS): bounds both
-    // scans by createdAt/recordedAt instead of relying on the fixed
-    // LIMIT 50000 — on tenants past 50k rows the LIMIT already acts as a
-    // silent sliding window, so an explicit one changes nothing
-    // semantically while letting the (indexed) time predicates cut the
-    // scan. Unset = the pre-existing behaviour, unchanged.
+    // Opt-in recency window (CALIBRATION_REFIT_WINDOW_DAYS): bounds the
+    // scans by recordedAt/createdAt instead of relying on the fixed
+    // LIMIT 50000, which already acts as a silent sliding window on
+    // tenants past 50k rows. Unset = no window.
     const windowDays = parseInt(process.env.CALIBRATION_REFIT_WINDOW_DAYS ?? '0', 10);
     const since = windowDays > 0 ? new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000) : null;
     return this.surreal.withCompany(companyId, async (db) => {
-      const [rows] = await db.query<
-        [
-          Array<{
-            vertical: string | null;
-            recorder: string | null;
-            predicate: string;
-            status: string;
-            recordedAt: string | Date;
-            originKey: string | null;
-            corroborates: unknown;
-          }>,
-        ]
-      >(
-        `SELECT
-            source.vertical AS vertical,
-            source.recorder AS recorder,
-            source.originKey AS originKey,
-            corroborates,
-            predicate,
-            status,
-            recordedAt
-          FROM knowledge_fact
-          WHERE source.vertical IS NOT NONE
-            ${since ? 'AND recordedAt > $since' : ''}
-          ORDER BY recordedAt DESC
-          LIMIT 50000;`,
-        since ? { since } : undefined,
-      );
-      // Retrieval feedback (migration 0054) joins the same win/loss
-      // currency: 'helpful' confirms the source, 'incorrect' counts
-      // against it. The UNIQUE (factId, actor) write index stops stacking
-      // votes on ONE fact, but a single actor can still vote across every
-      // fact of a source (factIds are enumerable from search) and farm N
-      // losses/wins into one (source, predicate) rate. buildFeedbackTrust-
-      // Events dedups per (actor, scope, verdict) to cap that at one, so
-      // only DISTINCT callers move a source's rate — `actor` is projected
-      // for that. 'not_helpful' is a relevance signal, excluded by WHERE.
-      const [feedbackRows] = await db.query<
-        [
-          Array<{
-            actor: string | null;
-            vertical: string | null;
-            recorder: string | null;
-            predicate: string;
-            verdict: string;
-            createdAt: string | Date;
-          }>,
-        ]
-      >(
-        `SELECT
-            actor,
-            factId.source.vertical AS vertical,
-            factId.source.recorder AS recorder,
-            factId.predicate AS predicate,
-            verdict,
-            createdAt
-          FROM retrieval_feedback
-          WHERE verdict != 'not_helpful'
-            AND factId.source.vertical IS NOT NONE
-            ${since ? 'AND createdAt > $since' : ''}
-          ORDER BY createdAt DESC
-          LIMIT 50000;`,
-        since ? { since } : undefined,
-      );
-      const summary = aggregateByScope([
-        ...buildTrustEvents(rows ?? []),
-        ...buildFeedbackTrustEvents(feedbackRows ?? []),
+      const [[runStart], [rows], [feedbackRows], [predicates], [declaredRows]] = await Promise.all([
+        db.query<[unknown]>('RETURN time::now();'),
+        db.query<[Array<TruthFactRow & { recordedAt: string | Date }>]>(
+          `SELECT id, entityId, predicate, predicateAlias, object, validFrom, validUntil, status,
+                  userId, scope, derivedVersion, recordedAt,
+                  corroborates.validUntil AS corroboratedUntil,
+                  source.vertical AS vertical,
+                  source.recorder AS recorder,
+                  source.originKey AS originKey
+             FROM knowledge_fact
+            WHERE source.vertical IS NOT NONE
+              ${since ? 'AND recordedAt > $since' : ''}
+            ORDER BY recordedAt DESC
+            LIMIT 50000;`,
+          since ? { since } : undefined,
+        ),
+        db.query<[TruthFeedbackRow[]]>(
+          `SELECT factId, actor, verdict, createdAt
+             FROM retrieval_feedback
+            WHERE verdict != 'not_helpful'
+              ${since ? 'AND createdAt > $since' : ''}
+            ORDER BY createdAt DESC
+            LIMIT 50000;`,
+          since ? { since } : undefined,
+        ),
+        db.query<[Array<{ predicateId: string; semantics: string }>]>(
+          `SELECT predicateId, semantics FROM knowledge_predicate;`,
+        ),
+        db.query<[Array<{ sourceKey: string; authLevel: number }>]>(
+          `SELECT sourceKey, authLevel FROM source_registry WHERE authLevel > 0;`,
+        ),
       ]);
+      const singleValued = singleValuedPredicates(predicates ?? []);
+      const facts = toTruthFacts(rows ?? [], singleValued);
+      const anchors = toTruthAnchors(feedbackRows ?? [], facts);
+      const declared = new Map((declaredRows ?? []).map((r) => [r.sourceKey, r.authLevel]));
+      const fit = discoverTruth(facts, anchors, {
+        priorStrength: TRUTH_PRIOR_STRENGTH,
+        declared,
+      });
 
-      // Prior rates in one read — the |Δ| > 0.01 history gate needs them,
-      // and per-scope SELECTs would be N extra round-trips.
+      const lastSeen = new Map<string, Date>();
+      for (const r of rows ?? []) {
+        const key = sourceKeyOf(r);
+        const at = new Date(r.recordedAt);
+        const seen = lastSeen.get(key);
+        if (!seen || seen.getTime() < at.getTime()) lastSeen.set(key, at);
+      }
+
       const [existingRows] = await db.query<
         [Array<{ sourceKey: string; domain: string | null; agreementRate: number }>]
       >(`SELECT sourceKey, domain, agreementRate FROM source_trust;`);
@@ -246,30 +235,62 @@ export class CalibrationRefitRunnerService {
       for (const r of existingRows ?? []) {
         prior.set(scopeKeyOf(r.sourceKey, r.domain ?? null), r.agreementRate);
       }
-
-      const scopes = summary
-        .filter((s) => s.wins + s.losses > 0)
-        .map((scope) => {
-          const sampleCount = scope.wins + scope.losses;
-          const rate = scope.wins / sampleCount;
-          const prevRate = prior.get(scopeKeyOf(scope.sourceKey, scope.domain)) ?? null;
-          return {
-            k: scope.sourceKey,
-            // JS null coalesces to NONE inside the FOR body (`?? NONE`),
-            // which option<string> accepts — the old per-scope form had
-            // to omit the field at the bind layer instead.
-            d: scope.domain,
-            r: rate,
-            sc: sampleCount,
-            w: scope.wins,
-            l: scope.losses,
-            ls: scope.lastSeenAt,
-            hist: prevRate === null || Math.abs(prevRate - rate) > 0.01,
-          };
-        });
+      const scopes = fit.sources.map((s) => {
+        const prevRate = prior.get(scopeKeyOf(s.sourceKey, s.domain)) ?? null;
+        return {
+          k: s.sourceKey,
+          // JS null coalesces to NONE inside the FOR body (`?? NONE`).
+          d: s.domain,
+          r: s.accuracy,
+          sc: s.votes,
+          w: Math.round(s.correct),
+          l: s.votes - Math.round(s.correct),
+          ls: lastSeen.get(s.sourceKey) ?? null,
+          hist: prevRate === null || Math.abs(prevRate - s.accuracy) > 0.01,
+        };
+      });
       await this.upsertTrustScopes(db, scopes);
+      await db.query(
+        `LET $stale = (SELECT VALUE id FROM source_trust WHERE lastUpdated < $start);
+         DELETE $stale;`,
+        { start: runStart },
+      );
+      await this.writeFactTruth(db, fit.facts);
       return scopes.length;
     });
+  }
+
+  /**
+   * Stamp `truth` on every fact whose value is contested (two or more
+   * claims), and clear it from facts no longer contested. A one-claim
+   * contest (an uncontested value several origins agree on) informs the
+   * source accuracies but has nothing to weigh, so it gets no stamp.
+   */
+  private async writeFactTruth(db: Surreal, facts: FactTruth[]): Promise<void> {
+    const contested = facts
+      .filter((f) => f.claims > 1)
+      .map((f) => ({ id: new StringRecordId(f.factId), p: f.posterior, c: f.claims }));
+    const CHUNK = 500;
+    for (let i = 0; i < contested.length; i += CHUNK) {
+      await db.query(
+        `FOR $t IN $rows {
+           UPDATE $t.id SET truth = {
+             posterior: $t.p, claims: $t.c, model: $model, computedAt: time::now()
+           };
+         };`,
+        { rows: contested.slice(i, i + CHUNK), model: TRUTH_MODEL },
+      );
+    }
+    // Compared as strings: a record id and a bound StringRecordId do not
+    // compare equal under NOT IN, which would clear every stamp.
+    const keep = new Set(contested.map((t) => String(t.id)));
+    const [stamped] = await db.query<[unknown[]]>(
+      'SELECT VALUE id FROM knowledge_fact WHERE truth IS NOT NONE;',
+    );
+    const gone = (stamped ?? []).filter((id) => !keep.has(String(id)));
+    for (let i = 0; i < gone.length; i += CHUNK) {
+      await db.query('UPDATE $ids SET truth = NONE;', { ids: gone.slice(i, i + CHUNK) });
+    }
   }
 
   /**
@@ -289,7 +310,7 @@ export class CalibrationRefitRunnerService {
       sc: number;
       w: number;
       l: number;
-      ls: unknown;
+      ls: Date | null;
       hist: boolean;
     }>,
   ): Promise<void> {
@@ -312,6 +333,7 @@ export class CalibrationRefitRunnerService {
                winCount: $s.w,
                lossCount: $s.l,
                lastSeenAt: $s.ls,
+               method: $method,
                lastUpdated: time::now()
              }
            ELSE
@@ -321,6 +343,7 @@ export class CalibrationRefitRunnerService {
                winCount = $s.w,
                lossCount = $s.l,
                lastSeenAt = $s.ls,
+               method = $method,
                lastUpdated = time::now()
            END;
            IF $s.hist THEN
@@ -332,7 +355,7 @@ export class CalibrationRefitRunnerService {
              }
            END;
          };`,
-        { scopes: chunk },
+        { scopes: chunk, method: TRUTH_METHOD },
       );
     }
   }
@@ -422,155 +445,22 @@ export function isCorrect(row: {
   return true;
 }
 
-export interface TrustEventRow {
-  vertical: string | null;
-  recorder: string | null;
-  predicate: string;
-  status: string;
-  recordedAt: string | Date;
-  originKey: string | null;
-  corroborates: unknown;
-}
-
-export interface TrustEvent {
-  sourceKey: string;
-  domain: string;
-  win: number;
-  loss: number;
-  recordedAt: string | Date;
-}
-
 /**
- * Turn raw knowledge_fact rows into per-source {win, loss} events for the
- * nightly source-trust refit.
- *
- * A corroborating row (migration 0047) is independent agreement with a
- * standing fact — evidence of reliability, counted as a win for its source.
- * But corroboration wins are deduped to at most ONE per
- * (sourceKey, domain, origin, incumbent): without this, a source could
- * echo-ingest the same standing fact repeatedly and farm unbounded wins
- * (reputation inflation), since each echo is a fresh corroborating row.
- * 0050 keys independence on ORIGIN; genuinely independent origins (distinct
- * documents corroborating the same incumbent) still each count. Exported so
- * the dedup can be unit-tested without a SurrealDB round-trip.
+ * Predicates whose slot holds one value at a time. The tenant's registry
+ * rows decide; a core predicate the registry has not seeded into this
+ * tenant yet (it seeds on first read) answers from the code seed.
  */
-export function buildTrustEvents(rows: ReadonlyArray<TrustEventRow>): TrustEvent[] {
-  const seenCorroboration = new Set<string>();
-  const events: TrustEvent[] = [];
-  for (const r of rows) {
-    const sourceKey = `${r.vertical}:${r.recorder ?? '_'}`;
-    if (r.status === 'corroborating') {
-      const dedupKey = `${sourceKey} ${r.predicate} ${
-        r.originKey ?? sourceKey
-      } ${r.corroborates == null ? '' : String(r.corroborates)}`;
-      if (seenCorroboration.has(dedupKey)) continue;
-      seenCorroboration.add(dedupKey);
-    }
-    events.push({
-      sourceKey,
-      domain: r.predicate,
-      win: r.status === 'active' || r.status === 'corroborating' ? 1 : 0,
-      loss: r.status === 'superseded' || r.status === 'retracted' ? 1 : 0,
-      recordedAt: r.recordedAt,
-    });
-  }
-  return events;
-}
-
-export interface FeedbackEventRow {
-  actor: string | null;
-  vertical: string | null;
-  recorder: string | null;
-  predicate: string;
-  verdict: string;
-  createdAt: string | Date;
-}
-
-/**
- * Retrieval-feedback verdicts → the same per-source {win, loss} currency
- * the fact-status events use: 'helpful' = win, 'incorrect' = loss.
- * 'not_helpful' rows never reach here (filtered in the query) — an
- * irrelevant retrieval says nothing about the source's reliability.
- *
- * Anti-farming dedup (mirrors buildTrustEvents' corroboration dedup): a
- * single actor's verdict counts at most ONCE per (sourceKey, domain,
- * verdict). Without it, one write key voting 'incorrect' across all N of
- * a source's facts would inject N losses and drag its learned rate down
- * (or 'helpful' to inflate). Distinct actors still each count — that is
- * genuine crowd signal. Exported for unit tests, same as buildTrustEvents.
- */
-export function buildFeedbackTrustEvents(rows: ReadonlyArray<FeedbackEventRow>): TrustEvent[] {
-  const seen = new Set<string>();
-  const events: TrustEvent[] = [];
-  for (const r of rows) {
-    if (r.verdict !== 'helpful' && r.verdict !== 'incorrect') continue;
-    const sourceKey = `${r.vertical}:${r.recorder ?? '_'}`;
-    const dedupKey = `${r.actor ?? '_'} ${sourceKey} ${r.predicate} ${r.verdict}`;
-    if (seen.has(dedupKey)) continue;
-    seen.add(dedupKey);
-    events.push({
-      sourceKey,
-      domain: r.predicate,
-      win: r.verdict === 'helpful' ? 1 : 0,
-      loss: r.verdict === 'incorrect' ? 1 : 0,
-      recordedAt: r.createdAt,
-    });
-  }
-  return events;
-}
-
-export interface TrustScope {
-  sourceKey: string;
-  /** null = the global per-source rate (domain NONE in the DB). */
-  domain: string | null;
-  wins: number;
-  losses: number;
-  lastSeenAt: Date;
+function singleValuedPredicates(
+  rows: ReadonlyArray<{ predicateId: string; semantics: string }>,
+): Set<string> {
+  const semantics = new Map(CORE_PREDICATES.map((p) => [p.predicateId, p.semantics as string]));
+  for (const r of rows) semantics.set(r.predicateId, r.semantics);
+  return new Set([...semantics].filter(([, s]) => s !== 'append_only').map(([id]) => id));
 }
 
 /** Map key for a (sourceKey, domain) scope — NUL can't appear in either. */
 export function scopeKeyOf(sourceKey: string, domain: string | null): string {
   return `${sourceKey}\u0000${domain ?? ''}`;
-}
-
-/**
- * Roll up per-row {win, loss} tuples into {wins, losses, lastSeenAt} at
- * BOTH reputation grains: (sourceKey, domain) and the global
- * (sourceKey, null). Every row feeds both — the global rate stays exactly
- * the pre-0045 blended number while scoped rows sharpen it per domain.
- * Exported so the unit test can exercise the math without a SurrealDB
- * round-trip.
- */
-export function aggregateByScope(
-  rows: ReadonlyArray<{
-    sourceKey: string;
-    domain: string;
-    win: number;
-    loss: number;
-    recordedAt: string | Date;
-  }>,
-): TrustScope[] {
-  const byScope = new Map<string, TrustScope>();
-  for (const r of rows) {
-    const seenAt = new Date(r.recordedAt);
-    for (const domain of [r.domain, null] as Array<string | null>) {
-      const key = scopeKeyOf(r.sourceKey, domain);
-      const acc =
-        byScope.get(key) ??
-        ({
-          sourceKey: r.sourceKey,
-          domain,
-          wins: 0,
-          losses: 0,
-          lastSeenAt: seenAt,
-        } satisfies TrustScope);
-      acc.wins += r.win;
-      acc.losses += r.loss;
-      if (seenAt.getTime() > acc.lastSeenAt.getTime()) acc.lastSeenAt = seenAt;
-      byScope.set(key, acc);
-    }
-  }
-  return [...byScope.values()];
 }
 
 function clamp01(x: number): number {

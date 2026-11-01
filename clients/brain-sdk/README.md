@@ -13,18 +13,18 @@ Three layers, each usable without the others.
 ## 1. The client
 
 ```ts
-import { createBrain } from '@inite/brain'
+import { createBrain } from '@inite/brain';
 
 const brain = createBrain({
   apiKey: process.env.BRAIN_KEY!,
   userId: 'user_42', // threaded onto every call
-})
+});
 
-await brain.remember('Maria moved to Berlin in June and prefers morning appointments.')
+await brain.remember('Maria moved to Berlin in June and prefers morning appointments.');
 
-const hits = await brain.recall('where does Maria live')
-const { answer, citations } = await brain.answer('where does Maria live')
-const history = await brain.timeline(hits[0].entityId)
+const hits = await brain.recall('where does Maria live');
+const { answer, citations } = await brain.answer('where does Maria live');
+const history = await brain.timeline(hits[0].entityId);
 ```
 
 `userId` is threaded onto **every** call, including the query string on
@@ -32,25 +32,66 @@ GETs. Writing with a user scope and reading without one returns nothing,
 and nothing about that failure looks like a bug — so it is not something
 you get to forget per call.
 
-The client is deliberately small: `remember`, `recordFact`, `recall`,
-`answer`, `entity`, `timeline`. Brain's REST surface has sixty-odd paths
+The client is deliberately small: `remember`, `recordFact`, `search`
+(and `recall`, its hits alone), `answer`, `entity`, `timeline`. Brain's REST surface has sixty-odd paths
 and the [OpenAPI document](https://brain.inite.ai/openapi.json) generates
 whatever you need for the long tail. What belongs in a hand-written
 client is the handful of calls an agent makes in a loop.
+
+### Types
+
+Every answer is typed with brain's published contract (`SearchResponse`,
+`SynthesizeResponse`, `IngestMentionResponse`, `EntityTimeline`, …). The
+types are copies of the server's zod schemas, and brain's CI fails when a
+copy and its schema disagree in either direction.
+
+### Retries and idempotency
+
+A call that gets no response, times out, or comes back 408, 429, 502, 503
+or 504 is retried up to three times with exponential backoff and full
+jitter; a read is also retried on a 500. A `Retry-After` from brain (its
+rate limiter sends one) is honoured as the wait. One longer than
+`retry.maxDelayMs` (30 s) is not slept on: the error comes back with
+`retryAfterMs` set, so you decide whether to wait.
+
+Every write carries an `Idempotency-Key`, generated per call and reused
+by each of its retries, so brain replays the first answer instead of
+writing twice. Pass `idempotencyKey` to `brain.request()` to keep a retry
+safe across a process restart too.
+
+```ts
+const brain = createBrain({ apiKey, retry: { retries: 5, maxDelayMs: 60_000 } });
+```
+
+### Errors
+
+A failed call throws `BrainError`. `status` is the HTTP status (0 when no
+response came back); `problem` is brain's
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details;
+`requestId` is the correlation id to quote in a bug report.
+
+```ts
+try {
+  await brain.recordFact(fact);
+} catch (e) {
+  if (e instanceof BrainError && e.status === 400) console.log(e.problem?.errors);
+  else throw e;
+}
+```
 
 For a self-contained, runnable example demonstrating these calls against a live Brain instance, see [`examples/sdk-quickstart`](../../examples/sdk-quickstart).
 
 ## 2. Tools, for any framework
 
 ```ts
-import { generateText } from 'ai'
-import { createBrain, brainTools } from '@inite/brain'
+import { generateText } from 'ai';
+import { createBrain, brainTools } from '@inite/brain';
 
 await generateText({
   model,
   tools: brainTools(brain),
   prompt: 'What do we know about Maria?',
-})
+});
 ```
 
 `brainTools()` returns `{ description, inputSchema, execute }` objects —
@@ -67,11 +108,11 @@ is actually needed.
 ## 3. A LangGraph-shaped store
 
 ```ts
-import { createBrain, createBrainStore } from '@inite/brain'
+import { createBrain, createBrainStore } from '@inite/brain';
 
-const store = createBrainStore(brain)
-await store.put(['users', userId, 'prefs'], 'editor', { tabs: true })
-const item = await store.get(['users', userId, 'prefs'], 'editor')
+const store = createBrainStore(brain);
+await store.put(['users', userId, 'prefs'], 'editor', { tabs: true });
+const item = await store.get(['users', userId, 'prefs'], 'editor');
 ```
 
 `get` / `put` / `delete` / `search` / `listNamespaces` over hierarchical

@@ -164,7 +164,7 @@ describe('SynthesizeService — 0107 outcome writer seams', () => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
   });
   afterAll(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
   });
 
   it('strict + supported: selected_for_context, then used_in_answer + verifier_supported', async () => {
@@ -319,7 +319,7 @@ describe('SynthesizeService — 0107 outcome writer seams', () => {
   });
 
   it('master flag off: no seam emits anything (byte-identical)', async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     const { svc, calls } = makeSvc('supported');
     const out = await svc.synthesize({
       companyId: 'co_x',
@@ -401,7 +401,7 @@ describe('SynthesizeService — OUTCOME_DECISION_CAPTURE abstain seam', () => {
     process.env.OUTCOME_DECISION_CAPTURE = '1';
   });
   afterAll(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     delete process.env.OUTCOME_DECISION_CAPTURE;
   });
 
