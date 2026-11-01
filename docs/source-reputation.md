@@ -46,10 +46,10 @@ be added later without a migration). A broker may be highly reliable on
 `listing_price` and useless on `zoning` — one number can't express that.
 
 The learned score lives in `source_trust` (keyed unique on `sourceKey, domain`,
-with `winCount` / `lossCount` / `lastSeenAt`), refreshed by the nightly
-calibration refit; every meaningful change is appended to `source_trust_history`
-(an audit trail, never overwritten). Lookup is a ladder via
-`fn::source_trust_scoped`:
+with `winCount` / `lossCount` / `lastSeenAt` / `method`), refreshed by the
+nightly truth-discovery pass described below; every meaningful change is
+appended to `source_trust_history` (an audit trail, never overwritten). Lookup
+is a ladder via `fn::source_trust_scoped`:
 
 1. the `(sourceKey, domain)` score if it has ≥ 8 samples, else
 2. the source's global `(sourceKey, domain = NONE)` score if it has ≥ 8, else
@@ -57,6 +57,46 @@ calibration refit; every meaningful change is appended to `source_trust_history`
 
 The learned rate is frozen into the fact's `trustSnapshot.learnedTrust` at
 write time.
+
+## Truth discovery: how the score is learned
+
+Each night, per tenant, the refit fits **Dawid–Skene** over the tenant's facts
+(`src/ai/calibration/truth-discovery.ts`, #847). It estimates which value of a
+contested slot is probably true and how accurate each source is, both at once.
+No model is called, and there are no hand-set weights.
+
+- **What competes.** Facts on the same single-valued slot (entity, canonical
+  predicate, user, team tags, derived world) whose valid times overlap and
+  whose values differ. A value that *succeeded* another in valid time is
+  history, not its rival, so a source that reports a change is never marked
+  wrong for it. (The win/loss tally this replaced counted every superseded
+  fact as a loss.) A value closed the instant it began still claimed that
+  instant: a `single_active` slot's last write does not make an earlier
+  disagreement disappear. An uncontested value that two or more origins
+  restate counts as agreement; a lone value says nothing about anyone.
+- **One vote per origin.** Facts sharing an `originKey` (one document ingested
+  twice, a forwarded message) are one vote, so copies cannot outvote an
+  independent source.
+- **Priors.** Accuracy is a Beta posterior with 16 pseudo-votes, chosen by
+  `pnpm eval:truth-discovery` on held-out seeds. Per domain it shrinks
+  towards the source's accuracy across domains, and that towards a declared
+  `authLevel`, else 0.5.
+- **Anchors.** `helpful` feedback clamps a value true; `incorrect` feedback
+  and a retraction clamp it false. One actor counts once per (source, domain,
+  verdict).
+- **Outputs.** The `source_trust` rows (`method: 'dawid_skene'`;
+  `sampleCount` = votes, `winCount` = the expected right ones). Rows of
+  sources that took part in no contest are removed, so the lookup falls back
+  to 0.5. Every fact of a contested slot also gets `truth = { posterior,
+  claims, model, computedAt }`, the probability that its value is the true
+  one. That is a read-side estimate; it never supersedes, retracts or hides
+  anything.
+
+On the battery (sources of known accuracy, copiers, a source that reports
+changes; 10 seeds the prior was not tuned on), it picks the true value 92.7%
+of the time against 84.5% for majority vote. Its calibration error is 0.026,
+and it recovers source accuracy with RMSE 0.037 where the win/loss tally had
+0.364.
 
 ## Source registry & authority
 

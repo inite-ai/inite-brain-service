@@ -1,8 +1,9 @@
 /**
  * Retrieval feedback loop e2e (migration 0054): the endpoint stores one
  * standing vote per (fact, caller key) — repeat feedback replaces the
- * verdict instead of stacking — and the nightly source-trust refit
- * counts 'incorrect' as a loss against the fact's source.
+ * verdict instead of stacking — and the nightly truth-discovery pass
+ * (#847) takes an 'incorrect' vote as an anchor: the rated value is
+ * clamped false, so its rival wins and its source loses accuracy.
  */
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
@@ -75,30 +76,45 @@ describe('retrieval feedback loop', () => {
     });
   });
 
-  it("the refit counts 'incorrect' as a loss against the fact's source", async () => {
-    const refit = f.app.get(CalibrationRefitRunnerService);
-    await refit.refitSourceTrust();
+  it("an 'incorrect' vote clamps the value false: its rival wins, its source loses accuracy", async () => {
+    // A second source claims a different tier for the same customer at the
+    // same valid time: a contest the vote settles.
+    const rival = await f.http
+      .post('/v1/ingest/fact')
+      .set(auth())
+      .send({
+        entityRef: { vertical: 'rent', id: 'fb_subject' },
+        predicate: 'tier',
+        object: 'silver',
+        validFrom: '2026-01-01',
+        confidence: 0.9,
+        source: { vertical: 'rent', recorder: 'fb_crm' },
+      });
+    expect(rival.status).toBe(201);
+    await f.app.get(CalibrationRefitRunnerService).refitSourceTrust();
 
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
-      const [rows] = await db.query<
-        [Array<{ winCount: number; lossCount: number; sampleCount: number }>]
+      const [facts] = await db.query<
+        [Array<{ object: string; truth: { posterior: number; claims: number } | null }>]
       >(
-        `SELECT winCount, lossCount, sampleCount FROM source_trust
-          WHERE sourceKey = 'rent:fb_bot' AND domain IS NONE`,
+        `SELECT object, truth FROM knowledge_fact
+          WHERE predicate = 'tier' AND source.vertical = 'rent' ORDER BY object`,
       );
-      const trust = (
-        rows as Array<{
-          winCount: number;
-          lossCount: number;
-          sampleCount: number;
-        }>
-      )[0];
-      // The active fact itself is a win; the standing 'incorrect'
-      // feedback vote is the loss.
-      expect(trust).toBeDefined();
-      expect(trust!.lossCount).toBeGreaterThanOrEqual(1);
-      expect(trust!.sampleCount).toBeGreaterThanOrEqual(2);
+      const byObject = new Map((facts ?? []).map((r) => [r.object, r.truth]));
+      expect(byObject.get('gold')).toMatchObject({ posterior: 0, claims: 2 });
+      expect(byObject.get('silver')).toMatchObject({ posterior: 1, claims: 2 });
+
+      const [rows] = await db.query<
+        [Array<{ sourceKey: string; agreementRate: number; method: string }>]
+      >(
+        `SELECT sourceKey, agreementRate, method FROM source_trust
+          WHERE sourceKey IN ['rent:fb_bot', 'rent:fb_crm'] AND domain IS NONE`,
+      );
+      const rate = new Map((rows ?? []).map((r) => [r.sourceKey, r.agreementRate]));
+      expect(rate.get('rent:fb_bot')!).toBeLessThan(0.5);
+      expect(rate.get('rent:fb_crm')!).toBeGreaterThan(0.5);
+      expect((rows ?? []).every((r) => r.method === 'dawid_skene')).toBe(true);
     });
   });
 
