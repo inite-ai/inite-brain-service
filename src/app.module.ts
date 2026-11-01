@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
+import { IdempotencyModule } from './idempotency/idempotency.module';
 import { CommonModule } from './common/common.module';
 import { HealthController } from './common/health.controller';
 import { GracefulShutdownService } from './common/graceful-shutdown.service';
@@ -109,6 +110,7 @@ import { MriModule } from './mri/mri.module';
     CompactionModule,
     DreamsModule,
     MetricsModule,
+    IdempotencyModule,
     DecisionsModule,
     AdminModule,
     AuditModule,
