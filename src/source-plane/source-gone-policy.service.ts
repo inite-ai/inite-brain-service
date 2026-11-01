@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService, queryRows } from '../db/surreal.service';
+import { retireEdgeSupport, restoreEdgeSupport } from '../ingest/edge-support';
 import { idTailOf } from '../ingest/ingest-utils';
 import type { SourceConnectionRow } from './source-connection.service';
 import type { SourceItemRow } from './source-item.service';
@@ -15,7 +16,9 @@ import type { SourceItemRow } from './source-item.service';
  *           and still active, competing (#830: a disputed value of a
  *           deleted record must not stay open forever) or corroborating
  *           one that is (a later render re-asserting a value) — are
- *           touched, on every document the item produced.
+ *           touched, on every document the item produced. Its edges
+ *           close too, unless another live document or a conversation
+ *           still asserts them (0178).
  *   retract — reserved: the cascade-retract path lands with the first
  *             native that can observe deletions reliably (W1); today it
  *             behaves as `close` and says so in the log.
@@ -45,9 +48,11 @@ export class SourceGonePolicyService {
     let closed = 0;
     for (const item of gone) {
       const goneAt = asDate(item.goneAt) ?? new Date();
-      for (const docId of await this.documentsOf(companyId, item)) {
+      const docs = await this.documentsOf(companyId, item);
+      for (const docId of docs) {
         closed += await this.closeDocumentFacts(companyId, docId, goneAt);
       }
+      await this.retireEdges(companyId, { itemId: String(item.id), documentIds: docs, goneAt });
     }
     return closed;
   }
@@ -71,12 +76,16 @@ export class SourceGonePolicyService {
   ): Promise<number> {
     if (connection.deletePolicy === 'keep') return 0;
     let reopened = 0;
-    for (const docId of await this.documentsOf(companyId, item)) {
+    const docs = await this.documentsOf(companyId, item);
+    for (const docId of docs) {
       reopened += await this.reopenDocumentFacts(companyId, docId, item.goneAt);
     }
+    reopened += await this.surreal.withCompany(companyId, (db) =>
+      restoreEdgeSupport(db, { documentIds: docs, at: item.goneAt }),
+    );
     if (reopened > 0) {
       this.logger.log(
-        `${String(connection.id)}: ${reopened} fact(s) reopened — the item is back unchanged`,
+        `${String(connection.id)}: ${reopened} fact(s) and edge(s) reopened — the item is back unchanged`,
       );
     }
     return reopened;
@@ -134,6 +143,22 @@ export class SourceGonePolicyService {
       );
       return rows.map((r) => String(r.id));
     });
+  }
+
+  /**
+   * The item's documents stop grounding their edges (0178): an edge no
+   * other live document or conversation asserts closes at `goneAt`. A
+   * relation from a deleted CRM record used to stay open forever.
+   */
+  private async retireEdges(
+    companyId: string,
+    { itemId, documentIds, goneAt }: { itemId: string; documentIds: string[]; goneAt: Date },
+  ): Promise<void> {
+    if (documentIds.length === 0) return;
+    const closed = await this.surreal.withCompany(companyId, (db) =>
+      retireEdgeSupport(db, { documentIds, at: goneAt }),
+    );
+    if (closed > 0) this.logger.log(`${itemId}: ${closed} edge(s) closed — the item is gone`);
   }
 
   private async closeDocumentFacts(

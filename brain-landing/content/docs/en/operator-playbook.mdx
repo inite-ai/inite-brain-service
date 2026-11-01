@@ -98,7 +98,7 @@ If a CI run blocks: read the per-vertical breakdown first — usually one vertic
 
 ## Dead-letter triage
 
-Periodic check: `SELECT count(*) FROM dead_letter_fact WHERE createdAt > now() - 7d GROUP BY sourceVertical`. A vertical that suddenly spikes is shipping bad data — alert their on-call.
+Periodic check: `SELECT reason, count() FROM ingest_dead_letter GROUP BY reason`. A row lands here only when the store could not create a fact (`create_returned_none`); no fact is dead-lettered for low confidence or trust any more. A sudden rise means a write path is failing — read `payload.source` to find the vertical.
 
 ## OTel tracing
 

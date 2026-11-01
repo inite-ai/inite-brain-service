@@ -16,6 +16,7 @@ import {
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { internalMetaString, participantsFromMeta } from './document-meta';
+import { retireDroppedClaims } from './revision-closure';
 import { coreferentParticipant, participantHint } from '../ingest/participants';
 import { relativeHint } from '../ingest/relative-role';
 import { sanitizeSourceMeta } from '../policy/source-meta';
@@ -98,9 +99,43 @@ export class CommitWriterService {
           entityTypes: new Map(p.merge.entities.map((me) => [me.key, me.type])),
         });
         const relations = await this.writeRelations(db, { ...p, entityIds });
+        await this.retireDropped(db, { doc: p.doc, facts, relations });
         return { entityIds, facts, relations };
       }),
     );
+  }
+
+  /**
+   * A record revision closes what it no longer says (revision-closure.ts).
+   * Best-effort: a failure leaves the earlier claims open, as before, and
+   * never fails the commit that already wrote the new ones.
+   */
+  private async retireDropped(
+    db: Surreal,
+    {
+      doc,
+      facts,
+      relations,
+    }: { doc: StoredDocument; facts: FactWriteOutcome[]; relations: RelationWriteOutcome[] },
+  ): Promise<void> {
+    const itemId = internalMetaString(doc.meta, 'sourceItemId');
+    if (doc.kind !== 'source_record' || !itemId) return;
+    try {
+      const r = await retireDroppedClaims(db, {
+        itemId,
+        documentId: doc.id,
+        at: new Date(doc.occurredAt),
+        factIds: facts.flatMap((f) => (f.factId ? [f.factId] : [])),
+        edgeIds: relations.flatMap((e) => (e.edgeId ? [e.edgeId] : [])),
+      });
+      if (r.facts + r.edges > 0) {
+        this.logger.log(
+          `[brain.commit.revision] ${doc.id}: ${r.facts} fact(s), ${r.edges} edge(s) the record no longer states closed`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`[brain.commit.revision] ${doc.id}: ${(err as Error).message}`);
+    }
   }
 
   private async resolveEntities(

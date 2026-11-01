@@ -9,6 +9,7 @@ import { internalDocumentMeta } from '../../documents/document-meta';
 import { DOC_TEXT_HARD_CAP, type IngestDocumentDto } from '../../documents/dto/ingest-document.dto';
 import type { SubmitCandidatesDto } from '../../documents/dto/submit-candidates.dto';
 import { ExternalCandidatesService } from '../../documents/external-candidates.service';
+import { retireDroppedClaims } from '../../documents/revision-closure';
 import { RETRACT_ADMIN_PREDICATES } from '../../facts/facts.service';
 import { policyFor } from '../../ingest/conflict-resolver';
 import { idTailOf } from '../../ingest/ingest-utils';
@@ -130,6 +131,11 @@ export class RecordsDoorService {
         );
       }
     }
+    if (!doc.deduplicated && mapped.facts.length === 0 && mapped.relations.length === 0) {
+      // No candidates, so no commit to retire the earlier revision's
+      // claims: a record whose every mapped field was cleared says so here.
+      await this.retireEverything(p, doc.documentId);
+    }
     for (const field of mapped.textFields) {
       await this.ingestText(p, {
         text: field.value.slice(0, DOC_TEXT_HARD_CAP),
@@ -149,6 +155,16 @@ export class RecordsDoorService {
       relations: mapped.relations.length,
       dropped: mapped.dropped,
     };
+  }
+
+  private async retireEverything(
+    p: { companyId: string; itemId: string; record: RecordEnvelope; item: ItemDescriptor },
+    documentId: string,
+  ): Promise<void> {
+    const at = new Date(toIso(p.record.updatedAt ?? p.item.modifiedAt));
+    await this.surreal.withCompany(p.companyId, (db) =>
+      retireDroppedClaims(db, { itemId: p.itemId, documentId, at, factIds: [], edgeIds: [] }),
+    );
   }
 
   /** The pack's vocabulary — its predicates, its state models, and the core predicates an external indexer may seed. */

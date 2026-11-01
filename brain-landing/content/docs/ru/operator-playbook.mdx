@@ -98,7 +98,7 @@ others                       >5pp drop  → block
 
 ## Триаж dead-letter
 
-Периодическая проверка: `SELECT count(*) FROM dead_letter_fact WHERE createdAt > now() - 7d GROUP BY sourceVertical`. Вертикаль, которая внезапно скакнула, шлёт плохие данные — подними их дежурного.
+Периодическая проверка: `SELECT reason, count() FROM ingest_dead_letter GROUP BY reason`. Строка попадает сюда, только если хранилище не смогло создать факт (`create_returned_none`); за низкую уверенность или доверие факты больше не отбрасываются. Резкий рост значит, что ломается путь записи — вертикаль видна в `payload.source`.
 
 ## Трассировка OTel
 

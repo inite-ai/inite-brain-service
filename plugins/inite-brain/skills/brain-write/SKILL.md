@@ -64,7 +64,7 @@ turns), both available when the server runs `FACTS_API_ENABLED`.
 
 ### Picking confidence
 
-The conflict resolver scores each candidate against existing facts using `confidence × CONFLICT_WEIGHT_CONFIDENCE + sourceTrust × CONFLICT_WEIGHT_SOURCE_TRUST + recency + authority`. Confidence is the per-fact axis you control; pick it honestly:
+Confidence is not a vote: the conflict resolver decides by valid time (a later `validFrom` supersedes, a restated value corroborates, a same-moment disagreement goes to fact resolution) and never by score. Confidence is recorded on the fact as provenance; readers and consolidation use it, and so does the human adjudicating a dispute. Pick it honestly:
 
 | Situation | confidence |
 | --- | --- |
