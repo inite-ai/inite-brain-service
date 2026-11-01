@@ -538,7 +538,10 @@ function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[
  * idiom: warn, don't refuse).
  */
 function validateBeliefServingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
-  if (envFlagEnabled(env.BELIEFS_FACT_DAMPING) && !envFlagEnabled(env.BELIEFS_SERVING_LANE)) {
+  if (
+    envFlagNotDisabled(env.BELIEFS_FACT_DAMPING) &&
+    !envFlagNotDisabled(env.BELIEFS_SERVING_LANE)
+  ) {
     warnings.push(
       'BELIEFS_FACT_DAMPING is set while BELIEFS_SERVING_LANE is not — damping keys off ' +
         'the serving lane’s matched beliefs, so it is a no-op until BELIEFS_SERVING_LANE ' +

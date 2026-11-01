@@ -181,7 +181,7 @@ describe('collector digest merge (V12 §2)', () => {
   it('off → insightLines untouched; on → digest lines merge first', async () => {
     const off = await makeCollector(['DIGEST']).collect({
       ...base,
-      profile: resolveRetrievalProfile({} as NodeJS.ProcessEnv),
+      profile: resolveRetrievalProfile({ RETRIEVAL_DIGEST_EVIDENCE: '0' } as NodeJS.ProcessEnv),
     });
     expect(off.insightLines).toEqual([]);
     const on = await makeCollector(['DIGEST']).collect({
@@ -195,19 +195,19 @@ describe('collector digest merge (V12 §2)', () => {
 });
 
 describe('RETRIEVAL_DIGEST_EVIDENCE profile point', () => {
-  it('defaults off; env enables; overlays per tenant', () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).digestEvidence).toBe(false);
+  it('defaults on; 0 switches it off; overlays per tenant', () => {
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).digestEvidence).toBe(true);
     expect(
       resolveRetrievalProfile({
-        RETRIEVAL_DIGEST_EVIDENCE: '1',
+        RETRIEVAL_DIGEST_EVIDENCE: '0',
       } as NodeJS.ProcessEnv).digestEvidence,
-    ).toBe(true);
+    ).toBe(false);
     const env = {
       RETRIEVAL_PROFILE_OVERRIDES: JSON.stringify({
-        beamco: { digestEvidence: true },
+        beamco: { digestEvidence: false },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).digestEvidence).toBe(true);
-    expect(resolveRetrievalProfileFor('other', env).digestEvidence).toBe(false);
+    expect(resolveRetrievalProfileFor('beamco', env).digestEvidence).toBe(false);
+    expect(resolveRetrievalProfileFor('other', env).digestEvidence).toBe(true);
   });
 });

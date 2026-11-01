@@ -182,7 +182,7 @@ describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
   it('orderingFrame requires BOTH the profile flag and a fired record', () => {
     expect(resolvePromptFrames(profile({ orderingFrame: true }), true).orderingFrame).toBe(true);
     expect(resolvePromptFrames(profile({ orderingFrame: true }), false).orderingFrame).toBe(false);
-    expect(resolvePromptFrames(profile({}), true).orderingFrame).toBe(false);
+    expect(resolvePromptFrames(profile({ orderingFrame: false }), true).orderingFrame).toBe(false);
   });
 
   it('conflict arbitration rides updateStoryRendering; arc header rides query_arc', () => {
@@ -192,7 +192,7 @@ describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
     );
     expect(f.dateArbitratedConflicts).toBe(true);
     expect(f.arcInsights).toBe(true);
-    const off = resolvePromptFrames(profile({}), false);
+    const off = resolvePromptFrames(profile({ updateStoryRendering: false }), false);
     expect(off).toEqual({
       orderingFrame: false,
       dateArbitratedConflicts: false,
@@ -202,19 +202,19 @@ describe('resolvePromptFrames kernel (V10 architecture pass)', () => {
 });
 
 describe('RETRIEVAL_ORDERING_FRAME profile point', () => {
-  it('defaults off; env enables; overlays per tenant', () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).orderingFrame).toBe(false);
+  it('defaults on; 0 switches it off; overlays per tenant', () => {
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).orderingFrame).toBe(true);
     expect(
       resolveRetrievalProfile({
-        RETRIEVAL_ORDERING_FRAME: '1',
+        RETRIEVAL_ORDERING_FRAME: '0',
       } as NodeJS.ProcessEnv).orderingFrame,
-    ).toBe(true);
+    ).toBe(false);
     const env = {
       RETRIEVAL_PROFILE_OVERRIDES: JSON.stringify({
-        beamco: { orderingFrame: true },
+        beamco: { orderingFrame: false },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).orderingFrame).toBe(true);
-    expect(resolveRetrievalProfileFor('other', env).orderingFrame).toBe(false);
+    expect(resolveRetrievalProfileFor('beamco', env).orderingFrame).toBe(false);
+    expect(resolveRetrievalProfileFor('other', env).orderingFrame).toBe(true);
   });
 });

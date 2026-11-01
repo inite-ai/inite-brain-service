@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagNotDisabled } from './env-validation';
 
 /**
  * Belief serving lane — BELIEFS_SERVING_LANE.
@@ -23,7 +23,7 @@ import { envFlagEnabled } from './env-validation';
  * engine fork).
  */
 export function beliefServingLaneEnabled(): boolean {
-  return envFlagEnabled(process.env.BELIEFS_SERVING_LANE);
+  return envFlagNotDisabled(process.env.BELIEFS_SERVING_LANE);
 }
 
 /**
@@ -48,7 +48,7 @@ export function beliefServingLaneEnabled(): boolean {
  * common layer per engine-gates S5.2. Default off ⇒ byte-identical.
  */
 export function beliefFactDampingEnabled(): boolean {
-  return envFlagEnabled(process.env.BELIEFS_FACT_DAMPING);
+  return envFlagNotDisabled(process.env.BELIEFS_FACT_DAMPING);
 }
 
 /**
@@ -73,7 +73,7 @@ export function beliefFactDampingEnabled(): boolean {
  * BELIEFS_ family sits off the ENGINE flag budget by design.
  */
 export function beliefLaneDateDisambiguationEnabled(): boolean {
-  return envFlagEnabled(process.env.BELIEFS_LANE_DATE_DISAMBIGUATION);
+  return envFlagNotDisabled(process.env.BELIEFS_LANE_DATE_DISAMBIGUATION);
 }
 
 /**

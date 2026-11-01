@@ -231,7 +231,7 @@ describe('SynthesizeService', () => {
         answer: 'Maya complained about a broken washing machine [f1].',
         citedFactIds: ['f1'],
       }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const out = await svc.synthesize({
       companyId: 'co_x',
@@ -248,7 +248,7 @@ describe('SynthesizeService', () => {
       process.env.RETRIEVAL_SEARCH_LOOP = '1';
     });
     afterEach(() => {
-      delete process.env.RETRIEVAL_SEARCH_LOOP;
+      process.env.RETRIEVAL_SEARCH_LOOP = '0';
     });
 
     it('a refine round that abstains never replaces the answer round 1 gave', async () => {
@@ -387,6 +387,7 @@ describe('SynthesizeService', () => {
       JSON.stringify({
         verdict: 'unsupported',
         unsupportedClaims: ['Maya bought a new fridge yesterday'],
+        questionAnswered: true,
       }),
     ]);
     const out = await svc.synthesize({
@@ -419,6 +420,7 @@ describe('SynthesizeService', () => {
         JSON.stringify({
           verdict: 'unsupported',
           unsupportedClaims: ['Maya bought a new fridge'],
+          questionAnswered: true,
         }),
       ]);
       const out = await svc.synthesize({
@@ -481,7 +483,7 @@ describe('SynthesizeService', () => {
         answer: 'Maya is a customer [f1] [f_nope].',
         citedFactIds: ['f1', 'f_nope'],
       }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const out = await svc.synthesize({
       companyId: 'co_x',
@@ -733,7 +735,11 @@ describe('buildVerifierUserMessage — beliefLines (BELIEFS_SERVING_LANE seam)',
               choices: [
                 {
                   message: {
-                    content: JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+                    content: JSON.stringify({
+                      verdict: 'supported',
+                      unsupportedClaims: [],
+                      questionAnswered: true,
+                    }),
                   },
                 },
               ],

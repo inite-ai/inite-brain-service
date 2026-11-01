@@ -180,7 +180,7 @@ describe("the user's own entity (user-entity.ts) end to end", () => {
     const script = () =>
       mockSynthesizeOpenAi(f.app, [
         JSON.stringify({ answer: 'You live in Berlin.', citedFactIds: [] }),
-        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
       ]);
     const own = script();
     await f.http

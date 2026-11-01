@@ -126,7 +126,7 @@ describe('strategy trajectories — flag OFF, master ON', () => {
   it('serving is BYTE-IDENTICAL: the advisory note carries no trajectory', async () => {
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);
@@ -289,7 +289,7 @@ describe('strategy trajectories — all flags ON', () => {
 
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);

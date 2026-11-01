@@ -61,7 +61,7 @@ describe('Fovea Optics §4.2 adaptive abstention e2e (safety fallback)', () => {
     // proves the pre-generation exit.
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'should-not-run', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http
       .post('/v1/synthesize')

@@ -25,7 +25,11 @@ describe('Fovea evidence-capability gate e2e', () => {
   const FACT_OBJECT = 'the evacuation plan is pinned on the ops-room whiteboard';
   const QUERY = 'where is the evacuation plan pinned';
   const ANSWER = 'On the ops-room whiteboard.';
-  const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+  const VERIFY_SUPPORTED = JSON.stringify({
+    verdict: 'supported',
+    unsupportedClaims: [],
+    questionAnswered: true,
+  });
 
   const synth = (body: Record<string, unknown>) =>
     f.http

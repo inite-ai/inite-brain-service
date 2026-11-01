@@ -34,12 +34,27 @@ import { mockSynthesizeOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
 import { SceneVersionService } from '../src/admin/scene-version';
 
+// Each test reads what the generator and verifier were given for a query
+// the suite repeats; a cached answer skips both, so the cache is off here.
+const savedAnswerCache = process.env.SYNTHESIZE_ANSWER_CACHE;
+beforeAll(() => {
+  process.env.SYNTHESIZE_ANSWER_CACHE = '0';
+});
+afterAll(() => {
+  if (savedAnswerCache === undefined) delete process.env.SYNTHESIZE_ANSWER_CACHE;
+  else process.env.SYNTHESIZE_ANSWER_CACHE = savedAnswerCache;
+});
+
 const USER = 'dogfood_u1';
 const OTHER_USER = 'dogfood_u2';
 const QUERY = 'which database are we using for the inventory service?';
 const HISTORY_QUERY = 'how did the database choice for the inventory service change?';
 const STATEMENT = 'inventory service — database: SurrealDB (was: PostgreSQL)';
-const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+const VERIFY_SUPPORTED = JSON.stringify({
+  verdict: 'supported',
+  unsupportedClaims: [],
+  questionAnswered: true,
+});
 
 const FLAG_KEYS = ['BELIEFS_SERVING_LANE', 'OUTCOME_TELEMETRY_ENABLED'] as const;
 
@@ -171,6 +186,7 @@ describe('Belief serving lane e2e (the dogfood stale-answer scenario)', () => {
   });
 
   it('CONTROL — flag off: no belief section, no evidenceCitations, the stale path serves as today', async () => {
+    process.env.BELIEFS_SERVING_LANE = '0';
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({
         answer: 'We decided to use Postgres as the main database [' + pgFactId + '].',

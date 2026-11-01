@@ -309,7 +309,7 @@ describe('fovea cascade shakedown — full stack composed', () => {
         answer: 'A DIFFERENT answer that must not surface.',
         citedFactIds: [cacheFactId],
       }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const r2 = await synth({ query: `  ${CACHE_QUERY}  `, userId: 'u_cache' });
     expect(r2.status).toBe(201);
@@ -327,7 +327,7 @@ describe('fovea cascade shakedown — full stack composed', () => {
 
     mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'Fresh post-retraction answer.', citedFactIds: [cacheFactId] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const r3 = await synth({ query: CACHE_QUERY, userId: 'u_cache' });
     expect(r3.status).toBe(201);
