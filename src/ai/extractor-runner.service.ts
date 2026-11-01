@@ -23,6 +23,14 @@ import type { ServiceTier } from './openai-client';
 import { resolveExtractionProfile } from './extraction-profile';
 import { buildConversationContext, type ConversationContext } from './extractor-internals/prompts';
 import { providerSideFailure } from './openai-client';
+import { IntentClassifierService } from '../admin/intent-classifier.service';
+import type { ExtractedFact } from './extractor-internals/types';
+import {
+  valueCheck,
+  valueHypothesis,
+  valuePremise,
+  valueStands,
+} from './extractor-internals/value-entailment';
 
 export type { ConversationContext } from './extractor-internals/prompts';
 
@@ -64,6 +72,7 @@ export class ExtractorRunnerService {
     private readonly local: ExtractorLocalService,
     private readonly refine: ExtractorRefineService,
     @Optional() private readonly decisions?: DecisionService,
+    @Optional() private readonly nli?: IntentClassifierService,
   ) {}
 
   modelId(): string {
@@ -380,6 +389,11 @@ export class ExtractorRunnerService {
     }
     if (edges.length > 0) traceArtifact('extractor.edges', edges);
 
+    if (resolveExtractionProfile().vocabulary === 'open') {
+      const kept = await this.groundOpenValues({ facts, entities, trimmed, context });
+      facts.splice(0, facts.length, ...kept);
+    }
+
     await this.refine.applyPredicateRefinements(facts, snapshot as never, companyId);
 
     // Denoise (flag-gated, default off → identity): drop generic `said`
@@ -402,5 +416,51 @@ export class ExtractorRunnerService {
       edges,
     });
     return result;
+  }
+
+  /**
+   * The open vocabulary's value check (value-entailment.ts): a value
+   * stands when what the extractor read supports it. Replaces the
+   * blanket bypass of the substring gate, which stored any value,
+   * hallucinated or injected, as memory.
+   */
+  private async groundOpenValues(args: {
+    facts: ExtractedFact[];
+    entities: ExtractedEntity[];
+    trimmed: string;
+    context?: ConversationContext | undefined;
+  }): Promise<ExtractedFact[]> {
+    const { facts, entities, trimmed, context } = args;
+    if (facts.length === 0) return facts;
+    const premise = valuePremise(trimmed, context);
+    const checks = facts.map((f) => valueCheck(premise, f.object));
+    const judged = facts.flatMap((f, i) => (checks[i] === 'reject' ? [] : [i]));
+    const labels = await (this.nli?.nli(
+      premise,
+      judged.map((i) =>
+        valueHypothesis({
+          entityName: entities[facts[i]!.entityIndex]?.name ?? '',
+          predicate: facts[i]!.predicate,
+          value: facts[i]!.object,
+        }),
+      ),
+    ) ?? Promise.resolve(judged.map(() => undefined)));
+    const labelOf = new Map(judged.map((i, j) => [i, labels[j]]));
+    const kept = facts.filter((_, i) => valueStands(checks[i]!, labelOf.get(i)));
+    if (kept.length < facts.length) {
+      // Counts and predicates only: the values are memory content.
+      const dropped = facts.filter((f) => !kept.includes(f)).map((f) => f.predicate);
+      this.logger.warn(
+        `extractor dropped ${dropped.length} open-vocabulary value(s) their source does not support: ${dropped.join(', ')}`,
+      );
+      traceArtifact('extractor.unsupported_values', {
+        droppedCount: dropped.length,
+        predicates: dropped,
+      });
+    }
+    if (labels.some((l) => l === undefined) && judged.length > 0) {
+      traceArtifact('extractor.values_unverified', { count: judged.length });
+    }
+    return kept;
   }
 }

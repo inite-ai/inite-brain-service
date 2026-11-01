@@ -84,7 +84,6 @@ import { ChatRoutePlannerService } from './chat-route-planner.service';
 import { PredicatePlanService } from './predicate-plan.service';
 import { ChatRouterCacheService } from './chat-router-cache.service';
 import { CollapsePatternService } from './collapse-pattern.service';
-import { IntentClassifierService } from './intent-classifier.service';
 import { ConfigInspectorService } from './config-inspector.service';
 import { PlatformSettingsService } from './platform-settings.service';
 
@@ -185,7 +184,8 @@ import { PlatformSettingsService } from './platform-settings.service';
     TraceViewService,
     ChatRouterCacheService,
     CollapsePatternService,
-    IntentClassifierService,
+    // IntentClassifierService moved to AiModule (@Global, exported): the
+    // extractor checks open-vocabulary values with its NLI model too.
     ChatRouterService,
     // Chat-router stage services (max-params split):
     ChatRouterLlmService,

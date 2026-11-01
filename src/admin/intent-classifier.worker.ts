@@ -15,7 +15,7 @@
  * `{ id, ok, result | error }`. id demuxes concurrent requests.
  */
 import { parentPort } from 'node:worker_threads';
-import { entailmentLabels, type NliPipelineParts } from './nli-entailment';
+import { nliLabels, type NliPipelineParts } from './nli-entailment';
 
 interface WorkerConfig {
   modelId: string;
@@ -99,11 +99,12 @@ const onMessage = async (msg: Inbound): Promise<void> => {
     if (msg.kind === 'entail') {
       if (!classifier) throw new Error('NLI classifier not ready');
       // The zero-shot pipeline object carries the tokenizer and the model.
+      // The three-way label: the caller decides what entailment it needs.
       const parts = classifier as unknown as NliPipelineParts;
       reply({
         id: msg.id,
         ok: true,
-        result: await entailmentLabels(parts, msg.payload.premise, msg.payload.hypotheses),
+        result: await nliLabels(parts, msg.payload.premise, msg.payload.hypotheses),
       });
       return;
     }
