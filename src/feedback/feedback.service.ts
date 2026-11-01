@@ -27,7 +27,7 @@ import {
  * One standing vote per (fact, caller key): the UNIQUE index turns
  * repeat feedback into a verdict replacement, so a single consumer
  * cannot stack votes and farm its own source's reputation. Trust
- * consumption lives in the calibration refit (buildFeedbackTrustEvents).
+ * consumption lives in the calibration refit (toTruthAnchors, #847).
  */
 export type FeedbackVerdict = 'helpful' | 'not_helpful' | 'incorrect';
 

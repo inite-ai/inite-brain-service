@@ -169,6 +169,13 @@ spend is the stand's own normal serving cost.
   provenance-of-transition), each with 2–4 typed checks
   (`serve` / `belief` / `history` / `prov`). Serve scoring is
   marker-first: an honest decline never fails a serve check by itself.
+- **`pnpm eval:truth-discovery`** (`test/eval/truth-discovery/`) —
+  synthetic workspaces of known truth (sources of known accuracy,
+  copiers sharing an origin, a source that reports changes), scored
+  exactly. It covers pick accuracy against majority vote, calibration
+  (ECE), source-accuracy RMSE against the win/loss tally it replaced, and
+  a change-over-time control. The prior is tuned on seeds the reported
+  numbers never see. No stand, no model.
 - **`eval:domain-packs`** — a pack-conformance battery in the same
   family, landing in a separate in-flight PR.
 - **`pnpm eval:evidence`** (`test/eval/evidence/`) — 29 checks over the
