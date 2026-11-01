@@ -71,6 +71,8 @@ export interface SearchHit {
      */
     expectedUntil?: string | undefined;
     status: string;
+    /** Truth discovery (#847): how likely this contested value is the true one. */
+    truth?: { posterior: number; claims: number } | undefined;
     /** Write-time source key (trustSnapshot, migration 0044) — lets a
      *  caller chase a citation back to WHO claimed it. Absent on
      *  pre-0044 facts. */

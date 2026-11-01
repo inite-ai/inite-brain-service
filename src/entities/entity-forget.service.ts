@@ -22,7 +22,7 @@ import {
   purgeExclusiveDocContent,
 } from '../documents/document-purge.util';
 import { normalizeEntityId } from './entity-read.helpers';
-import { ForgetOptions, ForgetResult } from './entities.service';
+import type { ForgetOptions, ForgetResult } from './entities.service';
 
 /** A previously-written tombstone, read back for idempotent-replay. */
 interface ForgottenTombstoneRow {

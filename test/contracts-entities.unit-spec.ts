@@ -46,6 +46,7 @@ const fullProfileFact: Required<EntityProfile['facts'][number]> = {
   validUntil: '2026-10-01T00:00:00.000Z',
   expectedUntil: '2026-09-28T00:00:00.000Z',
   status: 'active',
+  truth: { posterior: 0.82, claims: 2 },
 };
 
 const fullProfile: Required<EntityProfile> = {

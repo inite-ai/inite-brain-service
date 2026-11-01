@@ -99,6 +99,11 @@ export function assembleHits({
         validUntil: row.validUntil ?? undefined,
         ...(row.expectedUntil ? { expectedUntil: toIsoString(row.expectedUntil) } : {}),
         status: row.status,
+        // How likely this contested value is the true one (#847): read
+        // beside a rival, never instead of it.
+        ...(row.truth
+          ? { truth: { posterior: row.truth.posterior, claims: row.truth.claims } }
+          : {}),
         sourceKey: row.trustSnapshot?.sourceKey ?? undefined,
         ...(row.highlight ? { highlight: row.highlight } : {}),
         // Mention anchor rides in FLEXIBLE `source` (V12 §1) — surface

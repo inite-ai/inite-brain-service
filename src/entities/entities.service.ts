@@ -30,7 +30,7 @@ const ENTITY_PROFILE_FIELDS = 'id, type, canonicalName, externalRefs, mergedAt, 
 // the field was already part of the wire shape (timeline's `source`).
 const FACT_PROFILE_FIELDS =
   'id, predicate, object, confidence, validFrom, validUntil, expectedUntil, ' +
-  'recordedAt, retractedAt, status, source, trustSnapshot, corroboration';
+  'recordedAt, retractedAt, status, truth, source, trustSnapshot, corroboration';
 
 const FACT_TIMELINE_FIELDS =
   'id, predicate, object, confidence, validFrom, validUntil, ' +
@@ -59,6 +59,8 @@ export interface EntityProfile {
     /** When a temporary state is expected to be over (0166) — an expectation, not an end. */
     expectedUntil?: string | undefined;
     status: string;
+    /** Truth discovery (#847): set only on a contested value. */
+    truth?: { posterior: number; claims: number } | undefined;
   }>;
 }
 
@@ -196,6 +198,7 @@ interface FactProfileRow extends PolicyFilterableRow {
   validUntil?: string | Date;
   expectedUntil?: string | Date | null;
   status: string;
+  truth?: { posterior: number; claims: number } | null;
 }
 
 interface FactTimelineRow extends PolicyFilterableRow {
@@ -361,6 +364,7 @@ export class EntitiesService {
           validUntil: f.validUntil ? new Date(f.validUntil).toISOString() : undefined,
           ...(f.expectedUntil ? { expectedUntil: new Date(f.expectedUntil).toISOString() } : {}),
           status: f.status,
+          ...(f.truth ? { truth: { posterior: f.truth.posterior, claims: f.truth.claims } } : {}),
         })),
       };
     });

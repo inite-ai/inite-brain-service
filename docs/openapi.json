@@ -1539,6 +1539,24 @@
           "status": {
             "type": "string"
           },
+          "truth": {
+            "additionalProperties": false,
+            "properties": {
+              "claims": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "posterior": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "posterior",
+              "claims"
+            ],
+            "type": "object"
+          },
           "validFrom": {
             "type": "string"
           },
@@ -6969,6 +6987,24 @@
           },
           "status": {
             "type": "string"
+          },
+          "truth": {
+            "additionalProperties": false,
+            "properties": {
+              "claims": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              },
+              "posterior": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "posterior",
+              "claims"
+            ],
+            "type": "object"
           },
           "validFrom": {
             "type": "string"

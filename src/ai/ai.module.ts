@@ -28,6 +28,7 @@ import { ReindexEngineService } from './embedder/reindex-engine.service';
 import { EmbeddingSpaceService } from './embedder/embedding-space.service';
 import { EntityJudgeService } from './entity-judge.service';
 import { MemoryModelReaderService } from './memory-model-reader.service';
+import { IntentClassifierService } from '../admin/intent-classifier.service';
 
 @Global()
 @Module({
@@ -50,6 +51,7 @@ import { MemoryModelReaderService } from './memory-model-reader.service';
     ExtractorCacheService,
     LocalNerService,
     ExtractionPatternService,
+    IntentClassifierService,
     {
       // Local cross-encoder fallback (no-Cohere-key rerank). Construction is
       // cheap — the ONNX model lazy-loads on first use — so it's always
@@ -114,6 +116,9 @@ import { MemoryModelReaderService } from './memory-model-reader.service';
     EmbeddingSpaceService,
     EntityJudgeService,
     MemoryModelReaderService,
+    // One NLI model per process: the chat router, the focus view and the
+    // extractor's open-vocabulary value check share it.
+    IntentClassifierService,
   ],
 })
 export class AiModule {}

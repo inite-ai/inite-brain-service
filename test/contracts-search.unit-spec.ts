@@ -53,6 +53,7 @@ const fullFact: Required<SearchHit['facts'][number]> = {
   validUntil: '2026-10-01T00:00:00.000Z',
   expectedUntil: '2026-09-28T00:00:00.000Z',
   status: 'active',
+  truth: { posterior: 0.82, claims: 2 },
   sourceKey: 'rent:tenant_bot',
   mentionedAt: '2026-09-01T09:59:00.000Z',
   scene: 'a maintenance complaint call',
