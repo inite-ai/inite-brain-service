@@ -28,7 +28,7 @@ describe('real_estate pack — extractionProfile consumption (e2e)', () => {
   let savedDialogueProfile: string | undefined;
   beforeAll(() => {
     savedDialogueProfile = process.env.EXTRACTOR_DIALOGUE_PROFILE;
-    delete process.env.EXTRACTOR_DIALOGUE_PROFILE;
+    process.env.EXTRACTOR_DIALOGUE_PROFILE = '0';
   });
   afterAll(() => {
     if (savedDialogueProfile !== undefined) {

@@ -426,6 +426,9 @@ describe('submit', () => {
 
 describe('a submitted reply goes through the server post-processing', () => {
   it('drops a value the text does not hold (closed profile grounding)', async () => {
+    // The closed vocabulary's substring gate; production's open dialogue
+    // profile normalises values and bypasses it.
+    process.env.EXTRACTOR_DIALOGUE_PROFILE = '0';
     const runner = new ExtractorRunnerService(
       {} as never,
       { persistPatterns: () => {} } as never,

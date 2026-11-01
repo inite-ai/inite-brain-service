@@ -36,6 +36,13 @@ import {
 } from '../src/admin/scene-entity-links';
 import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['INGEST_ARTICLE_NORMALIZATION', 'INGEST_CONFUSABLES_CHECK'])
+    process.env[k] ??= '0';
+});
+
 // ── 1. the pure half ────────────────────────────────────────────────────
 
 describe('selectSceneMentions', () => {

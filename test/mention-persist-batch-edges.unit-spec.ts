@@ -98,7 +98,7 @@ describe('MentionPersistService batched edge persistence', () => {
   }
 
   afterEach(() => {
-    delete process.env.INGEST_BATCH_EDGES;
+    process.env.INGEST_BATCH_EDGES = '0';
   });
 
   it('all-new edges → existence check + one RELATE batch (2 round-trips)', async () => {

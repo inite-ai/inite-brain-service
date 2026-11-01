@@ -541,7 +541,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read per-call in EntityUpsertService (process.env), never
     // constructor-captured — a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -563,7 +563,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read per-call in EntityUpsertService (process.env), never
     // constructor-captured — a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

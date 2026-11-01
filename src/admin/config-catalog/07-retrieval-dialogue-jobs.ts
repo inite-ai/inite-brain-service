@@ -227,7 +227,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'INGEST_SANITIZE_UNICODE',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -245,7 +245,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'INGEST_EVENT_TIME_EXTRACTION',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -254,7 +254,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_ASSISTANT_CONTENT',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -263,7 +263,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_COMPLETION_PASS',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -272,7 +272,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_SALIENCE_STAMP',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -281,7 +281,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_DIGEST',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -290,7 +290,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_MENTION_STAMP',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -308,7 +308,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_SLOT_SEMANTICS',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -329,7 +329,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'EXTRACTOR_DIALOGUE_PROFILE',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -356,7 +356,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'INGEST_BATCH_EDGES',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:

@@ -96,7 +96,11 @@ describe('deriver salience prompt separation (V9 §5)', () => {
 
 describe('flag plumbing', () => {
   it('DERIVER_SALIENCE_STAMP resolves through the extraction profile', () => {
-    expect(resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSalienceStamp).toBe(false);
+    expect(resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSalienceStamp).toBe(true);
+    expect(
+      resolveExtractionProfile({ DERIVER_SALIENCE_STAMP: '0' } as NodeJS.ProcessEnv)
+        .deriveSalienceStamp,
+    ).toBe(false);
     expect(
       resolveExtractionProfile({
         DERIVER_SALIENCE_STAMP: '1',

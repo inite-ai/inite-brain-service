@@ -15,7 +15,7 @@ import { isUserEntityRef } from './user-entity';
 import { isCodeSymbolShaped, pathNeedlesForSymbol, symbolAliasForPath } from './code-alias';
 import { scopeForUser } from '../auth/scope-tags';
 import { scopeFenceSql } from '../auth/scope-visibility';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { analyzeConfusables } from '../common/text-sanitizer';
 import { nameKey, nameKeysFor } from '../common/name-key';
 import { traceArtifact } from '../common/debug-trace';
@@ -263,7 +263,7 @@ export class EntityUpsertService {
     /** Which rung resolved the mention — `created` means a new entity exists now. */
     onStep?: ((step: ResolutionStep) => void) | undefined;
   }): Promise<string> {
-    // INGEST_CONFUSABLES_CHECK (Tier 3, default off): a homoglyph/mixed-
+    // INGEST_CONFUSABLES_CHECK (Tier 3, default on): a homoglyph/mixed-
     // script RISK SIGNAL over the entity name, logged for review. It NEVER
     // blocks resolution and NEVER auto-merges — off ⇒ nothing computed.
     this.flagConfusables(e.name);
@@ -451,7 +451,7 @@ export class EntityUpsertService {
     // stored canonicalName is never rewritten, and a UNIQUE match only —
     // two same-named-modulo-article entities existing already is exactly
     // the ambiguity we refuse to guess about. Same tenant-global fence.
-    if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
+    if (envFlagNotDisabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
       const variants = articleNameVariants(target);
       if (variants.length > 0) {
         const vRows = await queryRows<{ id: unknown }>(
@@ -661,7 +661,7 @@ export class EntityUpsertService {
       }
 
       // 2. Leading-article variants (INGEST_ARTICLE_NORMALIZATION).
-      if (envFlagEnabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
+      if (envFlagNotDisabled(process.env.INGEST_ARTICLE_NORMALIZATION)) {
         const variants = articleNameVariants(target);
         if (variants.length > 0) {
           const viaArticle = await this.uniqueEntity(
@@ -1134,7 +1134,7 @@ export class EntityUpsertService {
   /** INGEST_CONFUSABLES_CHECK: log a homoglyph/mixed-script name for review.
    *  RISK SIGNAL ONLY — never blocks, never auto-merges. Off ⇒ no-op. */
   private flagConfusables(name: string): void {
-    if (!envFlagEnabled(process.env.INGEST_CONFUSABLES_CHECK)) return;
+    if (!envFlagNotDisabled(process.env.INGEST_CONFUSABLES_CHECK)) return;
     const risk = analyzeConfusables(name);
     if (!risk.flagged) return;
     this.logger.warn(

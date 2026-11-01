@@ -181,8 +181,12 @@ describe('migration 0083 (the stored-fn side)', () => {
 });
 
 describe('DERIVER_SLOT_SEMANTICS flag plumbing', () => {
-  it('resolves through the extraction profile, default off', () => {
-    expect(resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSlotSemantics).toBe(false);
+  it("resolves through the extraction profile, default production's on", () => {
+    expect(resolveExtractionProfile({} as NodeJS.ProcessEnv).deriveSlotSemantics).toBe(true);
+    expect(
+      resolveExtractionProfile({ DERIVER_SLOT_SEMANTICS: '0' } as NodeJS.ProcessEnv)
+        .deriveSlotSemantics,
+    ).toBe(false);
     expect(
       resolveExtractionProfile({
         DERIVER_SLOT_SEMANTICS: '1',

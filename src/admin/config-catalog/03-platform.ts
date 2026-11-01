@@ -254,7 +254,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'CONFLICT_DIRECT_FACT_SLOT',
     category: 'conflict',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -263,7 +263,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'CONFLICT_MENTION_FACT_SLOT',
     category: 'conflict',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -272,7 +272,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'CONFLICT_SLOT_CANONICALIZATION',
     category: 'conflict',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

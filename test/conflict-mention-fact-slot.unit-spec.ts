@@ -5,6 +5,17 @@ import {
   conflictSlotSemantics,
 } from '../src/ingest/fact-resolver.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of [
+    'CONFLICT_DIRECT_FACT_SLOT',
+    'CONFLICT_MENTION_FACT_SLOT',
+    'CONFLICT_SLOT_CANONICALIZATION',
+  ])
+    process.env[k] ??= '0';
+});
+
 /**
  * CONFLICT_MENTION_FACT_SLOT — semantics promotion at the shared
  * buildResolveCall seam (conflictSlotSemantics). The mention/extraction
@@ -26,8 +37,8 @@ import {
  */
 describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
   afterEach(() => {
-    delete process.env.CONFLICT_MENTION_FACT_SLOT;
-    delete process.env.CONFLICT_DIRECT_FACT_SLOT;
+    process.env.CONFLICT_MENTION_FACT_SLOT = '0';
+    process.env.CONFLICT_DIRECT_FACT_SLOT = '0';
   });
 
   function make(
@@ -86,7 +97,7 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
     resolveCalls(queries)[0]?.params.semantics;
 
   it('flag off: mention-path single_active passthrough, resolver call byte-identical', async () => {
-    // Baseline pin: with the flag unset AND with it explicitly '0', the
+    // Baseline pin: with the flag '0' (the suite's pin; production runs it on) and with it set '0' explicitly, the
     // fn::resolve_fact invocation binds the exact same parameters — the
     // default-off promise is byte-identical current behavior.
     const unset = make();

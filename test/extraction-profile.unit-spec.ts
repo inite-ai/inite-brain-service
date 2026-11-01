@@ -10,6 +10,13 @@ import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
 import { buildSystemPrompt, renderExtractionProfiles } from '../src/ai/extractor-internals/prompts';
 import type { PackExtractionProfile } from '../src/ai/predicate-registry-internals/types';
 
+// These cases pin the CLOSED vocabulary: verbatim values, span-grounded.
+// Production runs the open dialogue profile (EXTRACTOR_DIALOGUE_PROFILE),
+// which normalises values and so bypasses the substring gate.
+beforeEach(() => {
+  for (const k of ['EXTRACTOR_DIALOGUE_PROFILE']) process.env[k] ??= '0';
+});
+
 const REAL_ESTATE_PROFILE: PackExtractionProfile = {
   packId: 'real_estate',
   profile: {

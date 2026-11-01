@@ -4,7 +4,7 @@ import { Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService } from '../ai/entity-judge.service';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { nameKey } from '../common/name-key';
 
 /**
@@ -24,7 +24,7 @@ import { nameKey } from '../common/name-key';
  * Scope: the free-text mention path only. Structured `POST /v1/ingest/fact`
  * with an explicit `vertical:id` stays authoritative (externalRef).
  *
- * Gated by INGEST_INLINE_RESOLUTION_ENABLED (default off). Any failure
+ * Gated by INGEST_INLINE_RESOLUTION_ENABLED (default on). Any failure
  * falls back to "create new" — inline resolution must never block ingest.
  *
  * Provenance (deliberate, graphiti-parity): a confirmed match REUSES the
@@ -86,7 +86,7 @@ export class EntityResolverService {
     private readonly embedder: EmbedderService,
     private readonly judge: EntityJudgeService,
   ) {
-    this.enabled = envFlagEnabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED'));
+    this.enabled = envFlagNotDisabled(this.config.get<string>('INGEST_INLINE_RESOLUTION_ENABLED'));
     // A RECALL floor, not a precision one. Everything above it is handed to
     // the judge, which decides on FACTS; a candidate below it is never seen
     // by anything. 0.85 was set as though the cosine were the decision, and

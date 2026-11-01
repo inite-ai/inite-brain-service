@@ -21,6 +21,13 @@ import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
 import { ExtractorLocalService } from '../src/ai/extractor-local.service';
 import { ExtractorRefineService } from '../src/ai/extractor-refine.service';
 
+// These cases pin the CLOSED vocabulary: verbatim values, span-grounded.
+// Production runs the open dialogue profile (EXTRACTOR_DIALOGUE_PROFILE),
+// which normalises values and so bypasses the substring gate.
+beforeEach(() => {
+  for (const k of ['EXTRACTOR_DIALOGUE_PROFILE']) process.env[k] ??= '0';
+});
+
 function mkExtractor(scriptedLlmResponse: any): ExtractorService {
   const config = {
     get: (k: string, def?: string) => {

@@ -390,7 +390,7 @@ describe('memory-injection red-team suite (G5)', () => {
         expect(stored).toBe('Book a room malicious payload here');
         expect(stored).not.toMatch(/[‮​‍]/);
       } finally {
-        delete process.env.INGEST_SANITIZE_UNICODE;
+        process.env.INGEST_SANITIZE_UNICODE = '0';
       }
     });
 

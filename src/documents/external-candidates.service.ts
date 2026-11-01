@@ -10,7 +10,7 @@ import { normalizeEntityType, parseEventTime } from '../ai/extractor-internals/g
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
 import { policyFor } from '../ingest/conflict-resolver';
 import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import {
   packMemoryProjectionsEnabled,
   packSourceVersionStalenessEnabled,
@@ -289,12 +289,12 @@ export class ExternalCandidatesService {
     ungrounded: boolean;
   }> {
     const { dto, doc } = p;
-    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default on):
     // de-obfuscate submitted names/objects. The stored document text this
     // batch re-grounds against was itself sanitized at ingest (when the
     // flag was on), so both sides of the grounding comparison see the
     // same text. Flag off → submitted fields flow through verbatim.
-    const clean = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE);
+    const clean = envFlagNotDisabled(process.env.INGEST_SANITIZE_UNICODE);
     const entities: CandidateEntity[] = dto.entities.map((e, i) => ({
       entityIndex: i,
       name: clean ? sanitizeIngestText(e.name) : e.name,

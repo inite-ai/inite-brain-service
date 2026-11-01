@@ -14,7 +14,7 @@ import {
   swapPackSceneSlice,
 } from '../episodes/pack-scene-projection';
 import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { redactPiiWithReport } from './ingest-utils';
 import { derivePackScenes, type DerivedPackScene } from './pack-scene-derivation';
@@ -283,7 +283,7 @@ interface RedactedTurn {
  */
 function redactedTurn(dto: IngestMentionDto): RedactedTurn {
   if (typeof dto.text !== 'string') return { text: '', classes: [] };
-  const raw = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)
+  const raw = envFlagNotDisabled(process.env.INGEST_SANITIZE_UNICODE)
     ? sanitizeIngestText(dto.text)
     : dto.text;
   return redactPiiWithReport(raw);

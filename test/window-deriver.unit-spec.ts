@@ -232,7 +232,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         },
       ],
     };
-    delete process.env.DERIVER_MENTION_STAMP;
+    process.env.DERIVER_MENTION_STAMP = '0';
     const off = makeSvc(props);
     await off.svc.run('co_x');
     const offSource = off.derived[0]!.source as Record<string, unknown>;
@@ -247,7 +247,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       expect(src.mentionedAt).toBe('2023-05-01T10:01:00.000Z');
       expect(src.turnIndex).toBe(1);
     } finally {
-      delete process.env.DERIVER_MENTION_STAMP;
+      process.env.DERIVER_MENTION_STAMP = '0';
     }
   });
 
@@ -266,7 +266,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
         },
       ],
     };
-    delete process.env.DERIVER_DIGEST;
+    process.env.DERIVER_DIGEST = '0';
     const off = makeSvc(props);
     await off.svc.run('co_x');
     // Audit 2026-08-19 P1: deriving a (conversation, version) claims the
@@ -311,7 +311,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       // digest is readable by user-scoped callers (tenant-global).
       expect(write?.params?.userScopes).toEqual([]);
     } finally {
-      delete process.env.DERIVER_DIGEST;
+      process.env.DERIVER_DIGEST = '0';
     }
   });
 
@@ -367,7 +367,7 @@ describe('WindowDeriverService (P3 v1 batch)', () => {
       expect(write?.sql).toContain('userScopes = $userScopes');
       expect(write?.params?.userScopes).toEqual(['user-a', 'user-b']);
     } finally {
-      delete process.env.DERIVER_DIGEST;
+      process.env.DERIVER_DIGEST = '0';
     }
   });
 

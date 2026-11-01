@@ -95,7 +95,7 @@ describe('predicate alias (W3 0082)', () => {
   describe('ExtractorRefineService (open vocabulary)', () => {
     const OLD = process.env.EXTRACTOR_DIALOGUE_PROFILE;
     afterEach(() => {
-      if (OLD === undefined) delete process.env.EXTRACTOR_DIALOGUE_PROFILE;
+      if (OLD === undefined) process.env.EXTRACTOR_DIALOGUE_PROFILE = '0';
       else process.env.EXTRACTOR_DIALOGUE_PROFILE = OLD;
     });
 

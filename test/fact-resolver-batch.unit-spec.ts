@@ -1,5 +1,16 @@
 import { FactResolverService } from '../src/ingest/fact-resolver.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of [
+    'CONFLICT_DIRECT_FACT_SLOT',
+    'CONFLICT_MENTION_FACT_SLOT',
+    'CONFLICT_SLOT_CANONICALIZATION',
+  ])
+    process.env[k] ??= '0';
+});
+
 /**
  * FactResolverService.resolveMany — batched mention persistence (INGEST_BATCH_FACTS).
  * append_only facts collapse into ONE fn::resolve_facts round-trip; single_active/

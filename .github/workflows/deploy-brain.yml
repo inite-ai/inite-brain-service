@@ -197,8 +197,6 @@ jobs:
           # 25/32 open, 24/32 open+facets (D1 state currency fails in
           # every arm — a supersession problem, not a profile one).
           # Requires re-ingest for old rows.
-          EXTRACTOR_DIALOGUE_PROFILE=1
-          EXTRACTOR_DROP_SAID=1
           # Three self-consistency samples per extraction, unioned by
           # semantic cluster. The write is the one stochastic step that is
           # never re-run, and the reasoning model samples at its default
@@ -231,24 +229,7 @@ jobs:
           # captured document (documents/triage.ts) — SHADOW: nothing gates
           # on it until its recall is measured (0167, raw-processing roadmap).
           DECISIONS_LANES=entity_judge,predicate_identity,verifier,extraction_check,triage
-          INGEST_INLINE_RESOLUTION_ENABLED=1
-          INGEST_EVENT_TIME_EXTRACTION=1
-          INGEST_BATCH_EDGES=1
-          INGEST_BATCH_FACTS=1
-          INGEST_SANITIZE_UNICODE=1
           # ── Session deriver (prompt/schema change => new derivedVersion) ──
-          DERIVER_ASSISTANT_CONTENT=1
-          DERIVER_SLOT_SEMANTICS=1
-          DERIVER_MENTION_STAMP=1
-          DERIVER_TURN_HEADERS=1
-          DERIVER_DATE_RESOLVE=1
-          DERIVER_COMPOSE_PASS=1
-          DERIVER_SCENE_TRACE=1
-          DERIVER_TYPED_ATOMS=1
-          DERIVER_SPANS=1
-          DERIVER_DIGEST=1
-          DERIVER_COMPLETION_PASS=1
-          DERIVER_SALIENCE_STAMP=1
           # ── Verbatim lanes (they follow RETRIEVAL_VERBATIM_EVIDENCE,
           # assistant-chat default shape_conditioned) + rerank legs ──
           SEARCH_SEGMENT_LANE_RERANK=1
@@ -340,7 +321,6 @@ jobs:
           AGENT_QA_TOOLS_V2=1
           # ── Memory-fitness fix wave (#415-#417, measured on the stand:
           # same-memory re-ask 16/30 -> 20/29; D2 timeline 3/3, D6 2/2) ──
-          CONFLICT_DIRECT_FACT_SLOT=1
           BELIEFS_LANE_DATE_DISAMBIGUATION=1
           PROVENANCE_EPISODE_NEIGHBOURS=1
           # ── Belief transitions (#423/#426; Compass acceptance green —
@@ -360,7 +340,6 @@ jobs:
           # contradicting arms extract into DIFFERENT slots —
           # status vs duration_limit — so no single_active collision
           # exists to pair; slot canonicalization is the follow-up). ──
-          CONFLICT_MENTION_FACT_SLOT=1
           # ── s07/k07/k10 root-cause wave (#450 #454 #455 #456, all
           # live-verified on the stand 2026-09-06):
           # - slot canonicalization: calendar-anchored duration claims
@@ -376,8 +355,6 @@ jobs:
           #   when detection clears the 0.5 confidence floor.
           # Measured: code-memory battery k07 flipped green (14/16);
           # transitions/domain-packs/memory-fitness no regression. ──
-          CONFLICT_SLOT_CANONICALIZATION=1
-          INGEST_ARTICLE_NORMALIZATION=1
           MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE=1
           # Write-side mirror of the gate above: a weak detection ("120
           # requests per minute" → it@0.33) is not stamped as the fact's
@@ -385,7 +362,6 @@ jobs:
           MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE=1
           # Homoglyph / mixed-script entity names are logged for review —
           # never blocked, never merged (#788).
-          INGEST_CONFUSABLES_CHECK=1
           # ── One memory holds several languages (Russian conversations,
           # English code decisions): the hard same-language exclusion hid
           # every English fact from a confidently-Russian question once the

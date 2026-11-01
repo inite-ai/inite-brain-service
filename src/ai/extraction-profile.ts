@@ -1,4 +1,4 @@
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 
 /**
  * ExtractionPipelineProfile — the configuration object of the ONE
@@ -166,25 +166,25 @@ export interface ExtractionPipelineProfile {
 export function resolveExtractionProfile(
   env: NodeJS.ProcessEnv = process.env,
 ): ExtractionPipelineProfile {
-  const open = envFlagEnabled(env.EXTRACTOR_DIALOGUE_PROFILE);
+  const open = envFlagNotDisabled(env.EXTRACTOR_DIALOGUE_PROFILE);
   const threshold = parseFloat(env.EXTRACTOR_LOCAL_PREDICATE_THRESHOLD ?? '0.45');
   return {
     vocabulary: open ? 'open' : 'closed',
     normalizeObjects: envFlagEnabled(env.EXTRACTION_OBJECT_NORMALIZE),
-    dropSaid: envFlagEnabled(env.EXTRACTOR_DROP_SAID),
+    dropSaid: envFlagNotDisabled(env.EXTRACTOR_DROP_SAID),
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,
-    deriveAssistantContent: envFlagEnabled(env.DERIVER_ASSISTANT_CONTENT),
-    deriveTypedAtoms: envFlagEnabled(env.DERIVER_TYPED_ATOMS),
-    deriveCompletionPass: envFlagEnabled(env.DERIVER_COMPLETION_PASS),
-    deriveSalienceStamp: envFlagEnabled(env.DERIVER_SALIENCE_STAMP),
-    deriveMentionStamp: envFlagEnabled(env.DERIVER_MENTION_STAMP),
-    deriveTurnHeaders: envFlagEnabled(env.DERIVER_TURN_HEADERS),
-    deriveDateResolve: envFlagEnabled(env.DERIVER_DATE_RESOLVE),
-    deriveComposePass: envFlagEnabled(env.DERIVER_COMPOSE_PASS),
-    deriveSceneTrace: envFlagEnabled(env.DERIVER_SCENE_TRACE),
-    deriveSpans: envFlagEnabled(env.DERIVER_SPANS),
-    deriveDigest: envFlagEnabled(env.DERIVER_DIGEST),
-    deriveSlotSemantics: envFlagEnabled(env.DERIVER_SLOT_SEMANTICS),
+    deriveAssistantContent: envFlagNotDisabled(env.DERIVER_ASSISTANT_CONTENT),
+    deriveTypedAtoms: envFlagNotDisabled(env.DERIVER_TYPED_ATOMS),
+    deriveCompletionPass: envFlagNotDisabled(env.DERIVER_COMPLETION_PASS),
+    deriveSalienceStamp: envFlagNotDisabled(env.DERIVER_SALIENCE_STAMP),
+    deriveMentionStamp: envFlagNotDisabled(env.DERIVER_MENTION_STAMP),
+    deriveTurnHeaders: envFlagNotDisabled(env.DERIVER_TURN_HEADERS),
+    deriveDateResolve: envFlagNotDisabled(env.DERIVER_DATE_RESOLVE),
+    deriveComposePass: envFlagNotDisabled(env.DERIVER_COMPOSE_PASS),
+    deriveSceneTrace: envFlagNotDisabled(env.DERIVER_SCENE_TRACE),
+    deriveSpans: envFlagNotDisabled(env.DERIVER_SPANS),
+    deriveDigest: envFlagNotDisabled(env.DERIVER_DIGEST),
+    deriveSlotSemantics: envFlagNotDisabled(env.DERIVER_SLOT_SEMANTICS),
   };
 }
