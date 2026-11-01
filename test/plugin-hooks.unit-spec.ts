@@ -8,7 +8,7 @@
  */
 import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -26,6 +26,7 @@ interface Captured {
 async function stubBrain(
   reply: unknown,
   status = 200,
+  delayMs = 0,
 ): Promise<{
   url: string;
   calls: Captured[];
@@ -42,12 +43,14 @@ async function stubBrain(
         body: raw ? (JSON.parse(raw) as Record<string, unknown>) : {},
         auth: req.headers.authorization,
       });
-      res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify(
-          typeof reply === 'function' ? (reply as (p: string) => unknown)(req.url ?? '') : reply,
-        ),
-      );
+      setTimeout(() => {
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify(
+            typeof reply === 'function' ? (reply as (p: string) => unknown)(req.url ?? '') : reply,
+          ),
+        );
+      }, delayMs);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -67,7 +70,9 @@ function run(
   env: Record<string, string>,
 ): Promise<{ stdout: string }> {
   const child = execFileAsync('sh', [HOOK, mode], {
-    env: { ...process.env, ...env },
+    // A fresh data dir per run unless the test shares one: the kept recall
+    // and the capture watermark must never leak between tests or into ~/.cache.
+    env: { ...process.env, CLAUDE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'brain-data-')), ...env },
     timeout: 20_000,
   });
   // The harness writes the event payload to the hook's stdin. If the
@@ -227,6 +232,55 @@ describe('brain-hook: recall (SessionStart)', () => {
       await brain.close();
     }
   });
+
+  it('answers from the kept recall at once while brain is down, and refreshes it in the background', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'brain-data-'));
+    const brain = await stubBrain(SEARCH_REPLY);
+    const env = {
+      CLAUDE_PLUGIN_OPTION_API_KEY: 'brain_test',
+      CLAUDE_PLUGIN_OPTION_BASE_URL: brain.url,
+      CLAUDE_PLUGIN_DATA: dataDir,
+    };
+    try {
+      await run('recall', { session_id: 's1', cwd: process.cwd() }, env);
+    } finally {
+      await brain.close();
+    }
+    // Brain is gone now; the next start still has what it said, at once.
+    const started = Date.now();
+    const { stdout } = await run('recall', { session_id: 's2', cwd: process.cwd() }, env);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(stdout).toContain('uses SurrealDB');
+  });
+
+  it('a slow brain never holds a first start past the budget; the kept recall lands for the next one', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'brain-data-'));
+    const brain = await stubBrain(SEARCH_REPLY, 200, 4_000);
+    const env = {
+      CLAUDE_PLUGIN_OPTION_API_KEY: 'brain_test',
+      CLAUDE_PLUGIN_OPTION_BASE_URL: brain.url,
+      CLAUDE_PLUGIN_DATA: dataDir,
+    };
+    try {
+      const started = Date.now();
+      const { stdout } = await run('recall', { session_id: 's1', cwd: process.cwd() }, env);
+      expect(Date.now() - started).toBeLessThan(4_000);
+      expect(stdout).toBe('');
+      // The detached refresh outlives the hook and keeps the answer.
+      const kept = join(dataDir, 'inite-brain-hooks');
+      const deadline = Date.now() + 12_000;
+      while (
+        Date.now() < deadline &&
+        !(existsSync(kept) && readdirSync(kept).some((f) => /^recall-.*\.json$/.test(f)))
+      ) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const next = await run('recall', { session_id: 's2', cwd: process.cwd() }, env);
+      expect(next.stdout).toContain('uses SurrealDB');
+    } finally {
+      await brain.close();
+    }
+  }, 30_000);
 
   it('honours the recall switch', async () => {
     const brain = await stubBrain(SEARCH_REPLY);
