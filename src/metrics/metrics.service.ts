@@ -10,7 +10,7 @@ import {
 } from 'prom-client';
 import { isConclusive, type CapabilityName, type ProbeOutcome } from './capability-probe';
 import { PROCESS_IDENTITY } from '../common/process-identity';
-import { llmUsageGauge } from './llm-usage-gauge';
+import { processGauges } from './process-gauges';
 import type { CrossEncoderOutcome } from './cross-encoder-outcome';
 
 /** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
@@ -784,8 +784,8 @@ export class MetricsService implements OnModuleInit {
     registers: [this.registry],
   });
 
-  /** Every SDK call's tokens, by model (src/metrics/llm-usage-gauge.ts). */
-  readonly llmTokens = llmUsageGauge(this.registry);
+  /** SDK tokens and migration drift, read from process ledgers (process-gauges.ts). */
+  readonly processGauges = processGauges(this.registry);
 
   readonly openaiCalls = new Counter({
     name: 'brain_openai_calls_total',
