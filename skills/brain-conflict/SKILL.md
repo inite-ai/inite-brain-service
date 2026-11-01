@@ -5,18 +5,19 @@ description: How to detect and resolve conflicting beliefs in the INITE Brain kn
 
 # brain-conflict
 
-Brain's conflict resolver runs on every `record_fact`. Most of the time it picks a winner cleanly — the new fact either INSERTED (no overlap), SUPERSEDED (clearly beats the prior), or REJECTED (too unconfident). When it can't pick — when two facts overlap in valid-time, are too semantically close, and score within margin — they BOTH stay alive in COMPETING status. This skill is how you handle those.
+Brain settles every `record_fact` in two steps, and neither one uses a score. At write time it applies only rules that need no judgement: the same value restated **corroborates**, a strictly later `validFrom` **supersedes** the earlier value of the slot, and a strictly earlier one is filed as **history**. Two different values of one slot at the same valid time are both kept, and **fact resolution** (a judge that names the relation) decides what they are. When the judge says the two cannot both be true, both stay alive in COMPETING status. This skill is how you handle those.
 
 ## What COMPETING means
 
-The conflict resolver writes `status='competing'` when:
+`status='competing'` marks a real disagreement: the same attribute of the same subject, at the same time, with two values that cannot both be true and nothing saying one replaced the other. It comes from fact resolution, not from a threshold:
 
-- The predicate is `bitemporal` (`status`, `intent`, `address`, …) — `single_active` predicates always supersede.
-- A prior fact's valid-time interval overlaps the new fact's.
-- The two facts are cosine-similar above `CONFLICT_SIMILARITY_THRESHOLD` (semantically close enough that one might be a rephrase of the other).
-- The score gap between them is ≤ `CONFLICT_MARGIN_SUPERSEDE` — neither dominates.
+- At write time a value that holds from the same moment as another value of the slot is inserted `active` with `reason: 'for_resolution'`.
+- Fact resolution compares the new fact with similar facts on the entity and names each relation: `same` (a paraphrase: corroborates), `replaces` (successive values: valid time decides which closes), `contradicts` (both go `competing`), `unrelated` (nothing changes).
+- `single_active` predicates close every overlapping value at write time, so they never reach the judge by overlap.
+- `bitemporal_event` predicates decide by calendar day at write time, as before.
+- A fact from a system of record (`source.kind = 'source_record'`, a CRM door) never has its status changed by resolution. A claim that disputes it is marked `competing` beside it; the record keeps its slot.
 
-The resolver refuses to pick. Both rows stay searchable but are surfaced as a known disagreement. The dreams loop's resolver pass (`/v1/dreams/run`) periodically wakes up and asks an LLM judge to break ties for pairs older than the min-age gate; multi-way conflicts (3+) escape auto-resolution and stay for human adjudication.
+There are no weights, no supersede margin and no reject floor: confidence and source trust are recorded on the fact (`trustSnapshot`) as provenance, never as a vote. Both competing rows stay searchable and are surfaced as a known disagreement. The dreams resolver pass (`/v1/dreams/run`) later asks an LLM judge to break 2-fact pairs older than the min-age gate; 3+ groups stay for human adjudication.
 
 ## Detecting disagreements — get_competing_facts
 
@@ -70,8 +71,8 @@ Returns:
 
 ```json
 {
-  "wouldOutcome": "COMPETING",
-  "reasoning": "bitemporal predicate, strongest similar prior (cosine 0.91) score 0.612 too close to candidate 0.624 (gap 0.012) within margin; both would remain active in COMPETING status.",
+  "wouldOutcome": "INSERTED",
+  "reasoning": "Another value of this slot holds from the same moment; the fact would be inserted and fact resolution would judge the pair (a paraphrase corroborates, a replacement supersedes, a disagreement competes).",
   "opposingFacts": [
     { "factId": "...", "object": "churned", ... }
   ],
@@ -79,7 +80,7 @@ Returns:
 }
 ```
 
-The reasoning string names the rule that fired and the numerical gap. Read it before deciding what to do.
+The reasoning string names the valid-time rule that fired (`CORROBORATED`, `SUPERSEDED`, `INSERTED_HISTORICAL`, or `INSERTED` for resolution) and `opposingFacts` lists the values it would meet. Read it before deciding what to do.
 
 ## Adjudication workflows
 
@@ -103,30 +104,31 @@ For high-stakes pairs or 3+ multi-way groups:
 3. On user verdict:
    - Loser → `retract_fact({ factId: <loser>, reason: "operator verdict: <text>" })`
    - Winner stays as-is. The retract revives the supersede chain if needed.
-4. Optional: record a fresh fact reinforcing the user's verdict with `human_declared` source — that source class has the highest trust weight and tilts future conflicts the same way.
+4. Optional: record a fresh fact with the user's verdict and a later `validFrom`. Valid time, not source weight, is what closes the old value at write time.
 
 ### Recording a new fact that touches the disagreement
 
-When the user wants to record something new on a predicate that's already in COMPETING, run `detect_contradiction` first. If the dry-run says the new fact would also land COMPETING, surface that to the user before you write — "this would create a 3-way disagreement; would you rather pick one of the existing values first?"
+When the user wants to record something new on a predicate that's already in COMPETING, run `detect_contradiction` first. If the dry-run says the new fact would be inserted for resolution beside the disputed values, surface that to the user before you write — "this would create a 3-way disagreement; would you rather pick one of the existing values first?"
 
 ## What NOT to do
 
-- **Don't auto-pick by recency.** "Newer = right" is the resolver's *recency* weight, not a UI rule. If the resolver decided not to pick, your agent shouldn't override silently.
+- **Don't auto-pick by recording time.** Valid time already decided everything it can: a pair left `competing` holds from the same moment. A later `recordedAt` doesn't make one side right, and your agent shouldn't override silently.
 - **Don't forget to surface the source.** A competing pair where one source is `human_declared` and the other is `inbox_extraction` is almost always resolvable by the user; the disagreement is between a person and an LLM. Surface that.
 - **Don't retract one side of a 3-way without picking the winner.** Retracting one of three competing facts leaves a 2-way pair the resolver still can't break. Either retract two (leaving a single active) or convert the survivors to a single `human_declared` fact via record_fact.
 - **Don't ignore `asOf` when adjudicating historical conflicts.** Two facts that competed on April 1 may have been resolved by May — call `get_competing_facts({ asOf: "2026-04-01..." })` to see the historical state, not the current one.
 
 ## Pitfalls
 
-- **`single_active` predicates never produce COMPETING by overlap alone.** They auto-supersede. If you see COMPETING on a `single_active` predicate, the resolver is in an unusual state — check `predicatePolicy` from `detect_contradiction` to confirm.
+- **`single_active` predicates never produce COMPETING by overlap alone.** They close overlapping values at write time. COMPETING on a `single_active` predicate means the judge found a contradiction between values that start at the same moment — check `predicatePolicy` from `detect_contradiction` to confirm the semantics.
+- **A record's value is not retracted to settle a dispute.** Record-door facts follow their source system: change the record there, and the next sync supersedes the value. Retract the disputing claim instead.
 - **The 2-fact min and 3+ max are by-design.** Dreams resolver only touches 2-fact pairs; the 3+ escalation is the safety valve when the conflict is too tangled for an LLM judge to break confidently.
 - **A retract doesn't always revive the supersedee.** Revive only happens for facts retracted via the `supersedeChain` (`retractionReason === 'superseded'`). An explicit operator retract is treated as independent; the predecessor stays superseded.
 
 ## Companion tools
 
 - `record_fact` / `retract_fact` — the write side of adjudication (see `brain-write`)
-- `detect_contradiction` — preflight before write. Fidelity note: the dry-run scores with the SEED source-trust table and authority 0; the live resolver uses learned domain-scoped rates + declared authority — check `get_source_reputation` when precision matters
-- `get_source_reputation` — the learned trust profile of each side's source vertical; a disagreement between a high-reputation and a low-reputation source often resolves itself
+- `detect_contradiction` — preflight before write. It mirrors the write-time valid-time rules exactly; it cannot predict what fact resolution's judge will say about a same-moment pair
+- `get_source_reputation` — the learned trust profile of each side's source vertical; context for the human deciding, not something the resolver weighs
 - `get_fact` / `get_fact_provenance` — audit one competing fact's trust record (incl. `groundingStatus`) and the verbatim turns behind it before retracting (`FACTS_API_ENABLED` servers)
 - `get_entity_timeline` — full history including superseded chain (see `brain-recall`)
 - `search_knowledge` — its answer already includes competing values, marked `[competing]`, so a dispute is never hidden behind one side (see `brain-search`)

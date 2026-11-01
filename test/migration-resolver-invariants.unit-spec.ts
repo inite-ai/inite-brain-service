@@ -1,5 +1,8 @@
 /**
- * GATE: pin the load-bearing invariants of the LIVE fn::resolve_fact.
+ * GATE: pin the load-bearing invariants of the LIVE write resolver —
+ * fn::resolve_fact until 0177, fn::settle_fact since (#830: a new name,
+ * because stored-function signatures are append-only across a rolling
+ * deploy; the old body stays for the image rolling out from).
  *
  * fn::resolve_fact is OVERWRITE'd by many migrations; the deployed
  * definition is whatever the highest-numbered migration left. Twice now a
@@ -26,11 +29,14 @@ function headResolveFactMigration(): { name: string; body: string } {
     const text = readFileSync(join(MIGRATIONS_DIR, f), 'utf8');
     // The trailing `(` pins the exact function — otherwise the batch wrapper
     // `fn::resolve_facts(` (migration 0071) substring-matches and hijacks head.
-    if (text.includes('DEFINE FUNCTION OVERWRITE fn::resolve_fact(')) {
+    if (
+      text.includes('DEFINE FUNCTION OVERWRITE fn::resolve_fact(') ||
+      text.includes('DEFINE FUNCTION OVERWRITE fn::settle_fact(')
+    ) {
       head = { name: f, body: text };
     }
   }
-  if (!head) throw new Error('no migration defines fn::resolve_fact');
+  if (!head) throw new Error('no migration defines the write resolver');
   return head;
 }
 
@@ -44,7 +50,7 @@ function stripComments(sql: string): string {
 
 /** Extract the supersede FOR-loop body (sans comments). */
 function supersedeLoop(body: string): string {
-  const start = body.indexOf('IF $supersede');
+  const start = body.indexOf('FOR $loser IN');
   expect(start).toBeGreaterThan(-1);
   const end = body.indexOf('RETURN {', start);
   return stripComments(body.slice(start, end));
@@ -57,14 +63,18 @@ describe('GATE: live fn::resolve_fact invariants', () => {
     expect(head.name >= '0034_supersede_no_retracted_at_fix.surql').toBe(true);
   });
 
-  it('scores opponent source-trust from the learned rate, NOT a hardcoded 0.5', () => {
-    // 0022's fix scored the opponent from the learned rate
-    // (fn::source_trust_for); 0045 sharpened it to the DOMAIN-scoped
-    // ladder (fn::source_trust_scoped, falling back to the global rate
-    // then 0.5). A reverted baseline would reintroduce
-    // `$w_source_trust * 0.5`.
-    expect(head.body).toContain('fn::source_trust_scoped(fn::source_key_of(source), $predicate)');
-    expect(head.body).not.toMatch(/\$w_source_trust \* 0\.5/);
+  it('snapshots the learned, domain-scoped source trust onto the fact (0044/0045)', () => {
+    // Since #830 trust is provenance, not a vote: no weighted score reads
+    // it, but the fact still freezes what the resolver believed about the
+    // source (fn::source_trust_scoped — 0045's domain ladder).
+    expect(head.body).toContain('learnedTrust: fn::source_trust_scoped($src_key, $predicate)');
+    expect(head.body).not.toMatch(/\$w_source_trust/);
+  });
+
+  it('decides by valid time, with no weighted margin or reject floor (#830)', () => {
+    expect(head.body).not.toContain('$margin_for_supersede');
+    expect(head.body).not.toContain('$reject_threshold');
+    expect(head.body).toContain('validFrom < $valid_from');
   });
 
   it('snapshots priorValidUntil on supersede (revive-after-retract depends on it)', () => {

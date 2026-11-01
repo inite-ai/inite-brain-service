@@ -65,7 +65,7 @@ export type DerivedSemantics = Semantics | 'bitemporal_event';
 /**
  * One row's result from fn::resolve_fact / fn::resolve_facts, as the
  * TS side consumes it. The stored fn returns additional per-outcome
- * fields (supersededFactIds, scoreBreakdown, …) — modeled loosely via
+ * fields (supersededFactIds, peerFactIds, …) — modeled loosely via
  * the index signature; the discriminant and factId are the contract
  * every caller relies on. 'SKIPPED' is TS-side only: the V9 phase-0
  * fence emits it for a row whose per-row retry also failed.
@@ -157,8 +157,10 @@ export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = Object.fromEn
   ]),
 );
 
-// ── Conflict resolution weights ──────────────────────────────────────────
-// Mirror of conflict_resolution.scoring in the spec. Tunable via env.
+// ── Conflict resolution slot gates ───────────────────────────────────────
+// #830 (0177): write time decides only what needs no judgement. The
+// weighted score, its supersede margin, the reject floor and the 0129
+// tiebreak window are gone; what is left is which rows share a slot.
 export interface ConflictConfig {
   similarityThreshold: number;
   /**
@@ -169,42 +171,6 @@ export interface ConflictConfig {
    * 'bitemporal' behavior.
    */
   slotSimilarityThreshold: number;
-  weights: {
-    confidence: number;
-    sourceTrust: number;
-    recency: number;
-    authority: number;
-  };
-  marginForSupersede: number;
-  rejectThreshold: number;
-  /**
-   * 0129: ambiguity window (ms) for the succession tiebreaker
-   * (CONFLICT_TEMPORAL_TIEBREAK_WINDOW_MS, default 0, clamped in
-   * FactResolverService). Bound into fn::resolve_fact only when
-   * CONFLICT_TEMPORAL_TIEBREAKER is on and the write is a mention-path
-   * 'bitemporal' resolve; a close-margin write carrying a succession
-   * cue closes pool members whose validFrom is strictly earlier by
-   * MORE than this window. Default 0 = strict event order (identical
-   * stamps — one report — still COMPETE); measured against both
-   * acceptance corpora: the real update chain steps in 25-minute
-   * increments, so any window ≥ 25 min re-breaks the regression case,
-   * while the contradiction hold comes from the cue, not the window.
-   */
-  temporalTiebreakWindowMs: number;
-}
-
-/**
- * 0129: bounds for temporalTiebreakWindowMs. The window is an
- * ambiguity guard, not a discriminator — the ceiling (365d) only fences
- * off nonsense values; negative input clamps to 0 (strict event order).
- * Pure and exported so both ConflictConfig constructors clamp
- * identically and tests pin the bounds.
- */
-export const TEMPORAL_TIEBREAK_WINDOW_MAX_MS = 365 * 24 * 60 * 60 * 1000;
-
-export function clampTemporalTiebreakWindowMs(raw: number): number {
-  if (!Number.isFinite(raw) || raw < 0) return 0;
-  return Math.min(raw, TEMPORAL_TIEBREAK_WINDOW_MAX_MS);
 }
 
 // `satisfies` (not a `Record<string, number>` annotation) so each key keeps
@@ -223,25 +189,3 @@ export const SOURCE_TRUST = {
   external_webhook: 0.5,
   default: 0.5,
 } satisfies Record<string, number>;
-
-export function recencyWeight(recordedAt: Date, now: Date = new Date()): number {
-  const ageDays = (now.getTime() - recordedAt.getTime()) / (1000 * 60 * 60 * 24);
-  // Exponential decay over 365d. Tunable via predicate-level half-life downstream.
-  return Math.exp(-ageDays / 365);
-}
-
-export interface FactScoreInput {
-  confidence: number;
-  sourceTrust: number;
-  recordedAt: Date;
-  authority: number; // 0..1, set to 1.0 if caller flagged human_override
-}
-
-export function scoreFact(f: FactScoreInput, cfg: ConflictConfig): number {
-  return (
-    cfg.weights.confidence * f.confidence +
-    cfg.weights.sourceTrust * f.sourceTrust +
-    cfg.weights.recency * recencyWeight(f.recordedAt) +
-    cfg.weights.authority * f.authority
-  );
-}

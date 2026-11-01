@@ -2,6 +2,7 @@ import { actingCircleTags } from '../auth/circle-scope';
 import { scopeForUser } from '../auth/scope-tags';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { isUniqueViolation, queryFirst } from '../db/surreal.service';
+import { addEdgeSupport, withDocumentSupport } from './edge-support';
 
 /** `knowledge_edge` row projection — the id, plus the period on a UNIQUE hit. */
 interface EdgeIdRow {
@@ -175,7 +176,8 @@ export async function createEdgeBetween(db: Surreal, p: EdgeWrite): Promise<stri
         to: toRid,
         kind: p.kind,
         weight: p.weight ?? 1.0,
-        source: p.source,
+        // 0178: a document-born edge starts grounded by its document.
+        source: withDocumentSupport(p.source),
         userId: p.userId,
         ...(circleScope ? { scope: circleScope } : {}),
         ...time.params,
@@ -192,6 +194,7 @@ export async function createEdgeBetween(db: Surreal, p: EdgeWrite): Promise<stri
     if (!existing) return null;
     const id = String(existing.id);
     if (edgeTimingWidens(existing, p)) await widenEdgeTiming(db, id, p);
+    await addEdgeSupport(db, id, p.source);
     return id;
   }
 }

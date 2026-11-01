@@ -13,6 +13,7 @@ import {
   edgeTimingWidens,
   edgeWidenStatements,
 } from './edge-writer';
+import { markUndocumented } from './edge-support';
 import { MentionSource } from './mention-extraction.service';
 import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
@@ -465,7 +466,7 @@ export class MentionPersistService {
             existParams[`f${i}`] = new StringRecordId(c.from);
             existParams[`t${i}`] = new StringRecordId(c.to);
             existParams[`k${i}`] = c.kind;
-            return `SELECT id, validFrom, validUntil FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} AND scopeKey=$scopeKey LIMIT 1;`;
+            return `SELECT id, validFrom, validUntil, source.documentId AS documentId, source.undocumented AS undocumented FROM knowledge_edge WHERE in=$f${i} AND out=$t${i} AND kind=$k${i} AND scopeKey=$scopeKey LIMIT 1;`;
           })
           .join('\n');
         const existResults = await db.query<unknown[]>(existStmts, existParams);
@@ -473,6 +474,7 @@ export class MentionPersistService {
         const edgeIds: string[] = [];
         const missing: typeof cands = [];
         const widen: Array<{ id: string; c: (typeof cands)[number] }> = [];
+        const documentBorn: string[] = [];
         cands.forEach((c, i) => {
           const row = ((existResults[i] as ExistingEdgeRow[]) ?? [])[0];
           if (!row?.id) {
@@ -480,6 +482,8 @@ export class MentionPersistService {
             return;
           }
           edgeIds.push(String(row.id));
+          if (row.documentId != null && row.undocumented !== true)
+            documentBorn.push(String(row.id));
           // A restated period the row already holds costs no write.
           if (edgeTimingWidens(row, c)) widen.push({ id: String(row.id), c });
         });
@@ -487,6 +491,11 @@ export class MentionPersistService {
         // their period as it was, never loses the link.
         await widenExisting(db, widen).catch((err: unknown) =>
           this.logger.warn(`[ingest.edge] period fold failed: ${(err as Error).message}`),
+        );
+        // A turn restating a document's relation grounds it too (0178): no
+        // document going away may close what the conversation also said.
+        await markUndocumented(db, documentBorn).catch((err: unknown) =>
+          this.logger.warn(`[ingest.edge] support mark failed: ${(err as Error).message}`),
         );
         if (missing.length === 0) return edgeIds;
 
@@ -549,6 +558,8 @@ interface ExistingEdgeRow {
   id: unknown;
   validFrom?: unknown;
   validUntil?: unknown;
+  documentId?: unknown;
+  undocumented?: unknown;
 }
 
 /**

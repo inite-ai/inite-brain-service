@@ -301,10 +301,10 @@ describe('window-deriver targeted re-derive (audit F2)', () => {
 describe('DERIVER_SLOT_SIMILARITY plumbing', () => {
   it('both resolver call sites pass the slot threshold', () => {
     const src = readFileSync(join(__dirname, '../src/ingest/fact-resolver.service.ts'), 'utf-8');
-    // Batch cfg key (fn::resolve_facts maps it positionally).
+    // Batch cfg key (fn::settle_facts maps it positionally).
     expect(src).toContain('slot_similarity: this.conflict.slotSimilarityThreshold');
-    // Inline 25-arg call.
-    expect(src).toContain('$predicate_alias, $slot_similarity');
+    // Inline 20-arg fn::settle_fact call (0177).
+    expect(src).toContain('$similarity_threshold, $slot_similarity');
     expect(src).toContain("this.cfgNum('DERIVER_SLOT_SIMILARITY', 0.9)");
   });
 });

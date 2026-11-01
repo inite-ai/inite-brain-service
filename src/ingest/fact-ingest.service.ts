@@ -6,7 +6,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestOutcome, IngestResult } from './ingest-result';
-import { buildConflictExplanation, type ResolverConflictPayload } from './conflict-explainer';
+import { buildConflictExplanation } from './conflict-explainer';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactResolverService } from './fact-resolver.service';
 import { factIndexText } from './fact-index-text';
@@ -193,10 +193,6 @@ export class FactIngestService {
           bestOpponentId: String(result.bestOpponentId),
           supersededFactIds: out.supersededFactIds,
           competingFactIds: out.competingFactIds,
-          scoreBreakdown: result.scoreBreakdown as ResolverConflictPayload['scoreBreakdown'],
-          dominantDimension:
-            result.dominantDimension as ResolverConflictPayload['dominantDimension'],
-          slotDelta: result.slotDelta as ResolverConflictPayload['slotDelta'],
         });
       }
       return out;

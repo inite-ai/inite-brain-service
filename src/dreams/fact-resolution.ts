@@ -55,6 +55,8 @@ export interface ResolvableFact {
   source?: string | undefined;
   /** The source episode, when the fact was read from one. */
   episodeId?: string | undefined;
+  /** Read from a system of record's door (source.kind = 'source_record'). */
+  ofRecord?: boolean | undefined;
 }
 
 /** One new fact and its candidates, as the judge reads them (r1, r2, … / c1, c2, …). */
@@ -133,7 +135,47 @@ export function parseResolution(result: unknown): Map<number, Map<number, Resolu
 export type ResolutionAction =
   | { kind: 'supersede'; loser: string; winner: string }
   | { kind: 'corroborate'; incumbent: string; younger: string }
-  | { kind: 'compete'; a: string; b: string };
+  | { kind: 'compete'; a: string; b: string }
+  /** A claim disputing a record value: the claim competes, the record stays as it is. */
+  | { kind: 'dispute'; claim: string; record: string };
+
+/**
+ * A system of record decides its own slot (#830 addendum). Its door closes
+ * an old value by record identity and valid time, deterministically, so no
+ * judgement may change the status of a row read from it: a CRM value
+ * demoted to `competing` by a conversational claim could never be closed
+ * by the next sync, whose single_active pool reads its own rows. So:
+ *  - a claim that contradicts, or would replace, a record value is kept as
+ *    a dispute beside it — the claim competes, linked to the record;
+ *  - a claim that states a record value again corroborates the record,
+ *    never the other way round;
+ *  - between two record values the judge has no say.
+ * A claim superseded by a record value, the record's own act, stands.
+ */
+export function keepRecordSlots(
+  actions: ResolutionAction[],
+  ofRecord: (id: string) => boolean,
+): ResolutionAction[] {
+  return actions.flatMap((a): ResolutionAction[] => {
+    if (a.kind === 'supersede') {
+      if (!ofRecord(a.loser)) return [a];
+      return ofRecord(a.winner) ? [] : [{ kind: 'dispute', claim: a.winner, record: a.loser }];
+    }
+    if (a.kind === 'corroborate') {
+      if (!ofRecord(a.younger)) return [a];
+      return ofRecord(a.incumbent)
+        ? []
+        : [{ kind: 'corroborate', incumbent: a.younger, younger: a.incumbent }];
+    }
+    if (a.kind === 'compete') {
+      const [ra, rb] = [ofRecord(a.a), ofRecord(a.b)];
+      if (ra && rb) return [];
+      if (ra) return [{ kind: 'dispute', claim: a.b, record: a.a }];
+      if (rb) return [{ kind: 'dispute', claim: a.a, record: a.b }];
+    }
+    return [a];
+  });
+}
 
 /**
  * The writes for one new fact's verdicts. `replaces`: the value that

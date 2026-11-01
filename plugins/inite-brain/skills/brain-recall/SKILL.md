@@ -115,7 +115,7 @@ get_competing_facts({
 })
 ```
 
-Returns facts in COMPETING status — pairs (or 3+ groups) the conflict resolver couldn't auto-supersede because they overlap in valid-time and are too cosine-close within margin. Use when the timeline shows two conflicting beliefs and you want to surface the disagreement to the user for adjudication. See `brain-conflict` for resolution workflow.
+Returns facts in COMPETING status — pairs (or 3+ groups) that fact resolution judged a real contradiction: the same attribute at the same valid time, two values that cannot both be true, neither replacing the other. Use when the timeline shows two conflicting beliefs and you want to surface the disagreement to the user for adjudication. See `brain-conflict` for resolution workflow.
 
 ## Composing a recall
 

@@ -35,7 +35,7 @@ Two patterns:
 
 **Pattern A — known-end intervals (write `validUntil`).** Use when the operator knows in advance when a fact stops being true. A 12-month tier upgrade promotion, a fixed-term lease, an event registration: `tier=platinum, validFrom=2026-01-01, validUntil=2027-01-01`. Brain's bitemporal closure cleanly removes the fact from default search the moment its window closes; no compaction lag.
 
-**Pattern B — open-ended truth (leave `validUntil` unset).** Use when the fact is true until further notice. A customer's current tier, a phone number, a profile name: `tier=platinum, validFrom=2026-01-01`. New facts on the same `(entity, predicate)` either supersede this one (margin-wins) or coexist as competing pairs (margin-loses, `status='competing'`).
+**Pattern B — open-ended truth (leave `validUntil` unset).** Use when the fact is true until further notice. A customer's current tier, a phone number, a profile name: `tier=platinum, validFrom=2026-01-01`. A new value on the same `(entity, predicate)` with a later `validFrom` supersedes this one at that instant; the same value restated corroborates it; a different value from the same moment is inserted for fact resolution, which marks a real disagreement `status='competing'`.
 
 The two patterns compose cleanly through Allen's interval algebra (see below): a Pattern-A fact with explicit `validUntil` followed by a Pattern-B fact starting at that boundary forms a clean timeline, NOT a conflict.
 
@@ -70,29 +70,39 @@ after both the turn and the value's start, or that is more than a year out.
 
 ## Allen's interval algebra in conflict resolution
 
-The conflict resolver (`fn::resolve_fact`) checks `(entity, predicate, semantics)` against existing active facts. For **bitemporal** predicates, "competing" candidates are now **double-gated**:
+The conflict resolver (`fn::settle_fact`, migration 0177; `fn::resolve_fact` before it) checks `(entity, predicate, semantics)` against existing active and competing facts. For **bitemporal** predicates, the values a new fact meets (its slot) are **double-gated**:
 
 1. **Cosine ≥ threshold** — the new fact must be about the same object (this filters out `tier=gold` vs `tier=platinum` from looking like a contradiction with `tier=silver`).
 2. **Allen's overlap** — `fn::intervals_overlap(a.validFrom, a.validUntil, b.validFrom, b.validUntil)` — the validity intervals must overlap.
 
-Sequential intervals (older's `validUntil` ≤ newer's `validFrom`) are NOT competing. The older fact is just historical; the newer one is the natural successor. This is exactly the clean tier-ladder pattern: `standard → gold → platinum`, each with its own validity window, all sitting in `status='active'` but only the current one surfacing in default search.
+Sequential intervals (older's `validUntil` ≤ newer's `validFrom`) are not in each other's slot. The older fact is just historical; the newer one is the natural successor. This is exactly the clean tier-ladder pattern: `standard → gold → platinum`, each with its own validity window, all sitting in `status='active'` but only the current one surfacing in default search.
 
 Open-ended intervals (`validUntil IS NONE`) are treated as extending to +∞:
 
 | New interval   | Old interval   | Overlap?                                             |
 | -------------- | -------------- | ---------------------------------------------------- |
 | `[Apr1, ∞)`    | `[Jan1, Apr1)` | No — sequential, no conflict                         |
-| `[Apr1, ∞)`    | `[Jan1, ∞)`    | Yes — both open-ended, conflict (margin / supersede) |
-| `[Mar15, ∞)`   | `[Jan1, Apr1)` | Yes — overlap on `[Mar15, Apr1)`, conflict           |
-| `[Apr1, May1)` | `[Apr15, ∞)`   | Yes — overlap on `[Apr15, May1)`, conflict           |
+| `[Apr1, ∞)`    | `[Jan1, ∞)`    | Yes — both open-ended, the later start supersedes    |
+| `[Mar15, ∞)`   | `[Jan1, Apr1)` | Yes — overlap on `[Mar15, Apr1)`, old ends at Mar15  |
+| `[Apr1, May1)` | `[Apr15, ∞)`   | Yes — the new one starts earlier and goes to history |
 
-Single-active predicates (`name`, `email`, `phone`, `dob`) bypass the overlap check — by definition only one row at a time, every prior active conflicts with the new one. Append-only (`said`, `complained_about`, `interacted_with`) never conflict — but since migration 0082 they DO corroborate: an exact-object claim from a different origin strengthens the incumbent (`status='corroborating'`) instead of piling up as a duplicate active row.
+Inside the slot, valid time decides everything it can, with no score (#830):
+the same object restated corroborates; a strictly later `validFrom` closes the
+earlier values at that instant; a strictly earlier one is inserted as history
+(`INSERTED_HISTORICAL`, closed where the later value starts). A different value
+from the same moment is inserted `active` with `reason: 'for_resolution'`, and
+fact resolution (#828) names the relation: `same` corroborates, `replaces`
+supersedes by valid time, `contradicts` marks both `competing`. A fact from a
+system of record (`source.kind = 'source_record'`) never has its status changed
+by that judge: the disputing claim competes beside it.
+
+Single-active predicates (`name`, `email`, `phone`, `dob`) skip the cosine gate — one value at a time, so every overlapping value ends where the new one starts (0165: only values that overlap it in valid time). Append-only (`said`, `complained_about`, `interacted_with`) never conflict — but since migration 0082 they DO corroborate: an exact-object claim from a different origin strengthens the incumbent (`status='corroborating'`) instead of piling up as a duplicate active row.
 
 ### A competing fact needs a rival (migration 0175)
 
 `competing` is a relation between facts, so a fact keeps that status only while it has an open rival. A rival is either of:
 
-- another `competing` row in the same slot: entity, canonical predicate, user, circle tags and derivedVersion, the pool `fn::resolve_fact` resolves in;
+- another `competing` row in the same slot: entity, canonical predicate, user, circle tags and derivedVersion, the pool `fn::settle_fact` settles in;
 - a row linked to it by its conflict trace: `bestOpponentId`, or `competingFactIds`, which fact resolution (#828) writes for two facts that contradict across predicate names.
 
 When a competing row leaves for any status other than `active` (superseded, retracted, corroborating, compacted), a DB event makes every other competing row of that entity that no longer has a rival `active`, in the same transaction, whichever writer closed it. Before this, a value whose rival was retracted, or turned out to be its own paraphrase and now corroborates it, stayed `competing` alone. The graph lane and the user profile skip `competing` rows, so that value was missing from both.

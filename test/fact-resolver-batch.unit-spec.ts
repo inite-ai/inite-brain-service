@@ -14,7 +14,7 @@ describe('FactResolverService.resolveMany', () => {
     const db = {
       query: jest.fn(async (sql: string, params: any) => {
         queries.push({ sql, params });
-        if (sql.includes('fn::resolve_facts')) {
+        if (sql.includes('fn::settle_facts')) {
           return [
             params.facts.map((f: any, i: number) => ({
               factId: `knowledge_fact:batch${i}_${f.object}`,
@@ -53,9 +53,9 @@ describe('FactResolverService.resolveMany', () => {
   }
 
   const batchQ = (qs: Array<{ sql: string; params: any }>) =>
-    qs.filter((q) => q.sql.includes('fn::resolve_facts'));
+    qs.filter((q) => q.sql.includes('fn::settle_facts'));
   const perFactQ = (qs: Array<{ sql: string; params: any }>) =>
-    qs.filter((q) => q.sql.includes('fn::resolve_fact(') && !q.sql.includes('resolve_facts'));
+    qs.filter((q) => q.sql.includes('fn::settle_fact(') && !q.sql.includes('settle_facts'));
 
   it('all append_only → ONE fn::resolve_facts batch, results in order', async () => {
     const { svc, db, queries } = make();
@@ -98,7 +98,7 @@ describe('FactResolverService.resolveMany', () => {
     const { svc, db, queries } = make();
     (db.query as jest.Mock).mockImplementation(async (sql: string, params: any) => {
       queries.push({ sql, params });
-      if (sql.includes('fn::resolve_facts')) throw new Error('boom');
+      if (sql.includes('fn::settle_facts')) throw new Error('boom');
       return [{ factId: `knowledge_fact:fb_${params.object}`, outcome: 'INSERTED' }];
     });
     const out = await svc.resolveMany(db as never, [
