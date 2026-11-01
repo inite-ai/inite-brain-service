@@ -41,7 +41,14 @@ export const MONITORING_GLOBS = ['monitoring/**'];
  * by test/ci-change-buckets.unit-spec.ts, which derives the required set
  * from the spec sources rather than trusting this list.
  */
-export const SKIP_EXCEPTIONS = ['docs/openapi.json', 'brain-landing/public/openapi.json'];
+export const SKIP_EXCEPTIONS = [
+  'docs/openapi.json',
+  'brain-landing/public/openapi.json',
+  // The SLO rules and their page, pinned to the exported metrics by
+  // test/http-metrics.unit-spec.ts.
+  'monitoring/grafana/provisioning/alerting/rules.yaml',
+  'docs/slo.md',
+];
 
 /**
  * Files that change the gates themselves. A CI workflow edit has to run

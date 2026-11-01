@@ -53,6 +53,25 @@ clients. A 5xx never carries internal detail: the message is generic and
 the cause is in the server log under the request id. A disabled surface
 answers 404, the same as an absent route.
 
+## Retrying writes: `Idempotency-Key`
+
+Any authenticated `POST`, `PUT`, `PATCH` or `DELETE` accepts an
+`Idempotency-Key` header (1–255 printable ASCII characters, e.g. a UUID),
+per [draft-ietf-httpapi-idempotency-key-header](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/):
+
+- the first request under a key runs, and its response (2xx or 4xx) is
+  kept for 24 hours, per credential;
+- a retry with the same key and the same request (method, route, query,
+  body) gets that response back with `Idempotent-Replayed: true`, and
+  nothing runs again;
+- the same key with a different request answers `422`; a retry while the
+  first is still running answers `409`;
+- a `5xx` is not kept, so retrying it runs the request again.
+
+Without the header nothing changes. MCP calls are not covered (the
+transport writes its own response); retry an MCP tool with a fresh
+JSON-RPC id. User forget erases the kept responses of requests made for
+that user.
 ## Health + observability
 
 | Endpoint                                    | Notes                                                                                                                                         |

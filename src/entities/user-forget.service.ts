@@ -403,7 +403,8 @@ export class UserForgetService {
    * verbatim notes (memory_file), the links from this user to accounts
    * elsewhere (external_identity), and their personal source connections
    * with every catalogue item, OAuth grant (a stored credential) and
-   * pending OAuth state. Each was written with the user's id and was
+   * pending OAuth state, and the stored responses of writes made for them
+   * under an Idempotency-Key. Each was written with the user's id and was
    * missing from this cascade (ground rule 4: a table holding user content
    * is wired into forget). Select ids, then DELETE by id: the 3.2.4
    * planner contract every step above follows.
@@ -419,10 +420,13 @@ export class UserForgetService {
       { u: userId },
     );
     const connIds = conns ?? [];
-    const [items, grants, states] = await db.query<[unknown[], unknown[], unknown[]]>(
+    const [items, grants, states, idempotency] = await db.query<
+      [unknown[], unknown[], unknown[], unknown[]]
+    >(
       `SELECT VALUE id FROM source_item WHERE userId = $u OR connectionId INSIDE $conns;
        SELECT VALUE id FROM source_oauth_grant WHERE userId = $u;
-       SELECT VALUE id FROM source_oauth_state WHERE userId = $u;`,
+       SELECT VALUE id FROM source_oauth_state WHERE userId = $u;
+       SELECT VALUE id FROM idempotency_key WHERE userId = $u;`,
       { u: userId, conns: connIds },
     );
     const account = [
@@ -431,6 +435,8 @@ export class UserForgetService {
       ...connIds,
       ...(grants ?? []),
       ...(states ?? []),
+      // Stored write responses (0179) of requests made for this user.
+      ...(idempotency ?? []),
     ];
     const memoryFiles = files ?? [];
     if (memoryFiles.length > 0) await db.query(`DELETE $ids`, { ids: memoryFiles });

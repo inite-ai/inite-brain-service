@@ -25,6 +25,8 @@ import { correlationIdMiddleware } from './common/correlation-id.middleware';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { applyProxyTrust } from './common/proxy-trust';
 import { appLogger } from './common/app-logger';
+import { httpMetrics, httpMetricsMiddleware } from './metrics/http-metrics';
+import { MetricsService } from './metrics/metrics.service';
 
 async function bootstrap() {
   // One logger for the process (app-logger.ts): JSON with a level field
@@ -143,6 +145,8 @@ async function bootstrap() {
   app.use(correlationIdMiddleware());
   app.use(debugTraceMiddleware());
   app.use(requestLogger());
+  // Request RED metrics (docs/slo.md), on the service's own registry.
+  app.use(httpMetricsMiddleware(httpMetrics(app.get(MetricsService).registry)));
 
   app.useGlobalPipes(
     new ValidationPipe({
