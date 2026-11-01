@@ -22,6 +22,12 @@ import { detectLanguage } from '../src/ai/locale/language-detector';
 import { resolveSearchTuning } from '../src/search/retrieval-profile';
 import { hardLangFilterFor } from '../src/search/search.service';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE ??= '0';
+});
+
 describe('hardLangFilterFor', () => {
   it('no signal ⇒ no filter, gate irrelevant', () => {
     expect(hardLangFilterFor(undefined, false)).toBeUndefined();
@@ -67,12 +73,12 @@ describe('hardLangFilterFor', () => {
 });
 
 describe('resolveSearchTuning.langFilterConfidenceGate', () => {
-  it('defaults off; env flag flips it', () => {
-    expect(resolveSearchTuning({} as NodeJS.ProcessEnv).langFilterConfidenceGate).toBe(false);
+  it('defaults on; 0 switches it off', () => {
+    expect(resolveSearchTuning({} as NodeJS.ProcessEnv).langFilterConfidenceGate).toBe(true);
     expect(
       resolveSearchTuning({
-        MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE: '1',
+        MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE: '0',
       } as NodeJS.ProcessEnv).langFilterConfidenceGate,
-    ).toBe(true);
+    ).toBe(false);
   });
 });

@@ -136,7 +136,7 @@ describe('fact provenance closure (real SurrealDB)', () => {
 
   afterAll(async () => {
     delete process.env.FACTS_API_ENABLED;
-    delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '0';
     if (f) await f.close();
   });
 

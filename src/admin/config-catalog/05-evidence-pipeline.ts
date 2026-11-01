@@ -5,20 +5,20 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_SLACK',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `slack` source connector (source plane, W4.7 — chat): the channels a Slack app is a member of, through the Web API as the connected workspace's bot token (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_SLACK_CLIENT_ID) or a bot token pasted as the credential. One catalogue row per message (ts + edit ts as the revision), `conversations.history` newest first from `since` on a first walk and from the checkpoint's newest ts after, roots with replies followed into `conversations.replies`; every message enters the mention door as one turn of its channel or thread (chat_memory: `slack`) — the author as the speaker, mrkdwn reduced to text, mentions resolved to names, files named. Off (default) = 'not installed' — byte-identical.",
+      "The `slack` source connector (source plane, W4.7 — chat): the channels a Slack app is a member of, through the Web API as the connected workspace's bot token (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_SLACK_CLIENT_ID) or a bot token pasted as the credential. One catalogue row per message (ts + edit ts as the revision), `conversations.history` newest first from `since` on a first walk and from the checkpoint's newest ts after, roots with replies followed into `conversations.replies`; every message enters the mention door as one turn of its channel or thread (chat_memory: `slack`) — the author as the speaker, mrkdwn reduced to text, mentions resolved to names, files named. Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_TELEGRAM',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `telegram` source connector (source plane, W4.7 — chat): the groups, supergroups and channels a Telegram bot is in, read through the Bot API's getUpdates with the bot token as the credential — a FEED: Telegram keeps an update 24 hours and the brain acknowledges what it read by moving the offset, so nothing is re-read and nothing is ever marked gone (readsOnlyNew; a full walk is an incremental one). Every message enters the mention door as one turn of its chat or forum topic (chat_memory: `telegram`), the sender as the speaker, media named. A bot with a webhook set answers 409 — remove it to poll. Off (default) = 'not installed' — byte-identical.",
+      "The `telegram` source connector (source plane, W4.7 — chat): the groups, supergroups and channels a Telegram bot is in, read through the Bot API's getUpdates with the bot token as the credential — a FEED: Telegram keeps an update 24 hours and the brain acknowledges what it read by moving the offset, so nothing is re-read and nothing is ever marked gone (readsOnlyNew; a full walk is an incremental one). Every message enters the mention door as one turn of its chat or forum topic (chat_memory: `telegram`), the sender as the speaker, media named. A bot with a webhook set answers 409 — remove it to poll. Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_TELEGRAM_API_BASE',
@@ -59,29 +59,29 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_REST_RECORDS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `rest_records` source connector (source plane, W4.2b′ — the long tail on the records contract, docs/roadmap/crm-sources-2026-09.md § 4.3): a CRM / ERP / ticketing backend with a JSON list API and no connector of its own, described as CONFIG — per entity a list endpoint, where the rows sit in the answer, one of five paging styles (none / page / offset / cursor / link), one updated-since parameter, the id / name / updated-at fields, the relation fields — dotted paths only. The credential rides as `config.authScheme` says (bearer / basic / header:<Name> / query:<name>); a backend on the LAN needs `config.allowPrivate` + SOURCE_EGRESS_ALLOW_PRIVATE. The mapping assistant (POST /v1/admin/source-connections/assist) proposes the config from an OpenAPI document or a sample answer; the preview verifies it. Off (default) = 'not installed' — byte-identical.",
+      "The `rest_records` source connector (source plane, W4.2b′ — the long tail on the records contract, docs/roadmap/crm-sources-2026-09.md § 4.3): a CRM / ERP / ticketing backend with a JSON list API and no connector of its own, described as CONFIG — per entity a list endpoint, where the rows sit in the answer, one of five paging styles (none / page / offset / cursor / link), one updated-since parameter, the id / name / updated-at fields, the relation fields — dotted paths only. The credential rides as `config.authScheme` says (bearer / basic / header:<Name> / query:<name>); a backend on the LAN needs `config.allowPrivate` + SOURCE_EGRESS_ALLOW_PRIVATE. The mapping assistant (POST /v1/admin/source-connections/assist) proposes the config from an OpenAPI document or a sample answer; the preview verifies it. Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_MAPPING_ASSISTANT',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'The model half of the mapping assistant (W4.2b′): with it, POST /v1/admin/source-connections/assist sends the bounded API digest and the deterministic proposal to MAPPING_ASSISTANT_MODEL under a strict JSON schema and keeps what validates — a hallucinated path or predicate is dropped, never trusted. Off (default) = the deterministic proposal only (conventional names for id / name / updated-at / paging / since parameters, a synonym table over the pack vocabulary); the endpoint and the preview work the same, no model is ever called.',
+      'The model half of the mapping assistant (W4.2b′): with it, POST /v1/admin/source-connections/assist sends the bounded API digest and the deterministic proposal to MAPPING_ASSISTANT_MODEL under a strict JSON schema and keeps what validates — a hallucinated path or predicate is dropped, never trusted. Off (`0`) = the deterministic proposal only (conventional names for id / name / updated-at / paging / since parameters, a synonym table over the pack vocabulary); the endpoint and the preview work the same, no model is ever called.',
   },
   {
     key: 'SOURCE_WEBHOOKS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Inbound webhooks on the records connectors (source plane, W4.2c — docs/roadmap/crm-sources-2026-09.md § 4.4): `POST /v1/admin/source-connections/:id/webhook` switches a connection's webhook on and hands out the address to register at the vendor (the tenant and the connection under an HMAC of SOURCE_CREDENTIAL_ENCRYPTION_KEY) plus a secret shown once (generated, or the vendor's own — a Bitrix24 application token, a HubSpot app's client secret); the public `POST /v1/source-connections/webhook/:address` takes the vendor's call — HubSpot v3 signature, Pipedrive basic auth, Bitrix24 `auth[application_token]`, Kommo / custom REST `?token=` or an HMAC of the body — parses it into entity + id (+ deleted), and the engine fetches those records through the same records door a sync uses (a queued `source_sync` job, `ranBy: webhook`; a deletion closes the record's facts by the delete policy). The webhook never carries data into memory. Off (default) = both routes answer 404, no address exists, no vendor call is accepted — byte-identical.",
+      "Inbound webhooks on the records connectors (source plane, W4.2c — docs/roadmap/crm-sources-2026-09.md § 4.4): `POST /v1/admin/source-connections/:id/webhook` switches a connection's webhook on and hands out the address to register at the vendor (the tenant and the connection under an HMAC of SOURCE_CREDENTIAL_ENCRYPTION_KEY) plus a secret shown once (generated, or the vendor's own — a Bitrix24 application token, a HubSpot app's client secret); the public `POST /v1/source-connections/webhook/:address` takes the vendor's call — HubSpot v3 signature, Pipedrive basic auth, Bitrix24 `auth[application_token]`, Kommo / custom REST `?token=` or an HMAC of the body — parses it into entity + id (+ deleted), and the engine fetches those records through the same records door a sync uses (a queued `source_sync` job, `ranBy: webhook`; a deletion closes the record's facts by the delete policy). The webhook never carries data into memory. Off (`0`) = both routes answer 404, no address exists, no vendor call is accepted.",
   },
   {
     key: 'MAPPING_ASSISTANT_MODEL',
@@ -95,11 +95,11 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_OAUTH_CLIENT',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The brain as an OUTBOUND OAuth 2.1 client (source plane, W4): the connected-accounts surface (`POST /v1/admin/source-connections/oauth/start`, `GET …/oauth/grants`, `DELETE …/oauth/grants/:id`), the public callback (`GET /v1/source-connections/oauth/callback`, authenticated by the HMAC-signed state), and the grants the cloud connectors (gdrive, onedrive, dropbox) run as — authorization code + PKCE against a platform provider (Google, Microsoft, Dropbox; the operator's app in SOURCE_OAUTH_<PROVIDER>_CLIENT_ID / _CLIENT_SECRET), the token set encrypted at rest under SOURCE_CREDENTIAL_ENCRYPTION_KEY (required — the client refuses to start without it), refreshed by the engine before a run when it is about to expire, a refusal marking the grant broken by name. Off (default) = the routes answer 404, no provider is ever contacted, no grant exists — byte-identical.",
+      "The brain as an OUTBOUND OAuth 2.1 client (source plane, W4): the connected-accounts surface (`POST /v1/admin/source-connections/oauth/start`, `GET …/oauth/grants`, `DELETE …/oauth/grants/:id`), the public callback (`GET /v1/source-connections/oauth/callback`, authenticated by the HMAC-signed state), and the grants the cloud connectors (gdrive, onedrive, dropbox) run as — authorization code + PKCE against a platform provider (Google, Microsoft, Dropbox; the operator's app in SOURCE_OAUTH_<PROVIDER>_CLIENT_ID / _CLIENT_SECRET), the token set encrypted at rest under SOURCE_CREDENTIAL_ENCRYPTION_KEY (required — the client refuses to start without it), refreshed by the engine before a run when it is about to expire, a refusal marking the grant broken by name. Off (`0`) = the routes answer 404, no provider is ever contacted, no grant exists.",
   },
   {
     key: 'SOURCE_CREDENTIAL_ENCRYPTION_KEY',
@@ -124,11 +124,11 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_MCP_OAUTH',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The brain as an OAuth client of ANY MCP server (source plane, W4.3 — docs/roadmap/crm-sources-2026-09.md § 4.5): `POST /v1/admin/source-connections/oauth/mcp/start` discovers the server's authorization server from its 401 (RFC 9728 protected-resource metadata, then RFC 8414 / OpenID metadata, path-aware), registers a client there dynamically (RFC 7591; a public PKCE client unless the server issues a secret) or takes one the operator registered, and sends the admin to consent with PKCE and the RFC 8707 `resource`; the grant (`provider: mcp`, its `resource`) refreshes and revokes through the client kept per resource (`source_oauth_client`, the secret encrypted). A pack's `auth: 'oauth'` http MCP source then runs as that grant — the same harvester, the bearer refreshed by the engine. Needs SOURCE_OAUTH_CLIENT + SOURCE_CREDENTIAL_ENCRYPTION_KEY. Off (default) = the route answers 404, no server is ever discovered, such a source fails by name — byte-identical.",
+      "The brain as an OAuth client of ANY MCP server (source plane, W4.3 — docs/roadmap/crm-sources-2026-09.md § 4.5): `POST /v1/admin/source-connections/oauth/mcp/start` discovers the server's authorization server from its 401 (RFC 9728 protected-resource metadata, then RFC 8414 / OpenID metadata, path-aware), registers a client there dynamically (RFC 7591; a public PKCE client unless the server issues a secret) or takes one the operator registered, and sends the admin to consent with PKCE and the RFC 8707 `resource`; the grant (`provider: mcp`, its `resource`) refreshes and revokes through the client kept per resource (`source_oauth_client`, the secret encrypted). A pack's `auth: 'oauth'` http MCP source then runs as that grant — the same harvester, the bearer refreshed by the engine. Needs SOURCE_OAUTH_CLIENT + SOURCE_CREDENTIAL_ENCRYPTION_KEY. Off (`0`) = the route answers 404, no server is ever discovered, such a source fails by name.",
   },
   {
     key: 'SOURCE_OAUTH_REDIRECT_URL',
@@ -241,20 +241,20 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'EVIDENCE_QUARANTINE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "External-ingest quarantine seam (migration 0121): registerAsset stamps evidence_asset.quarantineStatus ('clean' internal / 'quarantined' external_ingest) and scan transitions may run; the broker refuses non-clean assets. Off (default) = the field is NEVER written (rows byte-identical), quarantine transitions 503, and origin:'external_ingest' is rejected 503 — fail closed.",
+      "External-ingest quarantine seam (migration 0121): registerAsset stamps evidence_asset.quarantineStatus ('clean' internal / 'quarantined' external_ingest) and scan transitions may run; the broker refuses non-clean assets. Off (`0`) = the field is NEVER written (rows byte-identical), quarantine transitions 503, and origin:'external_ingest' is rejected 503 — fail closed.",
   },
   {
     key: 'EVIDENCE_FRAGMENT_EMBEDDINGS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Representation embeddings: the ONE write seam (addRepresentation) embeds a representation\'s TEXT content when its writer asks for it and stores the vector plus its embeddingSpaceId in derived_representation — the producer the 0109 "WRITE-DEAD" embedding column has been waiting for, and therefore the fragment lane\'s dense leg (empty by construction while the column is null). The processing run caps how many outputs it asks to embed per run, so a many-output run cannot fan out unbounded model calls. Off (default) = the embedder is never called and neither key is written — byte-identical rows. An embedding failure is soft: the row lands without a vector and the run still succeeds.',
+      'Representation embeddings: the ONE write seam (addRepresentation) embeds a representation\'s TEXT content when its writer asks for it and stores the vector plus its embeddingSpaceId in derived_representation — the producer the 0109 "WRITE-DEAD" embedding column has been waiting for, and therefore the fragment lane\'s dense leg (empty by construction while the column is null). The processing run caps how many outputs it asks to embed per run, so a many-output run cannot fan out unbounded model calls. Off (`0`) = the embedder is never called and neither key is written — byte-identical rows. An embedding failure is soft: the row lands without a vector and the run still succeeds.',
   },
   {
     key: 'EVIDENCE_DERIVED_MAX_BYTES',
@@ -268,47 +268,47 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'EVIDENCE_GROUNDING_STAMP',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], source.conversationId, or an identified source.recorder — a direct record by a named party is the observation) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (default) → no extra UPDATE is issued, rows are byte-identical.",
+      "Evidence plane, claim-state write side: after fn::resolve_fact returns, stamp knowledge_fact.groundingStatus ('grounded'|'ungrounded') computed from the presence of observational source (episode: ids in source.episodeIds, non-empty source.evidence[], source.conversationId, or an identified source.recorder — a direct record by a named party is the observation) — the stampFactScope post-resolve idiom, best-effort, warn-never-fail. Absent field = legacy row (pre-flag), never backfilled. Off (`0`) → no extra UPDATE is issued, rows are byte-identical.",
   },
   {
     key: 'EVIDENCE_FAIL_CLOSED_CAPTURE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, fail-closed mention capture: ingestMention requires the L0 episode write (EPISODE_SUBSTRATE_ENABLED) to succeed and stamps the captured episode id into every extracted fact's source.episodeIds — no extraction without a stored observation. Requires EPISODE_SUBSTRATE_ENABLED (env-validation warns on the inconsistent pair). Off (default) → capture stays non-fatal advisory, byte-identical.",
+      "Evidence plane, fail-closed mention capture: ingestMention requires the L0 episode write (EPISODE_SUBSTRATE_ENABLED) to succeed and stamps the captured episode id into every extracted fact's source.episodeIds — no extraction without a stored observation. Requires EPISODE_SUBSTRATE_ENABLED (env-validation warns on the inconsistent pair). Off (`0`) → capture stays non-fatal advisory, byte-identical.",
   },
   {
     key: 'EVIDENCE_UNGROUNDED_EXCLUDE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, consolidation gate: the promotion runner excludes ungrounded members (knowledge_fact.groundingStatus='ungrounded') from summary groups — an unfounded claim must not consolidate into long-term memory. Legacy rows (absent field) still promote. Off (default) → member selection byte-identical.",
+      "Evidence plane, consolidation gate: the promotion runner excludes ungrounded members (knowledge_fact.groundingStatus='ungrounded') from summary groups — an unfounded claim must not consolidate into long-term memory. Legacy rows (absent field) still promote. Off (`0`) → member selection byte-identical.",
   },
   {
     key: 'EVIDENCE_UNGROUNDED_SERVING_GATE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, strict serving: on a supported verdict, batch-check the cited facts' groundingStatus; when every citation is ungrounded the answer abstains under reason 'ungrounded_evidence' (the evidence_capability_unmet fourth-branch idiom, 0113). Mixed or legacy support serves. Resolution failure fails open with a warn. Off (default) → no fetch, byte-identical.",
+      "Evidence plane, strict serving: on a supported verdict, batch-check the cited facts' groundingStatus; when every citation is ungrounded the answer abstains under reason 'ungrounded_evidence' (the evidence_capability_unmet fourth-branch idiom, 0113). Mixed or legacy support serves. Resolution failure fails open with a warn. Off (`0`) → no fetch, byte-identical.",
   },
   {
     key: 'EVIDENCE_FRAGMENT_CITATIONS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, fragment citations (MM-zoom PR2): with the fragment lane rendering media evidence (RETRIEVAL_FRAGMENT_LANE), each rendered line carries its [evidence_fragment:...] header and the generator schema gains citedFragmentIds; emitted ids resolve through the rendered-set fence (the FOVEA_L3_EPISODE_CITATIONS idiom: an id not rendered into the prompt is dropped and counted, never surfaced; the citation's excerpt is the RENDERED excerpt, never generator text; dedupe; cap 16) into fragment-arm evidenceCitations carrying assetId + capability. Those citations let the FOVEA_EVIDENCE_CAPABILITY gate PASS for non-text requirements when a matching-modality fragment is cited. Off (default) → no header, no schema field, no resolver — byte-identical even with the lane on.",
+      "Evidence plane, fragment citations (MM-zoom PR2): with the fragment lane rendering media evidence (RETRIEVAL_FRAGMENT_LANE), each rendered line carries its [evidence_fragment:...] header and the generator schema gains citedFragmentIds; emitted ids resolve through the rendered-set fence (the FOVEA_L3_EPISODE_CITATIONS idiom: an id not rendered into the prompt is dropped and counted, never surfaced; the citation's excerpt is the RENDERED excerpt, never generator text; dedupe; cap 16) into fragment-arm evidenceCitations carrying assetId + capability. Those citations let the FOVEA_EVIDENCE_CAPABILITY gate PASS for non-text requirements when a matching-modality fragment is cited. Off (`0`) → no header, no schema field, no resolver — byte-identical even with the lane on.",
   },
   {
     key: 'FOVEA_FRAGMENT_ZOOM',
@@ -316,11 +316,11 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
     // Read at call time (fovea-flags fragmentZoomEnabled) on the
     // synthesize post-verifier seam — never captured in a constructor —
     // so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, fragment zoom (MM-zoom PR3): ONE monotone bounded zoom step at the post-verifier seam. On a verifier-fail with a rendered fragment line truncated by the lane's 600-char excerpt cap, fetch the fuller DERIVED TEXT of the same derived_representation rows (cited fragments first, ≤2 fragments, per-fragment chars capped by FOVEA_FRAGMENT_ZOOM_MAX_CHARS) through the lane's own fence stack (tenant → consent → asset-join user fence → media PII → availability), and RE-VERIFY ONLY — the answer is never regenerated. A flipped verdict serves through the normal finalize path (and the L3 ladder then skips on verdict-ok); no flip or any error falls through to the existing downgrade unchanged. Raw bytes stay exclusively behind EVIDENCE_RAW_READ_ENABLED. Runs before/independent of L3, at most once per request. Off (default) → the verifier runs exactly once and no extra read happens — byte-identical.",
+      "Evidence plane, fragment zoom (MM-zoom PR3): ONE monotone bounded zoom step at the post-verifier seam. On a verifier-fail with a rendered fragment line truncated by the lane's 600-char excerpt cap, fetch the fuller DERIVED TEXT of the same derived_representation rows (cited fragments first, ≤2 fragments, per-fragment chars capped by FOVEA_FRAGMENT_ZOOM_MAX_CHARS) through the lane's own fence stack (tenant → consent → asset-join user fence → media PII → availability), and RE-VERIFY ONLY — the answer is never regenerated. A flipped verdict serves through the normal finalize path (and the L3 ladder then skips on verdict-ok); no flip or any error falls through to the existing downgrade unchanged. Raw bytes stay exclusively behind EVIDENCE_RAW_READ_ENABLED. Runs before/independent of L3, at most once per request. Off (`0`) → the verifier runs exactly once and no extra read happens.",
   },
   {
     key: 'FOVEA_FRAGMENT_ZOOM_MAX_CHARS',

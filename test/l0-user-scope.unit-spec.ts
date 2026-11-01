@@ -156,7 +156,7 @@ describe('L0 user-scope fence (0055) — segment lane', () => {
 describe('episode subscriptions — single-writer + per-subscription breaker', () => {
   const savedFlag = process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
   afterEach(() => {
-    if (savedFlag === undefined) delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
+    if (savedFlag === undefined) process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '0';
     else process.env.EPISODE_SUBSCRIPTIONS_ENABLED = savedFlag;
   });
 

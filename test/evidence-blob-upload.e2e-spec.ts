@@ -166,7 +166,7 @@ describe('evidence blob upload surface (e2e)', () => {
     // Bare: the off-state answer must not describe the route it hides.
     expect(JSON.stringify(res.body)).not.toContain('evidence-blob');
     expect(await countRows('evidence_asset')).toBe(0);
-    delete process.env.EVIDENCE_QUARANTINE;
+    process.env.EVIDENCE_QUARANTINE = '0';
   });
 
   it('fails closed with 503 when the quarantine seam is off — bytes are external ingest', async () => {
@@ -376,7 +376,7 @@ describe('evidence blob upload surface (e2e)', () => {
       .set(auth())
       .send({ packId: PACK, assetId: 'not_a_record_id' })
       .expect(400);
-    delete process.env.EVIDENCE_PROCESSOR_BROKER;
+    process.env.EVIDENCE_PROCESSOR_BROKER = '0';
     await f.http
       .post('/v1/admin/maintenance/evidence/dispatch')
       .set(auth())
@@ -387,6 +387,6 @@ describe('evidence blob upload surface (e2e)', () => {
   it('flag flip back off returns the surface to a bare 404 (runtime-mutable)', async () => {
     delete process.env.EVIDENCE_BLOB_UPLOAD_ENABLED;
     await upload({ bytes: Buffer.from('after the flip', 'utf8') }).expect(404);
-    delete process.env.EVIDENCE_QUARANTINE;
+    process.env.EVIDENCE_QUARANTINE = '0';
   });
 });

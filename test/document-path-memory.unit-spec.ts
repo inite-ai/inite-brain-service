@@ -13,6 +13,12 @@ import { CommitWriterService } from '../src/documents/commit-writer.service';
 import { MentionViaDocumentService } from '../src/documents/mention-via-document.service';
 import type { StoredDocument } from '../src/documents/document-store.service';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.EVIDENCE_FAIL_CLOSED_CAPTURE ??= '0';
+});
+
 const doc: StoredDocument = {
   id: 'source_document:d1',
   kind: 'chat',

@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagNotDisabled } from './env-validation';
 
 /**
  * Evidence plane — summary episode stamping master flag —
@@ -18,7 +18,7 @@ import { envFlagEnabled } from './env-validation';
  * ever emitted).
  */
 export function summaryEpisodeStampEnabled(): boolean {
-  return envFlagEnabled(process.env.PROVENANCE_SUMMARY_EPISODE_STAMP);
+  return envFlagNotDisabled(process.env.PROVENANCE_SUMMARY_EPISODE_STAMP);
 }
 
 /**
@@ -38,7 +38,7 @@ export function summaryEpisodeStampEnabled(): boolean {
  * one-hop shape (the optional fields are absent, not empty).
  */
 export function recursiveClosureEnabled(): boolean {
-  return envFlagEnabled(process.env.PROVENANCE_RECURSIVE_CLOSURE);
+  return envFlagNotDisabled(process.env.PROVENANCE_RECURSIVE_CLOSURE);
 }
 
 /**
@@ -64,7 +64,7 @@ export function recursiveClosureEnabled(): boolean {
  * ever issued).
  */
 export function episodeNeighboursEnabled(): boolean {
-  return envFlagEnabled(process.env.PROVENANCE_EPISODE_NEIGHBOURS);
+  return envFlagNotDisabled(process.env.PROVENANCE_EPISODE_NEIGHBOURS);
 }
 
 /**
@@ -85,7 +85,7 @@ export function episodeNeighboursEnabled(): boolean {
  * is ever written and every writer's query sequence is byte-identical.
  */
 export function supportEdgesEnabled(): boolean {
-  return envFlagEnabled(process.env.PROVENANCE_SUPPORT_EDGES);
+  return envFlagNotDisabled(process.env.PROVENANCE_SUPPORT_EDGES);
 }
 
 /**
@@ -104,7 +104,7 @@ export function supportEdgesEnabled(): boolean {
  * provenance response are byte-identical (field absent, not empty).
  */
 export function supportGraphReadEnabled(): boolean {
-  return envFlagEnabled(process.env.PROVENANCE_SUPPORT_GRAPH_READ);
+  return envFlagNotDisabled(process.env.PROVENANCE_SUPPORT_GRAPH_READ);
 }
 
 /** Closure walk caps — defaults + clamp bounds (see the knobs below). */

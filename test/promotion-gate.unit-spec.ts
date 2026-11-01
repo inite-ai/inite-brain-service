@@ -132,7 +132,7 @@ const savedUngrounded = process.env.EVIDENCE_UNGROUNDED_EXCLUDE;
 afterEach(() => {
   if (savedOverrides === undefined) delete process.env.COMPACTION_TENANT_OVERRIDES;
   else process.env.COMPACTION_TENANT_OVERRIDES = savedOverrides;
-  if (savedUngrounded === undefined) delete process.env.EVIDENCE_UNGROUNDED_EXCLUDE;
+  if (savedUngrounded === undefined) process.env.EVIDENCE_UNGROUNDED_EXCLUDE = '0';
   else process.env.EVIDENCE_UNGROUNDED_EXCLUDE = savedUngrounded;
   jest.restoreAllMocks();
 });
@@ -343,7 +343,7 @@ describe('PromotionRunnerService — ungrounded exclude (EVIDENCE_UNGROUNDED_EXC
   });
 
   it('flag OFF (default): the member SELECT string is byte-identical and every member promotes', async () => {
-    delete process.env.EVIDENCE_UNGROUNDED_EXCLUDE;
+    process.env.EVIDENCE_UNGROUNDED_EXCLUDE = '0';
     const seeds = ONE_CONVERSATION.map((s) => ({ ...s, groundingStatus: 'ungrounded' }));
     const { runner, created, calls } = makePromotionStack(seeds, {});
     const stats = await runner.promoteCompany('co_a');

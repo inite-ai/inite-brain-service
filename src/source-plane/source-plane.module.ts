@@ -87,7 +87,7 @@ import { SourceSyncService } from './source-sync.service';
  * engine: a connection of it records a failed sync with "no installed
  * connector", never a crash.
  *
- * Everything is dark behind SOURCE_PLANE_ENABLED (default off): routes
+ * Everything is dark behind SOURCE_PLANE_ENABLED (default on): routes
  * answer 404, no job handler registers, the scheduler enqueues nothing.
  *
  * Controller order matters: the OAuth controller's literal `oauth/…`

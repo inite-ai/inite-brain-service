@@ -28,7 +28,7 @@ describe('claim grounding status (real SurrealDB)', () => {
   });
 
   afterAll(async () => {
-    if (SAVED.stamp === undefined) delete process.env.EVIDENCE_GROUNDING_STAMP;
+    if (SAVED.stamp === undefined) process.env.EVIDENCE_GROUNDING_STAMP = '0';
     else process.env.EVIDENCE_GROUNDING_STAMP = SAVED.stamp;
     if (SAVED.factsApi === undefined) delete process.env.FACTS_API_ENABLED;
     else process.env.FACTS_API_ENABLED = SAVED.factsApi;
@@ -36,7 +36,7 @@ describe('claim grounding status (real SurrealDB)', () => {
   });
 
   afterEach(() => {
-    delete process.env.EVIDENCE_GROUNDING_STAMP;
+    process.env.EVIDENCE_GROUNDING_STAMP = '0';
   });
 
   let n = 0;
@@ -129,7 +129,7 @@ describe('claim grounding status (real SurrealDB)', () => {
     const rejected = await f.http.post('/v1/ingest/fact').set(auth()).send(body);
     expect(rejected.status).toBe(400);
     expect(String(rejected.body.message)).toContain('source.episodeIds');
-    delete process.env.EVIDENCE_GROUNDING_STAMP;
+    process.env.EVIDENCE_GROUNDING_STAMP = '0';
     const accepted = await f.http.post('/v1/ingest/fact').set(auth()).send(body);
     expect(accepted.status).toBe(201);
   });
