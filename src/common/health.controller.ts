@@ -43,8 +43,10 @@ export class HealthController {
       // healthcheck.path=/health, deliberately not /ready), so a leaving
       // replica has to fail it: answering 200 until the socket closes
       // costs a whole check interval of 502s.
+      // `state`, not `status`: the 503 is an RFC 9457 problem whose
+      // `status` member is the HTTP code (all-exceptions.filter.ts).
       throw new ServiceUnavailableException({
-        status: 'shutting_down',
+        state: 'shutting_down',
         service: 'inite-brain-service',
         version: SERVICE_VERSION,
         timestamp: new Date().toISOString(),

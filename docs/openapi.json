@@ -3,7 +3,7 @@
     "responses": {
       "BadGateway": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -13,7 +13,7 @@
       },
       "BadRequest": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -23,7 +23,7 @@
       },
       "BillingUnavailable": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -33,7 +33,7 @@
       },
       "Conflict": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -43,7 +43,7 @@
       },
       "EvidenceRejected": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -63,7 +63,7 @@
       },
       "Forbidden": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -73,7 +73,7 @@
       },
       "NotFound": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -83,7 +83,7 @@
       },
       "PayloadTooLarge": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -93,7 +93,7 @@
       },
       "SubstrateDisabled": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -103,7 +103,7 @@
       },
       "TooManyRequests": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -113,7 +113,7 @@
       },
       "Unauthorized": {
         "content": {
-          "application/json": {
+          "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
             }
@@ -1826,9 +1826,23 @@
         "type": "object"
       },
       "ErrorResponse": {
-        "description": "Standard NestJS error envelope.",
+        "description": "RFC 9457 problem details (application/problem+json). statusCode, message and error are the earlier envelope, kept for existing clients.",
         "properties": {
+          "detail": {
+            "type": "string"
+          },
           "error": {
+            "type": "string"
+          },
+          "errors": {
+            "description": "Validation messages",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "instance": {
+            "description": "The request path",
             "type": "string"
           },
           "message": {
@@ -1844,11 +1858,29 @@
               }
             ]
           },
+          "requestId": {
+            "description": "Same as the x-request-id header",
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
           "statusCode": {
             "type": "integer"
+          },
+          "title": {
+            "description": "The HTTP status phrase",
+            "type": "string"
+          },
+          "type": {
+            "description": "'about:blank': the status says what went wrong",
+            "type": "string"
           }
         },
         "required": [
+          "type",
+          "title",
+          "status",
           "statusCode",
           "message"
         ],

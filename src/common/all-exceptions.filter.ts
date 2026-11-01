@@ -6,8 +6,47 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { STATUS_CODES } from 'node:http';
 import type { Request, Response } from 'express';
 import { getCorrelationId } from './request-context';
+
+/**
+ * RFC 9457 problem details. `type` stays `about:blank` (the status says it
+ * all, so `title` is the status phrase), `detail` is the human message,
+ * `instance` the path that failed. The body Brain answered before —
+ * `statusCode`, `message`, `error`, `requestId` — rides along as extension
+ * members, so a client that read those keeps working; validation messages
+ * are also listed under `errors`.
+ */
+export function problemDetails(
+  status: number,
+  payload: Record<string, unknown>,
+  ctx: { instance: string; requestId: string },
+): Record<string, unknown> {
+  const message = payload.message;
+  const detail =
+    typeof payload.detail === 'string'
+      ? payload.detail
+      : Array.isArray(message)
+        ? message.map(String).join('; ')
+        : typeof message === 'string'
+          ? message
+          : undefined;
+  return {
+    ...payload,
+    // The standard members win over a payload's own keys of the same name:
+    // `status` is the HTTP code here, never a state string.
+    type: 'about:blank',
+    title: STATUS_CODES[status] ?? 'Error',
+    status,
+    ...(detail ? { detail } : {}),
+    instance: ctx.instance,
+    ...(Array.isArray(message) ? { errors: message.map(String) } : {}),
+    requestId: ctx.requestId,
+  };
+}
+
+const PROBLEM_JSON = 'application/problem+json';
 
 /**
  * Global exception filter — the catch-all the service was missing.
@@ -80,7 +119,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
           exception.stack,
         );
       }
-      res.status(status).json({ ...payload, requestId });
+      res
+        .status(status)
+        .type(PROBLEM_JSON)
+        .send(JSON.stringify(problemDetails(status, payload, { instance: req.path, requestId })));
       return;
     }
 
@@ -90,10 +132,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
       `[${requestId}] ${req.method} ${req.url} → 500: ${err?.message ?? exception}`,
       err?.stack,
     );
-    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      message: 'Internal server error',
-      requestId,
-    });
+    const status = HttpStatus.INTERNAL_SERVER_ERROR;
+    res
+      .status(status)
+      .type(PROBLEM_JSON)
+      .send(
+        JSON.stringify(
+          problemDetails(
+            status,
+            { statusCode: status, message: 'Internal server error' },
+            { instance: req.path, requestId },
+          ),
+        ),
+      );
   }
 }
