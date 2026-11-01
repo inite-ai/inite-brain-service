@@ -270,7 +270,7 @@ describe('background extraction (e2e)', () => {
     const ask = async () => {
       const state = mockSynthesizeOpenAi(f.app, [
         JSON.stringify({ answer: 'x', citedFactIds: [] }),
-        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
       ]);
       await f.http.post('/v1/synthesize').set(auth()).send({ query: 'Какой бюджет у Acme?' });
       return state.calls[0]?.user ?? '';

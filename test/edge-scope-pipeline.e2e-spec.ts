@@ -239,7 +239,7 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
     const script = () =>
       mockSynthesizeOpenAi(f.app, [
         JSON.stringify({ answer: 'Maria Costa works at Orbital Dynamics.', citedFactIds: [] }),
-        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
       ]);
     const ask = async (userId?: string) => {
       const own = script();
@@ -266,6 +266,6 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
     const nobody = await ask();
     expect(nobody.calls).toBeGreaterThan(0);
     expect(nobody.generator).not.toMatch(/Helix Labs/);
-    delete process.env.SYNTHESIZE_ANSWER_CACHE;
+    process.env.SYNTHESIZE_ANSWER_CACHE = '0';
   });
 });

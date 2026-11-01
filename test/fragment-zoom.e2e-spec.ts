@@ -30,6 +30,17 @@ import {
   type DomainPackManifest,
 } from '../src/ai/domain-packs';
 
+// Each test reads what the generator and verifier were given for a query
+// the suite repeats; a cached answer skips both, so the cache is off here.
+const savedAnswerCache = process.env.SYNTHESIZE_ANSWER_CACHE;
+beforeAll(() => {
+  process.env.SYNTHESIZE_ANSWER_CACHE = '0';
+});
+afterAll(() => {
+  if (savedAnswerCache === undefined) delete process.env.SYNTHESIZE_ANSWER_CACHE;
+  else process.env.SYNTHESIZE_ANSWER_CACHE = savedAnswerCache;
+});
+
 const FLAG_KEYS = ['RETRIEVAL_FRAGMENT_LANE', 'FOVEA_FRAGMENT_ZOOM'] as const;
 
 describe('Fragment zoom e2e', () => {
@@ -51,10 +62,15 @@ describe('Fragment zoom e2e', () => {
   // The generator cites the fact it answers from, as production requires
   // (FOVEA_REQUIRE_CITATIONS: a wholly uncited answer is not served).
   const gen = () => JSON.stringify({ answer: ANSWER, citedFactIds: [factId] });
-  const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+  const VERIFY_SUPPORTED = JSON.stringify({
+    verdict: 'supported',
+    unsupportedClaims: [],
+    questionAnswered: true,
+  });
   const VERIFY_UNSUPPORTED = JSON.stringify({
     verdict: 'unsupported',
     unsupportedClaims: [ANSWER],
+    questionAnswered: true,
   });
 
   const MANIFEST = {

@@ -77,7 +77,7 @@ function stubOpenAI(verdict: string, citedId = 'f1') {
               {
                 message: {
                   content: isVerifier
-                    ? JSON.stringify({ verdict })
+                    ? JSON.stringify({ verdict, questionAnswered: true })
                     : JSON.stringify({ answer: `Maya [${citedId}].`, citedFactIds: [citedId] }),
                 },
                 finish_reason: 'stop',

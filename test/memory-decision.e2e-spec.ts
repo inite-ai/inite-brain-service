@@ -178,7 +178,7 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
       const { factId } = await ingestFact('decision_serve_subj', 'Decision Serve Subject');
       mockSynthesizeOpenAi(f.app, [
         JSON.stringify({ answer: `Served [${factId}].`, citedFactIds: [factId] }),
-        JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+        JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
       ]);
       const res = await f.http
         .post('/v1/synthesize')
@@ -316,7 +316,7 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
     const { factId } = await ingestFact('decision_stock_subj', 'Decision Stock Subject');
     mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: `Stock [${factId}].`, citedFactIds: [factId] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http
       .post('/v1/synthesize')

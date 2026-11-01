@@ -35,7 +35,9 @@ All six are prompted at enable time and changeable later with
 - **Brain base URL** — where the session hooks send requests; only for self-hosted deployments
 - **Personal memory scope** — an end-user id, so a shared workspace key
   still keeps your memory yours
-- **Recall at session start** — on by default
+- **Recall at session start** — on by default; answers at once from the
+  last recall kept for the project and refreshes it in the background (a
+  first-ever start waits at most 2 s)
 - **Capture sessions into memory** — on by default
 - **Recall on every prompt** — on by default; at most 2.5 s per prompt,
   and nothing is attached when brain is slow or finds nothing
@@ -61,7 +63,7 @@ record?"* — or call `memory_diff` over the last hour.
 
 ## What runs on your machine, and what leaves it
 
-Everything the plugin sends goes to one place: the brain at your **Brain base URL** (`https://brain.inite.ai` unless you changed it). Nothing is sent anywhere else, and the plugin starts no other processes.
+Everything the plugin sends goes to one place: the brain at your **Brain base URL** (`https://brain.inite.ai` unless you changed it). Nothing is sent anywhere else. The one process the plugin starts is the recall refresh: a detached `node` run of the same hook script that fetches the next recall and exits.
 
 **Credentials.** The MCP server signs in with OAuth: Claude holds the token, the plugin never sees it. The only secret the plugin itself handles is the optional **Brain API key** from the plugin settings (`userConfig`, `sensitive: true`). Claude Code keeps it in the OS keychain and hands it to the command hooks as `CLAUDE_PLUGIN_OPTION_API_KEY`. Without it, the hooks exit without doing anything. The plugin reads no other credential, file or environment variable from your machine.
 
@@ -69,7 +71,7 @@ Everything the plugin sends goes to one place: the brain at your **Brain base UR
 
 | Hook | Reads | Sends |
 |---|---|---|
-| `SessionStart` (recall) | The repository's `.git/config`, to name the project | `POST /v1/search` with the project name; `GET /v1/users/<id>/profile` when a personal scope is set |
+| `SessionStart` (recall) | The repository's `.git/config`, to name the project; the last recall it kept for this brain, user and project (`inite-brain-hooks/recall-<hash>.json` in the plugin's data dir, owner-only) | `POST /v1/search` with the project name; `GET /v1/users/<id>/profile` when a personal scope is set (from the background refresh once a recall is kept) |
 | `PreCompact`, `SessionEnd` (capture) | The session transcript Claude Code passes it | `POST /v1/ingest/mention` with **your** messages only (never the model's replies, never tool output) |
 
 **The mod** (`hooks/live.tsx`) runs no commands and makes no network requests of its own: every call goes through the plugin's `brain` MCP connection (`$.mcp.call`).

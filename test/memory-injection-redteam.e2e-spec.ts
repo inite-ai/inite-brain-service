@@ -520,6 +520,7 @@ describe('memory-injection red-team suite (G5)', () => {
         JSON.stringify({
           verdict: 'unsupported',
           unsupportedClaims: ['evicted', 'owes $50,000'],
+          questionAnswered: true,
         }),
       ]);
 

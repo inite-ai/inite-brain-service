@@ -2,8 +2,10 @@
 /**
  * brain lifecycle hooks for Claude Code.
  *
- *   recall   — SessionStart: ask brain what it knows about this project
- *              and hand it back as additionalContext.
+ *   recall   — SessionStart: hand back what brain knows about this project
+ *              as additionalContext — from the last answer at once, while
+ *              a detached refresh fetches the next one.
+ *   refresh  — (internal) fetch the recall and keep it for the next start.
  *   capture  — PreCompact / SessionEnd: send what the human asked for
  *              into brain so the next session starts informed.
  *
@@ -18,9 +20,12 @@
  * session is worse than no memory layer.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** Hard ceilings — the mention DTO caps at 16 000 chars server-side. */
 const MAX_CAPTURE_CHARS = 6000;
@@ -32,6 +37,13 @@ const MAX_CAPTURE_CHARS = 6000;
 const MIN_CAPTURE_CHARS = 40;
 const MAX_RECALL_CHARS = 2000;
 const REQUEST_TIMEOUT_MS = 12_000;
+/**
+ * How long a session start may wait for brain when nothing is kept yet.
+ * The session is blocked while SessionStart runs, so recall answers from
+ * the last kept result at once and only a first-ever start waits — and
+ * not for a whole request timeout.
+ */
+const RECALL_BUDGET_MS = 2_000;
 
 const config = () => ({
   apiKey: process.env.CLAUDE_PLUGIN_OPTION_API_KEY ?? '',
@@ -133,7 +145,10 @@ function renderRecall(results) {
  */
 async function identityLine(cfg) {
   if (!cfg.userId) return '';
-  const profile = await apiGet(`/v1/users/${encodeURIComponent(cfg.userId)}/profile?maxFacts=1`, cfg);
+  const profile = await apiGet(
+    `/v1/users/${encodeURIComponent(cfg.userId)}/profile?maxFacts=1`,
+    cfg,
+  );
   if (!profile || !profile.identity) return '';
   if (profile.identity.name) return `Brain knows this user as ${profile.identity.name}.`;
   return (
@@ -160,7 +175,10 @@ async function mcpToolNames(cfg) {
     if (!res.ok) return [];
     const text = await res.text();
     // Streamable HTTP may answer as one SSE event.
-    const data = text.split('\n').filter((l) => l.startsWith('data: ')).pop();
+    const data = text
+      .split('\n')
+      .filter((l) => l.startsWith('data: '))
+      .pop();
     const body = JSON.parse(data ? data.slice(6) : text);
     return (body?.result?.tools ?? []).map((t) => t.name);
   } catch {
@@ -188,8 +206,8 @@ async function harnessLine(cfg) {
   );
 }
 
-async function recall(payload, cfg) {
-  if (!cfg.recallOn) return;
+/** The SessionStart context for this project, or '' when brain has nothing to say. */
+async function recallContext(payload, cfg) {
   const project = await projectName(payload.cwd ?? process.cwd());
   const body = { query: project, limit: 8 };
   if (cfg.userId) body.userId = cfg.userId;
@@ -199,24 +217,116 @@ async function recall(payload, cfg) {
     harnessLine(cfg),
   ]);
   const rendered = renderRecall(out?.results ?? []);
-  if (!rendered && !identity && !harness) return;
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'SessionStart',
-        additionalContext: [
-          ...(rendered
-            ? [
-                `What brain remembers about ${project} (ask it directly with the brain MCP tools for more):`,
-                rendered,
-              ]
-            : []),
-          ...(identity ? [identity] : []),
-          ...(harness ? [harness] : []),
-        ].join('\n'),
-      },
-    }),
+  return [
+    ...(rendered
+      ? [
+          `What brain remembers about ${project} (ask it directly with the brain MCP tools for more):`,
+          rendered,
+        ]
+      : []),
+    ...(identity ? [identity] : []),
+    ...(harness ? [harness] : []),
+  ].join('\n');
+}
+
+/** The plugin's own data dir (never the shared OS tmp dir), created owner-only. */
+async function dataDir() {
+  const dir = join(
+    process.env.CLAUDE_PLUGIN_DATA || join(homedir(), '.cache'),
+    'inite-brain-hooks',
   );
+  await mkdir(dir, { recursive: true, mode: 0o700 }).catch(() => {});
+  return dir;
+}
+
+/** Where the last recall for this brain, user and project is kept. */
+async function recallCachePath(payload, cfg) {
+  const project = await projectName(payload.cwd ?? process.cwd());
+  const key = createHash('sha256')
+    .update(`${cfg.baseUrl}\n${cfg.userId}\n${project}`)
+    .digest('hex')
+    .slice(0, 32);
+  return join(await dataDir(), `recall-${key}.json`);
+}
+
+/** The kept recall, or null when there is none. '' is a kept "nothing to say". */
+async function readRecallCache(path) {
+  try {
+    const kept = JSON.parse(await readFile(path, 'utf8'));
+    return typeof kept?.context === 'string' ? kept.context : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeRecallCache(path, context) {
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify({ context, at: new Date().toISOString() }), {
+    mode: 0o600,
+  });
+  await rename(tmp, path);
+}
+
+/** Write the hook output and resolve once it is flushed — the process exits right after. */
+function printRecall(context) {
+  if (!context) return Promise.resolve();
+  const out = JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context },
+  });
+  return new Promise((resolve) => process.stdout.write(out, () => resolve()));
+}
+
+/** Start a detached refresh that outlives this hook and keeps the next recall. */
+function spawnRefresh(payload) {
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'refresh'], {
+      detached: true,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        BRAIN_HOOK_PAYLOAD: JSON.stringify({ cwd: payload.cwd ?? process.cwd() }),
+      },
+    });
+    child.unref();
+  } catch {
+    /* no refresh this time — the next start tries again */
+  }
+}
+
+async function recall(payload, cfg) {
+  if (!cfg.recallOn) return;
+  const path = await recallCachePath(payload, cfg);
+  const kept = await readRecallCache(path);
+  if (kept !== null) {
+    await printRecall(kept);
+    spawnRefresh(payload);
+    return;
+  }
+  // First start for this project: wait for brain, but only within the budget.
+  let timer;
+  const budget = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), RECALL_BUDGET_MS);
+  });
+  const fresh = await Promise.race([recallContext(payload, cfg), budget]);
+  clearTimeout(timer);
+  if (fresh === null) {
+    spawnRefresh(payload);
+    return;
+  }
+  await printRecall(fresh);
+  await writeRecallCache(path, fresh).catch(() => {});
+}
+
+async function refresh(cfg) {
+  if (!cfg.recallOn) return;
+  let payload = {};
+  try {
+    payload = JSON.parse(process.env.BRAIN_HOOK_PAYLOAD ?? '{}');
+  } catch {
+    return;
+  }
+  const context = await recallContext(payload, cfg);
+  await writeRecallCache(await recallCachePath(payload, cfg), context).catch(() => {});
 }
 
 // ── capture ──────────────────────────────────────────────────────────
@@ -272,12 +382,7 @@ async function humanTurns(transcriptPath) {
 async function watermarkPath(sessionId) {
   // Never the shared OS tmp dir (another account could pre-create the
   // folder or plant files): the plugin's data dir, else the user's cache.
-  const dir = join(
-    process.env.CLAUDE_PLUGIN_DATA || join(homedir(), '.cache'),
-    'inite-brain-hooks',
-  );
-  await mkdir(dir, { recursive: true, mode: 0o700 }).catch(() => {});
-  return join(dir, `capture-${(sessionId || 'unknown').replace(/[^\w.-]/g, '_')}.txt`);
+  return join(await dataDir(), `capture-${(sessionId || 'unknown').replace(/[^\w.-]/g, '_')}.txt`);
 }
 
 async function readWatermark(path) {
@@ -332,13 +437,18 @@ async function main() {
   const mode = process.argv[2];
   const cfg = config();
   if (!cfg.apiKey) return;
+  if (mode === 'refresh') return refresh(cfg);
   const payload = await readStdin();
   if (mode === 'recall') await recall(payload, cfg);
   else if (mode === 'capture') await capture(payload, cfg);
 }
 
-main().catch(() => {
-  // Silence is the contract: a hook that prints a stack trace into a
-  // session is a worse bug than a hook that did nothing.
-  process.exitCode = 0;
-});
+main()
+  .catch(() => {
+    // Silence is the contract: a hook that prints a stack trace into a
+    // session is a worse bug than a hook that did nothing.
+  })
+  // Exit as soon as the hook's work is done: a request still in flight
+  // (a recall past its budget, handed to the detached refresh) must not
+  // hold the session start open until its own timeout.
+  .finally(() => process.exit(0));

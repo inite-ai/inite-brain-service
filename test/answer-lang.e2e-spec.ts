@@ -39,7 +39,7 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
   it('renders explicit answerLang into the prompt', async () => {
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http
       .post('/v1/synthesize')
@@ -53,7 +53,7 @@ describe('Phase 4.C e2e — answerLang in generator prompt', () => {
   it('falls back to detected query language when DTO omits answerLang', async () => {
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http
       .post('/v1/synthesize')
