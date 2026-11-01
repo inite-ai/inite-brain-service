@@ -8,6 +8,7 @@
  * unit-testable without a live SurrealDB or an LLM.
  */
 import { SOURCE_TRUST } from './conflict-resolver';
+import { redactSecrets } from '../common/secret-redaction';
 
 /** Strip the `table:` prefix off a SurrealDB record id, leaving the tail. */
 export function idTailOf(rid: string): string {
@@ -47,7 +48,7 @@ export function scopedRefKey(vertical: string, id: string, userId: string | unde
 }
 
 /** PII classes the redactor can find — stored as episode.piiClass. */
-export type PiiClass = 'email' | 'phone' | 'number';
+export type PiiClass = 'email' | 'phone' | 'number' | 'secret';
 
 /**
  * PII redactor with a report of what it found (P0 of the substrate
@@ -63,7 +64,11 @@ export function redactPiiWithReport(text: string): {
   classes: PiiClass[];
 } {
   const classes = new Set<PiiClass>();
-  const out = text
+  // Credentials first: a token's digit runs must not be half-masked as a
+  // phone or a number before the whole token is recognised.
+  const secrets = redactSecrets(text);
+  if (secrets.found) classes.add('secret');
+  const out = secrets.text
     .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, () => {
       classes.add('email');
       return '[EMAIL]';
