@@ -59,10 +59,15 @@ describe('request metrics on /metrics (e2e)', () => {
       .split('\n')
       .filter((l) => l.startsWith('brain_http_requests_total{') && l.includes('/v1/facts'));
     expect(counted(body) >= 2 ? 'counted' : series).toBe('counted');
+    // The registry is process-wide and the shard's other suites share it, so
+    // the route can carry other series (another method or status class):
+    // read the one these two requests landed in.
     expect(
       value(body, 'brain_http_request_duration_seconds_bucket', {
         le: '5',
+        method: 'GET',
         route: '/v1/facts/:id',
+        status_class: '4xx',
       }),
     ).toBeGreaterThanOrEqual(2);
     expect(body).not.toMatch(/route="\/v1\/facts\/knowledge_fact/);
