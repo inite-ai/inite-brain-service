@@ -661,10 +661,22 @@ answers 401 with `WWW-Authenticate: Bearer resource_metadata="…"`
 — naming the authorization servers and the scopes the resource takes;
 the authorization server's metadata (RFC 8414, path-aware, then OpenID
 discovery) names the authorize / token / registration / revocation
-endpoints; a client is registered there dynamically (RFC 7591) as a
-public PKCE client unless the server only takes clients with a secret —
-or the operator passes a client the server issued when it offers no
-registration. What the deployment learned is kept per tenant and per
+endpoints. The client, following the MCP 2026-07-28 rules: where the
+authorization server takes Client ID Metadata Documents
+(`client_id_metadata_document_supported`), the brain's client_id is the
+HTTPS URL of the document it serves at
+`/v1/source-connections/oauth/client-metadata.json` and nothing is
+registered; otherwise a client is registered dynamically (RFC 7591,
+deprecated by that revision, kept as the fallback, with
+`application_type: web`) as a public PKCE client unless the server only
+takes clients with a secret, or the operator passes a client the server
+issued when it offers no registration. A client belongs to the
+authorization server that issued it: a resource whose issuer changed
+gets a new one. The authorization response's `iss` (RFC 9207) must be
+the issuer the flow started with, checked before anything else in the
+response is trusted; a server that advertises
+`authorization_response_iss_parameter_supported` must send it. What the
+deployment learned is kept per tenant and per
 resource in `source_oauth_client` (0154; the secret encrypted): the
 grant (`provider: mcp`, its `resource`) refreshes and revokes through
 it, and every token request carries the RFC 8707 `resource` the tokens
