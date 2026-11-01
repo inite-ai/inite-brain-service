@@ -1,4 +1,4 @@
-import { DomainPackError } from './validate';
+import { DomainPackError } from './domain-pack-error';
 import {
   MAX_PACK_SOURCES,
   PACK_SOURCE_CONTENT_POLICIES,

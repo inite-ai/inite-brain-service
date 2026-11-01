@@ -18,6 +18,20 @@ describe('request metrics on /metrics (e2e)', () => {
   });
 
   const scrape = async () => (await f.http.get('/metrics')).text;
+  /**
+   * A request is recorded on the server response's 'finish' event, and the
+   * client runs in the same process: it can read the response before that
+   * callback has run. Scrape until `ready` holds, briefly, instead of
+   * reading once.
+   */
+  const scrapeUntil = async (ready: (body: string) => boolean): Promise<string> => {
+    let body = await scrape();
+    for (let i = 0; i < 20 && !ready(body); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      body = await scrape();
+    }
+    return body;
+  };
   /** The sample of `name` carrying every label in `labels` (any order, plus `instance`). */
   const value = (body: string, name: string, labels: Record<string, string>) => {
     const line = body
@@ -33,14 +47,18 @@ describe('request metrics on /metrics (e2e)', () => {
   it('counts REST requests by route template and status class', async () => {
     await f.http.get('/v1/facts/knowledge_fact:nope').set({ Authorization: `Bearer ${f.apiKey}` });
     await f.http.get('/v1/facts/knowledge_fact:nope');
-    const body = await scrape();
-    expect(
-      value(body, 'brain_http_requests_total', {
+    const counted = (b: string) =>
+      value(b, 'brain_http_requests_total', {
         method: 'GET',
         route: '/v1/facts/:id',
         status_class: '4xx',
-      }),
-    ).toBeGreaterThanOrEqual(2);
+      });
+    const body = await scrapeUntil((b) => counted(b) >= 2);
+    // On a miss, show every series of the route: a wrong label reads at once.
+    const series = body
+      .split('\n')
+      .filter((l) => l.startsWith('brain_http_requests_total{') && l.includes('/v1/facts'));
+    expect(counted(body) >= 2 ? 'counted' : series).toBe('counted');
     expect(
       value(body, 'brain_http_request_duration_seconds_bucket', {
         le: '5',
