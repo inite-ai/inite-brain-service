@@ -29,7 +29,7 @@ describe('MCP get_fact / get_fact_provenance (e2e)', () => {
   afterAll(async () => {
     if (SAVED.factsApi === undefined) delete process.env.FACTS_API_ENABLED;
     else process.env.FACTS_API_ENABLED = SAVED.factsApi;
-    if (SAVED.stamp === undefined) delete process.env.EVIDENCE_GROUNDING_STAMP;
+    if (SAVED.stamp === undefined) process.env.EVIDENCE_GROUNDING_STAMP = '0';
     else process.env.EVIDENCE_GROUNDING_STAMP = SAVED.stamp;
     if (f) await f.close();
   });

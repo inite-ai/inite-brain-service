@@ -92,10 +92,10 @@ describe('source plane (e2e)', () => {
     // The handler registers at boot; keep the worker loop out so the
     // inline sync is the only actor.
     process.env.WORKER_LOOP_ENABLED = '0';
-    delete process.env.SOURCE_PLANE_ENABLED;
+    process.env.SOURCE_PLANE_ENABLED = '0';
     // The catalogue case pins the natives' switched-off state.
-    delete process.env.SOURCE_KIND_FS;
-    delete process.env.SOURCE_KIND_MCP;
+    process.env.SOURCE_KIND_FS = '0';
+    process.env.SOURCE_KIND_MCP = '0';
     delete process.env.SOURCE_FS_ROOTS;
     delete process.env.SOURCE_EGRESS_ALLOW_PRIVATE;
     f = await createApp({ companyId: COMPANY });
@@ -267,7 +267,7 @@ describe('source plane (e2e)', () => {
     });
 
     // Switch off ⇒ "installed but switched off", by name.
-    delete process.env.SOURCE_KIND_MCP;
+    process.env.SOURCE_KIND_MCP = '0';
     const off = await post({ sourceId: 'named', config: { url: 'https://mcp.example.com/mcp' } });
     expect(off.status).toBe(400);
     expect(String(off.body.message)).toContain('switched off (SOURCE_KIND_MCP)');
@@ -305,7 +305,7 @@ describe('source plane (e2e)', () => {
       .delete(`/v1/admin/source-connections/${encodeURIComponent(ok.body.id)}`)
       .set(auth());
     expect(gone.status).toBe(200);
-    delete process.env.SOURCE_KIND_MCP;
+    process.env.SOURCE_KIND_MCP = '0';
   });
 
   let connectionId = '';

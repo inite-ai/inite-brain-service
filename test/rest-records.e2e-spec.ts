@@ -42,7 +42,7 @@ describe('rest_records + mapping assistant (e2e)', () => {
       SOURCE_EGRESS_ALLOW_PRIVATE: '1',
       DOCUMENT_INGEST_ENABLED: '1',
     });
-    delete process.env.SOURCE_MAPPING_ASSISTANT;
+    process.env.SOURCE_MAPPING_ASSISTANT = '0';
     f = await createApp({ companyId: COMPANY });
     api.companies = [
       {

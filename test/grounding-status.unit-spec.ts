@@ -118,13 +118,13 @@ const stampQ = (qs: Array<{ sql: string; params: any }>) =>
 describe('FactResolverService — grounding stamp (EVIDENCE_GROUNDING_STAMP)', () => {
   const saved = process.env.EVIDENCE_GROUNDING_STAMP;
   afterEach(() => {
-    if (saved === undefined) delete process.env.EVIDENCE_GROUNDING_STAMP;
+    if (saved === undefined) process.env.EVIDENCE_GROUNDING_STAMP = '0';
     else process.env.EVIDENCE_GROUNDING_STAMP = saved;
     jest.restoreAllMocks();
   });
 
   it('flag OFF (default): the db.query sequence is EXACTLY the resolver call — no stamp UPDATE', async () => {
-    delete process.env.EVIDENCE_GROUNDING_STAMP;
+    process.env.EVIDENCE_GROUNDING_STAMP = '0';
     const { svc, db, queries } = makeResolver();
     await svc.resolveMany(db as never, [input('preference', 'a', {})]);
     // Byte-identity pin: one batched resolve, nothing else.

@@ -533,6 +533,7 @@ describe('T7 instruction lane', () => {
     expect(off.lanes.size).toBe(0);
     const routerOnly = resolveRetrievalProfile({
       SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+      STRATEGY_MEMORY_ENABLED: '0',
     } as NodeJS.ProcessEnv);
     expect(routerOnly.lanes.has('temporal')).toBe(true);
     expect(routerOnly.lanes.has('instruction')).toBe(false);
@@ -692,6 +693,7 @@ describe('G4 strategy lane — profile membership gating', () => {
   it('joins the lane set only under router + STRATEGY_MEMORY_ENABLED', () => {
     const routerOnly = resolveRetrievalProfile({
       SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+      STRATEGY_MEMORY_ENABLED: '0',
     } as NodeJS.ProcessEnv);
     expect(routerOnly.lanes.has('strategy')).toBe(false);
     const flagOnly = resolveRetrievalProfile({

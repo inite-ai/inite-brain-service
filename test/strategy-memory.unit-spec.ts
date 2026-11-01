@@ -211,9 +211,9 @@ describe('strategy retrieval status filter and flag gates', () => {
 
   it('retrieve is empty (and hits no DB) when either flag is off', async () => {
     const gateCases: Array<Record<string, string>> = [
-      {},
-      { STRATEGY_MEMORY_ENABLED: '1' },
-      { STRATEGY_RETRIEVAL_ENABLED: '1' },
+      { STRATEGY_MEMORY_ENABLED: '0', STRATEGY_RETRIEVAL_ENABLED: '0' },
+      { STRATEGY_MEMORY_ENABLED: '1', STRATEGY_RETRIEVAL_ENABLED: '0' },
+      { STRATEGY_MEMORY_ENABLED: '0', STRATEGY_RETRIEVAL_ENABLED: '1' },
     ];
     for (const env of gateCases) {
       const calls: QueryCall[] = [];

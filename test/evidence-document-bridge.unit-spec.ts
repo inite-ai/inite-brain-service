@@ -106,12 +106,12 @@ describe('EvidenceDocumentBridgeService', () => {
     process.env.EVIDENCE_DOCUMENT_BRIDGE = '1';
   });
   afterEach(() => {
-    if (saved === undefined) delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
+    if (saved === undefined) process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
     else process.env.EVIDENCE_DOCUMENT_BRIDGE = saved;
   });
 
   it('flag off ⇒ named skip, nothing ingested, nothing enqueued', async () => {
-    delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
     const enqueue = jest.fn();
     const { svc, queue, ingest } = bridgeWith({
       rep: representation(),

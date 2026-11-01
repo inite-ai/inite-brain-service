@@ -498,7 +498,7 @@ function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
  */
 function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
-    envFlagEnabled(env.EVIDENCE_FAIL_CLOSED_CAPTURE) &&
+    envFlagNotDisabled(env.EVIDENCE_FAIL_CLOSED_CAPTURE) &&
     !envFlagNotDisabled(env.EPISODE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
@@ -519,7 +519,7 @@ function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]
  */
 function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
-    envFlagEnabled(env.EVIDENCE_PROCESSOR_BROKER) &&
+    envFlagNotDisabled(env.EVIDENCE_PROCESSOR_BROKER) &&
     !envFlagNotDisabled(env.EVIDENCE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
@@ -648,7 +648,7 @@ function validateEvidenceUploadEnv(env: NodeJS.ProcessEnv, warnings: string[]): 
         'EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
   }
-  if (!envFlagEnabled(env.EVIDENCE_QUARANTINE)) {
+  if (!envFlagNotDisabled(env.EVIDENCE_QUARANTINE)) {
     warnings.push(
       'EVIDENCE_BLOB_UPLOAD_ENABLED is set while EVIDENCE_QUARANTINE is not — ' +
         'uploaded bytes register as external ingest, which the store refuses ' +

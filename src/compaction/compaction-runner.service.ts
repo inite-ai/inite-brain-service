@@ -259,7 +259,7 @@ export class CompactionRunnerService {
       );
       created++;
 
-      // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off):
+      // Typed support graph (PROVENANCE_SUPPORT_EDGES, default on):
       // mirror the EXACT derivedFrom array just written. Best-effort —
       // a mirror failure warns, never aborts the rollup pass. Off ⇒
       // block skipped, the write sequence is byte-identical.

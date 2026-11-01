@@ -498,7 +498,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
   it('user-forget erases beliefs + their support edges unconditionally, with the beliefsDeleted counter', async () => {
     // Flag-independence: rows written while on must die while OFF.
     process.env.SCENES_BELIEF_PROMOTION = '0';
-    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
 
     const before = await beliefs();
     // home.city rev1+rev2 + coffee.pref + car rev1+rev2 (#135 fixture)

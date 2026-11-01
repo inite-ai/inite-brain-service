@@ -252,7 +252,7 @@ describe('trajectory read gate (byte-identical serving when off)', () => {
         calls,
       ),
       stubEmbedder({ q: [1, 0] }),
-      stubConfig(BOTH_ON), // STRATEGY_TRAJECTORIES_ENABLED unset → off
+      stubConfig({ ...BOTH_ON, STRATEGY_TRAJECTORIES_ENABLED: '0' }),
     );
     const out = await svc.retrieve('c1', 'q');
     const serving = calls.find((c) => c.sql.includes('FROM strategy_memory'));
@@ -326,7 +326,7 @@ describe('capture write-path labeling (R3 P1)', () => {
     await createStub(calls, {
       STRATEGY_MEMORY_ENABLED: '1',
       STRATEGY_RETRIEVAL_ENABLED: '1',
-      // STRATEGY_TRAJECTORIES_ENABLED unset → off
+      STRATEGY_TRAJECTORIES_ENABLED: '0',
     }).create('c1', {
       title: 'x',
       situation: '',

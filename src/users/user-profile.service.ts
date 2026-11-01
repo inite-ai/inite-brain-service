@@ -4,7 +4,7 @@ import { SurrealService } from '../db/surreal.service';
 import { ReadPinService, derivedVersionFence } from '../episodes/read-pin.service';
 import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { UserEntityService } from '../ingest/user-entity.service';
 import { formatExpectation } from '../ingest/fact-expectation';
 import {
@@ -222,7 +222,7 @@ export class UserProfileService {
     // path). Off (default) → the byte-identical hard filter.
     let langOrderPrefix = '';
     if (lang) {
-      if (envFlagEnabled(process.env.MULTILINGUAL_SOFT_LANG_FILTER)) {
+      if (envFlagNotDisabled(process.env.MULTILINGUAL_SOFT_LANG_FILTER)) {
         // Drop the exclusion; prefer same-language facts in the fetch order
         // (a ranking signal within the FETCH_CAP, never an exclusion) so a
         // cross-lingual fact is demoted, not hidden.

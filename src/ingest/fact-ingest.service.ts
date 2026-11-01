@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
-import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { MetricsService } from '../metrics/metrics.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
@@ -113,7 +113,7 @@ export class FactIngestService {
     if (metaInput !== undefined) {
       const { meta, dropped } = sanitizeSourceMeta(metaInput);
       if (dropped.length > 0) {
-        if (envFlagEnabled(process.env.SOURCE_META_STRICT)) {
+        if (envFlagNotDisabled(process.env.SOURCE_META_STRICT)) {
           throw new BadRequestException({
             error: 'invalid_metadata',
             issues: dropped,

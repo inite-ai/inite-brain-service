@@ -240,7 +240,7 @@ export class SceneBacklinkService {
         result.factsLinked += plan.linked.length;
         result.stalePointersRemoved += plan.stalePointersRemoved;
 
-        // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off):
+        // Typed support graph (PROVENANCE_SUPPORT_EDGES, default on):
         // fact-supported_by->scene edges for the current pairs, replay-
         // idempotent (INSERT RELATION IGNORE over UNIQUE(in, out, kind));
         // writerVersion is the same effective version as the stamp. Off

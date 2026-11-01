@@ -46,7 +46,7 @@ describe('ABAC source.meta projection', () => {
   afterAll(async () => {
     process.env.ABAC_ENABLED = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
-    delete process.env.SOURCE_META_STRICT;
+    process.env.SOURCE_META_STRICT = '0';
     await f.close();
   });
 
@@ -175,7 +175,7 @@ describe('ABAC source.meta projection', () => {
         });
       expect(strictDoc.status).toBe(400);
     } finally {
-      delete process.env.SOURCE_META_STRICT;
+      process.env.SOURCE_META_STRICT = '0';
     }
   });
 });
