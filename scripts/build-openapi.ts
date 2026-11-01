@@ -562,19 +562,28 @@ function generateComponentSchemas(): Json {
     void $id;
     out[id] = clean;
   }
-  // The Nest HttpException wire shape — hand-written (no zod contract:
-  // it is framework-owned, not one of ours).
+  // RFC 9457 problem details (all-exceptions.filter.ts), with the Nest
+  // envelope it replaced kept as extension members. Hand-written: it is
+  // the filter's shape, not a zod contract.
   out.ErrorResponse = {
     type: 'object',
-    description: 'Standard NestJS error envelope.',
+    description:
+      'RFC 9457 problem details (application/problem+json). statusCode, message and error are the earlier envelope, kept for existing clients.',
     properties: {
+      type: { type: 'string', description: "'about:blank': the status says what went wrong" },
+      title: { type: 'string', description: 'The HTTP status phrase' },
+      status: { type: 'integer' },
+      detail: { type: 'string' },
+      instance: { type: 'string', description: 'The request path' },
+      errors: { type: 'array', items: { type: 'string' }, description: 'Validation messages' },
+      requestId: { type: 'string', description: 'Same as the x-request-id header' },
       statusCode: { type: 'integer' },
       message: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
       },
       error: { type: 'string' },
     },
-    required: ['statusCode', 'message'],
+    required: ['type', 'title', 'status', 'statusCode', 'message'],
   };
   out.FeatureDisabledResponse = {
     type: 'object',
@@ -1897,7 +1906,10 @@ function recordsPaths(idParam: Json): Json {
         parameters: [idParam],
         requestBody: jsonBody(ref('WebhookSetupRequest')),
         responses: {
-          '201': jsonResponse('The address, the secret (once) and the notes.', ref('WebhookSetupResponse')),
+          '201': jsonResponse(
+            'The address, the secret (once) and the notes.',
+            ref('WebhookSetupResponse'),
+          ),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),
@@ -2003,7 +2015,10 @@ function oauthPaths(): Json {
         scope: 'brain:admin',
         requestBody: jsonBody(ref('SourceOAuthMcpStartRequest')),
         responses: {
-          '201': jsonResponse('The consent URL, the state and the resource.', ref('SourceOAuthMcpStartResponse')),
+          '201': jsonResponse(
+            'The consent URL, the state and the resource.',
+            ref('SourceOAuthMcpStartResponse'),
+          ),
           '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
           '404': errorRef('NotFound'),
@@ -2598,7 +2613,7 @@ function memoryReadPaths(): Json {
           pathParam('id', 'Fact record id (`knowledge_fact:…`).'),
           queryParam(
             'userId',
-            "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            'Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).',
           ),
         ],
         responses: {
@@ -2623,7 +2638,7 @@ function memoryReadPaths(): Json {
           pathParam('id', 'Fact record id (`knowledge_fact:…`).'),
           queryParam(
             'userId',
-            "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            'Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).',
           ),
         ],
         responses: {
@@ -3451,7 +3466,10 @@ function uploadEvidenceBlobBody(): Json {
 }
 
 function errorResponses(): Json {
-  const err = (description: string): Json => jsonResponse(description, ref('ErrorResponse'));
+  const err = (description: string): Json => ({
+    description,
+    content: { 'application/problem+json': { schema: ref('ErrorResponse') } },
+  });
   return {
     BadRequest: err('Validation failed.'),
     Unauthorized: err('Missing or unknown bearer key.'),
