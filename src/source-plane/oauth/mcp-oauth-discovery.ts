@@ -14,9 +14,12 @@ import { safeFetch, type SafeFetchResult } from '../connectors/safe-fetch';
  *   3. the authorization server's metadata (RFC 8414, path-aware; then
  *      OpenID discovery) names the authorize / token / registration /
  *      revocation endpoints;
- *   4. a client is registered dynamically (RFC 7591) when the server
- *      offers it — a public client with PKCE by default, a secret only
- *      when the server issues one.
+ *   4. the client: where the authorization server takes Client ID
+ *      Metadata Documents (MCP 2026-07-28), the brain's client_id is the
+ *      URL of the document it serves and nothing is registered; else a
+ *      client is registered dynamically (RFC 7591, deprecated by that
+ *      revision but still the fallback): public with PKCE by default, a
+ *      secret only when the server issues one.
  *
  * Every hop is `safeFetch` (the SSRF fence; loopback / LAN only under
  * the double opt-in), bounded in bytes and time, redirects never
@@ -38,6 +41,10 @@ export interface AuthorizationServerMetadata {
   codeChallengeMethods: string[];
   tokenEndpointAuthMethods: string[];
   scopesSupported: string[];
+  /** Accepts a Client ID Metadata Document URL as client_id (MCP 2026-07-28). */
+  clientIdMetadataDocuments: boolean;
+  /** Sends `iss` on the authorization response (RFC 9207), so it must be there. */
+  issParameter: boolean;
 }
 
 export interface DiscoveredAuth {
@@ -179,6 +186,8 @@ export async function authorizationServerMetadata(
       codeChallengeMethods,
       tokenEndpointAuthMethods: stringList(json.token_endpoint_auth_methods_supported),
       scopesSupported: stringList(json.scopes_supported),
+      clientIdMetadataDocuments: json.client_id_metadata_document_supported === true,
+      issParameter: json.authorization_response_iss_parameter_supported === true,
     };
   }
   throw new McpOAuthDiscoveryError(`${issuer} publishes no authorization server metadata`);
@@ -216,6 +225,9 @@ export async function registerClient(
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: wanted,
+      // SEP-837: a web client with an https redirect, so an OpenID
+      // provider does not refuse the redirect URI as a native app's.
+      application_type: 'web',
       ...(p.scopes.length > 0 ? { scope: p.scopes.join(' ') } : {}),
     }),
     allowPrivate: opts.allowPrivate,
@@ -329,4 +341,34 @@ function sameIssuer(published: string, requested: string): boolean {
     return v.slice(0, end);
   };
   return norm(published) === norm(requested);
+}
+
+/** The path of the brain's Client ID Metadata Document, under the callback's origin. */
+export const CLIENT_METADATA_PATH = '/v1/source-connections/oauth/client-metadata.json';
+
+/**
+ * The Client ID Metadata Document URL for a redirect URI, when one can be
+ * used: the document must be served over HTTPS at the client_id itself,
+ * so a plain-http brain (a laptop) falls back to registration.
+ */
+export function clientMetadataUrl(redirectUri: string): string | null {
+  const u = new URL(redirectUri);
+  return u.protocol === 'https:' ? `${u.origin}${CLIENT_METADATA_PATH}` : null;
+}
+
+/** The document a client_id URL resolves to (draft-ietf-oauth-client-id-metadata-document). */
+export function clientMetadataDocument(p: {
+  clientId: string;
+  redirectUri: string;
+  clientName: string;
+}): Record<string, unknown> {
+  return {
+    client_id: p.clientId,
+    client_name: p.clientName,
+    redirect_uris: [p.redirectUri],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+    application_type: 'web',
+  };
 }

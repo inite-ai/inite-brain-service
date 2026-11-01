@@ -15,10 +15,10 @@ import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 
 function mockHost(): {
   host: ArgumentsHost;
-  sent: { status?: number; body?: any };
+  sent: { status?: number; body?: any; type?: string };
   res: { headersSent: boolean };
 } {
-  const sent: { status?: number; body?: any } = {};
+  const sent: { status?: number; body?: any; type?: string } = {};
   const res = {
     headersSent: false,
     status(code: number) {
@@ -29,9 +29,17 @@ function mockHost(): {
       sent.body = body;
       return this;
     },
+    type(t: string) {
+      sent.type = t;
+      return this;
+    },
+    send(text: string) {
+      sent.body = JSON.parse(text);
+      return this;
+    },
     getHeader: () => 'req-from-header',
   };
-  const req = { method: 'POST', url: '/v1/search' };
+  const req = { method: 'POST', url: '/v1/search?q=1', path: '/v1/search' };
   const host = {
     switchToHttp: () => ({
       getResponse: () => res,
@@ -99,5 +107,33 @@ describe('AllExceptionsFilter', () => {
     expect(warn.mock.calls[0]).toHaveLength(1);
     error.mockRestore();
     warn.mockRestore();
+  });
+
+  it('answers RFC 9457 problem details and keeps the fields clients already read', () => {
+    const { host, sent } = mockHost();
+    filter.catch(
+      new BadRequestException(['limit must be a number', 'query should not be empty']),
+      host,
+    );
+    expect(sent.type).toBe('application/problem+json');
+    expect(sent.body).toMatchObject({
+      type: 'about:blank',
+      title: 'Bad Request',
+      status: 400,
+      detail: 'limit must be a number; query should not be empty',
+      instance: '/v1/search',
+      errors: ['limit must be a number', 'query should not be empty'],
+      // The pre-9457 body, unchanged.
+      statusCode: 400,
+      message: ['limit must be a number', 'query should not be empty'],
+      error: 'Bad Request',
+      requestId: 'req-from-header',
+    });
+  });
+
+  it('the HTTP code is the problem status even when a payload carries its own', () => {
+    const { host, sent } = mockHost();
+    filter.catch(new ServiceUnavailableException({ status: 'shutting_down' }), host);
+    expect(sent.body.status).toBe(503);
   });
 });

@@ -26,6 +26,33 @@ operator-playbook, "Per-agent rights"). Unauthenticated requests
 get `WWW-Authenticate: Bearer resource_metadata=…` (RFC 9728) pointing
 at the discovery document below.
 
+## Errors
+
+Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+problem, `Content-Type: application/problem+json`:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "limit must be a number",
+  "instance": "/v1/search",
+  "errors": ["limit must be a number"],
+  "requestId": "4f6c…",
+  "statusCode": 400,
+  "message": ["limit must be a number"],
+  "error": "Bad Request"
+}
+```
+
+`errors` appears on validation failures. `requestId` is the same as the
+`x-request-id` header, so quote it when reporting a 500. `statusCode`,
+`message` and `error` are the earlier envelope and stay for existing
+clients. A 5xx never carries internal detail: the message is generic and
+the cause is in the server log under the request id. A disabled surface
+answers 404, the same as an absent route.
+
 ## Health + observability
 
 | Endpoint                                    | Notes                                                                                                                                         |

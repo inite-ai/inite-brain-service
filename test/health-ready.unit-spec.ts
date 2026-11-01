@@ -60,14 +60,14 @@ describe('HealthController', () => {
      * healthcheck.path=/health, deliberately not /ready), so a leaving
      * replica has to fail THIS path to be drained.
      */
-    it('answers 503 with status shutting_down once shutdown begins', async () => {
+    it('answers 503 with state shutting_down once shutdown begins', async () => {
       const controller = mk({ db: true, embedderReady: true });
       await expect(controller.health()).resolves.toMatchObject({ status: 'ok' });
       shuttingDownService(controller).markShuttingDown();
       const err = await controller.health().catch((e: ServiceUnavailableException) => e);
       expect(err).toBeInstanceOf(ServiceUnavailableException);
       expect((err as ServiceUnavailableException).getResponse()).toMatchObject({
-        status: 'shutting_down',
+        state: 'shutting_down',
         checks: { surrealdb: 'ok' },
       });
     });
