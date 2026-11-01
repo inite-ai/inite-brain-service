@@ -65,13 +65,16 @@ per [draft-ietf-httpapi-idempotency-key-header](https://datatracker.ietf.org/doc
   body) gets that response back with `Idempotent-Replayed: true`, and
   nothing runs again;
 - the same key with a different request answers `422`; a retry while the
-  first is still running answers `409`;
+  first is still running answers `409` with `Retry-After: 1`, the signal
+  that retrying will resolve it (the SDK retries only a `409` that
+  carries one);
 - a `5xx` is not kept, so retrying it runs the request again.
 
 Without the header nothing changes. MCP calls are not covered (the
 transport writes its own response); retry an MCP tool with a fresh
 JSON-RPC id. User forget erases the kept responses of requests made for
 that user.
+
 ## Health + observability
 
 | Endpoint                                    | Notes                                                                                                                                         |
