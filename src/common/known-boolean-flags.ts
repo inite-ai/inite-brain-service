@@ -119,15 +119,8 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',
-  // P2: episodic retrieval lane — BM25 quotes from L0 as a typed prompt
-  // section in synthesis (lossless fallback for extraction misses).
-  'SEARCH_EPISODIC_LANE_ENABLED',
-  // A1: provenance lane — verbatim source turns of the selected evidence
-  // facts (via source.episodeIds) quoted in the synthesis prompt.
-  'SYNTHESIZE_SOURCE_EXCERPTS',
-  // R1: segment lane — verbatim multi-turn L0 segments retrieved
-  // dense+BM25 as units in their own right; optional listwise rerank.
-  'SEARCH_SEGMENT_LANE_ENABLED',
+  // R1: segment lane — optional listwise rerank of the verbatim
+  // multi-turn L0 segments (the lane itself follows the verbatim mode).
   'SEARCH_SEGMENT_LANE_RERANK',
   // July A3: cross-encoder rescoring of the fused fact pool before the
   // fact-centric budget cut. Default off pending a paired leg.
