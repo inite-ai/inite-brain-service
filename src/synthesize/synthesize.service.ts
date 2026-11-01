@@ -124,6 +124,7 @@ export type {
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import type { Asker } from './asker';
 import { HarnessModeRefusal } from '../common/extraction-source';
+import { TenantBudgetExceeded } from '../ai/tenant-llm-budget';
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -816,9 +817,14 @@ export class SynthesizeService {
         { 'synthesize.facts': args.factIndex.size },
       );
     } catch (err) {
-      // Harness mode: no answer is generated here by design — the evidence
-      // below is what the connected agent answers from.
-      const reason = err instanceof HarnessModeRefusal ? 'harness_mode' : 'generator_error';
+      // Harness mode or a spent tenant budget: no answer is generated here —
+      // the evidence below is what the caller answers from.
+      const reason =
+        err instanceof HarnessModeRefusal
+          ? 'harness_mode'
+          : err instanceof TenantBudgetExceeded
+            ? 'model_budget'
+            : 'generator_error';
       if (reason === 'generator_error') {
         this.logger.warn(`Synthesize generator failed: ${(err as Error).message}`);
       }
