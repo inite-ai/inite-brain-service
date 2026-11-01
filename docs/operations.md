@@ -1021,6 +1021,39 @@ Consequences worth knowing:
   `inite-brain-service` (a fixed name allows only one), so reach one by
   index instead: `docker-compose exec --index=2 inite-brain-service sh`.
 
+### Verifying the image
+
+Every image Brain publishes carries an SPDX SBOM and SLSA v1 build
+provenance (BuildKit attestations) and a keyless Sigstore signature made
+with the publishing workflow's GitHub OIDC identity — there is no signing
+key to leak or rotate. The deploy runs `cosign verify` on the digest it is
+about to pull and stops if the signature is missing or names another
+workflow.
+
+To check an image yourself (replace the digest or tag):
+
+```bash
+# who built it: the production image (CI publish on main)…
+cosign verify mikefluff/inite-brain-service@sha256:<digest> \
+  --certificate-identity-regexp '^https://github\.com/inite-ai/inite-brain-service/\.github/workflows/ci\.yml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+# …or a versioned release (multi-arch manifest list)
+cosign verify mikefluff/inite-brain-service:v2.7.0 \
+  --certificate-identity-regexp '^https://github\.com/inite-ai/inite-brain-service/\.github/workflows/release-image\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# what is inside and how it was built
+docker buildx imagetools inspect mikefluff/inite-brain-service:v2.7.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect mikefluff/inite-brain-service:v2.7.0 --format '{{ json .Provenance }}'
+
+# GitHub's own attestation of the same build
+gh attestation verify oci://docker.io/mikefluff/inite-brain-service:v2.7.0 --owner inite-ai
+```
+
+The release workflow is called from `release-please.yml`, so its
+certificate names that ref; the regexp above accepts any ref of
+`release-image.yml` in this repository and nothing else.
+
 ### Verification after a deploy
 
 Two internal gates on the box (`/health` for liveness, `/ready` for the
