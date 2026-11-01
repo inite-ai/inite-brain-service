@@ -21,6 +21,8 @@ import { IdempotencyStoreService } from './idempotency-store.service';
 const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Printable ASCII, 1–255 chars: the draft's key is an opaque string. */
 const KEY_RE = /^[\x21-\x7e]{1,255}$/;
+/** Seconds a client is asked to wait on a key whose first request still runs. */
+export const IN_FLIGHT_RETRY_AFTER_S = 1;
 
 /**
  * Idempotency-Key on every authenticated write (0179,
@@ -32,7 +34,7 @@ const KEY_RE = /^[\x21-\x7e]{1,255}$/;
  *    query, body) gets that response back, marked `Idempotent-Replayed:
  *    true`, and runs nothing;
  *  - the same key with a different request is 422; a retry while the
- *    first still runs is 409;
+ *    first still runs is 409 with a Retry-After;
  *  - a 5xx is not stored, so the client can retry it.
  * Routes that write the response themselves (`@Res()`: MCP, streams) are
  * left alone; MCP retries carry their own JSON-RPC ids.
@@ -79,6 +81,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
       );
     }
     if (decision.kind === 'in_flight') {
+      // Retry-After is what tells a client this 409 will resolve: once the
+      // first request finishes, the same retry gets its stored answer. A
+      // conflict that will be the same answer next time carries none.
+      res.setHeader('Retry-After', String(IN_FLIGHT_RETRY_AFTER_S));
       throw new ConflictException('A request with this Idempotency-Key is still being processed');
     }
     if (decision.kind === 'replay') {
