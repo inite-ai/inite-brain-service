@@ -41,6 +41,8 @@ import { SurrealService } from '../../../src/db/surreal.service';
 import { TenantRegistryService } from '../../../src/auth/tenant-registry.service';
 import { EntityUpsertService } from '../../../src/ingest/entity-upsert.service';
 import { FactIngestService } from '../../../src/ingest/fact-ingest.service';
+import { PredicateRegistryService } from '../../../src/ai/predicate-registry.service';
+import type { FactCardinality } from '../../../src/ai/extractor-internals/types';
 import { StubEmbedder, StubExtractor, StubLocalCrossEncoder } from '../../test-doubles';
 import { score, type Assignment, type Score } from './score';
 
@@ -122,7 +124,14 @@ async function dropTenant(companyId: string): Promise<void> {
   await sql('system', `REMOVE DATABASE IF EXISTS co_${companyId};`);
 }
 
-async function runMode(mode: JudgeMode, mentions: DatasetMention[]): Promise<Score> {
+/** The extractor's per-predicate cardinality reading (dataset.json `cardinality`). */
+type CardinalityReading = Record<string, FactCardinality>;
+
+async function runMode(
+  mode: JudgeMode,
+  mentions: DatasetMention[],
+  cardinality: CardinalityReading,
+): Promise<Score> {
   const companyId = `co_er_battery_${mode}_${randomUUID().slice(0, 8)}`;
   let judge: BatteryJudge | undefined;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -145,9 +154,19 @@ async function runMode(mode: JudgeMode, mentions: DatasetMention[]): Promise<Sco
     const surreal = app.get(SurrealService);
     const upsert = app.get(EntityUpsertService);
     const facts = app.get(FactIngestService);
+    const registry = app.get(PredicateRegistryService);
     const assignments: Assignment[] = [];
     for (const m of mentions) {
       if (judge) judge.current = m.cluster;
+      // The real write path canonicalizes each coinage with the extractor's
+      // cardinality reading BEFORE entity resolution runs; so does the battery.
+      for (const line of m.facts) {
+        const predicate = line.slice(0, line.indexOf(':')).trim();
+        await registry.canonicalize(companyId, predicate, {
+          text: line,
+          cardinality: cardinality[predicate],
+        });
+      }
       let rung = 'unknown';
       const entityId = await surreal.withCompany(companyId, (db) =>
         upsert.resolveOrCreateNamedEntity({
@@ -217,11 +236,13 @@ async function main(): Promise<void> {
   stubEnvironment();
   const data = JSON.parse(readFileSync(join(__dirname, 'dataset.json'), 'utf8')) as {
     mentions: DatasetMention[];
+    cardinality: CardinalityReading & { _doc?: string };
   };
+  const { _doc, ...cardinality } = data.cardinality;
   const arg = process.argv.find((a) => a.startsWith('--judge='))?.slice('--judge='.length);
   const modes: JudgeMode[] = arg === 'off' || arg === 'oracle' ? [arg] : ['off', 'oracle'];
   const results: Record<string, Score> = {};
-  for (const mode of modes) results[mode] = await runMode(mode, data.mentions);
+  for (const mode of modes) results[mode] = await runMode(mode, data.mentions, cardinality);
   if (process.argv.includes('--json')) console.log(JSON.stringify(results, null, 2));
   else for (const mode of modes) console.log(render(mode, results[mode]!));
   process.exit(0);

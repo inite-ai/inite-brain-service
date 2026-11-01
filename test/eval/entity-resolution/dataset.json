@@ -1,5 +1,19 @@
 {
   "_doc": "Labelled mention stream for the entity-resolution battery. Mentions are ingested in order into one tenant; `cluster` is the gold identity, `category` says how the mention relates to the earlier mentions of its cluster (`first` founds it). Negative categories mark a founding mention built to be confused with another cluster. `canonical` is what the extractor hands over as the base form, when it does. Facts are `predicate: object` lines, written to the entity after it is resolved, so later mentions are judged against them.",
+  "cardinality": {
+    "_doc": "The extractor's per-fact reading on the memory-context contract (\"one\" = the subject holds one value at a time, \"many\" = several). On the real write path predicate canonicalization registers a coinage with it before entity resolution runs; the runner does the same.",
+    "role": "one",
+    "lives_in": "one",
+    "industry": "one",
+    "works_at": "one",
+    "based_in": "one",
+    "born": "one",
+    "kind": "one",
+    "defined_in": "one",
+    "owns": "many",
+    "prefers": "many",
+    "sibling_of": "many"
+  },
   "mentions": [
     {
       "id": "m01",
@@ -7,7 +21,11 @@
       "category": "first",
       "name": "Ivan Petrov",
       "type": "person",
-      "facts": ["role: backend engineer", "works_at: Orbital Dynamics", "lives_in: Lisbon"]
+      "facts": [
+        "role: backend engineer",
+        "works_at: Orbital Dynamics",
+        "lives_in: Lisbon"
+      ]
     },
     {
       "id": "m02",
@@ -15,7 +33,9 @@
       "category": "exact",
       "name": "Ivan Petrov",
       "type": "person",
-      "facts": ["prefers: async code review"]
+      "facts": [
+        "prefers: async code review"
+      ]
     },
     {
       "id": "m03",
@@ -23,7 +43,10 @@
       "category": "translit",
       "name": "Иван Петров",
       "type": "person",
-      "facts": ["role: backend engineer", "works_at: Orbital Dynamics"]
+      "facts": [
+        "role: backend engineer",
+        "works_at: Orbital Dynamics"
+      ]
     },
     {
       "id": "m04",
@@ -32,7 +55,9 @@
       "name": "Ивана Петрова",
       "canonical": "Иван Петров",
       "type": "person",
-      "facts": ["lives_in: Lisbon"]
+      "facts": [
+        "lives_in: Lisbon"
+      ]
     },
     {
       "id": "m05",
@@ -40,16 +65,21 @@
       "category": "inflection-raw",
       "name": "Иваном Петровым",
       "type": "person",
-      "facts": ["works_at: Orbital Dynamics"]
+      "facts": [
+        "works_at: Orbital Dynamics"
+      ]
     },
-
     {
       "id": "m06",
       "cluster": "maria-petrova",
       "category": "near-name",
       "name": "Maria Petrova",
       "type": "person",
-      "facts": ["role: product designer", "works_at: Helix Studio", "sibling_of: Ivan Petrov"]
+      "facts": [
+        "role: product designer",
+        "works_at: Helix Studio",
+        "sibling_of: Ivan Petrov"
+      ]
     },
     {
       "id": "m07",
@@ -57,7 +87,10 @@
       "category": "translit",
       "name": "Мария Петрова",
       "type": "person",
-      "facts": ["role: product designer", "works_at: Helix Studio"]
+      "facts": [
+        "role: product designer",
+        "works_at: Helix Studio"
+      ]
     },
     {
       "id": "m08",
@@ -66,16 +99,21 @@
       "name": "Марией Петровой",
       "canonical": "Мария Петрова",
       "type": "person",
-      "facts": ["works_at: Helix Studio"]
+      "facts": [
+        "works_at: Helix Studio"
+      ]
     },
-
     {
       "id": "m09",
       "cluster": "ivan-sidorov",
       "category": "near-name",
       "name": "Ivan Sidorov",
       "type": "person",
-      "facts": ["role: accountant", "works_at: Northwind Bank", "lives_in: Porto"]
+      "facts": [
+        "role: accountant",
+        "works_at: Northwind Bank",
+        "lives_in: Porto"
+      ]
     },
     {
       "id": "m10",
@@ -83,16 +121,22 @@
       "category": "translit",
       "name": "Иван Сидоров",
       "type": "person",
-      "facts": ["role: accountant", "lives_in: Porto"]
+      "facts": [
+        "role: accountant",
+        "lives_in: Porto"
+      ]
     },
-
     {
       "id": "m11",
       "cluster": "john-smith-dentist",
       "category": "first",
       "name": "John Smith",
       "type": "person",
-      "facts": ["role: dentist", "lives_in: Boston", "born: 1971"]
+      "facts": [
+        "role: dentist",
+        "lives_in: Boston",
+        "born: 1971"
+      ]
     },
     {
       "id": "m12",
@@ -100,7 +144,11 @@
       "category": "same-name-different",
       "name": "John Smith",
       "type": "person",
-      "facts": ["role: airline pilot", "lives_in: Denver", "born: 1992"]
+      "facts": [
+        "role: airline pilot",
+        "lives_in: Denver",
+        "born: 1992"
+      ]
     },
     {
       "id": "m13",
@@ -108,7 +156,10 @@
       "category": "exact",
       "name": "John Smith",
       "type": "person",
-      "facts": ["role: dentist", "lives_in: Boston"]
+      "facts": [
+        "role: dentist",
+        "lives_in: Boston"
+      ]
     },
     {
       "id": "m14",
@@ -116,16 +167,22 @@
       "category": "exact",
       "name": "John Smith",
       "type": "person",
-      "facts": ["role: airline pilot", "born: 1992"]
+      "facts": [
+        "role: airline pilot",
+        "born: 1992"
+      ]
     },
-
     {
       "id": "m15",
       "cluster": "robert-king",
       "category": "first",
       "name": "Robert King",
       "type": "person",
-      "facts": ["role: head of sales", "works_at: Northwind Bank", "lives_in: Chicago"]
+      "facts": [
+        "role: head of sales",
+        "works_at: Northwind Bank",
+        "lives_in: Chicago"
+      ]
     },
     {
       "id": "m16",
@@ -133,16 +190,22 @@
       "category": "nickname",
       "name": "Bob King",
       "type": "person",
-      "facts": ["role: head of sales", "works_at: Northwind Bank"]
+      "facts": [
+        "role: head of sales",
+        "works_at: Northwind Bank"
+      ]
     },
-
     {
       "id": "m17",
       "cluster": "ana-costa",
       "category": "first",
       "name": "Ana Costa",
       "type": "person",
-      "facts": ["role: tax advisor", "lives_in: São Paulo", "works_at: Costa & Filhos"]
+      "facts": [
+        "role: tax advisor",
+        "lives_in: São Paulo",
+        "works_at: Costa & Filhos"
+      ]
     },
     {
       "id": "m18",
@@ -150,7 +213,9 @@
       "category": "partial",
       "name": "Costa",
       "type": "person",
-      "facts": ["role: tax advisor"]
+      "facts": [
+        "role: tax advisor"
+      ]
     },
     {
       "id": "m19",
@@ -158,16 +223,21 @@
       "category": "translit",
       "name": "Ана Кошта",
       "type": "person",
-      "facts": ["role: tax advisor", "lives_in: São Paulo"]
+      "facts": [
+        "role: tax advisor",
+        "lives_in: São Paulo"
+      ]
     },
-
     {
       "id": "m20",
       "cluster": "joao-silva",
       "category": "first",
       "name": "João Silva",
       "type": "person",
-      "facts": ["role: landlord", "owns: apartment in Pinheiros"]
+      "facts": [
+        "role: landlord",
+        "owns: apartment in Pinheiros"
+      ]
     },
     {
       "id": "m21",
@@ -175,7 +245,9 @@
       "category": "diacritic",
       "name": "Joao Silva",
       "type": "person",
-      "facts": ["owns: apartment in Pinheiros"]
+      "facts": [
+        "owns: apartment in Pinheiros"
+      ]
     },
     {
       "id": "m22",
@@ -183,16 +255,20 @@
       "category": "translit",
       "name": "Жуан Силва",
       "type": "person",
-      "facts": ["role: landlord"]
+      "facts": [
+        "role: landlord"
+      ]
     },
-
     {
       "id": "m23",
       "cluster": "orbital",
       "category": "first",
       "name": "Orbital Dynamics",
       "type": "organization",
-      "facts": ["industry: satellite telemetry", "based_in: Lisbon"]
+      "facts": [
+        "industry: satellite telemetry",
+        "based_in: Lisbon"
+      ]
     },
     {
       "id": "m24",
@@ -200,7 +276,9 @@
       "category": "suffix",
       "name": "Orbital Dynamics GmbH",
       "type": "organization",
-      "facts": ["industry: satellite telemetry"]
+      "facts": [
+        "industry: satellite telemetry"
+      ]
     },
     {
       "id": "m25",
@@ -208,16 +286,20 @@
       "category": "translit",
       "name": "Орбитал Дайнамикс",
       "type": "organization",
-      "facts": ["based_in: Lisbon"]
+      "facts": [
+        "based_in: Lisbon"
+      ]
     },
-
     {
       "id": "m26",
       "cluster": "ibm",
       "category": "first",
       "name": "International Business Machines",
       "type": "organization",
-      "facts": ["industry: enterprise computing", "based_in: Armonk"]
+      "facts": [
+        "industry: enterprise computing",
+        "based_in: Armonk"
+      ]
     },
     {
       "id": "m27",
@@ -225,16 +307,20 @@
       "category": "abbreviation",
       "name": "IBM",
       "type": "organization",
-      "facts": ["industry: enterprise computing"]
+      "facts": [
+        "industry: enterprise computing"
+      ]
     },
-
     {
       "id": "m28",
       "cluster": "acme-corp",
       "category": "first",
       "name": "Acme Corp",
       "type": "organization",
-      "facts": ["industry: logistics", "based_in: Rotterdam"]
+      "facts": [
+        "industry: logistics",
+        "based_in: Rotterdam"
+      ]
     },
     {
       "id": "m29",
@@ -242,7 +328,10 @@
       "category": "near-name",
       "name": "Acme Labs",
       "type": "organization",
-      "facts": ["industry: biotech research", "based_in: Basel"]
+      "facts": [
+        "industry: biotech research",
+        "based_in: Basel"
+      ]
     },
     {
       "id": "m30",
@@ -250,16 +339,20 @@
       "category": "exact",
       "name": "Acme Corp",
       "type": "organization",
-      "facts": ["based_in: Rotterdam"]
+      "facts": [
+        "based_in: Rotterdam"
+      ]
     },
-
     {
       "id": "m31",
       "cluster": "guardian",
       "category": "first",
       "name": "The Guardian",
       "type": "organization",
-      "facts": ["industry: news publishing", "based_in: London"]
+      "facts": [
+        "industry: news publishing",
+        "based_in: London"
+      ]
     },
     {
       "id": "m32",
@@ -267,16 +360,20 @@
       "category": "article",
       "name": "Guardian",
       "type": "organization",
-      "facts": ["industry: news publishing"]
+      "facts": [
+        "industry: news publishing"
+      ]
     },
-
     {
       "id": "m33",
       "cluster": "banco-inter",
       "category": "first",
       "name": "o Banco Inter",
       "type": "organization",
-      "facts": ["industry: digital banking", "based_in: Belo Horizonte"]
+      "facts": [
+        "industry: digital banking",
+        "based_in: Belo Horizonte"
+      ]
     },
     {
       "id": "m34",
@@ -284,16 +381,20 @@
       "category": "article",
       "name": "Banco Inter",
       "type": "organization",
-      "facts": ["industry: digital banking"]
+      "facts": [
+        "industry: digital banking"
+      ]
     },
-
     {
       "id": "m35",
       "cluster": "upsert-module",
       "category": "first",
       "name": "EntityUpsertService",
       "type": "code",
-      "facts": ["defined_in: src/ingest", "kind: NestJS service"]
+      "facts": [
+        "defined_in: src/ingest",
+        "kind: NestJS service"
+      ]
     },
     {
       "id": "m36",
@@ -301,16 +402,21 @@
       "category": "code-alias",
       "name": "src/ingest/entity-upsert.service.ts",
       "type": "code",
-      "facts": ["kind: NestJS service"]
+      "facts": [
+        "kind: NestJS service"
+      ]
     },
-
     {
       "id": "m37",
       "cluster": "artem-sokolov",
       "category": "first",
       "name": "Артём Соколов",
       "type": "person",
-      "facts": ["role: data scientist", "works_at: Helix Studio", "lives_in: Belgrade"]
+      "facts": [
+        "role: data scientist",
+        "works_at: Helix Studio",
+        "lives_in: Belgrade"
+      ]
     },
     {
       "id": "m38",
@@ -318,7 +424,10 @@
       "category": "translit",
       "name": "Artyom Sokolov",
       "type": "person",
-      "facts": ["role: data scientist", "works_at: Helix Studio"]
+      "facts": [
+        "role: data scientist",
+        "works_at: Helix Studio"
+      ]
     },
     {
       "id": "m39",
@@ -326,7 +435,9 @@
       "category": "translit",
       "name": "Artem Sokolov",
       "type": "person",
-      "facts": ["lives_in: Belgrade"]
+      "facts": [
+        "lives_in: Belgrade"
+      ]
     },
     {
       "id": "m40",
@@ -334,16 +445,21 @@
       "category": "diacritic",
       "name": "Артем Соколов",
       "type": "person",
-      "facts": ["role: data scientist"]
+      "facts": [
+        "role: data scientist"
+      ]
     },
-
     {
       "id": "m41",
       "cluster": "alexander-volkov",
       "category": "first",
       "name": "Alexander Volkov",
       "type": "person",
-      "facts": ["role: CTO", "works_at: Northwind Bank", "lives_in: Warsaw"]
+      "facts": [
+        "role: CTO",
+        "works_at: Northwind Bank",
+        "lives_in: Warsaw"
+      ]
     },
     {
       "id": "m42",
@@ -351,7 +467,10 @@
       "category": "nickname",
       "name": "Sasha Volkov",
       "type": "person",
-      "facts": ["role: CTO", "works_at: Northwind Bank"]
+      "facts": [
+        "role: CTO",
+        "works_at: Northwind Bank"
+      ]
     },
     {
       "id": "m43",
@@ -359,7 +478,9 @@
       "category": "translit",
       "name": "Александр Волков",
       "type": "person",
-      "facts": ["lives_in: Warsaw"]
+      "facts": [
+        "lives_in: Warsaw"
+      ]
     },
     {
       "id": "m44",
@@ -367,16 +488,22 @@
       "category": "near-name",
       "name": "Alexandra Volkova",
       "type": "person",
-      "facts": ["role: violinist", "lives_in: Vienna"]
+      "facts": [
+        "role: violinist",
+        "lives_in: Vienna"
+      ]
     },
-
     {
       "id": "m45",
       "cluster": "maria-gonzalez-a",
       "category": "first",
       "name": "Maria Gonzalez",
       "type": "person",
-      "facts": ["role: pediatrician", "lives_in: Madrid", "born: 1980"]
+      "facts": [
+        "role: pediatrician",
+        "lives_in: Madrid",
+        "born: 1980"
+      ]
     },
     {
       "id": "m46",
@@ -384,7 +511,11 @@
       "category": "same-name-different",
       "name": "Maria Gonzalez",
       "type": "person",
-      "facts": ["role: software tester", "lives_in: Mexico City", "born: 1999"]
+      "facts": [
+        "role: software tester",
+        "lives_in: Mexico City",
+        "born: 1999"
+      ]
     },
     {
       "id": "m47",
@@ -392,16 +523,20 @@
       "category": "exact",
       "name": "Maria Gonzalez",
       "type": "person",
-      "facts": ["role: software tester"]
+      "facts": [
+        "role: software tester"
+      ]
     },
-
     {
       "id": "m48",
       "cluster": "helix",
       "category": "first",
       "name": "Helix Studio",
       "type": "organization",
-      "facts": ["industry: product design", "based_in: Belgrade"]
+      "facts": [
+        "industry: product design",
+        "based_in: Belgrade"
+      ]
     },
     {
       "id": "m49",
@@ -409,7 +544,9 @@
       "category": "translit",
       "name": "Хеликс Студио",
       "type": "organization",
-      "facts": ["industry: product design"]
+      "facts": [
+        "industry: product design"
+      ]
     },
     {
       "id": "m50",
@@ -417,16 +554,21 @@
       "category": "near-name",
       "name": "Helix Pharma",
       "type": "organization",
-      "facts": ["industry: pharmaceuticals", "based_in: Zurich"]
+      "facts": [
+        "industry: pharmaceuticals",
+        "based_in: Zurich"
+      ]
     },
-
     {
       "id": "m51",
       "cluster": "northwind",
       "category": "first",
       "name": "Northwind Bank",
       "type": "organization",
-      "facts": ["industry: retail banking", "based_in: Chicago"]
+      "facts": [
+        "industry: retail banking",
+        "based_in: Chicago"
+      ]
     },
     {
       "id": "m52",
@@ -434,7 +576,9 @@
       "category": "exact",
       "name": "Northwind Bank",
       "type": "organization",
-      "facts": ["based_in: Chicago"]
+      "facts": [
+        "based_in: Chicago"
+      ]
     },
     {
       "id": "m53",
@@ -442,16 +586,20 @@
       "category": "partial",
       "name": "Northwind",
       "type": "organization",
-      "facts": ["industry: retail banking"]
+      "facts": [
+        "industry: retail banking"
+      ]
     },
-
     {
       "id": "m54",
       "cluster": "elena-rossi",
       "category": "first",
       "name": "Elena Rossi",
       "type": "person",
-      "facts": ["role: architect", "lives_in: Milan"]
+      "facts": [
+        "role: architect",
+        "lives_in: Milan"
+      ]
     },
     {
       "id": "m55",
@@ -459,7 +607,9 @@
       "category": "translit",
       "name": "Елена Росси",
       "type": "person",
-      "facts": ["role: architect"]
+      "facts": [
+        "role: architect"
+      ]
     },
     {
       "id": "m56",
@@ -467,7 +617,10 @@
       "category": "same-name-different",
       "name": "Elena Rossi",
       "type": "person",
-      "facts": ["role: marathon coach", "lives_in: Naples"]
+      "facts": [
+        "role: marathon coach",
+        "lives_in: Naples"
+      ]
     }
   ]
 }
