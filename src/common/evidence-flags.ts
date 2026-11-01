@@ -1,4 +1,4 @@
-import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-flag';
 
 /**
  * Evidence substrate (Brain v2.1 M1) master flag —

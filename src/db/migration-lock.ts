@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Surreal } from 'surrealdb';
-import { runTransaction } from './surreal.service';
+import { runTransaction } from './run-transaction';
 import { retryOnUniqueViolation } from './surreal-retry';
 
 /**

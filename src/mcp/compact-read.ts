@@ -445,9 +445,19 @@ function whenOf(f: {
   return since ? ` (${since})` : '';
 }
 
+/**
+ * A contested value's learned likelihood (#847): `, likely 0.82` or
+ * `, unlikely 0.18` beside its rival, `''` when nothing was learned.
+ */
+export function likelihood(f: { truth?: { posterior: number } | undefined }): string {
+  if (!f.truth) return '';
+  const p = f.truth.posterior;
+  return `, ${p >= 0.5 ? 'likely' : 'unlikely'} ${p.toFixed(2)}`;
+}
+
 function factSegment(f: SearchHit['facts'][number]): string {
   const when = whenOf(f);
-  const status = f.status && f.status !== 'active' ? ` [${f.status}]` : '';
+  const status = f.status && f.status !== 'active' ? ` [${f.status}${likelihood(f)}]` : '';
   return `${f.predicate} = ${f.object}${when}${status}`;
 }
 

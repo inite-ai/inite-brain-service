@@ -94,6 +94,18 @@ describe('entity views at the gist level (ReadAgent)', () => {
     expect(text).not.toContain('invariant: a');
   });
 
+  it('profile: a dispute lists its most likely value first, with what truth discovery learned (#847)', () => {
+    const contested = (object: string, posterior: number) => ({
+      ...fact('payout_cutoff', object, 'competing'),
+      truth: { posterior, claims: 2 },
+    });
+    const text = profileGist(
+      profile([contested('16:30 UTC', 0.27), contested('17:00 UTC', 0.73)]),
+      [belief('queue_backend', 'NATS JetStream')],
+    )!;
+    expect(text).toContain('payout_cutoff: 17:00 UTC (likely 0.73) | 16:30 UTC (unlikely 0.27)');
+  });
+
   it('profile: no belief → no gist (the caller lists the facts)', () => {
     expect(profileGist(profile([fact('a', 'b')]), [])).toBeNull();
   });

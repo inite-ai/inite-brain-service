@@ -71,6 +71,17 @@ export const SearchRequestSchema = z.strictObject({
   disableLangFilter: z.boolean().optional(),
 });
 
+/**
+ * Truth discovery (#847): the probability that this value is the true one
+ * among `claims` values contested for its slot at the same valid time,
+ * learned from how reliable each source has proven. Present only on a
+ * contested fact; a read-side estimate that never hides the rival.
+ */
+export const FactTruthSchema = z.object({
+  posterior: z.number(),
+  claims: z.number().int(),
+});
+
 export const SearchFactSchema = z.object({
   factId: z.string(),
   /** As written — the coinage the fact was stored under. */
@@ -86,6 +97,7 @@ export const SearchFactSchema = z.object({
   /** When a temporary state is expected to be over (0166) — an expectation inferred at write time, not an end. */
   expectedUntil: z.string().optional(),
   status: z.string(),
+  truth: FactTruthSchema.optional(),
   /** Write-time source key (trustSnapshot, 0044) — chase a citation to its claimer. */
   sourceKey: z.string().optional(),
   /** Event time of the fact's first grounding turn (DERIVER_MENTION_STAMP). */
