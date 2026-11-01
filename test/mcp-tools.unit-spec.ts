@@ -183,7 +183,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
     }
   });
 
-  it('registers get_fact / get_fact_provenance under FACTS_API_ENABLED with a factId input', async () => {
+  it('registers get_fact / get_fact_provenance under FACTS_API_ENABLED with a factId input and the per-user scope', async () => {
     const prev = process.env.FACTS_API_ENABLED;
     process.env.FACTS_API_ENABLED = '1';
     try {
@@ -197,6 +197,7 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
       for (const t of ['get_fact', 'get_fact_provenance']) {
         expect(Object.keys(internals._registeredTools[t]!.inputSchema?.shape ?? {})).toEqual([
           'factId',
+          'userId',
         ]);
       }
     } finally {

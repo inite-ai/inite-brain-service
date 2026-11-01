@@ -130,8 +130,17 @@ describe('retrieval feedback loop', () => {
       .send({ factId, verdict: 'incorrect' });
     expect(foreign.status).toBe(404);
 
-    // The tenant-wide (M2M) key still may.
-    const own = await f.http.post('/v1/feedback').set(auth()).send({ factId, verdict: 'helpful' });
+    // A tenant-wide (M2M) key acting for no one does not see a personal
+    // fact either (#831); acting for alice it may rate hers.
+    const unnamed = await f.http
+      .post('/v1/feedback')
+      .set(auth())
+      .send({ factId, verdict: 'helpful' });
+    expect(unnamed.status).toBe(404);
+    const own = await f.http
+      .post('/v1/feedback')
+      .set(auth())
+      .send({ factId, verdict: 'helpful', userId: 'alice' });
     expect(own.status).toBe(201);
 
     const surreal = f.app.get(SurrealService);

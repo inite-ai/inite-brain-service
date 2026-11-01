@@ -40,12 +40,17 @@ export class EntitiesController {
     @Param('id') id: string,
     @Query('asOf') asOf?: string,
     @Query('recordedAt') recordedAt?: string,
+    @Query('userId') userId?: string,
   ) {
     return this.entities.getProfile({
       companyId: req.brainAuth.companyId,
       entityIdRaw: id,
       asOfRaw: asOf,
       recordedAtRaw: recordedAt,
+      // Per-user scope, as on the timeline route: without the binding a
+      // personal fact never reached a REST profile (the SDK's entity()
+      // sends ?userId=).
+      userId,
       scopes: req.brainAuth.scopes,
     });
   }

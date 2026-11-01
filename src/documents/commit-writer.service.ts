@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { actingCircleTags, runInCircle, runOutsideCircle } from '../auth/circle-scope';
+import { runWithWriteScope } from '../auth/write-scope';
 import { lookupUserEntity } from '../ingest/user-entity.service';
 import { EntityUpsertService } from '../ingest/entity-upsert.service';
 import { FactResolverService } from '../ingest/fact-resolver.service';
@@ -79,7 +80,13 @@ export class CommitWriterService {
   }): Promise<WriteMergedResult> {
     // The commit runs in the circle the document was said in — from a job
     // (batch, sweeper, relearn) as much as from a request: every scope the
-    // writers below stamp then carries it (trust circles §3.4).
+    // writers below stamp then carries it (trust circles §3.4). Likewise
+    // under the document's `team:` groups: the ambient write scope of the
+    // source door does not survive into the job that commits.
+    return runWithWriteScope(p.doc.teams ?? [], () => this.writeMergedInCircle(p));
+  }
+
+  private writeMergedInCircle(p: Parameters<CommitWriterService['writeMerged']>[0]) {
     return runInCircle(p.doc.circles ?? [], () =>
       this.surreal.withCompany(p.companyId, async (db) => {
         const entityIds = await this.resolveEntities(db, p);

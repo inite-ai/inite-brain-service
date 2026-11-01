@@ -32,6 +32,8 @@ export interface BrainOptions {
 export interface RememberResult {
   skipped: boolean;
   reason?: string;
+  /** Remembered, with extraction queued: the id lists fill in once the conversation is read. */
+  pending?: boolean;
   extractedEntityIds: string[];
   extractedFactIds: string[];
 }
@@ -54,9 +56,29 @@ export interface RecallHit {
   score: number;
 }
 
+/** Why brain gave no answer (`answer: null`) — the server's `SynthesisReasonSchema`. */
+export type AnswerReason =
+  | 'no_results'
+  | 'no_grounded_evidence'
+  | 'low_coverage'
+  | 'evidence_capability_unmet'
+  | 'ungrounded_evidence'
+  | 'verifier_failed'
+  | 'verifier_partial'
+  | 'generator_error'
+  | 'harness_mode'
+  | 'verifier_error';
+
 export interface AnswerResult {
-  answer: string;
+  /**
+   * null when brain abstained rather than answer past its evidence;
+   * `reason` says why. On a server in harness mode (`harness_mode`) brain
+   * calls no model of its own: `results` carry the evidence to answer from.
+   */
+  answer: string | null;
+  reason?: AnswerReason;
   citations?: unknown[];
+  results?: RecallHit[];
   evidenceCitations?: unknown[];
 }
 

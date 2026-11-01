@@ -148,9 +148,11 @@ describe('fact provenance closure (real SurrealDB)', () => {
   });
 
   it('member fence is a SILENT drop: M2M sees the member episodes, user-B sees them dropped + filtered', async () => {
-    // M2M with read_pii: full closure — all three members, all three turns.
+    // M2M with read_pii acting for user-a: full closure — all three
+    // members, all three turns. (Acting for no one, it reads tenant-global
+    // memory only, and user-a's member is dropped like user-B's view.)
     const m2m = await f.http
-      .get(`/v1/facts/${encodeURIComponent(summaryId)}/provenance`)
+      .get(`/v1/facts/${encodeURIComponent(summaryId)}/provenance?userId=user-a`)
       .set(m2mAuth());
     expect(m2m.status).toBe(200);
     expect(m2m.body.episodes.map((e: { text: string }) => e.text)).toEqual([
@@ -187,10 +189,10 @@ describe('fact provenance closure (real SurrealDB)', () => {
 
   it('PII episode is invisible without brain:read_pii and served with it', async () => {
     const noPii = await f.http
-      .get(`/v1/facts/${encodeURIComponent(summaryId)}/provenance`)
+      .get(`/v1/facts/${encodeURIComponent(summaryId)}/provenance?userId=user-a`)
       .set(noPiiAuth());
     expect(noPii.status).toBe(200);
-    // M2M (no user fence) sees the user-A member's turn — only the
+    // M2M acting for user-a sees the user-A member's turn — only the
     // PII-classed turn is gone; the member row itself stays visible.
     expect(noPii.body.episodes.map((e: { text: string }) => e.text)).toEqual([
       'global remark about the lease',
@@ -204,7 +206,7 @@ describe('fact provenance closure (real SurrealDB)', () => {
     });
 
     const withPii = await f.http
-      .get(`/v1/facts/${encodeURIComponent(summaryId)}/provenance`)
+      .get(`/v1/facts/${encodeURIComponent(summaryId)}/provenance?userId=user-a`)
       .set(m2mAuth());
     expect(withPii.body.episodes).toHaveLength(3);
   });

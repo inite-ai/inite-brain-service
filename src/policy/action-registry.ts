@@ -89,6 +89,17 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // Onboarding: what this connection is attached to, and naming it.
   workspace_status: { kind: 'read', family: 'mcp_read', title: 'Workspace status' },
   rename_workspace: { kind: 'write', family: 'mcp_write', title: 'Name the workspace' },
+  // The meta, ChatGPT and public surfaces. They were classified only for
+  // annotations, so the grant and ABAC gates — which read this table, and
+  // treat an unknown name as a write — removed them under a read grant:
+  // a ChatGPT connection saw no tools, a core one lost find_tool.
+  find_tool: { kind: 'read', family: 'mcp_read', title: 'Find tool' },
+  // Dispatches to any tool the profile hides, writes and forget included.
+  run_tool: { kind: 'write', family: 'mcp_write', title: 'Run tool' },
+  search: { kind: 'read', family: 'mcp_read', title: 'Search' },
+  fetch: { kind: 'read', family: 'mcp_read', title: 'Fetch' },
+  about_brain: { kind: 'read', family: 'mcp_read', title: 'About brain' },
+  how_to_connect: { kind: 'read', family: 'mcp_read', title: 'How to connect' },
 
   // REST-only actions
   'rest.users.forget': { kind: 'write', family: 'rest', title: 'GDPR user forget' },
