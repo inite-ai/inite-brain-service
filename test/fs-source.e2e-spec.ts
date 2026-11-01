@@ -290,6 +290,73 @@ describe('fs source connector (e2e)', () => {
     expect(runs.body.runs[0].counters).toMatchObject({ gone: 1 });
   });
 
+  it('a revision closes the claims whose passage it dropped; a kept passage keeps its claims (#830)', async () => {
+    const notes = join(root, 'docs', 'notes.md');
+    const ada = 'Ada Lovelace leads the payments team.';
+    const grace = 'Grace Hopper runs the billing service.';
+    const people = [
+      { name: 'Ada Lovelace', type: 'staff' as const },
+      { name: 'Grace Hopper', type: 'staff' as const },
+    ];
+    const sync = () =>
+      f.http
+        .post(`/v1/admin/source-connections/${connectionId}/sync`)
+        .set(auth())
+        .send({ inline: true });
+    try {
+      f.extractor.setScript({
+        entities: people,
+        facts: [
+          {
+            entityIndex: 0,
+            predicate: 'leads',
+            object: 'payments team',
+            confidence: 0.9,
+            clause: ada,
+          },
+          {
+            entityIndex: 1,
+            predicate: 'runs',
+            object: 'billing service',
+            confidence: 0.9,
+            clause: grace,
+          },
+        ],
+        edges: [],
+      });
+      await writeFile(notes, `${ada}\n\n${grace}`);
+      await sync();
+      // The next read restates neither claim: Ada's passage is still there,
+      // so hers stays open; Grace's is gone, so hers closes.
+      f.extractor.setScript({
+        entities: people,
+        facts: [
+          {
+            entityIndex: 0,
+            predicate: 'works_on',
+            object: 'payments',
+            confidence: 0.9,
+            clause: ada,
+          },
+        ],
+        edges: [],
+      });
+      await writeFile(notes, ada);
+      await utimes(notes, new Date(), new Date(Date.now() + 10_000));
+      await sync();
+    } finally {
+      f.extractor.setScript(null);
+    }
+    const facts = await rows<{ predicate: string; validUntil?: unknown; clause?: string }>(
+      `SELECT predicate, validUntil, source.clause AS clause FROM knowledge_fact WHERE predicate IN ['leads', 'runs', 'works_on']`,
+    );
+    const of = (p: string) => facts.find((x) => x.predicate === p)!;
+    expect(of('leads').clause).toBe(ada);
+    expect(of('leads').validUntil ?? null).toBeNull();
+    expect(of('works_on').validUntil ?? null).toBeNull();
+    expect(of('runs').validUntil).toBeTruthy();
+  });
+
   it('a binary-shaped connection: the item follows to its asset, the bridge stamps its facts, and gone closes them', async () => {
     process.env.EVIDENCE_PROCESSOR_BROKER = '1';
     process.env.EVIDENCE_DOCUMENT_BRIDGE = '1';

@@ -56,6 +56,9 @@ export interface WriteMergedResult {
  *   originKey = 'doc:' + contentHash (corroboration independence, 0050)
  *   indexers  = full contributor provenance from the cross-indexer merge
  */
+/** A clause is a sentence or two; a runaway one is cut, never stored whole. */
+const CLAUSE_MAX_CHARS = 1000;
+
 @Injectable()
 export class CommitWriterService {
   private readonly logger = new Logger(CommitWriterService.name);
@@ -106,9 +109,10 @@ export class CommitWriterService {
   }
 
   /**
-   * A record revision closes what it no longer says (revision-closure.ts).
-   * Best-effort: a failure leaves the earlier claims open, as before, and
-   * never fails the commit that already wrote the new ones.
+   * A source item's new revision closes what it no longer says
+   * (revision-closure.ts). Best-effort: a failure leaves the earlier
+   * claims open, as before, and never fails the commit that already wrote
+   * the new ones.
    */
   private async retireDropped(
     db: Surreal,
@@ -119,18 +123,21 @@ export class CommitWriterService {
     }: { doc: StoredDocument; facts: FactWriteOutcome[]; relations: RelationWriteOutcome[] },
   ): Promise<void> {
     const itemId = internalMetaString(doc.meta, 'sourceItemId');
-    if (doc.kind !== 'source_record' || !itemId) return;
+    if (!itemId) return;
+    const field = doc.meta?.record_field;
     try {
       const r = await retireDroppedClaims(db, {
         itemId,
         documentId: doc.id,
+        kind: doc.kind,
+        field: typeof field === 'string' ? field : undefined,
         at: new Date(doc.occurredAt),
         factIds: facts.flatMap((f) => (f.factId ? [f.factId] : [])),
         edgeIds: relations.flatMap((e) => (e.edgeId ? [e.edgeId] : [])),
       });
       if (r.facts + r.edges > 0) {
         this.logger.log(
-          `[brain.commit.revision] ${doc.id}: ${r.facts} fact(s), ${r.edges} edge(s) the record no longer states closed`,
+          `[brain.commit.revision] ${doc.id}: ${r.facts} fact(s), ${r.edges} edge(s) the revision no longer states closed`,
         );
       }
     } catch (err) {
@@ -581,6 +588,9 @@ export class CommitWriterService {
       // slot, and fact resolution must not change its status (#830).
       ...(doc.kind === 'source_record' ? { kind: 'source_record' } : {}),
       ...(episodeId ? { episodeIds: [episodeId] } : {}),
+      // The verbatim span the fact was read from: a later revision that
+      // drops it retracts the claim's justification (revision-closure.ts).
+      ...(mf.clause ? { clause: mf.clause.slice(0, CLAUSE_MAX_CHARS) } : {}),
       ...(meta ? { meta } : {}),
       ...sourceVersionOf(mf, doc),
       indexers: mf.contributors.map((c) => ({

@@ -163,7 +163,14 @@ export class RecordsDoorService {
   ): Promise<void> {
     const at = new Date(toIso(p.record.updatedAt ?? p.item.modifiedAt));
     await this.surreal.withCompany(p.companyId, (db) =>
-      retireDroppedClaims(db, { itemId: p.itemId, documentId, at, factIds: [], edgeIds: [] }),
+      retireDroppedClaims(db, {
+        itemId: p.itemId,
+        documentId,
+        kind: SOURCE_RECORD_KIND,
+        at,
+        factIds: [],
+        edgeIds: [],
+      }),
     );
   }
 
