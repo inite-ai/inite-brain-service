@@ -41,9 +41,14 @@
  * characters), only such random data was flagged.
  */
 
-const PEM_PRIVATE_KEY =
-  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
-const JWT = /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;
+const PEM_BEGIN = '-----BEGIN ';
+const PEM_END = '-----END ';
+const PEM_LABEL_TAIL = 'PRIVATE KEY-----';
+/** A PEM label is short ("OPENSSH PRIVATE KEY"); the cap keeps the header check constant-time. */
+const PEM_LABEL_MAX = 40;
+/** Dot-joined chains of base64url segments; one class per segment and a literal dot between, so the scan is linear. */
+const DOTTED_CHAIN = /[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/g;
+const JWT_SEGMENT_MIN = 8;
 const BEARER = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]{16,}/gi;
 /** Shortest run the random-token test judges (see the module note). */
 export const MIN_TOKEN_LENGTH = 32;
@@ -52,6 +57,14 @@ const TOKEN_RUN = new RegExp(`[A-Za-z0-9+/=_-]{${MIN_TOKEN_LENGTH},}`, 'g');
 /** Share of truly random tokens the entropy test may miss. */
 export const RANDOM_TOKEN_MISS_RATE = 0.01;
 const NULL_SAMPLES = 2000;
+/**
+ * Longest length the null distribution is simulated at. Both quantiles
+ * rise with length, so a longer run judged against this floor is judged
+ * more leniently, never more strictly — and the simulation stays bounded
+ * whatever a caller sends (an unbounded length would cost NULL_SAMPLES ×
+ * length per new size).
+ */
+const NULL_MAX_LENGTH = 128;
 
 export const SECRET_MASK = '[SECRET]';
 
@@ -137,8 +150,73 @@ function alphabetSize(run: string): 62 | 64 {
 
 function looksLikeCredential(run: string): boolean {
   if (!/[A-Z]/.test(run) || !/[a-z]/.test(run)) return false;
-  const floor = randomStringFloors(alphabetSize(run), run.length);
+  const floor = randomStringFloors(alphabetSize(run), Math.min(run.length, NULL_MAX_LENGTH));
   return shannonEntropy(run) >= floor.entropy && classChangeRate(run) >= floor.classChange;
+}
+
+/** Where a PEM line opened at `at` (after `-----BEGIN ` / `-----END `) ends, when it names a private key. */
+function privateKeyLabelEnd(text: string, at: number): number {
+  const close = text.indexOf(PEM_LABEL_TAIL, at);
+  if (close < 0 || close - at > PEM_LABEL_MAX) return -1;
+  return /^[A-Z0-9 ]*$/.test(text.slice(at, close)) ? close + PEM_LABEL_TAIL.length : -1;
+}
+
+/**
+ * Private-key blocks masked by a single forward scan. A backtracking
+ * pattern (`BEGIN …[\s\S]*?…END`) rescans the rest of the text from every
+ * unterminated BEGIN — quadratic on crafted input — while here each BEGIN
+ * costs one search for its END and the scan never moves backwards.
+ */
+function maskPrivateKeys(text: string, mask: () => string): string {
+  let out = '';
+  let from = 0;
+  for (let begin = text.indexOf(PEM_BEGIN); begin >= 0; begin = text.indexOf(PEM_BEGIN, from)) {
+    const headerEnd = privateKeyLabelEnd(text, begin + PEM_BEGIN.length);
+    const end = headerEnd < 0 ? -1 : text.indexOf(PEM_END, headerEnd);
+    const footerEnd = end < 0 ? -1 : privateKeyLabelEnd(text, end + PEM_END.length);
+    if (footerEnd < 0) {
+      out += text.slice(from, begin + PEM_BEGIN.length);
+      from = begin + PEM_BEGIN.length;
+      continue;
+    }
+    out += text.slice(from, begin) + mask();
+    from = footerEnd;
+  }
+  return out + text.slice(from);
+}
+
+/**
+ * JWTs masked inside each dotted chain: three consecutive segments, the
+ * first two JSON objects in base64url (`eyJ`). A single backtracking
+ * pattern for the same shape rescans the rest of a hyphenated run from
+ * every `eyJ` — quadratic on crafted input — while splitting the chain and
+ * sliding a three-segment window touches each segment a constant number
+ * of times.
+ */
+function maskJwts(text: string, mask: () => string): string {
+  return text.replace(DOTTED_CHAIN, (chain) => {
+    const parts = chain.split('.');
+    if (parts.length < 3) return chain;
+    const out: string[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const [a, b, c] = [parts[i]!, parts[i + 1], parts[i + 2]];
+      const isJwt =
+        b !== undefined &&
+        c !== undefined &&
+        a.startsWith('eyJ') &&
+        b.startsWith('eyJ') &&
+        a.length >= JWT_SEGMENT_MIN &&
+        b.length >= JWT_SEGMENT_MIN &&
+        c.length >= JWT_SEGMENT_MIN;
+      if (isJwt) {
+        out.push(mask());
+        i += 2;
+      } else {
+        out.push(a);
+      }
+    }
+    return out.join('.');
+  });
 }
 
 /** `text` with every credential masked, and whether any was found. */
@@ -148,9 +226,7 @@ export function redactSecrets(text: string): { text: string; found: boolean } {
     found = true;
     return SECRET_MASK;
   };
-  const out = text
-    .replace(PEM_PRIVATE_KEY, mask)
-    .replace(JWT, mask)
+  const out = maskJwts(maskPrivateKeys(text, mask), mask)
     .replace(BEARER, (_m, scheme: string) => {
       found = true;
       return `${scheme}${SECRET_MASK}`;

@@ -65,6 +65,25 @@ describe('redactSecrets', () => {
     expect(redactSecrets(`key:\n${pem}\nthanks`).text).toBe(`key:\n${SECRET_MASK}\nthanks`);
   });
 
+  it('scans a crafted run of JWT prefixes in linear time', () => {
+    const hostile = 'eyJ-'.repeat(50_000);
+    const started = Date.now();
+    expect(redactSecrets(hostile).text).toBe(hostile);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('masks a JWT that follows other dotted text', () => {
+    const jwt = `${b64url({ alg: 'HS256' })}.${b64url({ sub: 'u1' })}.${token(43, 11)}`;
+    expect(redactSecrets(`v1.token.${jwt}.tail`).text).toBe(`v1.token.${SECRET_MASK}.tail`);
+  });
+
+  it('scans unterminated PEM headers in linear time', () => {
+    const hostile = ('-----BEGIN ' + 'RSA PRIVATE KEY-----' + 'x'.repeat(40)).repeat(5_000);
+    const started = Date.now();
+    expect(redactSecrets(hostile).found).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it.each([
     ['a git SHA', 'reverted 42054561b9e3c1d0a7f6e5d4c3b2a1908f7e6d5c in main'],
     ['a UUID', 'session 759048f0-75c5-4dab-81ce-c7432f9c8a54 ended'],
