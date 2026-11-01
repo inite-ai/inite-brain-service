@@ -60,7 +60,7 @@ describe('document meta under the production flag set', () => {
     delete process.env.DOCUMENT_INGEST_ENABLED;
     delete process.env.INGEST_MENTION_VIA_DOCUMENT;
     delete process.env.SOURCE_META_STRICT;
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
     delete process.env.POLICY_META_UNION_ENABLED;
     if (f) await f.close();
   });

@@ -40,7 +40,7 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
   });
 
   afterAll(async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     delete process.env.OUTCOME_DECISION_CAPTURE;
     delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
     delete process.env.RETRIEVAL_ABSTENTION_MIN_EVIDENCE;

@@ -19,11 +19,21 @@ describe('Phase 3.5 e2e — nightly refits write to SurrealDB', () => {
 
   beforeAll(async () => {
     f = await createApp();
-    // Seed 12 facts so the source-trust aggregator has a useful sample
-    // and the calibration collector has enough age-30d rows. Mix
-    // active + superseded to give the correctness map non-trivial
-    // signal.
+    // Seed 12 facts so the calibration collector has rows, and have a
+    // second source restate each one: truth discovery (#847) learns a
+    // source's accuracy only from slots where another origin speaks too.
     for (let i = 0; i < 12; i++) {
+      await f.http
+        .post('/v1/ingest/fact')
+        .set(auth())
+        .send({
+          entityRef: { vertical: 'rent', id: `nightly_tenant_${i}` },
+          predicate: 'status',
+          object: `seed object ${i}`,
+          validFrom: '2026-04-01',
+          source: { vertical: 'rent', recorder: 'crm.bot', eventId: 'evt2' },
+          confidence: 0.9,
+        });
       await f.http
         .post('/v1/ingest/fact')
         .set(auth())

@@ -317,7 +317,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'AUDIT_CHANGEFEED_ENABLED',
     category: 'audit',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description: 'Master switch for the every-minute changefeed → audit_event consumer.',
@@ -334,7 +334,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'OUTCOME_TELEMETRY_ENABLED',
     category: 'audit',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -343,7 +343,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'OUTCOME_RETRIEVED_EVENTS',
     category: 'audit',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -357,15 +357,6 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Days the raw memory_outcome event log is kept; the 03:41 UTC prune cron deletes older rows. The memory_outcome_stat rollup is never pruned.',
-  },
-  {
-    key: 'OUTCOME_TX_WRITES',
-    category: 'audit',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Transactional idempotent outcome writes: raw append + stat fold in ONE BEGIN/COMMIT with deterministic record ids + INSERT IGNORE, an in-tx pre-select gates the stat deltas so a replayed batch folds nothing twice, and an OCC abort gets exactly one retry. Off = the legacy two-statement write shape, byte-identical.',
   },
   {
     key: 'OUTCOME_DECISION_CAPTURE',
@@ -390,7 +381,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'TOOL_OBSERVATIONS_ENABLED',
     category: 'audit',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -399,7 +390,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'TOOL_OBSERVATION_CONTENT',
     category: 'audit',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

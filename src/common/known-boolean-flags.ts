@@ -673,7 +673,6 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // record ids + INSERT IGNORE inside ONE BEGIN/COMMIT, in-tx delta
   // gating, one OCC retry. Off (default) ⇒ the legacy two-statement
   // write path runs byte-identical (pinned by the unit spec).
-  'OUTCOME_TX_WRITES',
   // Decision-context telemetry (0119): content-free memory_decision rows
   // at the abstain/L3 seams + the decisionId join columns + the decision
   // prune leg. An INDEPENDENT master (the TOOL_OBSERVATIONS_ENABLED
