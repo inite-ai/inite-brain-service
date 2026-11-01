@@ -8,6 +8,7 @@
 import { McpService } from '../src/mcp/mcp.service';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerWriteTools } from '../src/mcp/write-tools';
+import { resolveToolProfile } from '../src/mcp/tool-profiles';
 import { compilePolicySet } from '../src/policy/policy-compile';
 import { PolicyContext, PolicyDocument, PolicyDocumentSchema } from '../src/policy/policy.types';
 
@@ -98,6 +99,24 @@ describe('MCP RFC 9396 grant gate', () => {
     expect(names).toContain('graph_retrieve');
     expect(names).not.toContain('record_fact');
     expect(names).not.toContain('forget_entity');
+  });
+
+  it("the 'read' macro keeps the surface tools a profile serves (search/fetch, find_tool)", async () => {
+    // These were classified only for annotations; the gate reads the
+    // action registry, where an unknown name is a write.
+    const chatgpt = await service().buildServer('co_test', ['brain:read'], {
+      actorKeyHash: 'sha256:test',
+      mcpGrantedActions: ['read'],
+      toolProfile: resolveToolProfile('chatgpt'),
+    });
+    expect(toolNames(chatgpt).sort()).toEqual(['fetch', 'search']);
+    const core = await service().buildServer('co_test', ['brain:read', 'brain:write'], {
+      actorKeyHash: 'sha256:test',
+      mcpGrantedActions: ['read'],
+      toolProfile: resolveToolProfile('core'),
+    });
+    expect(toolNames(core)).toContain('find_tool');
+    expect(toolNames(core)).not.toContain('run_tool');
   });
 
   it('an empty grant (foreign-location consent) strips every tool', async () => {

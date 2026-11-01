@@ -1,4 +1,3 @@
-import { withSourceCircles } from '../auth/circle-scope';
 import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { RecordId, StringRecordId, type Surreal } from 'surrealdb';
@@ -7,7 +6,7 @@ import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
 import { getActiveRetrievalProfile } from '../search/retrieval-profile';
-import { scopeForUser } from '../auth/scope-tags';
+import { scopeForUser, withSourceScope } from '../auth/scope-tags';
 import { segmentSessions } from '../episodes/session-window';
 import {
   sceneEvidenceLinksEnabled,
@@ -453,7 +452,7 @@ export class SceneComposerService {
         piiClass: fold.piiClass,
         userId: fold.userId,
         userIds: fold.userIds,
-        scope: withSourceCircles(scopeForUser(fold.userId), scene),
+        scope: withSourceScope(scopeForUser(fold.userId), scene),
         sceneLabel: renderSceneLabel(scene).slice(0, SCENE_LABEL_MAX),
         conversationIds: [conversationId],
         occurredFrom: new Date(first.occurredAt as string),

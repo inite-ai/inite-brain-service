@@ -29,4 +29,8 @@ export interface CandidateFactRow {
   userId?: string | null;
   /** `source.episodeIds AS eps` — grounding stamp of the member (FLEXIBLE). */
   eps?: unknown;
+  /** Set when the fact was walked back: compacted, never summarised. */
+  retractedAt?: unknown;
+  /** Read scope tags (G6) — part of the rollup key, carried onto the summary. */
+  scope?: unknown;
 }

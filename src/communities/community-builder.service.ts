@@ -219,7 +219,7 @@ export class CommunityBuilderService {
       const [rows] = await db.query<[Array<{ c: number; maxAt: unknown }>]>(
         `SELECT count() AS c, time::max(createdAt) AS maxAt
            FROM knowledge_edge
-          WHERE invalidatedAt IS NONE AND userId IS NONE
+          WHERE invalidatedAt IS NONE AND userId IS NONE AND (scope ?? []) = []
           GROUP ALL`,
       );
       const row = ((rows as Array<{ c: number; maxAt: unknown }>) ?? [])[0];
@@ -275,7 +275,9 @@ export class CommunityBuilderService {
   }
 
   /**
-   * Load every live tenant-global entity-entity edge. Mirrors ppr.ts
+   * Load every live tenant-global entity-entity edge — no user, and no
+   * circle or team tag: a community summary is read tenant-wide, so a
+   * group's rows must not fold into it (G6). Mirrors ppr.ts
    * edge-load. Communities are a tenant-wide structure, so a user's
    * personal edges (0153) do not shape them — the fail-closed half of
    * the 0055 fence.
@@ -284,7 +286,7 @@ export class CommunityBuilderService {
     type Raw = { in: unknown; out: unknown; weight?: number; createdAt?: unknown };
     const [rows] = await db.query<[Raw[]]>(
       `SELECT in, out, weight, createdAt FROM knowledge_edge
-         WHERE invalidatedAt IS NONE AND userId IS NONE`,
+         WHERE invalidatedAt IS NONE AND userId IS NONE AND (scope ?? []) = []`,
     );
     return ((rows as Raw[]) ?? []).map((r) => ({
       from: String(r.in),
@@ -419,7 +421,7 @@ export class CommunityBuilderService {
     // Member display names — label off the first, summary lists the rest.
     const [nameRows] = await db.query<[Array<{ id: unknown; canonicalName: string }>]>(
       `SELECT id, canonicalName FROM knowledge_entity
-         WHERE id INSIDE $ids AND userId IS NONE`,
+         WHERE id INSIDE $ids AND userId IS NONE AND (scope ?? []) = []`,
       { ids: ridSample },
     );
     const names = (nameRows as Array<{ id: unknown; canonicalName: string }>) ?? [];
@@ -439,7 +441,7 @@ export class CommunityBuilderService {
          WHERE entityId INSIDE $ids
            AND status = 'active'
            AND retractedAt IS NONE
-           AND userId IS NONE
+           AND userId IS NONE AND (scope ?? []) = []
            ${fence.clause}
          ORDER BY confidence DESC, validFrom ASC, predicate ASC, object ASC
          LIMIT 60`,
