@@ -33,6 +33,16 @@ import {
   type ResolutionVerdict,
   type ResolvableFact,
 } from './fact-resolution';
+import {
+  closeEdge,
+  edgeCandidates,
+  edgeResolvable,
+  isEdgeId,
+  pendingEdges,
+  recordEdgeIds,
+  reloadEdges,
+  type OpenEdgeRow,
+} from './edge-resolution';
 
 /** An open fact as the pass reads it. */
 interface OpenFactRow {
@@ -77,6 +87,7 @@ const OPEN = `status IN ['active', 'competing'] AND retractedAt IS NONE`;
  * corroboration write, and `competing`. Judged by the server's chat
  * model, or in harness mode by the connected agent (`fact_resolution`).
  * A fact with nothing to compare against is marked judged without a call.
+ * New open edges go through the same pass (#834, edge-resolution.ts).
  */
 @Injectable()
 export class FactResolutionService {
@@ -221,8 +232,49 @@ export class FactResolutionService {
         items.push({ entity: String(row.entityName ?? ''), fact: resolvable(row), candidates });
       }
     }
+    if (items.length < want) await this.nextEdgeItems(db, opts, { items, taken, want });
     await this.attachSources(db, items);
     return items;
+  }
+
+  /**
+   * Pending open edges (#834, edge-resolution.ts), after the facts: each
+   * judged against the open edges sharing an endpoint with it. One with
+   * nothing to compare against is marked judged without a call.
+   */
+  private async nextEdgeItems(
+    db: Surreal,
+    opts: { userId: string | undefined; anyScope: boolean },
+    batch: { items: ResolutionItem[]; taken: Set<string>; want: number },
+  ): Promise<void> {
+    const scope = opts.anyScope ? '' : 'AND scopeKey = $u';
+    let offset = 0;
+    for (let page = 0; page < 4 && batch.items.length < batch.want; page++) {
+      const rows = await pendingEdges(db, {
+        scope,
+        limit: batch.want * 2,
+        offset,
+        u: opts.userId ?? '',
+      });
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        if (batch.items.length >= batch.want) break;
+        const id = String(row.id);
+        if (batch.taken.has(id)) {
+          offset += 1;
+          continue;
+        }
+        const candidates = await edgeCandidates(db, row);
+        if (candidates.length === 0) {
+          await markChecked(db, id);
+          continue;
+        }
+        offset += 1;
+        batch.taken.add(id);
+        for (const c of candidates) batch.taken.add(String(c.id));
+        batch.items.push(await edgeItem(db, row, candidates));
+      }
+    }
   }
 
   /**
@@ -287,6 +339,17 @@ export class FactResolutionService {
     factId: string,
     candidateIds: string[],
   ): Promise<ResolutionItem | null> {
+    if (isEdgeId(factId)) {
+      const rows = await reloadEdges(db, [factId, ...candidateIds]);
+      const byId = new Map(rows.map((r) => [String(r.id), r]));
+      const edge = byId.get(factId);
+      if (!edge) return null;
+      return edgeItem(
+        db,
+        edge,
+        candidateIds.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])),
+      );
+    }
     const [rows] = await db.query<[OpenFactRow[]]>(
       `SELECT id, entityId.canonicalName AS entityName, predicate, object, validFrom, validUntil,
               recordedAt, source FROM $ids WHERE ${OPEN}`,
@@ -320,6 +383,19 @@ export class FactResolutionService {
     const actions = keepRecordSlots(resolutionActions(item.fact, item.candidates, verdicts), (id) =>
       records.has(id),
     );
+    if (isEdgeId(item.fact.id)) {
+      // An edge carries no `competing` status and an identical edge is one
+      // row already, so only `replaces` writes: the earlier relation closes
+      // at the later one's start.
+      const validFrom = new Map([item.fact, ...item.candidates].map((f) => [f.id, f.validFrom]));
+      for (const action of actions) {
+        if (action.kind !== 'supersede') continue;
+        await closeEdge(db, action.loser, validFrom.get(action.winner)!);
+        out.superseded += 1;
+      }
+      await markChecked(db, item.fact.id);
+      return out;
+    }
     for (const action of actions) {
       await this.write(db, action);
       await this.writeSupportEdges(db, action);
@@ -453,6 +529,17 @@ export class FactResolutionService {
       return new Map();
     }
   }
+}
+
+/** An edge and its candidates as one judged item, under the edge subject's name. */
+async function edgeItem(
+  db: Surreal,
+  edge: OpenEdgeRow,
+  candidates: OpenEdgeRow[],
+): Promise<ResolutionItem> {
+  const records = await recordEdgeIds(db, [edge, ...candidates]);
+  const of = (r: OpenEdgeRow) => edgeResolvable(r, records.has(String(r.id)));
+  return { entity: String(edge.fromName ?? ''), fact: of(edge), candidates: candidates.map(of) };
 }
 
 function resolvable(row: OpenFactRow): ResolvableFact {
