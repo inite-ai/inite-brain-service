@@ -23,6 +23,7 @@ import {
   EpisodeSubscriptionService,
   type EpisodeSubscriptionRow,
 } from './episode-subscription.service';
+import { decodePageCursor, encodePageCursor } from '../common/page-cursor';
 
 /**
  * Public episodes API (raw-substrate driver v1, surface 1 —
@@ -63,22 +64,13 @@ interface EpisodeListQuery {
 
 /** Opaque keyset cursor: base64url of {t: occurredAtIso, id}. */
 function encodeCursor(row: EpisodePageRow): string {
-  return Buffer.from(JSON.stringify({ t: toIso(row.occurredAt), id: String(row.id) })).toString(
-    'base64url',
-  );
+  return encodePageCursor('episodes', { t: toIso(row.occurredAt), id: String(row.id) });
 }
 
 function decodeCursor(raw: string): { occurredAtIso: string; id: string } {
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as {
-      t?: string;
-      id?: string;
-    };
-    if (!parsed.t || !parsed.id) throw new Error('missing fields');
-    return { occurredAtIso: parsed.t, id: parsed.id };
-  } catch {
-    throw new BadRequestException('cursor is not a valid episodes cursor');
-  }
+  // Cursors issued before they carried a kind are still accepted.
+  const key = decodePageCursor('episodes', raw, { fields: ['t', 'id'] as const, legacy: true });
+  return { occurredAtIso: key.t, id: key.id };
 }
 
 function toIso(v: Date | string): string {
