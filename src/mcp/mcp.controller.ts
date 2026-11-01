@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   All,
   BadRequestException,
   Controller,
@@ -14,7 +15,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { McpOptionalAuthGuard } from './mcp-optional-auth.guard';
-import { requestBaseUrl } from '../auth/resource-metadata';
+import { requestBaseUrl, resourceMetadataUrl } from '../auth/resource-metadata';
+import { requiredScopeOf } from './gated-catalogue';
 import { PolicyAction } from '../policy/action-registry';
 import { POLICY_ACTION_EXEMPT } from '../policy/policy-gate.service';
 import { McpService } from './mcp.service';
@@ -144,6 +146,7 @@ export class McpController {
   /** The transport, once, for both spellings of the endpoint. */
   private async serve(req: AuthenticatedRequest & Request, res: Response): Promise<void> {
     const auth = req.brainAuth;
+    challengeInsufficientScope(req, res);
     const server = await this.mcp.buildServer(auth.companyId, auth.scopes, {
       actorKeyHash: auth.keyHash,
       policy: auth.policy,
@@ -205,4 +208,35 @@ export class McpController {
     await server.connect(transport as Transport);
     await transport.handleRequest(req, res, req.body);
   }
+}
+
+/**
+ * Runtime scope challenge (MCP 2025-11-25 authorization, "Scope Challenge
+ * Handling"; RFC 6750 §3.1). A `tools/call` for a tool the token's scopes
+ * do not reach used to come back as the SDK's unknown-tool error inside an
+ * HTTP 200: a client could not tell "no such tool" from "sign in with more
+ * rights", so it never stepped up. It is now a 403 whose
+ * `WWW-Authenticate` names `insufficient_scope`, the scopes to ask for
+ * (the brain scopes already held plus the one missing, so stepping up
+ * loses nothing) and the resource metadata, like the 401 does.
+ */
+export function challengeInsufficientScope(
+  req: AuthenticatedRequest & Request,
+  res: Response,
+): void {
+  const body = req.body as { method?: unknown; params?: { name?: unknown } } | undefined;
+  if (body?.method !== 'tools/call' || typeof body.params?.name !== 'string') return;
+  const tool = body.params.name;
+  const needed = requiredScopeOf(tool);
+  const held = req.brainAuth.scopes;
+  if (!needed || held.includes(needed)) return;
+  const scope = [...new Set([...held.filter((s) => s.startsWith('brain:')), needed])].join(' ');
+  const metadata = resourceMetadataUrl(req as never);
+  res.setHeader(
+    'WWW-Authenticate',
+    `Bearer error="insufficient_scope", scope="${scope}"${
+      metadata ? `, resource_metadata="${metadata}"` : ''
+    }, error_description="${tool} needs ${needed}"`,
+  );
+  throw new ForbiddenException(`${tool} needs the ${needed} scope`);
 }

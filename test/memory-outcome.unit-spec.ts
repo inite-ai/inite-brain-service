@@ -53,6 +53,24 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
 }
 
+/** The stat rows the transaction folds: one per delta. */
+const statRowsOf = (params: Record<string, unknown>): Array<Record<string, unknown>> =>
+  (params.deltas as Array<{ row: Record<string, unknown> }>).map((d) => d.row);
+
+/** Per-event deltas summed per subject: what the rollup holds after the fold. */
+const foldedBySubject = (rows: Array<Record<string, unknown>>) => {
+  const out = new Map<string, Record<string, unknown>>();
+  for (const r of rows) {
+    const key = String(r.subjectId);
+    const acc = out.get(key) ?? {};
+    for (const [k, v] of Object.entries(r)) {
+      acc[k] = typeof v === 'number' ? ((acc[k] as number | undefined) ?? 0) + v : (acc[k] ?? v);
+    }
+    out.set(key, acc);
+  }
+  return out;
+};
+
 const ev = (
   subjectId: string,
   event: OutcomeEventInput['event'],
@@ -64,11 +82,11 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
   });
   afterAll(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
   });
 
   it('is a no-op with the master flag off (byte-identical)', async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     const captured: CapturedQuery[] = [];
     const svc = new MemoryOutcomeService(makeSurreal(captured));
     svc.recordOutcomes({ companyId: 'co_x', events: [ev('knowledge_fact:a', 'used_in_answer')] });
@@ -95,14 +113,13 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
     await flush();
     expect(captured).toHaveLength(1);
     const { sql, params } = captured[0]!;
-    // Two batched statements in one round-trip.
-    expect(sql).toContain('INSERT INTO memory_outcome $rows');
-    expect(sql).toContain('INSERT INTO memory_outcome_stat $statRows');
+    // One transaction: raw append and stat fold together.
+    expect(sql).toContain('INSERT IGNORE INTO memory_outcome $rows');
+    expect(sql).toContain('INSERT INTO memory_outcome_stat $r');
     expect(sql).toContain('ON DUPLICATE KEY UPDATE');
     const rows = params.rows as Array<{ subjectId: unknown; event: string }>;
     expect(rows).toHaveLength(7);
-    const statRows = params.statRows as Array<Record<string, unknown>>;
-    const byId = new Map(statRows.map((r) => [String(r.subjectId), r]));
+    const byId = foldedBySubject(statRowsOf(params));
     // fact:d only carried `retrieved` → no rollup row at all.
     expect(byId.has('knowledge_fact:d')).toBe(false);
     expect(byId.get('knowledge_fact:a')).toMatchObject({
@@ -165,9 +182,10 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
       ],
     });
     await flush();
-    const statRows = captured[0]!.params.statRows as Array<Record<string, unknown>>;
-    expect(statRows).toHaveLength(1);
-    expect(statRows[0]).toMatchObject({ confirmedCount: -1, rejectedCount: 1, usedCount: 0 });
+    const statRows = statRowsOf(captured[0]!.params);
+    const folded = [...foldedBySubject(statRows).values()];
+    expect(folded).toHaveLength(1);
+    expect(folded[0]).toMatchObject({ confirmedCount: -1, rejectedCount: 1, usedCount: 0 });
   });
 
   it('emits only the stat statement when events are empty but deltas move', async () => {
@@ -258,7 +276,7 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
       ).toHaveLength(1);
     });
 
-    it('INSERT row for an existing (no-dimension) writer is byte-identical — no new keys', async () => {
+    it('a row from a writer without dimensions carries no dimension keys', async () => {
       const captured: CapturedQuery[] = [];
       const svc = new MemoryOutcomeService(makeSurreal(captured));
       svc.recordOutcomes({
@@ -269,12 +287,13 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
       await flush();
       const rows = captured[0]!.params.rows as Array<Record<string, unknown>>;
       expect(rows).toHaveLength(1);
-      // The EXACT pre-0113 key set — modality/representationKind absent
-      // (undefined → dropped → NONE), so legacy writers stay byte-identical.
+      // modality/representationKind absent (undefined → dropped → NONE);
+      // `id` is the deterministic event id the transaction dedupes on.
       expect(Object.keys(rows[0]!).sort()).toEqual([
         'actor',
         'createdAt',
         'event',
+        'id',
         'requestId',
         'subjectId',
         'subjectKind',
@@ -299,7 +318,7 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
       // The rollup stays UNIQUE-per-subject with NO per-modality columns
       // (deliberately deferred — no scorer consumes them; raw rows retain
       // full dimensionality).
-      const statRows = captured[0]!.params.statRows as Array<Record<string, unknown>>;
+      const statRows = statRowsOf(captured[0]!.params);
       expect(statRows).toHaveLength(1);
       expect(Object.keys(statRows[0]!)).not.toContain('modality');
       expect(Object.keys(statRows[0]!)).not.toContain('representationKind');
@@ -307,52 +326,13 @@ describe('MemoryOutcomeService.recordOutcomes', () => {
   });
 });
 
-// ── OUTCOME_TX_WRITES (0119 wave) ───────────────────────────────────
-describe('OUTCOME_TX_WRITES', () => {
+// ── Transactional outcome writes (0119 wave) ────────────────────────
+describe('transactional outcome writes', () => {
   beforeEach(() => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
   });
-  afterEach(() => {
-    delete process.env.OUTCOME_TX_WRITES;
-  });
   afterAll(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
-  });
-
-  // The legacy statements, copied as LITERALS from origin/main —
-  // deliberately NOT imported from the implementation, so a drift in the
-  // off path fails here even if the implementation's own constants
-  // drifted with it.
-  const LEGACY_RAW_SQL = 'INSERT INTO memory_outcome $rows';
-  const LEGACY_STAT_SQL =
-    'INSERT INTO memory_outcome_stat $statRows\n' +
-    '           ON DUPLICATE KEY UPDATE\n' +
-    '             selectedCount += $input.selectedCount,\n' +
-    '             usedCount += $input.usedCount,\n' +
-    '             verifiedUseCount += $input.verifiedUseCount,\n' +
-    '             confirmedCount += $input.confirmedCount,\n' +
-    '             rejectedCount += $input.rejectedCount,\n' +
-    '             contradictedCount += $input.contradictedCount,\n' +
-    '             lastUsedAt = $input.lastUsedAt ?? lastUsedAt,\n' +
-    '             lastVerifiedUseAt = $input.lastVerifiedUseAt ?? lastVerifiedUseAt,\n' +
-    '             updatedAt = time::now()';
-
-  it('flag OFF: the write is byte-identical to the legacy two-statement shape', async () => {
-    const captured: CapturedQuery[] = [];
-    const svc = new MemoryOutcomeService(makeSurreal(captured));
-    svc.recordOutcomes({
-      companyId: 'co_x',
-      events: [ev('knowledge_fact:a', 'used_in_answer', { actor: 'k1' })],
-      requestId: 'req-1',
-    });
-    await flush();
-    expect(captured).toHaveLength(1);
-    expect(captured[0]!.sql).toBe(`${LEGACY_RAW_SQL};\n${LEGACY_STAT_SQL}`);
-    expect(Object.keys(captured[0]!.params).sort()).toEqual(['rows', 'statRows']);
-    // No tx-only keys leak onto the off-path rows (no id, no decisionId).
-    const row = (captured[0]!.params.rows as Array<Record<string, unknown>>)[0]!;
-    expect(Object.keys(row)).not.toContain('id');
-    expect(Object.keys(row)).not.toContain('decisionId');
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
   });
 
   it('outcomeEventId is deterministic on (key, scope, seq) and distinct across seq', () => {
@@ -363,8 +343,7 @@ describe('OUTCOME_TX_WRITES', () => {
     expect(outcomeEventId(key, 'scope-1', 0)).not.toBe(outcomeEventId(key, 'scope-2', 0));
   });
 
-  it('flag ON: ONE BEGIN/COMMIT query with the pre-select / INSERT IGNORE / gated FOR legs', async () => {
-    process.env.OUTCOME_TX_WRITES = '1';
+  it('ONE BEGIN/COMMIT query with the pre-select / INSERT IGNORE / gated FOR legs', async () => {
     const captured: CapturedQuery[] = [];
     const svc = new MemoryOutcomeService(makeSurreal(captured));
     svc.recordOutcomes({
@@ -395,7 +374,6 @@ describe('OUTCOME_TX_WRITES', () => {
   });
 
   it('two dispatches of the SAME request replay the SAME ids (fresh context, same correlation id)', async () => {
-    process.env.OUTCOME_TX_WRITES = '1';
     const idsOf = async (): Promise<string[]> => {
       const captured: CapturedQuery[] = [];
       const svc = new MemoryOutcomeService(makeSurreal(captured));
@@ -414,7 +392,6 @@ describe('OUTCOME_TX_WRITES', () => {
   });
 
   it('two batches in ONE request context stay distinct rows (batchSeq)', async () => {
-    process.env.OUTCOME_TX_WRITES = '1';
     const captured: CapturedQuery[] = [];
     const svc = new MemoryOutcomeService(makeSurreal(captured));
     runWithRequestContext({ correlationId: 'corr-two-batches' }, () => {
@@ -487,7 +464,6 @@ describe('OUTCOME_TX_WRITES', () => {
   });
 
   it('OCC abort → exactly ONE retry; non-retriable error → zero retries (warn only)', async () => {
-    process.env.OUTCOME_TX_WRITES = '1';
     const runWith = async (firstError: string): Promise<number> => {
       let calls = 0;
       const db = {
@@ -521,12 +497,13 @@ describe('OUTCOME_TX_WRITES', () => {
 describe('OutcomePruneService', () => {
   beforeEach(() => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
-    // The decision leg (0119) is default-on; this suite isolates the
-    // other legs, so it says so rather than relying on a default.
+    // The decision (0119) and tool-observation (0111) legs are default-on;
+    // this suite isolates the outcome leg, so it says so.
     process.env.OUTCOME_DECISION_CAPTURE = '0';
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
   });
   afterAll(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     delete process.env.OUTCOME_DECISION_CAPTURE;
   });
 
@@ -550,7 +527,7 @@ describe('OutcomePruneService', () => {
   });
 
   it('runNightly is gated on the master flag', async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     const captured: CapturedQuery[] = [];
     const svc = new OutcomePruneService(makeSurreal(captured), apiKeys(['co_x']));
     expect(await svc.runNightly()).toEqual({ tenants: 0, pruned: 0 });
@@ -571,7 +548,7 @@ describe('OutcomePruneService', () => {
   });
 
   it('decision leg runs on OUTCOME_DECISION_CAPTURE alone (independent master)', async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     process.env.OUTCOME_DECISION_CAPTURE = '1';
     try {
       const captured: CapturedQuery[] = [];

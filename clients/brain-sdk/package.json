@@ -1,6 +1,6 @@
 {
   "name": "@inite/brain",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript SDK for INITE Brain — a typed client, framework-shaped tools for the Vercel AI SDK and friends, and a LangGraph-shaped store. Long-term memory for agents: bitemporal facts, hybrid retrieval, citations.",
   "author": "INITE",
   "license": "AGPL-3.0-or-later",
@@ -41,7 +41,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

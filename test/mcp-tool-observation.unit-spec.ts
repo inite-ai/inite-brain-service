@@ -209,7 +209,7 @@ describe('MCP tool-observation wrapper ordering', () => {
           undefined,
           stubRecorder as never,
         ).buildServer('co_obs', []);
-      delete process.env.TOOL_OBSERVATIONS_ENABLED;
+      process.env.TOOL_OBSERVATIONS_ENABLED = '0';
       await build();
       expect(applied).toEqual([]);
       process.env.TOOL_OBSERVATIONS_ENABLED = '1';
@@ -217,7 +217,7 @@ describe('MCP tool-observation wrapper ordering', () => {
       expect(applied).toEqual(['yes']);
     } finally {
       proto.applyToolObservation = original;
-      delete process.env.TOOL_OBSERVATIONS_ENABLED;
+      process.env.TOOL_OBSERVATIONS_ENABLED = '0';
     }
   });
 });

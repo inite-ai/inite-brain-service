@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagNotDisabled } from './env-validation';
 
 /**
  * Tool observation (0111) master flag — TOOL_OBSERVATIONS_ENABLED.
@@ -15,7 +15,7 @@ import { envFlagEnabled } from './env-validation';
  * serving byte-identical.
  */
 export function toolObservationsEnabled(): boolean {
-  return envFlagEnabled(process.env.TOOL_OBSERVATIONS_ENABLED);
+  return envFlagNotDisabled(process.env.TOOL_OBSERVATIONS_ENABLED);
 }
 
 /**
@@ -28,7 +28,7 @@ export function toolObservationsEnabled(): boolean {
  * call time so a flip is runtime-mutable.
  */
 export function toolObservationContentEnabled(): boolean {
-  return envFlagEnabled(process.env.TOOL_OBSERVATION_CONTENT);
+  return envFlagNotDisabled(process.env.TOOL_OBSERVATION_CONTENT);
 }
 
 /** Default raw-row retention window for the nightly prune leg (days). */

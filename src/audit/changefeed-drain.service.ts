@@ -5,7 +5,7 @@ import { SurrealService, runTransaction } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { redactAfterImage } from './changefeed-redaction';
 import { changefeedOp, changefeedRecordId, changefeedRow } from '../db/changefeed-row';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 
 /**
  * ChangefeedDrainService — the per-tenant CHANGEFEED drain engine.
@@ -47,7 +47,7 @@ export class ChangefeedDrainService {
     config: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled = envFlagEnabled(config.get<string>('AUDIT_CHANGEFEED_ENABLED'));
+    this.enabled = envFlagNotDisabled(config.get<string>('AUDIT_CHANGEFEED_ENABLED'));
     this.perBatchLimit = parseInt(config.get<string>('AUDIT_CHANGEFEED_BATCH', '500'), 10);
     // Never fetch fewer than we process in a tick, else we'd starve;
     // fall back to a sane default if the env value is garbage (the value

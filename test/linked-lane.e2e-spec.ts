@@ -24,6 +24,7 @@ const ENV = [
   'SOURCE_EGRESS_ALLOW_PRIVATE',
   'SOURCE_LINKED',
   'TOOL_OBSERVATIONS_ENABLED',
+  'TOOL_OBSERVATION_CONTENT',
   'DOCUMENT_INGEST_ENABLED',
   'WORKER_LOOP_ENABLED',
 ];
@@ -45,6 +46,9 @@ describe('the linked lane (e2e)', () => {
       SOURCE_EGRESS_ALLOW_PRIVATE: '1',
       SOURCE_LINKED: '1',
       TOOL_OBSERVATIONS_ENABLED: '1',
+      // Production keeps a content excerpt on observations; this suite
+      // asserts the content-free anchor.
+      TOOL_OBSERVATION_CONTENT: '0',
       DOCUMENT_INGEST_ENABLED: '1',
     });
     f = await createApp({ companyId: COMPANY });

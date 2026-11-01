@@ -22,8 +22,10 @@ export type {
   RecallFact,
   RecallHit,
   RememberResult,
-  TimelineEvent,
+  BrainRequest,
+  RetryOptions,
 } from './client.js';
+export type * from './contracts.js';
 export { brainTools } from './tools.js';
 export type { BrainTool } from './tools.js';
 export { BrainStore, createBrainStore } from './store.js';
