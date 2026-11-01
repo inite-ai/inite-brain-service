@@ -80,7 +80,7 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
 | `src/auth/`, `src/keys/`, `src/policy/` (engine)                                       | Token/API-key verification, audience, scopes, key minting, ABAC       | 🔴 red                      |
 | `src/entities/*forget*`, `src/documents/document-purge.util.ts`                        | GDPR forget cascades                                                  | 🔴 red                      |
 | `src/ingest/conflict-resolver.ts`, `src/ingest/fact-resolver.service.ts`, `src/facts/` | Conflict resolution, fact lifecycle (supersede / COMPETING / retract) | 🔴 red                      |
-| `src/common/*-flags.ts`, `src/admin/config-catalog*`, `test/golden/`                 | Flag readers, config catalogue, flag budget                           | 🔴 red (new flags)          |
+| `src/common/*-flags.ts`, `src/admin/config-catalog*`, `test/golden/`                   | Flag readers, config catalogue, flag budget                           | 🔴 red (new flags)          |
 | `test/eval/**`                                                                         | Eval batteries, golden baselines                                      | 🔴 red                      |
 | `.github/workflows/`, `scripts/ci/`, `Dockerfile`, `docker-compose*.yml`               | CI, deploy (every release deploys to prod)                            | 🔴 red                      |
 | Published API shapes (breaking changes to `src/contracts/`, MCP tool schemas)          | What integrators code against                                         | 🔴 red                      |
@@ -127,6 +127,7 @@ Mirrors [.github/workflows/ci.yml](.github/workflows/ci.yml) (CI installs with
 | Unit tests                   | `pnpm test` (CI: `pnpm test:unit:cov`, coverage ratchet)                                |
 | One test file                | `pnpm test -- test/where-builder.unit-spec.ts` (or a name fragment)                     |
 | Socket tests (loopback HTTP) | `pnpm test:socket`                                                                      |
+| Mutation tests (fences)      | `pnpm test:mutation` (Stryker over the scope/tenancy fences; fails below the ratchet)   |
 | E2E (Docker)                 | `pnpm test:e2e` (CI shards: `pnpm exec jest --config ./test/jest-e2e.json --shard=1/4`) |
 | Jobs e2e (Docker)            | `pnpm test:e2e:jobs`                                                                    |
 | Landing (`brain-landing/`)   | `pnpm lint:i18n && pnpm lint:ci && pnpm typecheck && pnpm test && pnpm build`           |
@@ -162,7 +163,7 @@ credential's scopes allow.
 | Read path        | `src/search/` (legs, rerank, `retrieval-profile.ts`), `src/synthesize/` (answer lanes, verifier, citations), `src/multi-hop/`, `src/entities/`, `src/facts/`    |
 | Background       | `src/jobs/` (Surreal-native queue), `src/dreams/`, `src/compaction/`, `src/communities/`, `src/scenes/`, `src/beliefs/`                                         |
 | Connectors       | `src/source-plane/`, `src/sources/`                                                                                                                             |
-| Operator surface | `src/admin/` (operator routes behind `brain:platform_admin`; tenant pack admin under `brain:admin`), config catalogue `src/admin/config-catalog/` (parts) |
+| Operator surface | `src/admin/` (operator routes behind `brain:platform_admin`; tenant pack admin under `brain:admin`), config catalogue `src/admin/config-catalog/` (parts)       |
 | Wire contracts   | `src/contracts/` (zod; feed `docs/openapi.json` via `scripts/build-openapi.ts`)                                                                                 |
 | Domain packs     | `src/ai/domain-packs/`, `packs/*.pack.json` ([docs/domain-packs.md](docs/domain-packs.md))                                                                      |
 
