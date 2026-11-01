@@ -56,7 +56,9 @@ Scope: `brain:read`. Policy action: `get_fact`.
   claim-grounding state stamped by servers running
   `EVIDENCE_GROUNDING_STAMP`: `grounded` = the source names an
   observation (episode ids in `source.episodeIds`, non-empty
-  `source.evidence[]`, or a `source.conversationId`); `ungrounded` =
+  `source.evidence[]`, a `source.conversationId`, `source.messageId` or
+  `source.eventId`, or a `source.recorder` naming who recorded it);
+  `ungrounded` =
   explicitly observation-free. Absent = legacy row (predates the stamp
   writer) — additive, never backfilled.
 - Retracted facts still resolve, with `retracted: true` — what was
@@ -98,9 +100,9 @@ deployments stay byte-identical):
 - `derivedFacts` + `closure` (`PROVENANCE_RECURSIVE_CLOSURE`, default
   off): for a fact WITH `derivedFrom`, the walk serves the transitive
   support graph — each supporting fact as `{factId, predicate, depth,
-  status}` (compacted / retracted members still witness; status is
+status}` (compacted / retracted members still witness; status is
   reported, not hidden) and a `closure` summary `{depth, factCount,
-  truncated, filtered}`. The `episodes` list becomes the union of
+truncated, filtered}`. The `episodes` list becomes the union of
   grounding episodes across the closure. Every member passes the same
   visibility fences as the root; an invisible member is a SILENT drop
   marked `filtered: true`. Traversal depth is server-side policy
@@ -108,13 +110,13 @@ deployments stay byte-identical):
   caller knob.
 - `supportEdges` (`PROVENANCE_SUPPORT_GRAPH_READ`, migration 0116): the
   typed `memory_support` edges the walk crossed, each `{kind, from,
-  to}` with full record ids:
+to}` with full record ids:
 
-| Kind | Direction (`in` = the claim being supported) |
-| --- | --- |
-| `supported_by` | fact → the `memory_episode` scene that witnessed it |
-| `contradicted_by` | loser fact → winner fact (COMPETING writes the mutual pair) |
-| `derived_from` | summary fact → member fact (typed mirror of the untyped `derivedFrom` array) |
+| Kind              | Direction (`in` = the claim being supported)                                 |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `supported_by`    | fact → the `memory_episode` scene that witnessed it                          |
+| `contradicted_by` | loser fact → winner fact (COMPETING writes the mutual pair)                  |
+| `derived_from`    | summary fact → member fact (typed mirror of the untyped `derivedFrom` array) |
 
 The `memory_support` substrate vocabulary reserves a fourth kind,
 `reconstructed_from` — scene membership stays in
@@ -130,14 +132,14 @@ no field filtering.
 Every visibility miss is a **404, never a 403** — a 403 would confirm
 the row exists.
 
-| Fence | Behavior |
-| --- | --- |
-| Flag | `FACTS_API_ENABLED`, default on. `=0` → 404 on both GET routes. Runtime-mutable. |
-| Tenant | The read runs inside the caller's per-tenant database (same fence as retract); a foreign tenant's fact id is simply not found. |
-| User scope (0055) | A user-bound access token reads tenant-global facts and its **own** user-scoped facts; another user's fact → 404. M2M credentials read all. |
-| Row policy | The registry-backed row-policy seam shared with the fact retrieval lanes: an operator scope-fenced predicate (`requiresScope`, e.g. `brain:read_pii`) is absent to callers without the scope; ABAC row verdicts apply when a policy context is attached. |
-| PII (episodes) | Episode text is served through the L0 read port's PII fence: without `brain:read_pii`, PII-classed turns are omitted from `episodes`. There is no fact-level PII boolean on `knowledge_fact` — fact-level PII is a predicate policy, enforced by the row-policy fence above. |
-| Episode user gate | The episode fetch reuses `byIds`' fail-closed user gate, keyed to the fact's own `userId` when the fact is user-scoped (the caller already passed the fact-level gate), else to the caller's pinned user scope. |
+| Fence             | Behavior                                                                                                                                                                                                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Flag              | `FACTS_API_ENABLED`, default on. `=0` → 404 on both GET routes. Runtime-mutable.                                                                                                                                                                                             |
+| Tenant            | The read runs inside the caller's per-tenant database (same fence as retract); a foreign tenant's fact id is simply not found.                                                                                                                                               |
+| User scope (0055) | A user-bound access token reads tenant-global facts and its **own** user-scoped facts; another user's fact → 404. M2M credentials read all.                                                                                                                                  |
+| Row policy        | The registry-backed row-policy seam shared with the fact retrieval lanes: an operator scope-fenced predicate (`requiresScope`, e.g. `brain:read_pii`) is absent to callers without the scope; ABAC row verdicts apply when a policy context is attached.                     |
+| PII (episodes)    | Episode text is served through the L0 read port's PII fence: without `brain:read_pii`, PII-classed turns are omitted from `episodes`. There is no fact-level PII boolean on `knowledge_fact` — fact-level PII is a predicate policy, enforced by the row-policy fence above. |
+| Episode user gate | The episode fetch reuses `byIds`' fail-closed user gate, keyed to the fact's own `userId` when the fact is user-scoped (the caller already passed the fact-level gate), else to the caller's pinned user scope.                                                              |
 
 ## Example
 
