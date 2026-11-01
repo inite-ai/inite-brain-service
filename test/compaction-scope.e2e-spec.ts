@@ -10,6 +10,7 @@ import { SurrealService } from '../src/db/surreal.service';
 import { CompactionRunnerService } from '../src/compaction/compaction-runner.service';
 import { EmbedderService } from '../src/ai/embedder.service';
 import { atWidth } from './test-doubles';
+import { retryOnReadConflict } from '../src/db/surreal-retry';
 
 describe('compaction — retractions and scope (real SurrealDB)', () => {
   let f: AppFixture;
@@ -30,17 +31,22 @@ describe('compaction — retractions and scope (real SurrealDB)', () => {
     const surreal = f.app.get(SurrealService);
     const embedding = atWidth([0.1, 0.2], f.app.get(EmbedderService).primaryDimensions());
     await surreal.withCompany(f.companyId, async (db) => {
-      await db.query(
-        `CREATE knowledge_entity:svc CONTENT { type: 'project', canonicalName: 'svc' }`,
+      await retryOnReadConflict(() =>
+        db.query(`CREATE knowledge_entity:svc CONTENT { type: 'project', canonicalName: 'svc' }`),
       );
+      // The background passes production runs (HNSW provisioning, dreams)
+      // touch the tenant while it is seeded; a write they abort is retried,
+      // as production's own writes are.
       const row = (pred: string, object: string, extra: string) =>
-        db.query(
-          `CREATE knowledge_fact CONTENT {
+        retryOnReadConflict(() =>
+          db.query(
+            `CREATE knowledge_fact CONTENT {
              entityId: knowledge_entity:svc, predicate: $p, object: $o, confidence: 0.9,
              validFrom: d'2024-01-01T00:00:00Z', validUntil: d'2024-02-01T00:00:00Z',
              recordedAt: d'2024-01-01T00:00:00Z', status: 'superseded', embedding: $v,
              source: { vertical: 'eng' } ${extra} }`,
-          { p: pred, o: object, v: embedding },
+            { p: pred, o: object, v: embedding },
+          ),
         );
       await row('queue', 'redis', '');
       await row('queue', 'kafka', ", retractedAt: d'2024-01-15T00:00:00Z', status: 'retracted'");
