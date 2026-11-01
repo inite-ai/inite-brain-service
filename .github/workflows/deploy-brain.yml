@@ -379,6 +379,27 @@ jobs:
           echo "SOURCE_CREDENTIAL_ENCRYPTION_KEY=${SOURCE_CREDENTIAL_KEY}" >> "${PROJECT_DIR}/enablement.env"
           echo "[ok] wrote $(grep -c . "${PROJECT_DIR}/enablement.env") enablement.env lines"
 
+      # The image about to run must carry the signature CI's publish made
+      # with its own OIDC identity (ci.yml on main, keyless Sigstore —
+      # #855); an image pushed any other way is refused before anything is
+      # pulled. Restart, logs and rollback bring no new image: a rollback
+      # target already passed this deploy's gates when it first ran.
+      - name: Install cosign
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart' && github.event.inputs.action != 'rollback'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify the image signature
+        if: github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart' && github.event.inputs.action != 'rollback'
+        env:
+          IMAGE: ${{ needs.verify.outputs.image }}
+        run: |
+          set -euo pipefail
+          [ -n "$IMAGE" ] || { echo "[err] no image digest to verify"; exit 1; }
+          cosign verify "$IMAGE" \
+            --certificate-identity-regexp '^https://github\.com/inite-ai/inite-brain-service/\.github/workflows/ci\.yml@refs/heads/main$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            > /dev/null
+          echo "[deploy] signature verified for $IMAGE"
+
       - name: Deploy to server
         if: github.event.inputs.action != 'logs'
         # Everything the script needs from the workflow context comes in as
