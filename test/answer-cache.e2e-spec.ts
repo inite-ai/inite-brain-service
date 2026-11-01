@@ -63,7 +63,7 @@ describe('G1 answer cache e2e', () => {
   });
 
   afterAll(async () => {
-    delete process.env.SYNTHESIZE_ANSWER_CACHE;
+    process.env.SYNTHESIZE_ANSWER_CACHE = '0';
     if (f) await f.close();
   });
 

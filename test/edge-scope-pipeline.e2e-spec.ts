@@ -266,6 +266,6 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
     const nobody = await ask();
     expect(nobody.calls).toBeGreaterThan(0);
     expect(nobody.generator).not.toMatch(/Helix Labs/);
-    delete process.env.SYNTHESIZE_ANSWER_CACHE;
+    process.env.SYNTHESIZE_ANSWER_CACHE = '0';
   });
 });

@@ -38,7 +38,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ENTITY_EXPANSION',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -65,7 +65,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_SALIENCE_SCORING',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -137,7 +137,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_UPDATE_STORY',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -146,7 +146,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ORDERING_FRAME',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -168,7 +168,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_DIGEST_EVIDENCE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -186,7 +186,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_MENTION_DATES',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -195,7 +195,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ENUM_STRICT',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -262,7 +262,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_RAW_WINDOW',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -280,7 +280,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ASSISTANT_LANE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -307,7 +307,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_FACTS_AS_KEYS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -325,7 +325,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_FRAGMENT_LANE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -343,7 +343,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_TIME_FILTER',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -352,7 +352,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_DATE_MATH',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -361,7 +361,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_ANSWER_CONDITIONING',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -379,7 +379,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_NOISE_FILTER',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -388,7 +388,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_SEARCH_LOOP',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -487,7 +487,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -559,7 +559,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_SEGMENT_LANE_RERANK',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -568,7 +568,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_FACT_RERANK',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -622,7 +622,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_ANSWER_ROUTER_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

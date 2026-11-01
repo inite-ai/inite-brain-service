@@ -227,11 +227,6 @@ jobs:
           # captured document (documents/triage.ts) — SHADOW: nothing gates
           # on it until its recall is measured (0167, raw-processing roadmap).
           DECISIONS_LANES=entity_judge,predicate_identity,verifier,extraction_check,triage
-          # ── Session deriver (prompt/schema change => new derivedVersion) ──
-          # ── Verbatim lanes (they follow RETRIEVAL_VERBATIM_EVIDENCE,
-          # assistant-chat default shape_conditioned) + rerank legs ──
-          SEARCH_SEGMENT_LANE_RERANK=1
-          SEARCH_FACT_RERANK=1
           # ── Search stack ──
           # Provisioning follows this flag by default (the schema-ready
           # hook and the nightly sweep read SEARCH_HNSW_ENABLED unless
@@ -241,37 +236,14 @@ jobs:
           # capped at 5 tenants starting builds per nightly run.
           SEARCH_USAGE_BETA=0.1
           # ── Retrieval profile boolean points (V8-V13 + G2 L3) ──
-          RETRIEVAL_ENTITY_EXPANSION=1
-          RETRIEVAL_SALIENCE_SCORING=1
-          RETRIEVAL_UPDATE_STORY=1
-          RETRIEVAL_DIGEST_EVIDENCE=1
-          RETRIEVAL_ORDERING_FRAME=1
-          RETRIEVAL_VERIFIER_TOPIC_COVERAGE=1
-          RETRIEVAL_MENTION_DATES=1
-          RETRIEVAL_ENUM_STRICT=1
-          RETRIEVAL_RAW_WINDOW=1
-          RETRIEVAL_ASSISTANT_LANE=1
-          RETRIEVAL_FACTS_AS_KEYS=1
-          RETRIEVAL_FRAGMENT_LANE=1
-          RETRIEVAL_TIME_FILTER=1
-          RETRIEVAL_DATE_MATH=1
-          RETRIEVAL_ANSWER_CONDITIONING=1
-          RETRIEVAL_NOISE_FILTER=1
-          RETRIEVAL_SEARCH_LOOP=1
           RETRIEVAL_L3_ESCALATION=1
           RETRIEVAL_L3_DIRECT_ANCHOR=1
           RETRIEVAL_L3_SEGMENT_ANCHOR=1
           RETRIEVAL_L3_TEMPORAL_ANCHOR=1
           # ── Synthesize: typed dispatch + wide probe + cache ──
-          SYNTHESIZE_ANSWER_ROUTER_ENABLED=1
-          SYNTHESIZE_LANE_WIDE_PROBE=1
-          SYNTHESIZE_INSTRUCTION_LANE=1
-          SYNTHESIZE_ANSWER_CACHE=1
           # ── G4 strategy-memory lane ──
           # ── Dreams + compaction lifecycle ──
           # ── Scenes + beliefs (Brain v2 episodic/semantic planes) ──
-          BELIEFS_SERVING_LANE=1
-          BELIEFS_FACT_DAMPING=1
           # ── Evidence plane (grounding + lifecycle + raw-read) ──
           # An uploaded PDF's extracted text goes through the ordinary
           # document pipeline, so it yields facts — off, a PDF gave
@@ -300,7 +272,6 @@ jobs:
           AGENT_QA_TOOLS_V2=1
           # ── Memory-fitness fix wave (#415-#417, measured on the stand:
           # same-memory re-ask 16/30 -> 20/29; D2 timeline 3/3, D6 2/2) ──
-          BELIEFS_LANE_DATE_DISAMBIGUATION=1
           # ── Belief transitions (#423/#426; Compass acceptance green —
           # negation revision + field fold). ──
           # ── Answer conditioning (V13 G2 shape instructions; existing
@@ -310,7 +281,6 @@ jobs:
           # battery 14/15 -> 15/15, state-transitions 8/12 -> 10/12
           # scenarios (checks 84% -> 92%), memory-fitness 27/30 ->
           # 28/30; pointed-question isolation checks unaffected) ──
-          RETRIEVAL_ANSWER_CONDITIONING=1
           # ── Mention-path conflict formation (#444). Measured on
           # the stand: state-transition battery 9/12 (checks 88%),
           # code-memory battery 13/16 — no regression vs the flags-off

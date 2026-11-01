@@ -7,7 +7,7 @@ import { beliefLaneForRequest } from '../src/common/beliefs-flags';
  */
 describe('the belief lane stays out of an asOf question', () => {
   afterEach(() => {
-    delete process.env.BELIEFS_SERVING_LANE;
+    process.env.BELIEFS_SERVING_LANE = '0';
   });
 
   it('asOf → no belief lane; no asOf → the lane as configured', () => {

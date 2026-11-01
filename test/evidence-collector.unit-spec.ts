@@ -5,6 +5,7 @@ import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SegmentLaneService } from '../src/synthesize/segment-lane.service';
 import type { MentionScanService } from '../src/synthesize/mention-scan.service';
 import type { UpdateStoryService } from '../src/synthesize/update-story.service';
+import type { EpisodeLaneService } from '../src/synthesize/episode-lane.service';
 import { resolveRetrievalProfile, type RetrievalProfile } from '../src/search/retrieval-profile';
 
 /**
@@ -17,6 +18,20 @@ import { resolveRetrievalProfile, type RetrievalProfile } from '../src/search/re
  */
 
 const ORDER_QUERY = 'In what order did I raise the parser project aspects?';
+
+/** The episode lane with every read answering empty — production's lane set
+ *  calls them all; a test overrides only the reads it is about. */
+function episodeLaneStub(over: Partial<Record<keyof EpisodeLaneService, unknown>>) {
+  return {
+    pendingTurns: async () => [],
+    transcriptLines: async () => [],
+    assistantTurns: async () => [],
+    sourceExcerpts: async () => [],
+    rawWindows: async () => [],
+    groundingQuotes: async () => new Map(),
+    ...over,
+  } as unknown as EpisodeLaneService;
+}
 
 function profileWith(over: Partial<RetrievalProfile>): RetrievalProfile {
   return {
@@ -249,12 +264,12 @@ describe('EvidenceCollectorService branches', () => {
     const segmentLane = {
       transcriptLines: async () => [quoted, '[2026-09-20] Mike: budget is 4000'],
     } as unknown as SegmentLaneService;
-    const episodeLane = {
+    const episodeLane = episodeLaneStub({
       pendingTurns: async () => [
         `[2026-09-25 ${PENDING_MARK}] Mike: budget is 2500 now`,
         `[2026-09-25 ${PENDING_MARK}] Mike: always answer in Portuguese`,
       ],
-    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    });
     const svc = new EvidenceCollectorService(noSearch, episodeLane, segmentLane);
     const out = await svc.collect(collectorArgs(profileWith({ timelineEvidence: 'scan' })));
     expect(out.transcriptLines).toEqual([
@@ -266,13 +281,13 @@ describe('EvidenceCollectorService branches', () => {
 
   it('assistant lane gates on its own flag and joins the transcript set', async () => {
     const calls: Array<{ limit: number; match: string }> = [];
-    const episodeLane = {
+    const episodeLane = episodeLaneStub({
       pendingTurns: async () => [],
       assistantTurns: async (o: { limit: number; match: string }) => {
         calls.push({ limit: o.limit, match: o.match });
         return ['[2023-05-01] conv__assistant: use the token bucket'];
       },
-    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    });
     const make = () => new EvidenceCollectorService(noSearch, episodeLane);
 
     const off = await make().collect(collectorArgs(profileWith({ assistantLane: false })));
@@ -354,7 +369,7 @@ describe('EvidenceCollectorService branches', () => {
       );
 
     // Lane off the profile → no call, undefined.
-    const laneOff = await make(true).collect(collectorArgs(profileWith({})));
+    const laneOff = await make(true).collect(collectorArgs(profileWith({ lanes: new Set() })));
     expect(laneOff.strategyNotes).toBeUndefined();
     expect(calls).toHaveLength(0);
 
@@ -401,13 +416,13 @@ describe('EvidenceCollectorService branches', () => {
 
   it('grounding quotes gate on factsAsKeys AND factIds, capped best-first', async () => {
     const seen: string[][] = [];
-    const episodeLane = {
+    const episodeLane = episodeLaneStub({
       pendingTurns: async () => [],
       groundingQuotes: async (o: { factIds: string[] }) => {
         seen.push(o.factIds);
         return new Map([['f1', ' (source 2023-05-01 Mel: "dog face")']]);
       },
-    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    });
     const make = () => new EvidenceCollectorService(noSearch, episodeLane);
 
     const off = await make().collect(collectorArgs(profileWith({ factsAsKeys: false })));
@@ -508,14 +523,14 @@ describe('cross-user evidence isolation (V11 item 10)', () => {
   };
 
   function makeIsolationCollector(): EvidenceCollectorService {
-    const episodeLane = {
+    const episodeLane = episodeLaneStub({
       transcriptLines: async (o: { userId?: string }) => scopedLines('episode', o.userId),
       sourceExcerpts: async (o: { userId?: string }) => scopedLines('excerpt', o.userId),
       rawWindows: async (o: { userId?: string }) => scopedLines('raw-window', o.userId),
       assistantTurns: async (o: { userId?: string }) => scopedLines('assistant', o.userId),
       groundingQuotes: async (o: { userId?: string }) => scopedMap('grounding', o.userId),
       pendingTurns: async (o: { userId?: string }) => scopedLines('pending', o.userId),
-    } as unknown as import('../src/synthesize/episode-lane.service').EpisodeLaneService;
+    });
     const segmentLane = {
       transcriptLines: async (o: { userId?: string }) => scopedLines('segment', o.userId),
     } as unknown as SegmentLaneService;

@@ -326,20 +326,20 @@ describe('coverageAbstention guardrails matrix (V9 §4)', () => {
 });
 
 describe('RETRIEVAL_VERIFIER_TOPIC_COVERAGE profile point', () => {
-  it('defaults off; env enables; overlays per tenant', () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierTopicCoverage).toBe(false);
+  it('defaults on; 0 switches it off; overlays per tenant', () => {
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).verifierTopicCoverage).toBe(true);
     expect(
       resolveRetrievalProfile({
-        RETRIEVAL_VERIFIER_TOPIC_COVERAGE: '1',
+        RETRIEVAL_VERIFIER_TOPIC_COVERAGE: '0',
       } as NodeJS.ProcessEnv).verifierTopicCoverage,
-    ).toBe(true);
+    ).toBe(false);
     const env = {
       RETRIEVAL_PROFILE_OVERRIDES: JSON.stringify({
-        beamco: { verifierTopicCoverage: true },
+        beamco: { verifierTopicCoverage: false },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).verifierTopicCoverage).toBe(true);
-    expect(resolveRetrievalProfileFor('other', env).verifierTopicCoverage).toBe(false);
+    expect(resolveRetrievalProfileFor('beamco', env).verifierTopicCoverage).toBe(false);
+    expect(resolveRetrievalProfileFor('other', env).verifierTopicCoverage).toBe(true);
   });
 });
 

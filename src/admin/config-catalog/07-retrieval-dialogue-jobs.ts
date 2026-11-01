@@ -7,7 +7,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read at call time (common/beliefs-flags.ts) — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -18,7 +18,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read at call time (common/beliefs-flags.ts) — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -29,7 +29,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read at call time (common/beliefs-flags.ts) — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -146,7 +146,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_INSTRUCTION_LANE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -155,7 +155,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_LANE_WIDE_PROBE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -173,7 +173,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_ANSWER_CACHE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

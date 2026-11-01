@@ -94,7 +94,7 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
   beforeAll(async () => {
     process.env.FOVEA_LENS_SUPPRESS = '0';
     delete process.env.FOVEA_LENS_SUPPRESS_MIN_COSINE;
-    delete process.env.SYNTHESIZE_ANSWER_CACHE;
+    process.env.SYNTHESIZE_ANSWER_CACHE = '0';
     // Router + instruction lane on so the instruction lane is in profile.lanes
     // (and thus a suppressible target).
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
@@ -129,8 +129,8 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
   afterAll(async () => {
     process.env.FOVEA_LENS_SUPPRESS = '0';
     delete process.env.FOVEA_LENS_SUPPRESS_MIN_COSINE;
-    delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
-    delete process.env.SYNTHESIZE_INSTRUCTION_LANE;
+    process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '0';
+    process.env.SYNTHESIZE_INSTRUCTION_LANE = '0';
     if (fSuppress) await fSuppress.close();
     if (fControl) await fControl.close();
   });
