@@ -178,6 +178,17 @@ Before 0164 an edge had knowledge time only, and the one closure path wrote the
 superseding fact's valid time into `invalidatedAt`. The migration moves that
 value into `validUntil`.
 
+**Edges are resolved like facts (#834, 0182).** A new open edge is judged by
+fact resolution (#828) against the open edges that share an endpoint with it,
+in the same scope. `replaces` closes the one whose valid time started earlier,
+at the later one's `validFrom`, and sets `invalidatedAt` once that instant has
+passed. Sharing either endpoint covers a relation replaced on its subject
+(`sasha lives_in Lisbon` → `sasha lives_in Porto`) and one replaced on its
+object (`Diego leads sasha` → `Marta leads sasha`). `same` and `contradicts`
+leave edges as they are: an identical edge is already one row, and edges carry
+no `competing` status. A system of record's relation is never closed by a
+judgement; its door decides it.
+
 Two consequences worth stating plainly:
 
 - "What was true at T?" and "what did brain know at T?" are different

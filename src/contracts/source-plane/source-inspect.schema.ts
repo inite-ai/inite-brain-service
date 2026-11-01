@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SourceItemSchema } from './source-plane.schema';
+import { SourceItemSchema } from './source-item.schema';
 
 /**
  * Wire contracts for the operator's drill-down of one connection

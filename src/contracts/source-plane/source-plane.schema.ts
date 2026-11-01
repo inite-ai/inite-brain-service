@@ -6,6 +6,7 @@ import {
   PACK_SOURCE_SCHEDULES,
   PACK_SOURCE_SHAPES,
 } from '../../ai/domain-packs/manifest';
+import { SourceItemSchema } from './source-item.schema';
 
 /**
  * Wire contracts for the source plane's operator surface
@@ -110,34 +111,8 @@ export const SourceConnectionsListResponseSchema = z.object({
 });
 export type SourceConnectionsListResponse = z.infer<typeof SourceConnectionsListResponseSchema>;
 
-export const SourceItemStateSchema = z.enum(['seen', 'fetched', 'indexed', 'gone']);
-
-export const SourceItemSchema = z.object({
-  id: z.string(),
-  connectionId: z.string(),
-  externalId: z.string(),
-  originUri: z.string().nullable(),
-  path: z.string().nullable(),
-  title: z.string().nullable(),
-  mediaType: z.string().nullable(),
-  size: z.number().int().nullable(),
-  revision: z.string().nullable(),
-  fetchedRevision: z.string().nullable(),
-  modifiedAt: z.string().nullable(),
-  documentId: z.string().nullable(),
-  assetId: z.string().nullable(),
-  episodeId: z.string().nullable(),
-  state: SourceItemStateSchema,
-  firstSeenAt: z.string(),
-  lastSeenAt: z.string(),
-  goneAt: z.string().nullable(),
-  lastError: z.string().nullable(),
-  /** Progressive indexing (W6): how often a query matched this row's title or path. */
-  hitCount: z.number().int(),
-  /** Set = the row was fetched on demand after a hit, rather than by a walk. */
-  deepenedAt: z.string().nullable(),
-});
-export type SourceItem = z.infer<typeof SourceItemSchema>;
+export { SourceItemSchema, SourceItemStateSchema } from './source-item.schema';
+export type { SourceItem } from './source-item.schema';
 
 export const SourceItemsListResponseSchema = z.object({
   items: z.array(SourceItemSchema),
@@ -1000,7 +975,5 @@ export function isConnectionId(v: string): boolean {
   return CONNECTION_ID.test(v);
 }
 
-// ── Inspection (the operator's drill-down) lives in source-inspect.schema.ts;
-// re-exported last: it builds on SourceItemSchema above (a CommonJS cycle
-// resolved by order).
+// ── Inspection (the operator's drill-down) lives in source-inspect.schema.ts.
 export * from './source-inspect.schema';

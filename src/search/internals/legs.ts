@@ -102,7 +102,7 @@ export async function runVectorLeg({
   const sql = `
       SELECT
         id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
-        validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, source,
+        validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, truth, source,
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         ${combinedGraphProjection(tuning.combinedVectorGraph, edgeFence)}
@@ -151,7 +151,7 @@ async function runVectorLegKnn({
   const kOver = Math.min(k * tuning.hnswOverfetch, 1000);
   const projection = `
         id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
-        validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, source,
+        validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, truth, source,
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity`;
   // `<|K,EF|>` takes literals, not params — kOver/ef are validated ints.
@@ -246,7 +246,7 @@ export async function runLexicalLeg({
   const sql = `
       SELECT
         id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
-        validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, source,
+        validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, truth, source,
         trustSnapshot, corroboration, userId, lang,
         entityId.{id, type, canonicalName, externalRefs, mergedInto} AS entity,
         ${highlightProjection(tuning.highlightEnabled)}

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Surreal } from 'surrealdb';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, dbCreate } from '../db/surreal.service';
+import { retryOnReadConflict } from '../db/surreal-retry';
 import { ReadPinService } from '../episodes/read-pin.service';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { CandidateFactRow, CompactionStats, SUMMARY_GENERATOR } from './compaction.types';
@@ -142,12 +143,17 @@ export class CompactionRunnerService {
       // comparisons, so a string list here matches NOTHING and the whole
       // pass silently no-ops (second half of the same 3.1.5 regression as
       // the `d$cutoff` parse error above).
+      // The pass races the serving path's own writes to the same rows (the
+      // vector-corpus repair, usage stamps); a commit-time conflict is the
+      // store saying "again", and the mark is idempotent, so it retries.
       const ids = candidates.map((c) => new StringRecordId(String(c.id)));
-      await db.query(
-        `UPDATE knowledge_fact
-           SET status = 'compacted', embedding = NONE
-           WHERE id INSIDE $ids`,
-        { ids },
+      await retryOnReadConflict(() =>
+        db.query(
+          `UPDATE knowledge_fact
+             SET status = 'compacted', embedding = NONE
+             WHERE id INSIDE $ids`,
+          { ids },
+        ),
       );
 
       const factsCompacted = candidates.length;
@@ -224,27 +230,33 @@ export class CompactionRunnerService {
         ? unionEpisodeIds(sorted.map((g) => g.eps))
         : [];
 
-      const summary = await dbCreate(db, 'knowledge_fact', {
-        entityId: first.entityId,
-        predicate: `summary_${first.predicate}`,
-        object: summaryText,
-        confidence: meanConfidence,
-        validFrom: earliest,
-        validUntil: latest,
-        source: {
-          kind: 'compaction-summary',
-          ...(episodeIds.length ? { episodeIds } : {}),
-        },
-        derivedFrom: sorted.map((g) => g.id),
-        status: 'active',
-        // The summary belongs to the same world as the facts it replaces
-        // (audit W2 #10) — otherwise the pinned reader loses both.
-        ...(derivedVersion ? { derivedVersion } : {}),
-        ...(first.userId ? { userId: first.userId } : {}),
-        ...(Array.isArray(first.scope) && first.scope.length > 0
-          ? { scope: [...first.scope].map(String) }
-          : {}),
-      });
+      // A conflict here aborted the whole pass after some summaries had
+      // landed and before the originals were marked, so the next run
+      // summarised the same group again. A conflicted CREATE wrote
+      // nothing, so retrying it cannot duplicate.
+      const summary = await retryOnReadConflict(() =>
+        dbCreate(db, 'knowledge_fact', {
+          entityId: first.entityId,
+          predicate: `summary_${first.predicate}`,
+          object: summaryText,
+          confidence: meanConfidence,
+          validFrom: earliest,
+          validUntil: latest,
+          source: {
+            kind: 'compaction-summary',
+            ...(episodeIds.length ? { episodeIds } : {}),
+          },
+          derivedFrom: sorted.map((g) => g.id),
+          status: 'active',
+          // The summary belongs to the same world as the facts it replaces
+          // (audit W2 #10) — otherwise the pinned reader loses both.
+          ...(derivedVersion ? { derivedVersion } : {}),
+          ...(first.userId ? { userId: first.userId } : {}),
+          ...(Array.isArray(first.scope) && first.scope.length > 0
+            ? { scope: [...first.scope].map(String) }
+            : {}),
+        }),
+      );
       created++;
 
       // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off):
