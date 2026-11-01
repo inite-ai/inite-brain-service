@@ -327,8 +327,8 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
       // The verified use just now is a fresh trace: fully available.
       expect(after).toBe(1);
     } finally {
-      delete process.env.RETRIEVAL_VERIFIED_USE_DECAY;
-      delete process.env.RETRIEVAL_VERIFIED_USE_RANKING;
+      process.env.RETRIEVAL_VERIFIED_USE_DECAY = '0';
+      process.env.RETRIEVAL_VERIFIED_USE_RANKING = '0';
     }
   });
 

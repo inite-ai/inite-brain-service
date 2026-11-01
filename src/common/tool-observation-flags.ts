@@ -10,7 +10,7 @@ import { envFlagNotDisabled } from './env-validation';
  * accepts toolObservationRef, and the nightly prune leg runs. The env
  * read lives here in the common layer (engine-gates S5.2) and is read at
  * call time so a flip is runtime-mutable (no restart; the MCP server is
- * rebuilt per request). Default off ⇒ the wrapper is NOT applied, the
+ * rebuilt per request). Off ⇒ the wrapper is NOT applied, the
  * recorder is a guarded no-op, and the prune leg returns immediately —
  * serving byte-identical.
  */

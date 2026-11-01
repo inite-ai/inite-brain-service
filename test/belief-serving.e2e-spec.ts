@@ -143,8 +143,8 @@ describe('Belief serving lane e2e (the dogfood stale-answer scenario)', () => {
     const promoted = await f.http.post('/v1/admin/maintenance/scenes/beliefs').set(auth()).send({});
     expect(promoted.status).toBe(201);
     expect(promoted.body).toMatchObject({ beliefsCreated: 1 });
-    delete process.env.SCENES_SEGMENTATION_ENABLED;
-    delete process.env.SCENES_BELIEF_PROMOTION;
+    process.env.SCENES_SEGMENTATION_ENABLED = '0';
+    process.env.SCENES_BELIEF_PROMOTION = '0';
 
     const beliefs = await db(async (d) => {
       const [rows] = await d.query<

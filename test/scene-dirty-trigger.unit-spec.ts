@@ -169,7 +169,8 @@ describe('EpisodeStoreService — the dirty-mark seam', () => {
       delete process.env[k];
     }
     process.env.EPISODE_SUBSTRATE_ENABLED = '1';
-    // The scheduled pass ships on; the "off" pins below switch it off.
+    // Both scene switches ship on; the "off" pins below start from off.
+    process.env.SCENES_SEGMENTATION_ENABLED = '0';
     process.env.SCENES_SCHEDULED_MAINTENANCE = '0';
   });
   afterEach(() => {

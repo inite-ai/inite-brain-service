@@ -200,7 +200,7 @@ describe('SCENES_PACK_DELTA_PROMOTION resolver + service seam', () => {
   afterEach(() => {
     if (saved === undefined) delete process.env.SCENES_PACK_DELTA_PROMOTION;
     else process.env.SCENES_PACK_DELTA_PROMOTION = saved;
-    if (savedPromotion === undefined) delete process.env.SCENES_BELIEF_PROMOTION;
+    if (savedPromotion === undefined) process.env.SCENES_BELIEF_PROMOTION = '0';
     else process.env.SCENES_BELIEF_PROMOTION = savedPromotion;
   });
 

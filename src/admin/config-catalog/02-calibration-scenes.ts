@@ -166,7 +166,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // admin controller 404 guard + the composer's defensive early return
     // — never captured in a constructor — so a flip takes effect without
     // restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -347,7 +347,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // admin 404 guard + the promotion service's defensive early return —
     // never captured in a constructor — so a flip takes effect without
     // restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

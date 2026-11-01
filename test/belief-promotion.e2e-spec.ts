@@ -248,10 +248,10 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
     expect((await promote()).status).toBe(404);
     // Master off, belief flag on.
     process.env.SCENES_BELIEF_PROMOTION = '1';
-    delete process.env.SCENES_SEGMENTATION_ENABLED;
+    process.env.SCENES_SEGMENTATION_ENABLED = '0';
     expect((await promote()).status).toBe(404);
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
-    delete process.env.SCENES_BELIEF_PROMOTION;
+    process.env.SCENES_BELIEF_PROMOTION = '0';
     expect(await beliefs()).toEqual([]);
   });
 
@@ -494,7 +494,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
 
   it('user-forget erases beliefs + their support edges unconditionally, with the beliefsDeleted counter', async () => {
     // Flag-independence: rows written while on must die while OFF.
-    delete process.env.SCENES_BELIEF_PROMOTION;
+    process.env.SCENES_BELIEF_PROMOTION = '0';
     delete process.env.PROVENANCE_SUPPORT_EDGES;
 
     const before = await beliefs();

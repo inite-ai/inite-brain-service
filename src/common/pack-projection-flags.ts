@@ -15,7 +15,7 @@ import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
  *
  * The env read lives here in the common layer, NOT inside the engine dirs
  * (engine-gates S5.2). Read at call time so a flip is runtime-mutable (no
- * restart). Default off ⇒ submissions carrying either array are rejected
+ * restart). Off ⇒ submissions carrying either array are rejected
  * 400, no 'scene'/'state_delta' candidate row is ever written, and no
  * memory_episode projection ever runs — byte-identical prod (shadow even
  * when on: nothing on the serving path reads memory_episode). PACK_ sits

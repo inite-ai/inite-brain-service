@@ -1258,19 +1258,19 @@ describe('flag resolvers', () => {
     }
   });
 
-  it("promotion defaults off; synthesis, negation deltas and field fold default to production's on", () => {
-    expect(sceneBeliefPromotionEnabled()).toBe(false);
-    expect(sceneBeliefLlmSynthesisEnabled()).toBe(true);
-    expect(sceneBeliefNegationDeltasEnabled()).toBe(true);
-    expect(sceneBeliefFieldFoldEnabled()).toBe(true);
-    process.env.SCENES_BELIEF_PROMOTION = '1';
-    process.env.SCENES_BELIEF_LLM_SYNTHESIS = '1';
-    process.env.SCENES_BELIEF_NEGATION_DELTAS = '1';
-    process.env.SCENES_BELIEF_FIELD_FOLD = '1';
+  it("all four default to production's on, and each switches off with '0'", () => {
     expect(sceneBeliefPromotionEnabled()).toBe(true);
     expect(sceneBeliefLlmSynthesisEnabled()).toBe(true);
     expect(sceneBeliefNegationDeltasEnabled()).toBe(true);
     expect(sceneBeliefFieldFoldEnabled()).toBe(true);
+    process.env.SCENES_BELIEF_PROMOTION = '0';
+    process.env.SCENES_BELIEF_LLM_SYNTHESIS = '0';
+    process.env.SCENES_BELIEF_NEGATION_DELTAS = '0';
+    process.env.SCENES_BELIEF_FIELD_FOLD = '0';
+    expect(sceneBeliefPromotionEnabled()).toBe(false);
+    expect(sceneBeliefLlmSynthesisEnabled()).toBe(false);
+    expect(sceneBeliefNegationDeltasEnabled()).toBe(false);
+    expect(sceneBeliefFieldFoldEnabled()).toBe(false);
   });
 
   it('SCENES_BELIEF_MIN_SCENES: non-negative int, 0 = off, invalid -> 0', () => {
@@ -1289,7 +1289,7 @@ describe('flag resolvers', () => {
 describe('OFF-state hard guarantee (byte-identical prod)', () => {
   const savedFlag = process.env.SCENES_BELIEF_PROMOTION;
   afterAll(() => {
-    if (savedFlag === undefined) delete process.env.SCENES_BELIEF_PROMOTION;
+    if (savedFlag === undefined) process.env.SCENES_BELIEF_PROMOTION = '0';
     else process.env.SCENES_BELIEF_PROMOTION = savedFlag;
   });
 
@@ -1316,7 +1316,7 @@ describe('OFF-state hard guarantee (byte-identical prod)', () => {
   }
 
   it('flag off ⇒ zero queries, zero version resolution, all-zero result', async () => {
-    delete process.env.SCENES_BELIEF_PROMOTION;
+    process.env.SCENES_BELIEF_PROMOTION = '0';
     const result = await makeService().run('co_test');
     expect(result).toEqual({
       scenes: 0,

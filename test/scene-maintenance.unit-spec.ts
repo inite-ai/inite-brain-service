@@ -187,7 +187,7 @@ describe('SceneMaintenanceService — flag gate', () => {
   });
 
   it('PIN: the scenes MASTER flag off also stops the pass (no orphan marks)', async () => {
-    delete process.env.SCENES_SEGMENTATION_ENABLED;
+    process.env.SCENES_SEGMENTATION_ENABLED = '0';
     const roster = jest.fn(() => ['co_a']);
     const svc = new SceneMaintenanceService(
       makeSurreal({}).surreal,
@@ -416,6 +416,7 @@ describe('SceneMaintenanceService — belief promotion leg', () => {
     const tenants: Record<string, FakeTenant> = {
       co_a: { dirty: ['c1'], cleared: [], limits: [] },
     };
+    process.env.SCENES_BELIEF_PROMOTION = '0';
     const off = makeBeliefs();
     const svcOff = new SceneMaintenanceService(
       makeSurreal(tenants).surreal,

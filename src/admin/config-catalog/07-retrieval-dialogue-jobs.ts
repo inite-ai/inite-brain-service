@@ -347,7 +347,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'LIVE_SUBSCRIPTIONS_ENABLED',
     category: 'misc',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -447,7 +447,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'COMPACTION_PROMOTION_ENABLED',
     category: 'compaction',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -465,7 +465,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'COMPACTION_PROMOTION_CONFLICT_GUARD',
     category: 'compaction',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:

@@ -9,7 +9,8 @@ import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
 // Production turns these switches on; this suite covers the paths with
 // them off, and the tests that need one on set it.
 beforeEach(() => {
-  for (const k of ['SCOPE_TAGS_ENABLED', 'PRIVACY_SEGMENT_USER_FENCE']) process.env[k] ??= '0';
+  for (const k of ['SCOPE_TAGS_ENABLED', 'PRIVACY_SEGMENT_USER_FENCE', 'SEARCH_HNSW_ENABLED'])
+    process.env[k] ??= '0';
 });
 
 /**

@@ -6,7 +6,7 @@ import { SurrealService } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { DistributedLeaseGuard, tenantLeaseKey } from '../common/distributed-lease.guard';
 import { InFlightGuard } from '../common/in-flight-guard';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { HnswMaintenanceService, type HnswMaintenanceResult } from './hnsw-maintenance.service';
 
 /**
@@ -198,7 +198,7 @@ export class HnswProvisionService implements OnModuleInit {
   static enabled(): boolean {
     const explicit = process.env.HNSW_PROVISION_ENABLED;
     if (explicit !== undefined && explicit !== '') return envFlagEnabled(explicit);
-    return envFlagEnabled(process.env.SEARCH_HNSW_ENABLED);
+    return envFlagNotDisabled(process.env.SEARCH_HNSW_ENABLED);
   }
 
   private static timeBudgetMs(): number {

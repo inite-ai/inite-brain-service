@@ -517,7 +517,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_HNSW_ENABLED',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -587,7 +587,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_VERIFIED_USE_DECAY',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -596,7 +596,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_VERIFIED_USE_RANKING',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -605,7 +605,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'RETRIEVAL_TENANT_DECAY',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

@@ -3,7 +3,7 @@ import { LiveSubscriptionManager } from './live-subscription.manager';
 import { LiveSubscriptionController } from './live-subscription.controller';
 
 /**
- * Realtime fact subscriptions (`LIVE_SUBSCRIPTIONS_ENABLED`, default off).
+ * Realtime fact subscriptions (`LIVE_SUBSCRIPTIONS_ENABLED`, default on).
  *
  * Deliberately NOT part of SurrealModule even though the manager owns Surreal
  * connections: those connections live OUTSIDE both pools (a `LIVE SELECT` must

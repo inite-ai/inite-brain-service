@@ -79,7 +79,7 @@ export type { PromotableSceneHead } from './belief-scene-selection';
 export { beliefIdTail } from './belief-revision';
 
 /**
- * Belief promotion (Belief-A, SCENES_BELIEF_PROMOTION — default off):
+ * Belief promotion (Belief-A, SCENES_BELIEF_PROMOTION — default on):
  * folds ENRICHED scenes of the CURRENT effective segmenter version
  * (SceneVersionService.resolve, the Drift-3 once-per-run contract) into
  * the shadow semantic_belief substrate (migration 0120) — the

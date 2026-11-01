@@ -17,7 +17,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
     if (f) await f.close();
   });
 
@@ -43,7 +43,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const results = await search('HNSW Probe Tenant');
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
     expect(results.length).toBeGreaterThan(0);
     // Named by its `name` fact (entity-name.ts) — 'HNSW Probe Tenant' — the
     // reference id stays among the aliases.
@@ -119,7 +119,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const viaKnn = await search('HNSW Probe Tenant');
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
 
     expect(viaKnn.length).toBeGreaterThan(0);
     expect(viaKnn[0]!.canonicalName).toBe(baseline[0]!.canonicalName);
@@ -171,7 +171,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
       process.env.SEARCH_HNSW_ENABLED = '1';
       const results = await search('HNSW Probe Tenant');
-      delete process.env.SEARCH_HNSW_ENABLED;
+      process.env.SEARCH_HNSW_ENABLED = '0';
       expect(results.length).toBeGreaterThan(0);
 
       // A malformed wait is a 400 before any DDL, never a silent default.
@@ -193,7 +193,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const results = await search('HNSW Probe Tenant');
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
     expect(results.length).toBeGreaterThan(0);
   });
 

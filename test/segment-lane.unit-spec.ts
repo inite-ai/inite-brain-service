@@ -11,6 +11,13 @@ import type { EmbedderService } from '../src/ai/embedder.service';
 import type { RerankerService } from '../src/ai/reranker.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
 
+// Production rides the HNSW legs (SEARCH_HNSW_ENABLED); this suite covers
+// the exact scan they fall back to. The KNN path is covered by
+// segment-hnsw.e2e-spec.ts and hnsw.e2e-spec.ts.
+beforeEach(() => {
+  for (const k of ['SEARCH_HNSW_ENABLED']) process.env[k] ??= '0';
+});
+
 describe('windowSession (R1 positional segmentation)', () => {
   const t = (id: string) => ({
     id,

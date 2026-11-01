@@ -544,7 +544,7 @@ describe('pack memory projections (e2e)', () => {
       // the version — all their scenes go at once.
       expect(purge.body.scenes).toBeGreaterThanOrEqual(2);
     } finally {
-      delete process.env.SCENES_SEGMENTATION_ENABLED;
+      process.env.SCENES_SEGMENTATION_ENABLED = '0';
     }
     const remaining = await surreal().withCompany(f.companyId, async (db) => {
       const [eps] = await db.query<[Array<unknown>]>(

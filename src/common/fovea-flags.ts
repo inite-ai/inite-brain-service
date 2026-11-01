@@ -148,7 +148,7 @@ export function plausibilityCheckEnabled(): boolean {
  * enabled — hence default off, so prod answers don't shift until the owner
  * enables + validates. The env read lives here in the common layer, NOT inside
  * the engine dirs (engine-gates S5.2). Read at call time so a flip is
- * runtime-mutable. Default off ⇒ today's behavior byte-identical.
+ * runtime-mutable. Off ⇒ today's behavior byte-identical.
  */
 export function requireCitationsEnabled(): boolean {
   return envFlagNotDisabled(process.env.FOVEA_REQUIRE_CITATIONS);
@@ -178,7 +178,7 @@ export function requireCitationsEnabled(): boolean {
  *
  * SAFETY: the env read lives here in the common layer, NOT inside the engine
  * dirs (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
- * Default off ⇒ the L3 prompt, JSON schema, and transcript lines are
+ * Off ⇒ the L3 prompt, JSON schema, and transcript lines are
  * byte-identical to before and no evidenceCitations field is ever emitted.
  */
 export function l3EpisodeCitationsEnabled(): boolean {
@@ -210,7 +210,7 @@ export function l3EpisodeCitationsEnabled(): boolean {
  *
  * SAFETY: the env read lives here in the common layer, NOT inside the engine
  * dirs (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
- * Default off ⇒ the resolver returns {} — no registry lookup, no verdict
+ * Off ⇒ the resolver returns {} — no registry lookup, no verdict
  * param — serving byte-identical (the answer-integrity precedent).
  */
 export function evidenceCapabilityEnabled(): boolean {
@@ -231,7 +231,7 @@ export function evidenceCapabilityEnabled(): boolean {
  * consulted lazily, only on a fired escalation with fact anchors. The env
  * read lives here in the common layer, NOT inside the engine dirs
  * (engine-gates S5.2). Read at call time so a flip is runtime-mutable.
- * Default off ⇒ the reader is never consulted and anchor ranking is
+ * Off ⇒ the reader is never consulted and anchor ranking is
  * byte-identical to the hint-free path.
  */
 export function attentionHintsEnabled(): boolean {

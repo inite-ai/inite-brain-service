@@ -19,7 +19,7 @@ describe('compaction — retractions and scope (real SurrealDB)', () => {
   });
 
   afterAll(async () => {
-    if (prev === undefined) delete process.env.COMPACTION_SUMMARIES;
+    if (prev === undefined) process.env.COMPACTION_SUMMARIES = '0';
     else process.env.COMPACTION_SUMMARIES = prev;
     if (f) await f.close();
   });

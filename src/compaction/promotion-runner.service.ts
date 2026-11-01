@@ -6,7 +6,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { SUMMARY_GENERATOR } from './compaction.types';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { summaryEpisodeStampEnabled, supportEdgesEnabled } from '../common/provenance-flags';
 import { ungroundedExcludeEnabled } from '../common/evidence-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
@@ -51,7 +51,7 @@ import { compactionOverridesFor } from './compaction-overrides';
  *     down derivedFrom (FactsService), and the originals stay auditable
  *     as compacted rows.
  *
- * Default off (COMPACTION_PROMOTION_ENABLED); bounded per run.
+ * On unless COMPACTION_PROMOTION_ENABLED=0; bounded per run.
  */
 export interface PromotionStats {
   companyId: string;
@@ -108,7 +108,7 @@ export class PromotionRunnerService {
     private readonly embedder: EmbedderService,
     @Optional() @Inject(SUMMARY_GENERATOR) injectedGenerator?: SummaryGenerator,
   ) {
-    this.enabled = envFlagEnabled(config.get<string>('COMPACTION_PROMOTION_ENABLED'));
+    this.enabled = envFlagNotDisabled(config.get<string>('COMPACTION_PROMOTION_ENABLED'));
     this.ageDays = parseInt(config.get<string>('COMPACTION_PROMOTION_AGE_DAYS', '180'), 10);
     this.minGroup = parseInt(config.get<string>('COMPACTION_PROMOTION_MIN_GROUP', '5'), 10);
     this.maxGroups = parseInt(config.get<string>('COMPACTION_PROMOTION_MAX_GROUPS', '20'), 10);
@@ -116,7 +116,9 @@ export class PromotionRunnerService {
     // + competing-sibling guard. The floor is per-tenant overridable via
     // the tenant schedule (compaction-overrides.ts); the guard is boolean.
     this.minEpisodes = parseInt(config.get<string>('COMPACTION_PROMOTION_MIN_EPISODES', '0'), 10);
-    this.conflictGuard = envFlagEnabled(config.get<string>('COMPACTION_PROMOTION_CONFLICT_GUARD'));
+    this.conflictGuard = envFlagNotDisabled(
+      config.get<string>('COMPACTION_PROMOTION_CONFLICT_GUARD'),
+    );
     this.summaryGenerator = injectedGenerator ?? new ConcatSummaryGenerator();
   }
 

@@ -121,8 +121,8 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
       expect(res.status).toBe(201);
       return res.body as { beliefsCreated: number };
     } finally {
-      delete process.env.SCENES_SEGMENTATION_ENABLED;
-      delete process.env.SCENES_BELIEF_PROMOTION;
+      process.env.SCENES_SEGMENTATION_ENABLED = '0';
+      process.env.SCENES_BELIEF_PROMOTION = '0';
     }
   };
 
