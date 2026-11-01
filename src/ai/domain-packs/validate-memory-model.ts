@@ -1,4 +1,4 @@
-import { DomainPackError } from './validate';
+import { DomainPackError } from './domain-pack-error';
 import {
   MM_MAX_ATTENTION_HINTS,
   MM_MAX_CUES,
