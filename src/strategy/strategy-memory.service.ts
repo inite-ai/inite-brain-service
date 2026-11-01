@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { cosineSimilarity } from '../common/vector-math';
 import {
   isVerifiedOutcome,
@@ -217,13 +217,15 @@ export class StrategyMemoryService {
     private readonly embedder: EmbedderService,
     config: ConfigService,
   ) {
-    this.enabled = envFlagEnabled(config.get<string>('STRATEGY_MEMORY_ENABLED'));
-    this.retrievalEnabled = envFlagEnabled(config.get<string>('STRATEGY_RETRIEVAL_ENABLED'));
+    this.enabled = envFlagNotDisabled(config.get<string>('STRATEGY_MEMORY_ENABLED'));
+    this.retrievalEnabled = envFlagNotDisabled(config.get<string>('STRATEGY_RETRIEVAL_ENABLED'));
     // Experience-memory extension (0098): mirrors how STRATEGY_MEMORY_
     // ENABLED is read — constructor-captured, runtimeMutable:false. Off
     // (default) ⇒ trajectory columns are never written or selected, so
     // serving is byte-identical to pre-0098.
-    this.trajectoriesEnabled = envFlagEnabled(config.get<string>('STRATEGY_TRAJECTORIES_ENABLED'));
+    this.trajectoriesEnabled = envFlagNotDisabled(
+      config.get<string>('STRATEGY_TRAJECTORIES_ENABLED'),
+    );
     // Unset/blank must NOT collapse to Number('')===0 (the
     // nonNegativeFloatEnv lesson): an absent knob means DEFAULT 0.4,
     // not "no floor".

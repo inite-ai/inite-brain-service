@@ -57,7 +57,7 @@ describe('RecordsWebhookService (inline, no queue)', () => {
   afterAll(() => {
     if (saved.key === undefined) delete process.env.SOURCE_CREDENTIAL_ENCRYPTION_KEY;
     else process.env.SOURCE_CREDENTIAL_ENCRYPTION_KEY = saved.key;
-    if (saved.flag === undefined) delete process.env.SOURCE_WEBHOOKS;
+    if (saved.flag === undefined) process.env.SOURCE_WEBHOOKS = '0';
     else process.env.SOURCE_WEBHOOKS = saved.flag;
   });
 

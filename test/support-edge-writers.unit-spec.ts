@@ -23,7 +23,7 @@ const SAVED = {
   backlink: process.env.SCENES_FACT_BACKLINK,
 };
 afterEach(() => {
-  if (SAVED.edges === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+  if (SAVED.edges === undefined) process.env.PROVENANCE_SUPPORT_EDGES = '0';
   else process.env.PROVENANCE_SUPPORT_EDGES = SAVED.edges;
   if (SAVED.backlink === undefined) process.env.SCENES_FACT_BACKLINK = '0';
   else process.env.SCENES_FACT_BACKLINK = SAVED.backlink;
@@ -73,7 +73,7 @@ describe('SceneBacklinkService — supported_by edges', () => {
 
   it('flag OFF (default): the query sequence is byte-identical — no memory_support anywhere', async () => {
     process.env.SCENES_FACT_BACKLINK = '1';
-    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
     const { svc, calls } = makeStack();
     const result = await svc.run('co_x');
     expect(result).toEqual({ scenes: 1, factsLinked: 2, stalePointersRemoved: 0 });
@@ -166,7 +166,7 @@ describe('FactResolverService — contradicted_by edges at the postResolve seam'
     calls.filter((c) => c.sql.includes('memory_support'));
 
   it('flag OFF (default): NO memory_support query on any verdict', async () => {
-    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
     const { svc, db, calls } = makeStack({
       outcome: 'SUPERSEDED',
       factId: 'knowledge_fact:new',

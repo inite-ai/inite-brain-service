@@ -126,34 +126,34 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'EVIDENCE_PROCESSOR_BROKER',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Trusted processor broker (migration 0121): dispatch platform-owned processor adapters over registered evidence assets, each execution recorded as an idempotent processing_run row (deterministic id + INSERT IGNORE — replay collides and no-ops). Requires EVIDENCE_SUBSTRATE_ENABLED. Off (default) = dispatch 503s before any query is issued and no row is ever written — byte-identical.',
+      'Trusted processor broker (migration 0121): dispatch platform-owned processor adapters over registered evidence assets, each execution recorded as an idempotent processing_run row (deterministic id + INSERT IGNORE — replay collides and no-ops). Requires EVIDENCE_SUBSTRATE_ENABLED. Off (`0`) = dispatch 503s before any query is issued and no row is ever written.',
   },
   {
     key: 'EVIDENCE_DOCUMENT_BRIDGE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence → document bridge: when a processor run leaves a `document` asset with an asset-level `text` representation (PDF text extraction today), the broker enqueues one `evidence_document_bridge` job per (asset, representation) and the documents module ingests that text through the ordinary document pipeline (kind 'evidence_text', the asset's own vertical/recorder/occurredAt/userId, `source.meta.evidence_bridge = true`, an `evidenceAssetId` provenance hop onto every committed fact's evidence[]). Replayed runs enqueue too, so the operator dispatch sweep doubles as the backfill; the job dedupKey, the document contentHash UNIQUE and the indexer_run ledger keep it idempotent. Requires EVIDENCE_PROCESSOR_BROKER, DOCUMENT_INGEST_ENABLED and the jobs queue. Off (default) = no job is ever enqueued — byte-identical; without it an uploaded PDF yields fragments for retrieval but never a single fact.",
+      "Evidence → document bridge: when a processor run leaves a `document` asset with an asset-level `text` representation (PDF text extraction today), the broker enqueues one `evidence_document_bridge` job per (asset, representation) and the documents module ingests that text through the ordinary document pipeline (kind 'evidence_text', the asset's own vertical/recorder/occurredAt/userId, `source.meta.evidence_bridge = true`, an `evidenceAssetId` provenance hop onto every committed fact's evidence[]). Replayed runs enqueue too, so the operator dispatch sweep doubles as the backfill; the job dedupKey, the document contentHash UNIQUE and the indexer_run ledger keep it idempotent. Requires EVIDENCE_PROCESSOR_BROKER, DOCUMENT_INGEST_ENABLED and the jobs queue. Off (`0`) = no job is ever enqueued — byte-identical; without it an uploaded PDF yields fragments for retrieval but never a single fact.",
   },
   {
     key: 'SOURCE_PLANE_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Source plane master switch (docs/roadmap/raw-evidence-sources-2026-09.md, W0): the operator surface /v1/admin/source-connections (create a connection for a pack's declared `sources` entry, list its catalogue, sync now), the sync engine's `source_sync` job handler and the 5-minute scheduler that enqueues due connections. A connection runs a platform connector (`native`), harvests an MCP server (`mcp`, W2) or is a catalogue a publisher fills (`external`); what it fetches enters the existing door for its shape (document → ingest/document, conversation → ingest/mention, binary → evidence-blob, structure → the record envelope). Off (default) = the routes answer a bare 404, no handler is registered, nothing is ever enqueued and no connector ever runs — byte-identical. The handler registration is read at boot; the admin verbs and sync-now read the flag per call.",
+      "Source plane master switch (docs/roadmap/raw-evidence-sources-2026-09.md, W0): the operator surface /v1/admin/source-connections (create a connection for a pack's declared `sources` entry, list its catalogue, sync now), the sync engine's `source_sync` job handler and the 5-minute scheduler that enqueues due connections. A connection runs a platform connector (`native`), harvests an MCP server (`mcp`, W2) or is a catalogue a publisher fills (`external`); what it fetches enters the existing door for its shape (document → ingest/document, conversation → ingest/mention, binary → evidence-blob, structure → the record envelope). Off (`0`) = the routes answer a bare 404, no handler is registered, nothing is ever enqueued and no connector ever runs. The handler registration is read at boot; the admin verbs and sync-now read the flag per call.",
   },
   {
     key: 'SOURCE_KIND_FS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -162,16 +162,16 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_URL',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `url` source connector (source plane, W1): pages named outright and every page a sitemap lists (indexes followed one level), reduced to text (HTML stripped) or handed to the evidence plane as PDFs per the pack's source entry (web_memory: `site` / `site_media`). Every request — the first and every redirect hop — passes the SSRF egress guard; robots.txt Disallow rules are honoured per host; sameHostOnly keeps a sitemap from enumerating another host; the revision is the sitemap lastmod, else the server's ETag / Last-Modified (one HEAD per URL per run), else a time bucket. Private hosts need SOURCE_EGRESS_ALLOW_PRIVATE AND the connection's allowPrivate. Off (default) = the connector is 'not installed' — byte-identical.",
+      "The `url` source connector (source plane, W1): pages named outright and every page a sitemap lists (indexes followed one level), reduced to text (HTML stripped) or handed to the evidence plane as PDFs per the pack's source entry (web_memory: `site` / `site_media`). Every request — the first and every redirect hop — passes the SSRF egress guard; robots.txt Disallow rules are honoured per host; sameHostOnly keeps a sitemap from enumerating another host; the revision is the sitemap lastmod, else the server's ETag / Last-Modified (one HEAD per URL per run), else a time bucket. Private hosts need SOURCE_EGRESS_ALLOW_PRIVATE AND the connection's allowPrivate. Off (`0`) = the connector is 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_S3',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -180,83 +180,83 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_MCP',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `mcp` source connector (source plane, W2) — the harvester: an MCP server's resources read as a source over Streamable HTTP. `resources/list` is the catalogue (re-walked every run; a resource the listing no longer carries is gone), `resources/read` the fetch, `annotations.lastModified` the revision (else a refetchHours time bucket + content-hash dedup). A pack declares the entry, pinning the server's URL (publisher-operated, `auth: install_secret` = the pack's install secret as bearer) or leaving it to the operator (`config.url`, egress-guarded at create; web_memory: `mcp_resources` / `mcp_resources_media`). Every request leaves through the egress guard; redirects are never followed; private hosts need the double opt-in. The server supplies DATA only — never tools or prompts. Off (default) = 'not installed' — byte-identical.",
+      "The `mcp` source connector (source plane, W2) — the harvester: an MCP server's resources read as a source over Streamable HTTP. `resources/list` is the catalogue (re-walked every run; a resource the listing no longer carries is gone), `resources/read` the fetch, `annotations.lastModified` the revision (else a refetchHours time bucket + content-hash dedup). A pack declares the entry, pinning the server's URL (publisher-operated, `auth: install_secret` = the pack's install secret as bearer) or leaving it to the operator (`config.url`, egress-guarded at create; web_memory: `mcp_resources` / `mcp_resources_media`). Every request leaves through the egress guard; redirects are never followed; private hosts need the double opt-in. The server supplies DATA only — never tools or prompts. Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_GDRIVE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `gdrive` source connector (source plane, W4): a Google Drive folder — My Drive, a folder, a shared drive, optionally what is shared with the account — read as documents (text-like files; Docs / Sheets / Slides exported as text) or handed to the evidence plane (PDFs, office documents, images; native documents exported as OOXML) per the pack's source entry (file_memory: `gdrive` / `gdrive_media`). A full run walks the folder breadth-first through the Drive v3 API; later runs read the changes feed from the checkpointed page token. Runs as a connected Google account (SOURCE_OAUTH_CLIENT, credential `oauth:<grant id>`). Off (default) = 'not installed' — byte-identical.",
+      "The `gdrive` source connector (source plane, W4): a Google Drive folder — My Drive, a folder, a shared drive, optionally what is shared with the account — read as documents (text-like files; Docs / Sheets / Slides exported as text) or handed to the evidence plane (PDFs, office documents, images; native documents exported as OOXML) per the pack's source entry (file_memory: `gdrive` / `gdrive_media`). A full run walks the folder breadth-first through the Drive v3 API; later runs read the changes feed from the checkpointed page token. Runs as a connected Google account (SOURCE_OAUTH_CLIENT, credential `oauth:<grant id>`). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_ONEDRIVE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `onedrive` source connector (source plane, W4): a OneDrive folder or a SharePoint document library — the account's own drive, a drive by id, or a site's default library — read as documents or handed to the evidence plane (file_memory: `onedrive` / `onedrive_media`). Microsoft Graph's delta query is both the first walk and the change feed (the delta link is the checkpoint; an expired one restarts the walk). Bytes come from the item's pre-authenticated download URL, fetched without the bearer. Runs as a connected Microsoft account (SOURCE_OAUTH_CLIENT). Off (default) = 'not installed' — byte-identical.",
+      "The `onedrive` source connector (source plane, W4): a OneDrive folder or a SharePoint document library — the account's own drive, a drive by id, or a site's default library — read as documents or handed to the evidence plane (file_memory: `onedrive` / `onedrive_media`). Microsoft Graph's delta query is both the first walk and the change feed (the delta link is the checkpoint; an expired one restarts the walk). Bytes come from the item's pre-authenticated download URL, fetched without the bearer. Runs as a connected Microsoft account (SOURCE_OAUTH_CLIENT). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_DROPBOX',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `dropbox` source connector (source plane, W4): a Dropbox folder read recursively as documents or handed to the evidence plane (file_memory: `dropbox` / `dropbox_media`). The folder cursor is the change feed (`list_folder/continue` from the checkpointed cursor returns only what changed; a cursor Dropbox reset restarts the walk); `rev` is the revision. Runs as a connected Dropbox account (SOURCE_OAUTH_CLIENT). Off (default) = 'not installed' — byte-identical.",
+      "The `dropbox` source connector (source plane, W4): a Dropbox folder read recursively as documents or handed to the evidence plane (file_memory: `dropbox` / `dropbox_media`). The folder cursor is the change feed (`list_folder/continue` from the checkpointed cursor returns only what changed; a cursor Dropbox reset restarts the walk); `rev` is the revision. Runs as a connected Dropbox account (SOURCE_OAUTH_CLIENT). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_NOTION',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `notion` source connector (source plane, W4.5 — a wiki): the pages a connected Notion integration can see (web_memory: `notion`) — `POST /v1/search` as the catalogue (newest edit first, last_edited_time the revision), the page's block tree rendered markdown-like with a database row's properties as lines above it; `rootPageIds` narrows the walk to subtrees (child pages followed). An incremental run stops at the checkpoint; a full run walks everything and what search no longer lists is gone. Runs as a connected Notion workspace (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_NOTION_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
+      "The `notion` source connector (source plane, W4.5 — a wiki): the pages a connected Notion integration can see (web_memory: `notion`) — `POST /v1/search` as the catalogue (newest edit first, last_edited_time the revision), the page's block tree rendered markdown-like with a database row's properties as lines above it; `rootPageIds` narrows the walk to subtrees (child pages followed). An incremental run stops at the checkpoint; a full run walks everything and what search no longer lists is gone. Runs as a connected Notion workspace (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_NOTION_CLIENT_ID). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_CONFLUENCE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `confluence` source connector (source plane, W4.5 — a wiki): the pages (and blog posts when asked) of a Confluence Cloud site the connected Atlassian account reaches (web_memory: `confluence`), through the v2 REST API at api.atlassian.com/ex/confluence/<cloud id> — the site from accessible-resources (`config.site` names one of several), `spaceKeys` narrows the walk, the listing newest modification first (an incremental run stops at the checkpoint), the version number the revision, storage-format XHTML reduced to text. Runs as a connected Atlassian account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_ATLASSIAN_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
+      "The `confluence` source connector (source plane, W4.5 — a wiki): the pages (and blog posts when asked) of a Confluence Cloud site the connected Atlassian account reaches (web_memory: `confluence`), through the v2 REST API at api.atlassian.com/ex/confluence/<cloud id> — the site from accessible-resources (`config.site` names one of several), `spaceKeys` narrows the walk, the listing newest modification first (an incremental run stops at the checkpoint), the version number the revision, storage-format XHTML reduced to text. Runs as a connected Atlassian account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_ATLASSIAN_CLIENT_ID). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_GMAIL',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `gmail` source connector (source plane, W4.6 — mail): a Gmail mailbox through the Gmail REST API as a connected Google account (gmail.readonly; the brain never labels or deletes). One catalogue row per message (its id is its revision), `messages.list` with the connection's own Gmail query plus `after:<since>` (the operator's date on a first walk, the checkpoint's walk time less a day on an incremental one), newest first, capped by `maxMessages`; deletions from the history feed. A message is fetched raw and enters the mention door as ONE TURN of its thread (mail_memory: `gmail`) — sender as the speaker, quoted replies and signatures stripped, attachments named; the `gmail_attachments` entry hands the attachments themselves to the evidence plane. Runs as a connected Google account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GOOGLE_CLIENT_ID). Off (default) = 'not installed' — byte-identical.",
+      "The `gmail` source connector (source plane, W4.6 — mail): a Gmail mailbox through the Gmail REST API as a connected Google account (gmail.readonly; the brain never labels or deletes). One catalogue row per message (its id is its revision), `messages.list` with the connection's own Gmail query plus `after:<since>` (the operator's date on a first walk, the checkpoint's walk time less a day on an incremental one), newest first, capped by `maxMessages`; deletions from the history feed. A message is fetched raw and enters the mention door as ONE TURN of its thread (mail_memory: `gmail`) — sender as the speaker, quoted replies and signatures stripped, attachments named; the `gmail_attachments` entry hands the attachments themselves to the evidence plane. Runs as a connected Google account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GOOGLE_CLIENT_ID). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_IMAP',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `imap` source connector (source plane, W4.6 — mail): any mailbox over IMAP — a host, a user and the mailbox password (an app password) as the credential, TLS on 993 (a plain socket only under the private opt-in), read-only: greeting, LOGIN, EXAMINE, UID SEARCH, UID FETCH, LOGOUT and nothing else (no STARTTLS, no IDLE, no OAuth over IMAP). One row per message, the Message-ID its id and revision, the RFC 5092 URL its origin; a first walk reads `SINCE <since>` (the newest `maxMessages` per mailbox), an incremental run only what is above the checkpoint's highest UID, a mailbox whose UIDVALIDITY moved is walked again; a full walk finds what was deleted. A message enters the mention door as one turn of the thread its References name (mail_memory: `imap`). Off (default) = 'not installed' — byte-identical.",
+      "The `imap` source connector (source plane, W4.6 — mail): any mailbox over IMAP — a host, a user and the mailbox password (an app password) as the credential, TLS on 993 (a plain socket only under the private opt-in), read-only: greeting, LOGIN, EXAMINE, UID SEARCH, UID FETCH, LOGOUT and nothing else (no STARTTLS, no IDLE, no OAuth over IMAP). One row per message, the Message-ID its id and revision, the RFC 5092 URL its origin; a first walk reads `SINCE <since>` (the newest `maxMessages` per mailbox), an incremental run only what is above the checkpoint's highest UID, a mailbox whose UIDVALIDITY moved is walked again; a full walk finds what was deleted. A message enters the mention door as one turn of the thread its References name (mail_memory: `imap`). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_PIPEDRIVE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `pipedrive` source connector (source plane, W4.2 — the first CRM on the records contract, docs/roadmap/crm-sources-2026-09.md): deals, persons and organizations of a Pipedrive account through API v2 (`updated_since` + cursor per entity, stage / pipeline / owner ids resolved to names once per run), as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID) or with an API token. Every record enters the records door: its mapped attributes become facts deterministically (crm_memory), the record's own id is the entity's identity, a changed value supersedes the old one, a record gone at the source closes them. Off (default) = 'not installed' — byte-identical.",
+      "The `pipedrive` source connector (source plane, W4.2 — the first CRM on the records contract, docs/roadmap/crm-sources-2026-09.md): deals, persons and organizations of a Pipedrive account through API v2 (`updated_since` + cursor per entity, stage / pipeline / owner ids resolved to names once per run), as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID) or with an API token. Every record enters the records door: its mapped attributes become facts deterministically (crm_memory), the record's own id is the entity's identity, a changed value supersedes the old one, a record gone at the source closes them. Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_OAUTH_PIPEDRIVE_CLIENT_ID',
@@ -289,11 +289,11 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_HUBSPOT',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `hubspot` source connector (source plane, W4.2b — a CRM on the records contract, docs/roadmap/crm-sources-2026-09.md): deals, contacts and companies of a HubSpot portal through the CRM v3 Search API (one query per object sorted by last-modified, `GTE since` for the incremental walk, `after` cursor, the 10 000-result cap narrowed into windows; associations batch-read per page; owners / deal pipelines / lifecycle stages resolved to labels once per run), as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_HUBSPOT_CLIENT_ID; scopes crm.objects.{deals,contacts,companies,owners}.read) or with a private-app access token. Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+      "The `hubspot` source connector (source plane, W4.2b — a CRM on the records contract, docs/roadmap/crm-sources-2026-09.md): deals, contacts and companies of a HubSpot portal through the CRM v3 Search API (one query per object sorted by last-modified, `GTE since` for the incremental walk, `after` cursor, the 10 000-result cap narrowed into windows; associations batch-read per page; owners / deal pipelines / lifecycle stages resolved to labels once per run), as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_HUBSPOT_CLIENT_ID; scopes crm.objects.{deals,contacts,companies,owners}.read) or with a private-app access token. Records enter the records door (crm_memory). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_OAUTH_HUBSPOT_CLIENT_ID',
@@ -325,7 +325,7 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_BITRIX24',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -334,20 +334,20 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_KOMMO',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). Runs as a CONNECTED ACCOUNT (W4.3b: SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_KOMMO_CLIENT_ID — an integration of the operator's; the account's host from the callback's `referer`, the 24-hour token refreshed there by the engine) or on a LONG-LIVED TOKEN of a private integration (a bearer) with `config.baseUrl` naming the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`; it overrides the grant's host when both are given). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+      "The `kommo` source connector (source plane, W4.2b — a CRM on the records contract): leads (deals), contacts and companies of a Kommo / amoCRM account through API v4 (`filter[updated_at][from]` + `page`, 250 a page, `with=contacts`; pipelines / statuses / users / loss reasons resolved to names once per run; the account currency on every lead). Runs as a CONNECTED ACCOUNT (W4.3b: SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_KOMMO_CLIENT_ID — an integration of the operator's; the account's host from the callback's `referer`, the 24-hour token refreshed there by the engine) or on a LONG-LIVED TOKEN of a private integration (a bearer) with `config.baseUrl` naming the account (`https://<subdomain>.kommo.com` / `.amocrm.ru`; it overrides the grant's host when both are given). Records enter the records door (crm_memory). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_KIND_SALESFORCE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `salesforce` source connector (source plane, W4.2c — a CRM on the records contract, docs/roadmap/crm-sources-2026-09.md § 4.2.1): opportunities, contacts, accounts, leads and cases of a Salesforce org through SOQL over REST (one query per object ordered by LastModifiedDate, `LastModifiedDate > since` for the incremental walk, `nextRecordsUrl` paging; owner / account names as relationship fields; the deleted-ids feed closes what was deleted since the checkpoint), Bulk API 2.0 for a large org's first walk when the connection asks (`config.bulk`). Runs as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_SALESFORCE_CLIENT_ID; scope `api`; the org from the grant's `instance_url`, `config.instanceUrl` overrides) or as an integration user through a JWT bearer (the credential is a JSON { clientId, username, privateKey, loginUrl? }; no browser, no refresh token). Records enter the records door (crm_memory). Off (default) = 'not installed' — byte-identical.",
+      "The `salesforce` source connector (source plane, W4.2c — a CRM on the records contract, docs/roadmap/crm-sources-2026-09.md § 4.2.1): opportunities, contacts, accounts, leads and cases of a Salesforce org through SOQL over REST (one query per object ordered by LastModifiedDate, `LastModifiedDate > since` for the incremental walk, `nextRecordsUrl` paging; owner / account names as relationship fields; the deleted-ids feed closes what was deleted since the checkpoint), Bulk API 2.0 for a large org's first walk when the connection asks (`config.bulk`). Runs as a connected account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_SALESFORCE_CLIENT_ID; scope `api`; the org from the grant's `instance_url`, `config.instanceUrl` overrides) or as an integration user through a JWT bearer (the credential is a JSON { clientId, username, privateKey, loginUrl? }; no browser, no refresh token). Records enter the records door (crm_memory). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_OAUTH_SALESFORCE_CLIENT_ID',
@@ -519,11 +519,11 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_GITHUB',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "The `github` source connector (source plane, W4.8 — the forge): one GitHub repository over the REST API, as a connected GitHub account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GITHUB_CLIENT_ID) or with a token that can read it. Two shapes of the same repository (code_memory): `github_issues` — every issue and pull request as one conversation (body + every comment, each speaking as its author, `updated_at` the revision) through the mention door; `github_docs` — the text files of the default branch (or `ref`) from one recursive tree call, the blob sha the revision, judged by the same media table as a folder. Read-only: the brain never comments, labels or closes. A GitHub Enterprise host is reached with `config.baseUrl` (+ `allowPrivate` for a host inside the network). Off (default) = 'not installed' — byte-identical.",
+      "The `github` source connector (source plane, W4.8 — the forge): one GitHub repository over the REST API, as a connected GitHub account (SOURCE_OAUTH_CLIENT + SOURCE_OAUTH_GITHUB_CLIENT_ID) or with a token that can read it. Two shapes of the same repository (code_memory): `github_issues` — every issue and pull request as one conversation (body + every comment, each speaking as its author, `updated_at` the revision) through the mention door; `github_docs` — the text files of the default branch (or `ref`) from one recursive tree call, the blob sha the revision, judged by the same media table as a folder. Read-only: the brain never comments, labels or closes. A GitHub Enterprise host is reached with `config.baseUrl` (+ `allowPrivate` for a host inside the network). Off (`0`) = 'not installed'.",
   },
   {
     key: 'SOURCE_OAUTH_GITHUB_CLIENT_ID',
@@ -655,7 +655,7 @@ export const CATALOG_PART_04: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_KIND_GITLAB',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

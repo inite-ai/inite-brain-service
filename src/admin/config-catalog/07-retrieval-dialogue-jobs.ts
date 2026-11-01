@@ -7,7 +7,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read at call time (common/beliefs-flags.ts) — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -18,7 +18,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read at call time (common/beliefs-flags.ts) — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -29,7 +29,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     category: 'pipeline',
     // Read at call time (common/beliefs-flags.ts) — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -38,20 +38,20 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'PROVENANCE_SUMMARY_EPISODE_STAMP',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, write side (Brain v2 gap #5): every summary-producing writer — promotion runner, compaction rollups, recompose rewrites, arc/aggregate composers — stamps the union of its members' source.episodeIds onto the summary row's source (window-deriver idiom: 'episode:'-prefixed, deduped, member order preserved, capped at 64), so a summary keeps a direct line to the verbatim turns behind its members. No backfill: the recursive closure reads member stamps through derivedFrom, and recompose re-stamps incrementally as summaries recompute. Off (default) → every summary write is byte-identical (no episodeIds key, no SET fragment).",
+      "Evidence plane, write side (Brain v2 gap #5): every summary-producing writer — promotion runner, compaction rollups, recompose rewrites, arc/aggregate composers — stamps the union of its members' source.episodeIds onto the summary row's source (window-deriver idiom: 'episode:'-prefixed, deduped, member order preserved, capped at 64), so a summary keeps a direct line to the verbatim turns behind its members. No backfill: the recursive closure reads member stamps through derivedFrom, and recompose re-stamps incrementally as summaries recompute. Off (`0`) → every summary write is byte-identical (no episodeIds key, no SET fragment).",
   },
   {
     key: 'PROVENANCE_RECURSIVE_CLOSURE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Evidence plane, read side (Brain v2 gap #6): GET /v1/facts/:id/provenance of a fact WITH derivedFrom walks the support graph breadth-first (bounded by PROVENANCE_CLOSURE_MAX_DEPTH/_FACTS/_EPISODES) and serves the union of grounding episodes across the closure plus optional derivedFacts (factId/predicate/depth/status — compacted/retracted members still witness, status reported not hidden) and closure ({depth, factCount, truncated, filtered}) fields. Every member passes the same fences as the root (user scope, scope tags, row policy); an invisible member is a SILENT drop marked filtered:true — the root keeps its exact 404 semantics. Off (default) → the one-hop response is byte-identical (optional fields absent).',
+      'Evidence plane, read side (Brain v2 gap #6): GET /v1/facts/:id/provenance of a fact WITH derivedFrom walks the support graph breadth-first (bounded by PROVENANCE_CLOSURE_MAX_DEPTH/_FACTS/_EPISODES) and serves the union of grounding episodes across the closure plus optional derivedFacts (factId/predicate/depth/status — compacted/retracted members still witness, status reported not hidden) and closure ({depth, factCount, truncated, filtered}) fields. Every member passes the same fences as the root (user scope, scope tags, row policy); an invisible member is a SILENT drop marked filtered:true — the root keeps its exact 404 semantics. Off (`0`) → the one-hop response is byte-identical (optional fields absent).',
   },
   {
     key: 'PROVENANCE_CLOSURE_MAX_DEPTH',
@@ -83,29 +83,29 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'PROVENANCE_SUPPORT_EDGES',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Typed support graph, write side (Drift-5, migration 0116): writers emit canonical memory_support edges — scene-backlink adds fact-supported_by->scene edges alongside the legacy source.memoryEpisodeIds stamps, the conflict resolver records loser-contradicted_by->winner on SUPERSEDED and mutual pairs on COMPETING (capped 20), and promotion/compaction/recompose mirror derivedFrom as summary-derived_from->member edges (recompose deletes-then-reinserts its summary's edges to track rewrites). Idempotent via UNIQUE(in,out,kind) + INSERT RELATION IGNORE. GDPR cascades erase edges regardless of this flag. Off (default) → no edge is ever written, every writer's queries byte-identical.",
+      "Typed support graph, write side (Drift-5, migration 0116): writers emit canonical memory_support edges — scene-backlink adds fact-supported_by->scene edges alongside the legacy source.memoryEpisodeIds stamps, the conflict resolver records loser-contradicted_by->winner on SUPERSEDED and mutual pairs on COMPETING (capped 20), and promotion/compaction/recompose mirror derivedFrom as summary-derived_from->member edges (recompose deletes-then-reinserts its summary's edges to track rewrites). Idempotent via UNIQUE(in,out,kind) + INSERT RELATION IGNORE. GDPR cascades erase edges regardless of this flag. Off (`0`) → no edge is ever written, every writer's queries byte-identical.",
   },
   {
     key: 'PROVENANCE_SUPPORT_GRAPH_READ',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Typed support graph, read side (Drift-5): the provenance closure walk (PROVENANCE_RECURSIVE_CLOSURE) additionally follows derived_from edges as children (same visited set, same depth/fact/episode caps) and returns the supported_by/contradicted_by/derived_from edges it crossed in a new optional supportEdges response field; a root with typed edges but an empty derivedFrom array now walks too. Members pass the same per-row fences; edge targets are classified via EvidenceRef prefixes. Off (default) → the walk and the provenance response are byte-identical (field absent, not empty).',
+      'Typed support graph, read side (Drift-5): the provenance closure walk (PROVENANCE_RECURSIVE_CLOSURE) additionally follows derived_from edges as children (same visited set, same depth/fact/episode caps) and returns the supported_by/contradicted_by/derived_from edges it crossed in a new optional supportEdges response field; a root with typed edges but an empty derivedFrom array now walks too. Members pass the same per-row fences; edge targets are classified via EvidenceRef prefixes. Off (`0`) → the walk and the provenance response are byte-identical (field absent, not empty).',
   },
   {
     key: 'PROVENANCE_EPISODE_NEIGHBOURS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      "Evidence plane, read side: the one-hop GET /v1/facts/:id/provenance read widens to the ±radius sibling turns of the SAME conversation around each primary grounding turn (radius = PROVENANCE_EPISODE_NEIGHBOUR_RADIUS, clamped 1..3) — a mention-extracted fact stamps exactly ONE turn, so a verbatim constraint in the neighbouring paraphrased turn is otherwise unreachable from the fact. Neighbours are fetched through the shared episode read port with the IDENTICAL fences as the primary fetch (PII gate + fail-closed user pin keyed to the same userId + scope-tag fence) and carry relation:'neighbour' on the wire; primary episodes keep their exact shape and always serve — neighbours only fill the remaining PROVENANCE_CLOSURE_MAX_EPISODES budget, admitted chronologically. Off (default) → no window query is issued and the response is byte-identical (no relation key).",
+      "Evidence plane, read side: the one-hop GET /v1/facts/:id/provenance read widens to the ±radius sibling turns of the SAME conversation around each primary grounding turn (radius = PROVENANCE_EPISODE_NEIGHBOUR_RADIUS, clamped 1..3) — a mention-extracted fact stamps exactly ONE turn, so a verbatim constraint in the neighbouring paraphrased turn is otherwise unreachable from the fact. Neighbours are fetched through the shared episode read port with the IDENTICAL fences as the primary fetch (PII gate + fail-closed user pin keyed to the same userId + scope-tag fence) and carry relation:'neighbour' on the wire; primary episodes keep their exact shape and always serve — neighbours only fill the remaining PROVENANCE_CLOSURE_MAX_EPISODES budget, admitted chronologically. Off (`0`) → no window query is issued and the response is byte-identical (no relation key).",
   },
   {
     key: 'PROVENANCE_EPISODE_NEIGHBOUR_RADIUS',
@@ -128,11 +128,11 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'EPISODE_SUBSCRIPTIONS_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Raw-substrate driver v1, surface 4 (migration 0077): new-episode webhook push for external projection builders. POST/GET/DELETE /v1/episodes/subscriptions registers HTTPS endpoints (per-subscription HMAC secret returned once); a per-minute dispatcher polls each tenant watermark over recordedAt (deliberately NOT changefeed-driven — 0073 keeps the episode table feed-free for GDPR) and POSTs metadata-only batches (ids/attribution/timestamps, never text) signed X-Brain-Signature: sha256=<hmac>. At-least-once delivery, CAS watermark advance, circuit breaker, auto-deactivate at 100 consecutive failures. Enable on ONE role (worker) in prod. Off (default) → routes 404, dispatcher inert.',
+      'Raw-substrate driver v1, surface 4 (migration 0077): new-episode webhook push for external projection builders. POST/GET/DELETE /v1/episodes/subscriptions registers HTTPS endpoints (per-subscription HMAC secret returned once); a per-minute dispatcher polls each tenant watermark over recordedAt (deliberately NOT changefeed-driven — 0073 keeps the episode table feed-free for GDPR) and POSTs metadata-only batches (ids/attribution/timestamps, never text) signed X-Brain-Signature: sha256=<hmac>. At-least-once delivery, CAS watermark advance, circuit breaker, auto-deactivate at 100 consecutive failures. Enable on ONE role (worker) in prod. Off (`0`) → routes 404, dispatcher inert.',
   },
   {
     key: 'USER_PROFILE_API_ENABLED',
@@ -146,7 +146,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_INSTRUCTION_LANE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -155,7 +155,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_LANE_WIDE_PROBE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -173,7 +173,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SYNTHESIZE_ANSWER_CACHE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -317,11 +317,11 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'EXTRACTION_OBJECT_NORMALIZE',
     category: 'extractor',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      'Object normalization (E3b, engine wave 2026-08): the span-grounded extractor also proposes "object" — the minimal clean phrase naming the value ("camped in the mountains with my kids" → "the mountains"); the server admits it only when every word already appears in the grounded span, else falls back to the raw span. Fixes the measured aggregation failure (values scattered across verbal phrasings cannot converge for "list all X"). valueSpan is kept on the fact for audit. Inactive under EXTRACTOR_DIALOGUE_PROFILE (that profile normalizes via its own contract). Default off pending a paid confirm leg — extraction prompt changes have regressed before. Requires re-ingest.',
+      'Object normalization (E3b, engine wave 2026-08): the span-grounded extractor also proposes "object" — the minimal clean phrase naming the value ("camped in the mountains with my kids" → "the mountains"); the server admits it only when every word already appears in the grounded span, else falls back to the raw span. Fixes the measured aggregation failure (values scattered across verbal phrasings cannot converge for "list all X"). valueSpan is kept on the fact for audit. Inactive under EXTRACTOR_DIALOGUE_PROFILE (that profile normalizes via its own contract). Default on pending a paid confirm leg — extraction prompt changes have regressed before. Requires re-ingest.',
   },
   // ── Dialogue memory mode ────────────────────────────────────────
   // All default-off and all requiring a re-ingest: they change what gets
@@ -475,20 +475,20 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'STRATEGY_MEMORY_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      "Strategy-memory lane master switch (migration 0092, ReasoningBank shape): a SEPARATE strategy_memory store of distilled how-to-answer lessons — advice, never evidence, structurally isolated from every fact lane. On → the 'strategy' lane joins the profile lane set (requires the answer router), the /v1/admin/strategy endpoints answer, and the lifecycle cron may run. Serving additionally requires STRATEGY_RETRIEVAL_ENABLED. Off (default) → endpoints 404, lane absent, cron inert.",
+      "Strategy-memory lane master switch (migration 0092, ReasoningBank shape): a SEPARATE strategy_memory store of distilled how-to-answer lessons — advice, never evidence, structurally isolated from every fact lane. On → the 'strategy' lane joins the profile lane set (requires the answer router), the /v1/admin/strategy endpoints answer, and the lifecycle cron may run. Serving additionally requires STRATEGY_RETRIEVAL_ENABLED. Off (`0`) → endpoints 404, lane absent, cron inert.",
   },
   {
     key: 'STRATEGY_RETRIEVAL_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      'Read-side serving switch of the strategy-memory lane: on (with the master flag) the evidence collector retrieves k=1 (hard cap 2) active strategy items above STRATEGY_SIMILARITY_FLOOR and renders them as a fenced ADVISORY section for the GENERATOR ONLY — the verifier never sees them (documented parity exception: guidance, not evidence). Off (default) → distill/list/curate still work, nothing is served.',
+      'Read-side serving switch of the strategy-memory lane: on (with the master flag) the evidence collector retrieves k=1 (hard cap 2) active strategy items above STRATEGY_SIMILARITY_FLOOR and renders them as a fenced ADVISORY section for the GENERATOR ONLY — the verifier never sees them (documented parity exception: guidance, not evidence). Off (`0`) → distill/list/curate still work, nothing is served.',
   },
   {
     key: 'STRATEGY_SIMILARITY_FLOOR',
@@ -502,7 +502,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'STRATEGY_DISTILL_CRON_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -511,11 +511,11 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'STRATEGY_TRAJECTORIES_ENABLED',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      'Experience-memory extension of the strategy lane (migration 0098, bet #3 Part 3): store TOOL TRAJECTORIES + verified outcomes alongside the advice string. On (with STRATEGY_MEMORY_ENABLED) → the POST /v1/admin/strategy/trajectory capture endpoint answers (a completed tool-run + outcome distills into a trajectory-bearing item via the same Mem0 dedup), and served items render their past tool path into the GENERATOR advisory. Args/results are stored as one-way DIGESTS, never raw (no secrets/PII). The G4 verifier-parity exception is INVIOLABLE — a trajectory reaches the generator only, never the verifier or citations; it is more trap-exposed than the advice string, so enabling should ride §4.3 lens-suppression + the verifier answer-integrity arm. Off (default) → capture 404s, no trajectory column is written or read (byte-identical to pre-0098).',
+      'Experience-memory extension of the strategy lane (migration 0098, bet #3 Part 3): store TOOL TRAJECTORIES + verified outcomes alongside the advice string. On (with STRATEGY_MEMORY_ENABLED) → the POST /v1/admin/strategy/trajectory capture endpoint answers (a completed tool-run + outcome distills into a trajectory-bearing item via the same Mem0 dedup), and served items render their past tool path into the GENERATOR advisory. Args/results are stored as one-way DIGESTS, never raw (no secrets/PII). The G4 verifier-parity exception is INVIOLABLE — a trajectory reaches the generator only, never the verifier or citations; it is more trap-exposed than the advice string, so enabling should ride §4.3 lens-suppression + the verifier answer-integrity arm. Off (`0`) → capture 404s, no trajectory column is written or read (byte-identical to pre-0098).',
   },
   // ── Jobs ─────────────────────────────────────────────────
   {

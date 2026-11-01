@@ -77,7 +77,7 @@ function stubOpenAI(verdict: string, citedId = 'f1') {
               {
                 message: {
                   content: isVerifier
-                    ? JSON.stringify({ verdict })
+                    ? JSON.stringify({ verdict, questionAnswered: true })
                     : JSON.stringify({ answer: `Maya [${citedId}].`, citedFactIds: [citedId] }),
                 },
                 finish_reason: 'stop',
@@ -256,7 +256,7 @@ describe('SynthesizeService — 0107 outcome writer seams', () => {
       expect(named(calls, 'used_in_answer')).toHaveLength(0);
       expect(named(calls, 'verifier_supported')).toHaveLength(0);
     } finally {
-      delete process.env.EVIDENCE_UNGROUNDED_SERVING_GATE;
+      process.env.EVIDENCE_UNGROUNDED_SERVING_GATE = '0';
     }
   });
 

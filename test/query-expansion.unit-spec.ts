@@ -66,12 +66,12 @@ describe('buildEntityExpansionQuery', () => {
 describe('profile entityExpansion resolution', () => {
   const saved = process.env.RETRIEVAL_ENTITY_EXPANSION;
   afterEach(() => {
-    if (saved === undefined) delete process.env.RETRIEVAL_ENTITY_EXPANSION;
+    if (saved === undefined) process.env.RETRIEVAL_ENTITY_EXPANSION = '0';
     else process.env.RETRIEVAL_ENTITY_EXPANSION = saved;
   });
 
   it('defaults off; env and per-tenant overrides win', () => {
-    delete process.env.RETRIEVAL_ENTITY_EXPANSION;
+    process.env.RETRIEVAL_ENTITY_EXPANSION = '0';
     expect(resolveRetrievalProfileFor('co_x').entityExpansion).toBe(false);
     process.env.RETRIEVAL_ENTITY_EXPANSION = '1';
     expect(resolveRetrievalProfileFor('co_x').entityExpansion).toBe(true);

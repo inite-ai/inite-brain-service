@@ -73,7 +73,7 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
   const savedFlag = process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
   const realFetch = global.fetch;
   afterEach(() => {
-    if (savedFlag === undefined) delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
+    if (savedFlag === undefined) process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '0';
     else process.env.EPISODE_SUBSCRIPTIONS_ENABLED = savedFlag;
     global.fetch = realFetch;
   });
@@ -94,7 +94,7 @@ describe('EpisodeSubscriptionService (driver surface 4)', () => {
   });
 
   it('dispatchTick is inert when the flag is off', async () => {
-    delete process.env.EPISODE_SUBSCRIPTIONS_ENABLED;
+    process.env.EPISODE_SUBSCRIPTIONS_ENABLED = '0';
     const { svc, queries } = makeService({});
     await svc.dispatchTick();
     expect(queries).toHaveLength(0);

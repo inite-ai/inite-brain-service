@@ -498,7 +498,7 @@ function validateAbacEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
  */
 function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
-    envFlagEnabled(env.EVIDENCE_FAIL_CLOSED_CAPTURE) &&
+    envFlagNotDisabled(env.EVIDENCE_FAIL_CLOSED_CAPTURE) &&
     !envFlagNotDisabled(env.EPISODE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
@@ -519,7 +519,7 @@ function validateEvidenceGroundingEnv(env: NodeJS.ProcessEnv, warnings: string[]
  */
 function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
   if (
-    envFlagEnabled(env.EVIDENCE_PROCESSOR_BROKER) &&
+    envFlagNotDisabled(env.EVIDENCE_PROCESSOR_BROKER) &&
     !envFlagNotDisabled(env.EVIDENCE_SUBSTRATE_ENABLED)
   ) {
     warnings.push(
@@ -538,7 +538,10 @@ function validateEvidenceProcessingEnv(env: NodeJS.ProcessEnv, warnings: string[
  * idiom: warn, don't refuse).
  */
 function validateBeliefServingEnv(env: NodeJS.ProcessEnv, warnings: string[]): void {
-  if (envFlagEnabled(env.BELIEFS_FACT_DAMPING) && !envFlagEnabled(env.BELIEFS_SERVING_LANE)) {
+  if (
+    envFlagNotDisabled(env.BELIEFS_FACT_DAMPING) &&
+    !envFlagNotDisabled(env.BELIEFS_SERVING_LANE)
+  ) {
     warnings.push(
       'BELIEFS_FACT_DAMPING is set while BELIEFS_SERVING_LANE is not — damping keys off ' +
         'the serving lane’s matched beliefs, so it is a no-op until BELIEFS_SERVING_LANE ' +
@@ -648,7 +651,7 @@ function validateEvidenceUploadEnv(env: NodeJS.ProcessEnv, warnings: string[]): 
         'EVIDENCE_SUBSTRATE_ENABLED is turned on.',
     );
   }
-  if (!envFlagEnabled(env.EVIDENCE_QUARANTINE)) {
+  if (!envFlagNotDisabled(env.EVIDENCE_QUARANTINE)) {
     warnings.push(
       'EVIDENCE_BLOB_UPLOAD_ENABLED is set while EVIDENCE_QUARANTINE is not — ' +
         'uploaded bytes register as external ingest, which the store refuses ' +

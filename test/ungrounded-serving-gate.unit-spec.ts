@@ -129,12 +129,12 @@ describe('resolveUngroundedSupport', () => {
     warns.length = 0;
   });
   afterEach(() => {
-    if (saved === undefined) delete process.env.EVIDENCE_UNGROUNDED_SERVING_GATE;
+    if (saved === undefined) process.env.EVIDENCE_UNGROUNDED_SERVING_GATE = '0';
     else process.env.EVIDENCE_UNGROUNDED_SERVING_GATE = saved;
   });
 
   it('flag OFF (default) → {} and NO fetch', async () => {
-    delete process.env.EVIDENCE_UNGROUNDED_SERVING_GATE;
+    process.env.EVIDENCE_UNGROUNDED_SERVING_GATE = '0';
     const { fetch, calls } = port([{ groundingStatus: 'ungrounded' }]);
     const out = await resolveUngroundedSupport(
       { fetchGrounding: fetch, logger },

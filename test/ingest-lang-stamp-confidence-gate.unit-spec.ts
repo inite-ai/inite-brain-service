@@ -32,6 +32,12 @@ import { MetricsService } from '../src/metrics/metrics.service';
 import type { EpisodeRow } from '../src/episodes/session-window';
 import type { DerivedProposition } from '../src/admin/deriver-client';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE ??= '0';
+});
+
 const GATE = 'MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE';
 const ATTR = 'MULTILINGUAL_LANG_ATTRIBUTION';
 
@@ -66,9 +72,9 @@ describe('the shared confidence floor', () => {
     expect(LANG_HIGH_CONFIDENCE).toBe(0.5);
   });
 
-  it('langStampConfidenceGateEnabled defaults off; env flag flips it (per-call)', async () => {
+  it('langStampConfidenceGateEnabled defaults on; 0 switches it off (per-call)', async () => {
     await withEnv({ [GATE]: undefined }, () => {
-      expect(langStampConfidenceGateEnabled()).toBe(false);
+      expect(langStampConfidenceGateEnabled()).toBe(true);
     });
     await withEnv({ [GATE]: '1' }, () => {
       expect(langStampConfidenceGateEnabled()).toBe(true);
@@ -130,7 +136,7 @@ describe('FactResolverService — write-side stamp gate', () => {
     qs.find((q) => q.sql.includes('langSource ='));
 
   it('gate OFF (pin) → the below-floor detection stamps lang as today, no detectedLang', async () => {
-    await withEnv({ [GATE]: undefined, [ATTR]: '1' }, async () => {
+    await withEnv({ [GATE]: '0', [ATTR]: '1' }, async () => {
       const { svc, db, queries } = make();
       await svc.resolve(db as never, input(LOW_CONF_OBJECT));
       expect(factCall(queries)!.params.lang).toBe('it');
@@ -143,7 +149,7 @@ describe('FactResolverService — write-side stamp gate', () => {
   });
 
   it('gate OFF + attribution OFF (pin) → Phase-4 stamp, no attribution UPDATE at all', async () => {
-    await withEnv({ [GATE]: undefined, [ATTR]: undefined }, async () => {
+    await withEnv({ [GATE]: '0', [ATTR]: undefined }, async () => {
       const { svc, db, queries } = make();
       await svc.resolve(db as never, input(LOW_CONF_OBJECT));
       expect(factCall(queries)!.params.lang).toBe('it');
@@ -278,7 +284,7 @@ describe('buildDerivedRows — write-side stamp gate', () => {
   }
 
   it('gate OFF (pin) → the below-floor detection stamps lang as today', async () => {
-    await withEnv({ [GATE]: undefined }, () => {
+    await withEnv({ [GATE]: '0' }, () => {
       const row = build(LOW_CONF_OBJECT)[0]!;
       expect(row.lang).toBe('it');
       expect(row.script).toBe('Latn');

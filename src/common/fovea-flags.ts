@@ -269,7 +269,7 @@ export function attentionHintsEnabled(): boolean {
  * byte-identical serving.
  */
 export function fragmentZoomEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_FRAGMENT_ZOOM);
+  return envFlagNotDisabled(process.env.FOVEA_FRAGMENT_ZOOM);
 }
 
 /** Default per-fragment char cap on the zoomed derived text. */

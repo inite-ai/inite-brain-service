@@ -170,7 +170,7 @@ export function resolveExtractionProfile(
   const threshold = parseFloat(env.EXTRACTOR_LOCAL_PREDICATE_THRESHOLD ?? '0.45');
   return {
     vocabulary: open ? 'open' : 'closed',
-    normalizeObjects: envFlagEnabled(env.EXTRACTION_OBJECT_NORMALIZE),
+    normalizeObjects: envFlagNotDisabled(env.EXTRACTION_OBJECT_NORMALIZE),
     dropSaid: envFlagNotDisabled(env.EXTRACTOR_DROP_SAID),
     skipLlmPrePass: envFlagEnabled(env.EXTRACTOR_SKIP_LLM_ENABLED),
     refinePredicateThreshold: Number.isFinite(threshold) ? threshold : 0.45,

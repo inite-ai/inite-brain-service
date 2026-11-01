@@ -367,7 +367,9 @@ describe('EvidenceCollectorService — fragment lane gating', () => {
         return { lines: ['x'], byId: new Map() };
       },
     } as unknown as FragmentLaneService;
-    const out = await collectorWith(lane).collect(collectArgs(profileWith({})));
+    const out = await collectorWith(lane).collect(
+      collectArgs(profileWith({ fragmentLane: false })),
+    );
     expect(out.fragmentLines).toEqual([]);
     expect(out.fragmentsById).toBeUndefined();
     expect(called).toEqual([]);

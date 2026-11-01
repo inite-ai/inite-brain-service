@@ -15,6 +15,17 @@ import { createApp } from './app-fixture';
 import { mockSynthesizeOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
 
+// Each test reads what the generator and verifier were given for a query
+// the suite repeats; a cached answer skips both, so the cache is off here.
+const savedAnswerCache = process.env.SYNTHESIZE_ANSWER_CACHE;
+beforeAll(() => {
+  process.env.SYNTHESIZE_ANSWER_CACHE = '0';
+});
+afterAll(() => {
+  if (savedAnswerCache === undefined) delete process.env.SYNTHESIZE_ANSWER_CACHE;
+  else process.env.SYNTHESIZE_ANSWER_CACHE = savedAnswerCache;
+});
+
 describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => {
   let f: AppFixture;
   let surreal: SurrealService;
@@ -46,7 +57,7 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
     expect(factId).toBeTruthy();
     mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: `Answer [${factId}].`, citedFactIds: [factId] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query, limit: 5 });
     expect(res.status).toBe(201);
