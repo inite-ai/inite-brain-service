@@ -65,13 +65,16 @@ per [draft-ietf-httpapi-idempotency-key-header](https://datatracker.ietf.org/doc
   body) gets that response back with `Idempotent-Replayed: true`, and
   nothing runs again;
 - the same key with a different request answers `422`; a retry while the
-  first is still running answers `409`;
+  first is still running answers `409` with `Retry-After: 1`, the signal
+  that retrying will resolve it (the SDK retries only a `409` that
+  carries one);
 - a `5xx` is not kept, so retrying it runs the request again.
 
 Without the header nothing changes. MCP calls are not covered (the
 transport writes its own response); retry an MCP tool with a fresh
 JSON-RPC id. User forget erases the kept responses of requests made for
 that user.
+
 ## Health + observability
 
 | Endpoint                                    | Notes                                                                                                                                         |
@@ -233,7 +236,7 @@ user-enumeration oracle either.
 | Endpoint                        | Notes                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `POST /v1/facts/:id/retract`    | Mark a fact retracted with reason; survives in audit trail. Ownership-fenced: a user-bound token retracts only its own user-scoped facts (another user's → 404); a tenant-global fact needs an M2M token or `brain:admin`; row policy applies. Always available (GDPR path — independent of `FACTS_API_ENABLED`).                                                                                            |
-| `POST /v1/feedback`             | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` feed the nightly source-trust refit. **Affects the SOURCE's trust for facts ingested AFTER the refit — it does not demote the flagged fact or the existing corpus** (ranking reads each fact's write-time trust snapshot). A personal fact is rated for its own user: pass `userId` (a user-bound key is pinned to its own). Also on MCP as `record_feedback`. |
+| `POST /v1/feedback`             | Retrieval feedback: `helpful` / `not_helpful` / `incorrect` per fact. One standing vote per caller key (repeat replaces); `helpful`/`incorrect` anchor the nightly truth-discovery pass (the value is clamped true / false; see docs/source-reputation.md). **Affects the SOURCE's trust for facts ingested AFTER the refit — it does not demote the flagged fact or the existing corpus** (ranking reads each fact's write-time trust snapshot). A personal fact is rated for its own user: pass `userId` (a user-bound key is pinned to its own). Also on MCP as `record_feedback`. |
 | `POST /v1/entities/:id/forget`  | Hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained.                                                                                                                                                                                                                                                                                                                             |
 | `POST /v1/users/:userId/forget` | GDPR erasure of one end-user's memory scope (migration 0055): personal facts (incl. those on shared entities), personal entities + edges + dedup refs, usage/feedback rows, audit mirror.                                                                                                                                                                                                                    |
 

@@ -1,9 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { isReadConflict } from '../db/surreal-retry';
-import { outcomeTelemetryEnabled, outcomeTxWritesEnabled } from '../common/outcome-flags';
+import { outcomeTelemetryEnabled } from '../common/outcome-flags';
 import {
   getCorrelationId,
   getRequestContext,
@@ -126,7 +125,7 @@ export const OUTCOME_RECORD_CAP = 100;
  * Dedupe on (subjectKind, subjectId, event, actor, modality,
  * representationKind) then cap. Pure and exported for the unit spec.
  * The key string lives in outcome-tx.ts (outcomeDedupeKey) because the
- * OUTCOME_TX_WRITES deterministic event id derives from the SAME key —
+ * The deterministic event id derives from the SAME key —
  * one definition, no drift.
  *
  * 0113: the two dimension components extend the key so the SAME event on
@@ -165,56 +164,8 @@ export function autoStatDeltas(events: OutcomeEventInput[], now: Date): StatDelt
   return deltas;
 }
 
-/** One aggregated rollup row per subject, ready for the batched INSERT. */
-interface StatRow {
-  subjectId: StringRecordId;
-  subjectKind: OutcomeSubjectKind;
-  selectedCount: number;
-  usedCount: number;
-  verifiedUseCount: number;
-  confirmedCount: number;
-  rejectedCount: number;
-  contradictedCount: number;
-  lastUsedAt?: Date;
-  lastVerifiedUseAt?: Date;
-  updatedAt: Date;
-}
-
-/** Aggregate deltas per subject into insertable rollup rows. */
-function buildStatRows(deltas: StatDelta[], now: Date): StatRow[] {
-  const bySubject = new Map<string, StatRow>();
-  for (const d of deltas) {
-    let row = bySubject.get(d.subjectId);
-    if (!row) {
-      row = {
-        subjectId: new StringRecordId(d.subjectId),
-        subjectKind: d.subjectKind,
-        selectedCount: 0,
-        usedCount: 0,
-        verifiedUseCount: 0,
-        confirmedCount: 0,
-        rejectedCount: 0,
-        contradictedCount: 0,
-        updatedAt: now,
-      };
-      bySubject.set(d.subjectId, row);
-    }
-    row[d.counter] += d.delta;
-    if (d.lastUsedAt && (!row.lastUsedAt || d.lastUsedAt > row.lastUsedAt)) {
-      row.lastUsedAt = d.lastUsedAt;
-    }
-    if (
-      d.lastVerifiedUseAt &&
-      (!row.lastVerifiedUseAt || d.lastVerifiedUseAt > row.lastVerifiedUseAt)
-    ) {
-      row.lastVerifiedUseAt = d.lastVerifiedUseAt;
-    }
-  }
-  return [...bySubject.values()];
-}
-
 /**
- * OUTCOME_TX_WRITES batch counter, per request context (D2 batchSeq):
+ * Batch counter, per request context (D2 batchSeq):
  * two recordOutcomes calls in ONE request (the search-loop refine case —
  * identical dedupe keys) get distinct seqs and stay distinct rows
  * exactly like today. WeakMap keyed on the ALS context object so the
@@ -253,81 +204,15 @@ export class MemoryOutcomeService {
     if (!outcomeTelemetryEnabled()) return;
     const now = new Date();
     const events = dedupeOutcomeEvents(opts.events);
-    // OUTCOME_TX_WRITES: the atomic/idempotent branch (outcome-tx.ts).
-    // A SEPARATE branch by design — the flag-off path below stays the
-    // VERBATIM legacy two-statement shape (byte-identity pinned by the
-    // unit spec against literal SQL constants).
-    if (outcomeTxWritesEnabled()) {
-      this.recordOutcomesTx(opts, events, now);
-      return;
-    }
-    const deltas =
-      opts.statDeltas === undefined || opts.statDeltas === 'auto'
-        ? autoStatDeltas(events, now)
-        : opts.statDeltas;
-    const statRows = buildStatRows(deltas, now);
-    if (events.length === 0 && statRows.length === 0) return;
-
-    const rows = events.map((ev) => ({
-      subjectKind: ev.subjectKind,
-      subjectId: new StringRecordId(ev.subjectId),
-      event: ev.event,
-      createdAt: now,
-      // undefined → dropped from the payload → NONE (option<...> rejects NULL).
-      ...(ev.actor !== undefined ? { actor: ev.actor } : {}),
-      ...(opts.requestId !== undefined ? { requestId: opts.requestId } : {}),
-      // 0119: decision join key — stamped only when a caller threads it
-      // (OUTCOME_DECISION_CAPTURE emit seams); existing writers pass
-      // nothing → row byte-identical.
-      ...(ev.decisionId !== undefined ? { decisionId: ev.decisionId } : {}),
-      // 0113 dimensions ride the raw row only. The rollup (statRows below)
-      // stays UNIQUE-per-subject with NO per-modality columns — deliberate:
-      // no scorer consumes a per-modality stat yet, and the raw rows retain
-      // full dimensionality, so a modality rollup can be added later
-      // without loss. Existing writers pass neither → row byte-identical.
-      ...(ev.modality !== undefined ? { modality: ev.modality } : {}),
-      ...(ev.representationKind !== undefined ? { representationKind: ev.representationKind } : {}),
-      ...(ev.meta !== undefined ? { meta: ev.meta } : {}),
-    }));
-
-    // Two batched statements, one detached round-trip on the ROOT pool
-    // (usage.ts:98-99 idiom). The rollup rides the UNIQUE subjectId
-    // index: first sight INSERTs the row, every later one folds the
-    // per-row deltas in via $input (verified against SurrealDB 3.2.4);
-    // the `?? column` coalesce keeps a timestamp the batch didn't carry.
-    const statements: string[] = [];
-    const params: Record<string, unknown> = {};
-    if (rows.length > 0) {
-      statements.push('INSERT INTO memory_outcome $rows');
-      params.rows = rows;
-    }
-    if (statRows.length > 0) {
-      statements.push(
-        `INSERT INTO memory_outcome_stat $statRows
-           ON DUPLICATE KEY UPDATE
-             selectedCount += $input.selectedCount,
-             usedCount += $input.usedCount,
-             verifiedUseCount += $input.verifiedUseCount,
-             confirmedCount += $input.confirmedCount,
-             rejectedCount += $input.rejectedCount,
-             contradictedCount += $input.contradictedCount,
-             lastUsedAt = $input.lastUsedAt ?? lastUsedAt,
-             lastVerifiedUseAt = $input.lastVerifiedUseAt ?? lastVerifiedUseAt,
-             updatedAt = time::now()`,
-      );
-      params.statRows = statRows;
-    }
-    void this.surreal
-      .withCompany(opts.companyId, async (db) => {
-        await db.query(statements.join(';\n'), params);
-      })
-      .catch((e: Error) => {
-        this.logger.warn(`outcome recording failed for ${opts.companyId}: ${e.message}`);
-      });
+    // Atomic and idempotent (outcome-tx.ts): raw append and stat fold in
+    // one transaction, a replayed batch folds nothing twice. The legacy
+    // two-statement write and its OUTCOME_TX_WRITES switch are gone; this
+    // was production's only path.
+    this.recordOutcomesTx(opts, events, now);
   }
 
   /**
-   * OUTCOME_TX_WRITES branch: deterministic ids + one BEGIN/COMMIT
+   * The write: deterministic ids + one BEGIN/COMMIT
    * (outcome-tx.ts) with a SINGLE immediate retry on the OCC-abort
    * class only. Request scope + batch seq are captured SYNCHRONOUSLY
    * before detaching (ALS is dead inside the detached promise); the

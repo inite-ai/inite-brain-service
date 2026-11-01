@@ -23,7 +23,7 @@ describe('feedback: one standing vote, one rollup delta (real SurrealDB)', () =>
   });
 
   afterAll(async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     if (f) await f.close();
   });
 

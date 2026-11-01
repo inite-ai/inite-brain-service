@@ -40,6 +40,7 @@
     "eval:diff": "ts-node -r tsconfig-paths/register scripts/eval-baseline-diff.ts",
     "eval:memory-fitness": "ts-node -T test/eval/memory-fitness/runner.ts",
     "eval:state-transitions": "ts-node -T test/eval/state-transitions/runner.ts",
+    "eval:truth-discovery": "ts-node -T test/eval/truth-discovery/runner.ts",
     "eval:relationship": "ts-node -T test/eval/relationship/runner.ts",
     "eval:domain-packs": "ts-node -T test/eval/domain-packs/runner.ts",
     "eval:code-memory": "ts-node -T test/eval/code-memory/runner.ts",

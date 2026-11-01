@@ -15,21 +15,47 @@ import {
   brainTools,
   BrainError,
 } from '../clients/brain-sdk/src/index';
-import type { AnswerReason } from '../clients/brain-sdk/src/index';
+import type * as Sdk from '../clients/brain-sdk/src/index';
 import type { z } from 'zod';
-import { SynthesisReasonSchema } from '../src/contracts/synthesize/synthesize.schema';
+import {
+  SynthesisReasonSchema,
+  SynthesizeResponseSchema,
+} from '../src/contracts/synthesize/synthesize.schema';
+import { SearchResponseSchema } from '../src/contracts/search/search.schema';
+import {
+  IngestFactResponseSchema,
+  IngestMentionResponseSchema,
+} from '../src/contracts/ingest/ingest.schema';
+import {
+  EntityProfileResponseSchema,
+  EntityTimelineResponseSchema,
+} from '../src/contracts/entities/entities.schema';
 
 /**
- * The SDK cannot import the server's zod contract (it ships with no
- * dependencies), so its copy of the abstention reasons is pinned here:
- * a reason added on the server and not in the SDK fails typecheck.
+ * The SDK cannot import the server's zod contracts (it ships with one
+ * dependency, and not this repo), so its response types are copies,
+ * pinned here: a field added, dropped or retyped on either side fails
+ * typecheck. `Same` is mutual assignability of the exact types, so an
+ * optional field that became required, or a widened enum, counts too.
  */
-type ServerReason = z.infer<typeof SynthesisReasonSchema>;
-const reasonsMatch: [AnswerReason] extends [ServerReason]
-  ? [ServerReason] extends [AnswerReason]
-    ? true
-    : false
-  : false = true;
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const contractsMatch: {
+  search: Same<Sdk.SearchResponse, z.infer<typeof SearchResponseSchema>>;
+  synthesize: Same<Sdk.SynthesizeResponse, z.infer<typeof SynthesizeResponseSchema>>;
+  reason: Same<Sdk.AnswerReason, z.infer<typeof SynthesisReasonSchema>>;
+  mention: Same<Sdk.IngestMentionResponse, z.infer<typeof IngestMentionResponseSchema>>;
+  fact: Same<Sdk.IngestFactResponse, z.infer<typeof IngestFactResponseSchema>>;
+  entity: Same<Sdk.EntityProfile, z.infer<typeof EntityProfileResponseSchema>>;
+  timeline: Same<Sdk.EntityTimeline, z.infer<typeof EntityTimelineResponseSchema>>;
+} = {
+  search: true,
+  synthesize: true,
+  reason: true,
+  mention: true,
+  fact: true,
+  entity: true,
+  timeline: true,
+};
 
 interface Call {
   url: string;
@@ -43,17 +69,11 @@ function stub(routes: Record<string, unknown> = {}, files: Record<string, string
   const fetchImpl = (async (url: string, init: RequestInit) => {
     const body = init.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
     calls.push({ url, method: String(init.method), body });
-    const ok = (payload: unknown) => ({
-      ok: true,
-      status: 200,
-      json: async () => payload,
-      text: async () => JSON.stringify(payload),
-    });
+    const ok = (payload: unknown) => Response.json(payload);
+    const missing = () => new Response('not found', { status: 404 });
     const path = String(body?.path ?? '');
     if (url.includes('/v1/memory-files/read')) {
-      return store.has(path)
-        ? ok({ path, content: store.get(path), updatedAt: 'now' })
-        : { ok: false, status: 404, text: async () => 'not found' };
+      return store.has(path) ? ok({ path, content: store.get(path), updatedAt: 'now' }) : missing();
     }
     if (url.includes('/v1/memory-files/list')) {
       // brain's directory semantics: the path itself and what is inside it.
@@ -63,9 +83,7 @@ function stub(routes: Record<string, unknown> = {}, files: Record<string, string
       });
     }
     if (url.includes('/v1/memory-files/delete')) {
-      return store.delete(path)
-        ? ok({ deleted: 1 })
-        : { ok: false, status: 404, text: async () => 'not found' };
+      return store.delete(path) ? ok({ deleted: 1 }) : missing();
     }
     if (url.includes('/v1/memory-files')) {
       store.set(path, String(body?.content));
@@ -74,7 +92,7 @@ function stub(routes: Record<string, unknown> = {}, files: Record<string, string
     for (const [route, payload] of Object.entries(routes)) {
       if (url.includes(route)) return ok(payload);
     }
-    return { ok: false, status: 500, text: async () => 'unstubbed route' };
+    return new Response('unstubbed route', { status: 500 });
   }) as unknown as typeof globalThis.fetch;
   return { calls, store, fetchImpl };
 }
@@ -257,7 +275,7 @@ describe('the LangGraph-shaped store', () => {
 
 describe('answer', () => {
   it('passes an abstention through as null with its reason', async () => {
-    expect(reasonsMatch).toBe(true);
+    expect(Object.values(contractsMatch).every(Boolean)).toBe(true);
     expect(SynthesisReasonSchema.options).toContain('harness_mode');
     const s = stub({
       '/v1/synthesize': { answer: null, reason: 'harness_mode', citations: [], results: [] },
@@ -267,5 +285,208 @@ describe('answer', () => {
     );
     expect(out.answer).toBeNull();
     expect(out.reason).toBe('harness_mode');
+  });
+});
+
+describe('retries, idempotency and errors', () => {
+  /** A fetch that answers from a script, one response per call, recording each request. */
+  function scripted(...script: Array<() => Response>) {
+    const seen: Array<{ method: string; headers: Record<string, string> }> = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      seen.push({ method: String(init.method), headers: init.headers as Record<string, string> });
+      const next = script.shift();
+      if (!next) throw new Error('script exhausted');
+      return next();
+    }) as unknown as typeof globalThis.fetch;
+    const waits: number[] = [];
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+    };
+    return { seen, fetchImpl, waits, sleep };
+  }
+  const problem = (status: number, extra: Record<string, unknown> = {}, headers = {}) =>
+    new Response(
+      JSON.stringify({ type: 'about:blank', title: 'Error', status, requestId: 'req-1', ...extra }),
+      { status, headers: { 'Content-Type': 'application/problem+json', ...headers } },
+    );
+
+  it('every retry of a write carries the one Idempotency-Key the call minted', async () => {
+    const f = scripted(
+      () => problem(503),
+      () => new Response('', { status: 502 }),
+      () => Response.json({ skipped: false, extractedEntityIds: [], extractedFactIds: [] }),
+    );
+    const brain = createBrain({ apiKey: 'k', fetch: f.fetchImpl, sleep: f.sleep });
+    await brain.remember('Maria moved to Berlin.');
+    const keys = f.seen.map((r) => r.headers['Idempotency-Key']);
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(1);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('two calls get two keys, and a caller-supplied key is used as given', async () => {
+    const f = scripted(
+      () => Response.json({}),
+      () => Response.json({}),
+      () => Response.json({}),
+    );
+    const brain = createBrain({ apiKey: 'k', fetch: f.fetchImpl, sleep: f.sleep });
+    await brain.request('/v1/ingest/fact', { method: 'POST', body: {} });
+    await brain.request('/v1/ingest/fact', { method: 'POST', body: {} });
+    await brain.request('/v1/ingest/fact', { method: 'POST', body: {}, idempotencyKey: 'mine' });
+    const keys = f.seen.map((r) => r.headers['Idempotency-Key']);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[2]).toBe('mine');
+  });
+
+  it('a read carries no Idempotency-Key', async () => {
+    const f = scripted(() => Response.json({ entityId: 'x', events: [] }));
+    await createBrain({ apiKey: 'k', fetch: f.fetchImpl }).timeline('x');
+    expect(f.seen[0]!.headers['Idempotency-Key']).toBeUndefined();
+  });
+
+  it("waits what Retry-After says, including the rate limiter's per-bucket header", async () => {
+    const f = scripted(
+      () => problem(429, {}, { 'Retry-After': '2' }),
+      () => problem(429, {}, { 'Retry-After-expensive': '7' }),
+      () => Response.json({ results: [] }),
+    );
+    const brain = createBrain({ apiKey: 'k', fetch: f.fetchImpl, sleep: f.sleep });
+    expect(await brain.recall('q')).toEqual([]);
+    expect(f.waits).toEqual([2000, 7000]);
+  });
+
+  it('a Retry-After past maxDelayMs is handed to the caller instead of slept on', async () => {
+    const f = scripted(() => problem(429, {}, { 'Retry-After': '600' }));
+    const brain = createBrain({ apiKey: 'k', fetch: f.fetchImpl, sleep: f.sleep });
+    await expect(brain.recall('q')).rejects.toMatchObject({ status: 429, retryAfterMs: 600_000 });
+    expect(f.waits).toEqual([]);
+  });
+
+  it('backs off exponentially with full jitter, inside the cap, and gives up after the budget', async () => {
+    const f = scripted(...Array.from({ length: 4 }, () => () => problem(503)));
+    const brain = createBrain({
+      apiKey: 'k',
+      fetch: f.fetchImpl,
+      sleep: f.sleep,
+      retry: { retries: 3, baseDelayMs: 100, maxDelayMs: 250 },
+    });
+    await expect(brain.recall('q')).rejects.toMatchObject({ status: 503 });
+    expect(f.seen).toHaveLength(4);
+    const ceilings = [100, 200, 250];
+    f.waits.forEach((w, i) => {
+      expect(w).toBeGreaterThanOrEqual(0);
+      expect(w).toBeLessThanOrEqual(ceilings[i]!);
+    });
+  });
+
+  it('a network failure is retried; status 0 when it never recovers', async () => {
+    const fail = () => {
+      throw new TypeError('fetch failed');
+    };
+    const f = scripted(fail, () => Response.json({ results: [] }));
+    const brain = createBrain({ apiKey: 'k', fetch: f.fetchImpl, sleep: f.sleep });
+    expect(await brain.recall('q')).toEqual([]);
+
+    const g = scripted(fail, fail);
+    const once = createBrain({
+      apiKey: 'k',
+      fetch: g.fetchImpl,
+      sleep: g.sleep,
+      retry: { retries: 1 },
+    });
+    await expect(once.recall('q')).rejects.toMatchObject({ status: 0, message: /fetch failed/ });
+  });
+
+  it('a 500 is retried for a read and not for a write', async () => {
+    const r = scripted(
+      () => problem(500),
+      () => Response.json({ entityId: 'x', events: [] }),
+    );
+    await createBrain({ apiKey: 'k', fetch: r.fetchImpl, sleep: r.sleep }).timeline('x');
+    expect(r.seen).toHaveLength(2);
+
+    const w = scripted(() => problem(500));
+    const writer = createBrain({ apiKey: 'k', fetch: w.fetchImpl, sleep: w.sleep });
+    await expect(writer.remember('x')).rejects.toMatchObject({ status: 500 });
+    expect(w.seen).toHaveLength(1);
+  });
+
+  it('a 409 is retried only when brain says when to come back', async () => {
+    // "The first request under this key is still running" carries a
+    // Retry-After; a conflict that will be the same answer next time does not.
+    const inFlight = scripted(
+      () => problem(409, {}, { 'Retry-After': '1' }),
+      () => Response.json({ factId: 'f1', outcome: 'INSERTED' }),
+    );
+    const b1 = createBrain({ apiKey: 'k', fetch: inFlight.fetchImpl, sleep: inFlight.sleep });
+    await b1.request('/v1/ingest/fact', { method: 'POST', body: {} });
+    expect(inFlight.seen).toHaveLength(2);
+
+    const real = scripted(() => problem(409));
+    const b2 = createBrain({ apiKey: 'k', fetch: real.fetchImpl, sleep: real.sleep });
+    await expect(b2.request('/x', { method: 'POST', body: {} })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(real.seen).toHaveLength(1);
+  });
+
+  it('a 4xx is the answer: thrown at once, with the problem details read', async () => {
+    const f = scripted(() =>
+      problem(400, {
+        title: 'Bad Request',
+        detail: 'predicate: required',
+        errors: ['predicate: required'],
+      }),
+    );
+    const brain = createBrain({ apiKey: 'k', fetch: f.fetchImpl, sleep: f.sleep });
+    const error = (await brain
+      .request('/v1/ingest/fact', { method: 'POST', body: {} })
+      .catch((e: unknown) => e)) as BrainError;
+    expect(error).toBeInstanceOf(BrainError);
+    expect(error.status).toBe(400);
+    expect(error.detail).toBe('predicate: required');
+    expect(error.type).toBe('about:blank');
+    expect(error.problem?.errors).toEqual(['predicate: required']);
+    expect(error.requestId).toBe('req-1');
+    expect(error.message).toContain('predicate: required');
+    expect(f.seen).toHaveLength(1);
+  });
+
+  it('a non-JSON error body still lands in the message, with the request id header', async () => {
+    const f = scripted(
+      () =>
+        new Response('<html>bad gateway</html>', {
+          status: 400,
+          headers: { 'x-request-id': 'r9' },
+        }),
+    );
+    const error = (await createBrain({ apiKey: 'k', fetch: f.fetchImpl })
+      .recall('q')
+      .catch((e: unknown) => e)) as BrainError;
+    expect(error.problem).toBeUndefined();
+    expect(error.requestId).toBe('r9');
+    expect(error.message).toContain('bad gateway');
+  });
+
+  it("the caller's abort ends the call, also during a backoff wait", async () => {
+    const controller = new AbortController();
+    const f = scripted(() => problem(503));
+    const brain = createBrain({
+      apiKey: 'k',
+      fetch: f.fetchImpl,
+      sleep: () => new Promise(() => controller.abort(new Error('caller gave up'))),
+    });
+    await expect(
+      brain.request('/v1/search', { method: 'POST', body: {}, signal: controller.signal }),
+    ).rejects.toThrow('caller gave up');
+    expect(f.seen).toHaveLength(1);
+  });
+
+  it('a 204 resolves without a body', async () => {
+    const f = scripted(() => new Response(null, { status: 204 }));
+    await expect(
+      createBrain({ apiKey: 'k', fetch: f.fetchImpl }).request('/v1/x', { method: 'DELETE' }),
+    ).resolves.toBeUndefined();
   });
 });
