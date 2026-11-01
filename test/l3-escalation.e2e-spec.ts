@@ -236,8 +236,8 @@ describe('G2 L3 escalation e2e', () => {
 
   afterEach(() => {
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
-    delete process.env.FOVEA_REQUIRE_CITATIONS;
-    delete process.env.FOVEA_L3_EPISODE_CITATIONS;
+    process.env.FOVEA_REQUIRE_CITATIONS = '0';
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '0';
     delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
     delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
     delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
@@ -249,8 +249,8 @@ describe('G2 L3 escalation e2e', () => {
     delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
     delete process.env.RETRIEVAL_L3_TEMPORAL_ANCHOR;
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
-    delete process.env.FOVEA_REQUIRE_CITATIONS;
-    delete process.env.FOVEA_L3_EPISODE_CITATIONS;
+    process.env.FOVEA_REQUIRE_CITATIONS = '0';
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '0';
     if (f) await f.close();
     if (f2) await f2.close();
   });

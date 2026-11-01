@@ -10,7 +10,7 @@ import { ConcatSummaryGenerator, type SummaryGenerator } from './summary-generat
 import { LlmSummaryGenerator } from '../dreams/llm-summary.generator';
 import { MetricsModule } from '../metrics/metrics.module';
 import { EpisodesModule } from '../episodes/episodes.module';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 
 /**
  * The SUMMARY_GENERATOR provider chooses between the no-LLM concat
@@ -36,7 +36,7 @@ import { envFlagEnabled } from '../common/env-validation';
       provide: SUMMARY_GENERATOR,
       inject: [ConfigService],
       useFactory: (config: ConfigService): SummaryGenerator => {
-        const llmEnabled = envFlagEnabled(config.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
+        const llmEnabled = envFlagNotDisabled(config.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
         return llmEnabled ? new LlmSummaryGenerator(config) : new ConcatSummaryGenerator();
       },
     },

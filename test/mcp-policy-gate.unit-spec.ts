@@ -297,7 +297,7 @@ describe('MCP ABAC gate over pack-declared tools', () => {
       expect(names).not.toContain('demo__call_home');
       expect(names).toContain('search_knowledge');
     } finally {
-      delete process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED;
+      process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED = '0';
     }
   });
 });

@@ -51,7 +51,7 @@ describe('Fovea evidence-capability gate e2e', () => {
       savedEnv[k] = process.env[k];
       process.env[k] = v;
     }
-    delete process.env.FOVEA_EVIDENCE_CAPABILITY;
+    process.env.FOVEA_EVIDENCE_CAPABILITY = '0';
     f = await createApp({ companyId: 'co_evidence_capability_e2e' });
 
     const r = await f.http
@@ -87,7 +87,7 @@ describe('Fovea evidence-capability gate e2e', () => {
   });
 
   afterEach(() => {
-    delete process.env.FOVEA_EVIDENCE_CAPABILITY;
+    process.env.FOVEA_EVIDENCE_CAPABILITY = '0';
   });
 
   afterAll(async () => {

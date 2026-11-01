@@ -23,7 +23,7 @@ interface QueryCall {
 
 const SAVED = { links: process.env.SCENES_EVIDENCE_LINKS };
 afterEach(() => {
-  if (SAVED.links === undefined) delete process.env.SCENES_EVIDENCE_LINKS;
+  if (SAVED.links === undefined) process.env.SCENES_EVIDENCE_LINKS = '0';
   else process.env.SCENES_EVIDENCE_LINKS = SAVED.links;
 });
 
@@ -76,7 +76,7 @@ describe('SceneEvidenceLinkerService — reconstructed_from edges', () => {
   }
 
   it('flag OFF (default): ZERO queries — byte-identical prod', async () => {
-    delete process.env.SCENES_EVIDENCE_LINKS;
+    process.env.SCENES_EVIDENCE_LINKS = '0';
     const { svc, calls } = makeStack([]);
     const result = await svc.run('co_x');
     expect(result).toEqual({ scenes: 0, scenesLinked: 0, edges: 0 });

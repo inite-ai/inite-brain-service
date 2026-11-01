@@ -233,7 +233,7 @@ describe('SceneBacklinkService.run — reconcile', () => {
   afterEach(() => {
     if (SAVED.edges === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
     else process.env.PROVENANCE_SUPPORT_EDGES = SAVED.edges;
-    if (SAVED.backlink === undefined) delete process.env.SCENES_FACT_BACKLINK;
+    if (SAVED.backlink === undefined) process.env.SCENES_FACT_BACKLINK = '0';
     else process.env.SCENES_FACT_BACKLINK = SAVED.backlink;
   });
 

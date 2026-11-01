@@ -71,9 +71,11 @@ describe('Fragment lane + fragment citations e2e', () => {
       .send({ limit: 5, ...body });
 
   beforeAll(async () => {
+    // Every case starts with the three switches off and turns on only what
+    // it proves (production runs them on, so unset is not off).
     for (const k of [...FLAG_KEYS, 'RETRIEVAL_ABSTENTION_CALIBRATION']) {
       savedEnv[k] = process.env[k];
-      delete process.env[k];
+      process.env[k] = '0';
     }
     // Pin abstention off so a thin-evidence query never pre-abstains
     // before generation (the 0113 e2e discipline).
@@ -188,7 +190,7 @@ describe('Fragment lane + fragment citations e2e', () => {
   });
 
   afterEach(() => {
-    for (const k of FLAG_KEYS) delete process.env[k];
+    for (const k of FLAG_KEYS) process.env[k] = '0';
   });
 
   afterAll(async () => {

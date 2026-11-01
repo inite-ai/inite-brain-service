@@ -73,7 +73,7 @@ describe('ABAC simulation surface', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
+    process.env.ABAC_ENABLED = '0';
     await f.close();
   });
 

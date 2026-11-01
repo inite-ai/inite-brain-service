@@ -76,6 +76,7 @@ describe('scene prediction baseline (e2e)', () => {
     'SCENES_SEGMENTATION_ENABLED',
     'SCENES_LLM_ENRICHMENT',
     'SCENES_PREDICTION_BASELINE',
+    'SCENES_TOPIC_BOUNDARY',
   ];
 
   const db = <T>(
@@ -128,8 +129,11 @@ describe('scene prediction baseline (e2e)', () => {
     process.env.INGEST_EPISODE_ONLY = '1';
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
     // Both PR flags start OFF — each `it` flips only what it proves.
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     delete process.env.SCENES_PREDICTION_BASELINE;
+    // One scene per conversation, cut by time; a topic cut would follow the
+    // stub embedder, not the text.
+    process.env.SCENES_TOPIC_BOUNDARY = '0';
     f = await createApp({ companyId: 'co_scene_pred_e2e' });
 
     for (const [conv, userId] of [

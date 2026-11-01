@@ -92,7 +92,7 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
   }
 
   beforeAll(async () => {
-    delete process.env.FOVEA_LENS_SUPPRESS;
+    process.env.FOVEA_LENS_SUPPRESS = '0';
     delete process.env.FOVEA_LENS_SUPPRESS_MIN_COSINE;
     delete process.env.SYNTHESIZE_ANSWER_CACHE;
     // Router + instruction lane on so the instruction lane is in profile.lanes
@@ -127,7 +127,7 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
   });
 
   afterAll(async () => {
-    delete process.env.FOVEA_LENS_SUPPRESS;
+    process.env.FOVEA_LENS_SUPPRESS = '0';
     delete process.env.FOVEA_LENS_SUPPRESS_MIN_COSINE;
     delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
     delete process.env.SYNTHESIZE_INSTRUCTION_LANE;
@@ -136,7 +136,7 @@ describe('Fovea Optics §4.3 lens-suppression governor e2e', () => {
   });
 
   it('flag OFF → the instruction lane reaches the generator prompt (baseline)', async () => {
-    delete process.env.FOVEA_LENS_SUPPRESS;
+    process.env.FOVEA_LENS_SUPPRESS = '0';
     const factId = (fControl as unknown as { factId: string }).factId;
     const prompt = await generatorPrompt(fControl, factId);
     expect(prompt).toContain(INSTRUCTION_MARKER);

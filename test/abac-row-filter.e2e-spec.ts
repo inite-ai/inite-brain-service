@@ -160,7 +160,7 @@ describe('ABAC row filter across read surfaces', () => {
     });
 
     afterAll(async () => {
-      delete process.env.ABAC_ENABLED;
+      process.env.ABAC_ENABLED = '0';
       await f.close();
     });
 

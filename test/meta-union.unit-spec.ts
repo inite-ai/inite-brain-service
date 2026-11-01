@@ -71,7 +71,7 @@ describe('applyMetaUnion tenant isolation + compound rules', () => {
     process.env.POLICY_META_UNION_ENABLED = '1';
   });
   afterAll(() => {
-    delete process.env.POLICY_META_UNION_ENABLED;
+    process.env.POLICY_META_UNION_ENABLED = '0';
   });
 
   const piiDeny = compile([

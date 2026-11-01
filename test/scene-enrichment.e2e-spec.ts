@@ -13,6 +13,7 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { mockSceneEnricherOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
+import { SceneVersionService } from '../src/admin/scene-version';
 import { sceneEnrichmentVersion } from '../src/admin/scene-enricher.service';
 
 const CONV = 'proj:scene-enrich';
@@ -73,9 +74,12 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
       'SCENES_GIST_EMBEDDING',
       'SCENES_ENTITY_LINKS',
       'EMBEDDING_SPACE_TRACKING',
+      // The two sessions are cut by the time gap; a topic cut would follow
+      // the stub embedder, not the text.
+      'SCENES_TOPIC_BOUNDARY',
     ]) {
       saved[k] = process.env[k];
-      delete process.env[k];
+      process.env[k] = '0';
     }
     f = await createApp({ companyId: 'co_scene_enrich_e2e' });
 
@@ -256,7 +260,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     // same id, member turns and gist is the same scene and inherits what
     // was paid for it (scene-carry.ts) — it used to come back bare and be
     // re-enriched on every settle (LLM spend audit, 2026-10-28).
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     const plain = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
     expect(plain.status).toBe(201);
     expect(plain.body.skipped).toEqual([]);
@@ -349,7 +353,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     // (`|links`), so the next enrich run treats every scene as stale; the
     // recompose keeps their enrichment and no longer forces anything.
     process.env.SCENES_ENTITY_LINKS = '1';
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     const recompose = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
     expect(recompose.status).toBe(201);
 
@@ -382,7 +386,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     // were swapped in above; re-embed so the purge count stays honest).
     process.env.SCENES_GIST_EMBEDDING = '1';
     await f.http.post('/v1/admin/maintenance/scenes/embed-gists').set(auth()).send({});
-    delete process.env.SCENES_ENTITY_LINKS;
+    process.env.SCENES_ENTITY_LINKS = '0';
   });
 
   it('backlinks facts idempotently: pointer stamped once, control fact untouched', async () => {
@@ -398,7 +402,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     const firstSceneId = String(scenes[0]!.id); // covers the first session (ep0)
     const linked = await factSource('knowledge_fact:se_a');
     expect(linked.memoryEpisodeIds).toEqual([firstSceneId]);
-    expect(linked.sceneLinkVersion).toBe('scene-segmenter-v1');
+    expect(linked.sceneLinkVersion).toBe(f.app.get(SceneVersionService).resolve().version);
     expect(linked.episodeIds).toEqual([episodeIds[0]]); // grounding untouched
     const control = await factSource('knowledge_fact:se_b');
     expect(control.memoryEpisodeIds).toBeUndefined();
@@ -420,7 +424,9 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     expect(tooLong.status).toBe(400);
 
     const res = await f.http
-      .delete('/v1/admin/maintenance/scenes/versions/scene-segmenter-v1')
+      .delete(
+        `/v1/admin/maintenance/scenes/versions/${encodeURIComponent(f.app.get(SceneVersionService).resolve().version)}`,
+      )
       .set(auth())
       .send({});
     expect(res.status).toBe(200);

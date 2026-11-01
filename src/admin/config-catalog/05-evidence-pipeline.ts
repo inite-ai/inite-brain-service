@@ -489,7 +489,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'MCP_PACK_EXTERNAL_TOOLS_ENABLED',
     category: 'misc',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -561,7 +561,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_USAGE_RECORDING_ENABLED',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description: 'Record lastReadAt on retrieved facts (feeds recency decay).',
@@ -569,7 +569,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_USAGE_DECAY_ENABLED',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -578,7 +578,7 @@ export const CATALOG_PART_05: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_USAGE_RANKING_ENABLED',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

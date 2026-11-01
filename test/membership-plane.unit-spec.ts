@@ -77,12 +77,12 @@ describe('the read fence with group tags', () => {
         });
       });
     } finally {
-      delete process.env.SCOPE_TAGS_ENABLED;
+      process.env.SCOPE_TAGS_ENABLED = '0';
     }
   });
 
   it('the fence is inert while the flag is off', () => {
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
     expect(scopeFenceSql('u1')).toEqual({ clause: '', params: {} });
   });
 

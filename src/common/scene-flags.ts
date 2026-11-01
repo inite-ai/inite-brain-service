@@ -30,7 +30,7 @@ export function sceneSegmentationEnabled(): boolean {
  * master flag off the whole surface is byte-identical prod.
  */
 export function sceneTopicBoundaryEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_TOPIC_BOUNDARY);
+  return envFlagNotDisabled(process.env.SCENES_TOPIC_BOUNDARY);
 }
 
 /** Default cosine floor for the topic-boundary split (Brain v2 PR1). */
@@ -68,7 +68,7 @@ export function sceneTopicMinCosine(): number {
  * that scene untouched.
  */
 export function sceneLlmEnrichmentEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_LLM_ENRICHMENT);
+  return envFlagNotDisabled(process.env.SCENES_LLM_ENRICHMENT);
 }
 
 /**
@@ -167,7 +167,7 @@ export function sceneEntityLinksEnabled(): boolean {
  * one.
  */
 export function sceneFactBacklinkEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_FACT_BACKLINK);
+  return envFlagNotDisabled(process.env.SCENES_FACT_BACKLINK);
 }
 
 /**
@@ -189,7 +189,7 @@ export function sceneFactBacklinkEnabled(): boolean {
  * this flag (the EVIDENCE_SUBSTRATE_ENABLED precedent).
  */
 export function sceneEvidenceLinksEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_EVIDENCE_LINKS);
+  return envFlagNotDisabled(process.env.SCENES_EVIDENCE_LINKS);
 }
 
 /**
@@ -213,7 +213,7 @@ export function sceneEvidenceLinksEnabled(): boolean {
  * ids/stamps/registry keys.
  */
 export function sceneVersionFingerprintEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_VERSION_FINGERPRINT);
+  return envFlagNotDisabled(process.env.SCENES_VERSION_FINGERPRINT);
 }
 
 /**
@@ -247,7 +247,7 @@ export function sceneBeliefPromotionEnabled(): boolean {
  * statement is the deterministic template — the fold works identically.
  */
 export function sceneBeliefLlmSynthesisEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_BELIEF_LLM_SYNTHESIS);
+  return envFlagNotDisabled(process.env.SCENES_BELIEF_LLM_SYNTHESIS);
 }
 
 /**
@@ -265,7 +265,7 @@ export function sceneBeliefLlmSynthesisEnabled(): boolean {
  * exactly as before — byte-identical fold output and prompts.
  */
 export function sceneBeliefNegationDeltasEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_BELIEF_NEGATION_DELTAS);
+  return envFlagNotDisabled(process.env.SCENES_BELIEF_NEGATION_DELTAS);
 }
 
 /**
@@ -286,7 +286,7 @@ export function sceneBeliefNegationDeltasEnabled(): boolean {
  * grouping and zero extra queries — byte-identical fold output.
  */
 export function sceneBeliefFieldFoldEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_BELIEF_FIELD_FOLD);
+  return envFlagNotDisabled(process.env.SCENES_BELIEF_FIELD_FOLD);
 }
 
 /**

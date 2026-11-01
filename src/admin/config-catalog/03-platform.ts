@@ -282,7 +282,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'ABAC_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -300,7 +300,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'ABAC_DB_FENCE_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -309,7 +309,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'SCOPE_TAGS_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -318,7 +318,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'PRIVACY_SEGMENT_USER_FENCE',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -336,7 +336,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'PRIVACY_COMPOSER_USER_SCOPE',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -354,7 +354,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'POLICY_META_UNION_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

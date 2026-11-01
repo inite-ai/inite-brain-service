@@ -19,7 +19,7 @@ import { SurrealService } from '../src/db/surreal.service';
 import { FactResolutionService } from '../src/dreams/fact-resolution.service';
 import { verifyWorkToken, type ResolutionTokenPayload } from '../src/common/harness-work-token';
 import { SceneBacklinkService } from '../src/admin/scene-backlink.service';
-import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
+import { SceneVersionService } from '../src/admin/scene-version';
 import { FactResolverService } from '../src/ingest/fact-resolver.service';
 import { PredicateRegistryService } from '../src/ai/predicate-registry.service';
 import { UserForgetService } from '../src/entities/user-forget.service';
@@ -62,6 +62,9 @@ describe('typed support graph (real SurrealDB)', () => {
     process.env.SCENES_FACT_BACKLINK = '1';
     f = await createApp({ companyId: 'co_support_graph_e2e' });
     surreal = f.app.get(SurrealService);
+    // Scenes are seeded in the world the services read: the effective
+    // segmenter version, fingerprinted when SCENES_VERSION_FINGERPRINT is on.
+    const sceneVersion = f.app.get(SceneVersionService).resolve().version;
 
     await surreal.withCompany(f.companyId, async (db) => {
       const [entRows] = await db.query<[Array<{ id: unknown }>]>(
@@ -105,7 +108,7 @@ describe('typed support graph (real SurrealDB)', () => {
             occurredTo: new Date('2026-07-01T10:01:00Z'),
             gist: 'user: the lease was renewed in March',
             confidence: 0.9,
-            segmenterVersion: SEGMENTER_VERSION,
+            segmenterVersion: sceneVersion,
             generation: 'gen-e2e',
             source: {},
           },
@@ -119,7 +122,7 @@ describe('typed support graph (real SurrealDB)', () => {
           role: 'core',
           ord,
           relevance: 1,
-          segmenterVersion: SEGMENTER_VERSION,
+          segmenterVersion: sceneVersion,
         })),
       });
 

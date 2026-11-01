@@ -5,6 +5,12 @@ import { applyPprPrior } from '../src/search/internals/ppr';
 import { fetchOneHopNeighbourIds } from '../src/search/internals/graph-retrieve-db';
 import type { Surreal } from 'surrealdb';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['SCOPE_TAGS_ENABLED']) process.env[k] ??= '0';
+});
+
 /**
  * Graph research 2026-08, action 1 — the edge-read policy fence. Fact
  * reads have carried invalidation + fail-closed user scope since 0055;

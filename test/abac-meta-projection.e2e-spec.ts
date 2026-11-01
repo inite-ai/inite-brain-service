@@ -44,7 +44,7 @@ describe('ABAC source.meta projection', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
+    process.env.ABAC_ENABLED = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
     delete process.env.SOURCE_META_STRICT;
     await f.close();

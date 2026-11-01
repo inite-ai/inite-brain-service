@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import {
   composePredicateId,
   PACK_NAMESPACE_SEP,
@@ -57,7 +57,7 @@ export function registerPackTools(opts: RegisterPackToolsOptions): void {
   // the master flag; external tools default OFF (outbound calls are a
   // bigger operator decision than tenant-local reads).
   const queryEnabled = envFlagEnabled(process.env.MCP_PACK_QUERY_TOOLS_ENABLED ?? '1');
-  const externalEnabled = envFlagEnabled(process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED);
+  const externalEnabled = envFlagNotDisabled(process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED);
   const seen = new Set<string>();
   for (const binding of opts.bindings) {
     for (const tool of binding.tools) {

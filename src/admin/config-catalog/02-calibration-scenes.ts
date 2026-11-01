@@ -20,7 +20,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
   {
     key: 'FOVEA_FOCUS_CAPTURE',
     category: 'calibration',
-    defaultValue: '0',
+    defaultValue: '1',
     // Read at call time (FocusSignalService.captureEnabled / the admin
     // 404 guard) — never captured in a constructor — so a flip takes
     // effect without restart.
@@ -35,7 +35,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (FocusSignalService.adaptiveL3Enabled → fovea-flags)
     // on the synthesize L3 seam — never captured in a constructor — so a
     // flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -58,7 +58,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (FocusSignalService.adaptiveAbstainEnabled →
     // fovea-flags) on the synthesize coverage-abstention seam — never
     // captured in a constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -81,7 +81,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (LensSuppressionService.suppressEnabled → fovea-flags)
     // on the synthesize seam before the answer cache — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -116,7 +116,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (fovea-flags.requireCitationsEnabled) on the
     // synthesize verdict seam — never captured in a constructor — so a flip
     // takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -128,7 +128,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (fovea-flags.l3EpisodeCitationsEnabled) on the L3
     // escalation seam — never captured in a constructor — so a flip takes
     // effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -140,7 +140,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (fovea-flags.evidenceCapabilityEnabled) on the
     // finalizeAndAdmit gate-resolution seam — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -152,7 +152,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (fovea-flags.attentionHintsEnabled) on the L3
     // escalation anchor seam — never captured in a constructor — so a flip
     // takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -177,7 +177,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     category: 'scenes',
     // Read at call time (scene-flags.sceneTopicBoundaryEnabled) per
     // composer run — never captured in a constructor — runtime-mutable.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -257,7 +257,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // admin 404 guard, the enricher's defensive early return and the
     // composer's post-swap hook — never captured in a constructor — so a
     // flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -270,7 +270,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // admin 404 guard, the backlink service's defensive early return and
     // the composer's post-run hook — never captured in a constructor — so
     // a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -308,7 +308,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // per composer/enricher/backlinker run (SceneVersionService.resolve) —
     // never captured in a constructor — so a flip takes effect without
     // restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -321,7 +321,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // by the external-submission validator, the commit-side projection
     // hook and the capture-path producer — never captured in a
     // constructor — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -369,7 +369,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     category: 'scenes',
     // Read at call time (scene-flags.sceneBeliefLlmSynthesisEnabled) per
     // belief write — never captured in a constructor — runtime-mutable.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -382,7 +382,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // once per promotion run for the fold + per belief write for the
     // synthesis-prompt clause — never captured in a constructor — so a
     // flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -394,7 +394,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (scene-flags.sceneBeliefFieldFoldEnabled) once
     // per promotion run — never captured in a constructor — so a flip
     // takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -454,7 +454,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // admin 404 guard, the linker's defensive early return and the
     // composer's post-swap hook — never captured in a constructor — so a
     // flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

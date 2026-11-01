@@ -37,10 +37,10 @@ function fenceOn(): void {
   process.env.PRIVACY_SEGMENT_USER_FENCE = '1';
 }
 function fenceOff(): void {
-  delete process.env.PRIVACY_SEGMENT_USER_FENCE;
+  process.env.PRIVACY_SEGMENT_USER_FENCE = '0';
 }
 afterEach(() => {
-  if (savedFence === undefined) delete process.env.PRIVACY_SEGMENT_USER_FENCE;
+  if (savedFence === undefined) process.env.PRIVACY_SEGMENT_USER_FENCE = '0';
   else process.env.PRIVACY_SEGMENT_USER_FENCE = savedFence;
 });
 
