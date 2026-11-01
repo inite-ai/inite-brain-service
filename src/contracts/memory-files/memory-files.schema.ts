@@ -56,6 +56,8 @@ export const MemoryFileSchema = z.object({
 
 export const MemoryFileListResponseSchema = z.object({
   paths: z.array(z.string()),
+  /** The same files with their size in characters — the memory tool's directory view shows sizes. */
+  files: z.array(z.object({ path: z.string(), size: z.number().int() })).optional(),
 });
 
 export const MemoryFileDeleteResponseSchema = z.object({

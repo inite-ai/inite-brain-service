@@ -58,6 +58,17 @@ describe('POST/PUT /v1/memory-files', () => {
     expect(list.body.paths).toEqual(['/memories/projects/a.md', '/memories/projects/b.md']);
   });
 
+  it('lists a directory, not every path that starts with its name', async () => {
+    await write({ path: '/memories/team/a.md', content: 'a' });
+    await write({ path: '/memories/team2.md', content: 'not inside' });
+    expect((await post('list', { prefix: '/memories/team' })).body.paths).toEqual([
+      '/memories/team/a.md',
+    ]);
+    expect((await post('list', { prefix: '/memories/team/' })).body.paths).toEqual([
+      '/memories/team/a.md',
+    ]);
+  });
+
   it('renames, and the old path stops existing', async () => {
     await write({ path: '/memories/old.md', content: 'moved' });
     const moved = await post('rename', { path: '/memories/old.md', newPath: '/memories/new.md' });

@@ -172,6 +172,12 @@ export const IngestMentionResponseSchema = z.object({
   /** true when nothing was extracted — `reason` says why. */
   skipped: z.boolean(),
   reason: z.string().optional(),
+  /**
+   * true when the turn is remembered and its extraction is queued
+   * (background extraction): the id lists are empty now, and the facts
+   * appear once the conversation's batch pass has read the turn.
+   */
+  pending: z.boolean().optional(),
   extractedEntityIds: z.array(z.string()),
   extractedFactIds: z.array(z.string()),
   extractedEdgeIds: z.array(z.string()).optional(),

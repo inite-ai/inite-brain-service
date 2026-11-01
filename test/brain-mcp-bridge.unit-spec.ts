@@ -28,6 +28,7 @@ import {
   createBridgeServer,
   downstreamCapabilities,
   registerSamplingPassthrough,
+  resolveEndpoint,
 } from '../clients/brain-mcp/src/bridge';
 
 type SamplingHandler = (request: {
@@ -233,5 +234,28 @@ describe('brain-mcp bridge — sampling reverse-passthrough', () => {
       await client.close();
       await server.close();
     }
+  });
+});
+
+describe('brain-mcp endpoint', () => {
+  it('needs no companyId: the key names its tenant', () => {
+    expect(resolveEndpoint({})).toEqual({ url: 'https://brain.inite.ai/mcp' });
+    expect(resolveEndpoint({ BRAIN_BASE_URL: 'http://localhost:3000//' })).toEqual({
+      url: 'http://localhost:3000/mcp',
+    });
+  });
+
+  it('pins the per-tenant URL when a companyId is given, and refuses a malformed one', () => {
+    expect(resolveEndpoint({ BRAIN_COMPANY_ID: 'co_acme' })).toEqual({
+      url: 'https://brain.inite.ai/mcp/co_acme',
+    });
+    expect(resolveEndpoint({ BRAIN_COMPANY_ID: '../x' })).toHaveProperty('error');
+  });
+
+  it('takes BRAIN_MCP_URL over everything, and refuses one that is not a URL', () => {
+    expect(
+      resolveEndpoint({ BRAIN_MCP_URL: 'https://b.example/mcp?tools=core', BRAIN_COMPANY_ID: 'x' }),
+    ).toEqual({ url: 'https://b.example/mcp?tools=core' });
+    expect(resolveEndpoint({ BRAIN_MCP_URL: 'nope' })).toHaveProperty('error');
   });
 });

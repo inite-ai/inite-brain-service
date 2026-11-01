@@ -16,6 +16,7 @@
  */
 export { Brain, BrainError, createBrain } from './client.js';
 export type {
+  AnswerReason,
   AnswerResult,
   BrainOptions,
   RecallFact,

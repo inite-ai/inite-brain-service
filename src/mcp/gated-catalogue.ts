@@ -9,7 +9,7 @@ import { registerProceduralReadTools } from './procedural-tools';
 import { PUBLIC_TOOL_NAMES } from './public-tools';
 import { registerReadTools } from './read-tools';
 import { registerSourceReadTools } from './source-tools';
-import { resolveToolProfile } from './tool-profiles';
+import { resolveToolProfile, type ToolProfile } from './tool-profiles';
 import { registerWriteTools } from './write-tools';
 
 /**
@@ -91,8 +91,15 @@ function record(): Recorded[] {
   return out;
 }
 
-export function registerGatedCatalogue(server: McpServer): void {
-  const profile = resolveToolProfile();
+/**
+ * The memory tools a signed-in connection of `profile` would list, as
+ * refusals. The profile is the URL's `?tools=`: a connector set up with
+ * `?tools=core` sees the core surface before sign-in as after it.
+ */
+export function registerGatedCatalogue(
+  server: McpServer,
+  profile: ToolProfile = resolveToolProfile(),
+): void {
   const listed = profile.listed ? new Set(profile.listed) : null;
   for (const { name, config } of record()) {
     if (PUBLIC_TOOL_NAMES.includes(name)) continue;
