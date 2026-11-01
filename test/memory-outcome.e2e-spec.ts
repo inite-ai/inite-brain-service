@@ -57,7 +57,7 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
   afterAll(async () => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     process.env.OUTCOME_RETRIEVED_EVENTS = '0';
-    delete process.env.SEARCH_USAGE_RECORDING_ENABLED;
+    process.env.SEARCH_USAGE_RECORDING_ENABLED = '0';
     if (f) await f.close();
   });
 
@@ -235,7 +235,7 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
       );
       expect(usage!.readCount).toBeGreaterThanOrEqual(1);
     } finally {
-      delete process.env.SEARCH_USAGE_RECORDING_ENABLED;
+      process.env.SEARCH_USAGE_RECORDING_ENABLED = '0';
       process.env.OUTCOME_RETRIEVED_EVENTS = '0';
     }
   });

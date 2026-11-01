@@ -21,6 +21,7 @@
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { SceneVersionService } from '../src/admin/scene-version';
 import { Logger } from '@nestjs/common';
 import {
   BeliefPromotionService,
@@ -103,7 +104,7 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
            conversationIds: [$conv], occurredFrom: <datetime>$at, occurredTo: <datetime>$at,
            gist: 'seed gist', confidence: 1,
            stateDeltas: [{ subject: 'alice', field: 'city', from: $from, to: $value }],
-           segmenterVersion: 'scene-segmenter-v1', generation: 'seed-gen',
+           segmenterVersion: $v, generation: 'seed-gen',
            source: { recorder: 'test-seed' },
            enrichmentVersion: 'seed-enrich-v1', enrichedMemoryValue: { explicitness: 0.8 }
          }`,
@@ -114,6 +115,8 @@ describe('belief revision chain: two clocks + compare-and-set (e2e)', () => {
           at: o.at,
           value: o.value,
           from: o.from ?? '',
+          // The world the promoter reads: the effective segmenter version.
+          v: f.app.get(SceneVersionService).resolve().version,
         },
       );
     });

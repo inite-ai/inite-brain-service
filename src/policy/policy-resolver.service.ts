@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { LRUCache } from '../common/lru-cache';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { MetricsService } from '../metrics/metrics.service';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { compilePolicySet, denyAllSet } from './policy-compile';
@@ -85,7 +85,7 @@ export class PolicyResolverService {
     private readonly metrics: MetricsService,
     config: ConfigService,
   ) {
-    this.enabled = envFlagEnabled(config.get<string>('ABAC_ENABLED'));
+    this.enabled = envFlagNotDisabled(config.get<string>('ABAC_ENABLED'));
     this.forceReportOnly = envFlagEnabled(config.get<string>('ABAC_FORCE_REPORT_ONLY'));
     const ttl = parseInt(config.get<string>('POLICY_CACHE_TTL_MS', '60000'), 10);
     this.ttlMs = Number.isFinite(ttl) && ttl >= 0 ? ttl : 60_000;

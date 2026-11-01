@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { LRUCache } from '../common/lru-cache';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { policyFor } from '../ingest/conflict-resolver';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { evaluateRow, toRowView } from './policy-engine';
@@ -8,7 +8,7 @@ import { PolicyContext, PolicyRowView } from './policy.types';
 
 /**
  * Effective-metadata union across corroborating origins
- * (POLICY_META_UNION_ENABLED, default off).
+ * (POLICY_META_UNION_ENABLED, default on).
  *
  * A fact corroborated by several documents carries only the ORIGIN
  * KEYS of its confirmers (corroboration.originKeys, migration 0050) —
@@ -64,7 +64,7 @@ function cacheKey(companyId: string, originKey: string): string {
 }
 
 export function metaUnionEnabled(): boolean {
-  return envFlagEnabled(process.env.POLICY_META_UNION_ENABLED);
+  return envFlagNotDisabled(process.env.POLICY_META_UNION_ENABLED);
 }
 
 /** Does any enforce/report set carry a deny rule touching source.meta.*? */

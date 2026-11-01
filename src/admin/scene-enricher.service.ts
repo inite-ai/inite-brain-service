@@ -33,7 +33,7 @@ import { SceneVersionService } from './scene-version';
 import { serverModelsRefused } from '../common/extraction-source';
 
 /**
- * Scene LLM enricher (Brain v2 PR2, SCENES_LLM_ENRICHMENT — default off):
+ * Scene LLM enricher (Brain v2 PR2, SCENES_LLM_ENRICHMENT — default on):
  * the optional pass AFTER the composer's atomic swap. For each scene of
  * the CURRENT effective segmenter version it makes ONE structured LLM call
  * (strict JSON schema, same call idiom as deriver-client) and writes a

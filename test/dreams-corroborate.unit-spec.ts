@@ -8,6 +8,12 @@
 import { ConfigService } from '@nestjs/config';
 import { DreamsCorroborateService } from '../src/dreams/corroborate.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['DREAMS_CORROBORATE_ENABLED']) process.env[k] ??= '0';
+});
+
 type Row = Record<string, unknown>;
 
 function fact(over: Partial<Row> = {}): Row {

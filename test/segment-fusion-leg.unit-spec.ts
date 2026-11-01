@@ -6,6 +6,12 @@ import type { EmbedderService } from '../src/ai/embedder.service';
 import type { CalibrationService } from '../src/ai/calibration/calibration.service';
 import type { PipelineContext } from '../src/search/pipeline-context';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['SCOPE_TAGS_ENABLED', 'PRIVACY_SEGMENT_USER_FENCE']) process.env[k] ??= '0';
+});
+
 /**
  * Audit W4 #18: verbatim had no read-path expression — quotes never
  * entered SearchHit, never got scored/reranked against facts, and were

@@ -13,7 +13,7 @@
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
-import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
+import { SceneVersionService } from '../src/admin/scene-version';
 
 const CONV = 'proj:scene-backlink';
 const USER = 'sbr_user';
@@ -23,6 +23,8 @@ const FACT_Z = 'knowledge_fact:sbr_z';
 
 describe('scene backlink reconcile (e2e)', () => {
   let f: AppFixture;
+  /** The effective segmenter version the services read and stamp. */
+  let sceneVersion: string;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   const saved: Record<string, string | undefined> = {};
@@ -42,13 +44,17 @@ describe('scene backlink reconcile (e2e)', () => {
       'SCENES_ENTITY_LINKS',
       'SCENES_EVIDENCE_LINKS',
       'SCENES_BELIEF_PROMOTION',
-      'SCENES_VERSION_FINGERPRINT',
       'PROVENANCE_SUPPORT_EDGES',
+      'SCENES_TOPIC_BOUNDARY',
     ]) {
+      // The steps around the backlink stay off: this suite is the
+      // reconcile alone. Its two scenes are the two sessions the time gap
+      // cuts; a topic cut would follow the stub embedder, not the text.
       saved[k] = process.env[k];
-      delete process.env[k];
+      process.env[k] = '0';
     }
     f = await createApp({ companyId: 'co_scene_backlink_e2e' });
+    sceneVersion = f.app.get(SceneVersionService).resolve().version;
 
     // One conversation, two sessions: 3 turns, a >60-min gap, then 2.
     const turns = [
@@ -157,7 +163,7 @@ describe('scene backlink reconcile (e2e)', () => {
     expect(res.body).toEqual({ scenes: 2, factsLinked: 3, stalePointersRemoved: 0 });
     expect(await factSource(FACT_A)).toMatchObject({
       memoryEpisodeIds: [s1],
-      sceneLinkVersion: SEGMENTER_VERSION,
+      sceneLinkVersion: sceneVersion,
     });
     expect((await factSource(FACT_B)).memoryEpisodeIds).toEqual([s2]);
     expect((await factSource(FACT_Z)).memoryEpisodeIds).toEqual([s2]);
@@ -182,7 +188,7 @@ describe('scene backlink reconcile (e2e)', () => {
     expect(res.body).toEqual({ scenes: 1, factsLinked: 1, stalePointersRemoved: 1 });
     expect(await factSource(FACT_B)).toMatchObject({
       memoryEpisodeIds: [],
-      sceneLinkVersion: SEGMENTER_VERSION,
+      sceneLinkVersion: sceneVersion,
     });
     expect((await factSource(FACT_A)).memoryEpisodeIds).toEqual([s1]);
 
@@ -196,7 +202,7 @@ describe('scene backlink reconcile (e2e)', () => {
   it('version purge: a tenant-wide re-run clears the conversation that lost its world; a rebuild re-links', async () => {
     const [s1] = await sceneIds();
     const purge = await f.http
-      .delete(`/v1/admin/maintenance/scenes/versions/${SEGMENTER_VERSION}`)
+      .delete(`/v1/admin/maintenance/scenes/versions/${encodeURIComponent(sceneVersion)}`)
       .set(auth())
       .send({});
     expect(purge.status).toBe(200);

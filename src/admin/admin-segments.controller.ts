@@ -9,8 +9,8 @@ import { SegmentBackfillService, SegmentBackfillResult } from './segment-backfil
 /**
  * Explicit trigger for the L0 segment composer (memory-rebuild R1).
  * Embedding-only cost (no LLM); idempotent per conversation
- * (delete-by-conversation then insert). Enable the read lane afterwards
- * with SEARCH_SEGMENT_LANE_ENABLED.
+ * (delete-by-conversation then insert). The read lane serves segments
+ * under RETRIEVAL_VERBATIM_EVIDENCE.
  */
 @Controller('v1/admin')
 @UseGuards(ApiKeyGuard)

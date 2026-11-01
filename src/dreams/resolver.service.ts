@@ -12,7 +12,7 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from '../common/tracing';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 import { isoDay, isoString } from '../common/surreal-date';
@@ -128,7 +128,7 @@ export class DreamsResolverService {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_RESOLVE_ENABLED'));
+    this.enabled = envFlagNotDisabled(this.configService.get<string>('DREAMS_RESOLVE_ENABLED'));
     this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_RESOLVE_MODEL',

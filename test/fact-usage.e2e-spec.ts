@@ -24,8 +24,8 @@ describe('fact_usage — usage recording and cascade', () => {
   });
 
   afterAll(async () => {
-    delete process.env.SEARCH_USAGE_RECORDING_ENABLED;
-    delete process.env.SEARCH_USAGE_DECAY_ENABLED;
+    process.env.SEARCH_USAGE_RECORDING_ENABLED = '0';
+    process.env.SEARCH_USAGE_DECAY_ENABLED = '0';
     if (f) await f.close();
   });
 
@@ -105,7 +105,7 @@ describe('fact_usage — usage recording and cascade', () => {
       .post('/v1/search')
       .set(auth())
       .send({ query: 'Usage Probe Tenant', limit: 5 });
-    delete process.env.SEARCH_USAGE_DECAY_ENABLED;
+    process.env.SEARCH_USAGE_DECAY_ENABLED = '0';
     expect(r.status).toBe(201);
     expect(r.body.results.length).toBeGreaterThan(0);
   });

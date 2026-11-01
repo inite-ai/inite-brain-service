@@ -32,6 +32,7 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { mockSynthesizeOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
+import { SceneVersionService } from '../src/admin/scene-version';
 
 const USER = 'dogfood_u1';
 const OTHER_USER = 'dogfood_u2';
@@ -129,11 +130,12 @@ describe('Belief serving lane e2e (the dogfood stale-answer scenario)', () => {
            confidence: 1,
            stateDeltas: [{ subject: 'inventory service', field: 'database',
                            from: 'PostgreSQL', to: 'SurrealDB' }],
-           segmenterVersion: 'scene-segmenter-v1', generation: 'seed-gen',
+           segmenterVersion: $v, generation: 'seed-gen',
            source: { recorder: 'test-seed' },
            enrichmentVersion: 'seed-enrich-v1',
            enrichedMemoryValue: { explicitness: 0.8 } }`,
-        { u: USER },
+        // The world the promoter reads: the effective segmenter version.
+        { u: USER, v: f.app.get(SceneVersionService).resolve().version },
       );
     });
     process.env.SCENES_SEGMENTATION_ENABLED = '1';

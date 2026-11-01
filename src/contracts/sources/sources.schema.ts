@@ -119,6 +119,8 @@ export const PublicSourcesListResponseSchema = z.object({
   total: z.number().int(),
   limit: z.number().int(),
   offset: z.number().int(),
+  /** Pass as `cursor` for the next page; absent on the last one. */
+  nextCursor: z.string().optional(),
 });
 export type PublicSourcesListResponse = z.infer<typeof PublicSourcesListResponseSchema>;
 

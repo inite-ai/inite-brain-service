@@ -59,9 +59,9 @@ describe('ABAC meta union + backfill + temporal windows', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
+    process.env.ABAC_ENABLED = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
-    delete process.env.POLICY_META_UNION_ENABLED;
+    process.env.POLICY_META_UNION_ENABLED = '0';
     await f.close();
   });
 

@@ -233,7 +233,6 @@ jobs:
           # on it until its recall is measured (0167, raw-processing roadmap).
           DECISIONS_LANES=entity_judge,predicate_identity,verifier,extraction_check,triage
           INGEST_INLINE_RESOLUTION_ENABLED=1
-          INGEST_CONTEXTUAL_FACT_EMBEDDING=1
           INGEST_EVENT_TIME_EXTRACTION=1
           INGEST_BATCH_EDGES=1
           INGEST_BATCH_FACTS=1
@@ -251,13 +250,8 @@ jobs:
           DERIVER_DIGEST=1
           DERIVER_COMPLETION_PASS=1
           DERIVER_SALIENCE_STAMP=1
-          # ── Verbatim/segment/episodic lanes + rerank legs ──
-          # PIN: legacy lane flags imply verbatim='always' (dialogue
-          # profile) when RETRIEVAL_VERBATIM_EVIDENCE is unset — pin the
-          # assistant-chat mode so the lanes do NOT flip the genre.
-          SEARCH_EPISODIC_LANE_ENABLED=1
-          SYNTHESIZE_SOURCE_EXCERPTS=1
-          SEARCH_SEGMENT_LANE_ENABLED=1
+          # ── Verbatim lanes (they follow RETRIEVAL_VERBATIM_EVIDENCE,
+          # assistant-chat default shape_conditioned) + rerank legs ──
           SEARCH_SEGMENT_LANE_RERANK=1
           SEARCH_FACT_RERANK=1
           # ── Search stack ──
@@ -268,11 +262,6 @@ jobs:
           # Provisioning only ADDS absent indexes, always CONCURRENTLY,
           # capped at 5 tenants starting builds per nightly run.
           SEARCH_HNSW_ENABLED=1
-          SEARCH_COMBINED_VECTOR_GRAPH=1
-          SEARCH_HIGHLIGHT_ENABLED=1
-          SEARCH_USAGE_RECORDING_ENABLED=1
-          SEARCH_USAGE_DECAY_ENABLED=1
-          SEARCH_USAGE_RANKING_ENABLED=1
           SEARCH_USAGE_BETA=0.1
           RETRIEVAL_VERIFIED_USE_DECAY=1
           RETRIEVAL_VERIFIED_USE_RANKING=1
@@ -311,25 +300,12 @@ jobs:
           STRATEGY_TRAJECTORIES_ENABLED=1
           # ── Dreams + compaction lifecycle ──
           DREAMS_ENABLED=1
-          DREAMS_RUN_SUMMARIZE=1
-          DREAMS_DEDUP_ENABLED=1
-          DREAMS_RESOLVE_ENABLED=1
-          DREAMS_CORROBORATE_ENABLED=1
-          DREAMS_COMMUNITIES_ENABLED=1
-          DREAMS_LLM_SUMMARY_ENABLED=1
           COMPACTION_PROMOTION_ENABLED=1
           COMPACTION_SUMMARIES=1
           COMPACTION_PROMOTION_CONFLICT_GUARD=1
           # ── Scenes + beliefs (Brain v2 episodic/semantic planes) ──
           SCENES_SEGMENTATION_ENABLED=1
-          SCENES_TOPIC_BOUNDARY=1
-          SCENES_LLM_ENRICHMENT=1
-          SCENES_FACT_BACKLINK=1
-          SCENES_VERSION_FINGERPRINT=1
           SCENES_BELIEF_PROMOTION=1
-          SCENES_BELIEF_LLM_SYNTHESIS=1
-          SCENES_EVIDENCE_LINKS=1
-          PACK_MEMORY_PROJECTIONS_ENABLED=1
           BELIEFS_SERVING_LANE=1
           BELIEFS_FACT_DAMPING=1
           # ── Evidence plane (grounding + lifecycle + raw-read) ──
@@ -353,31 +329,17 @@ jobs:
           PROVENANCE_SUPPORT_GRAPH_READ=1
           # ── Outcome telemetry + tool observations ──
           # ── Fovea optics + serving integrity ──
-          FOVEA_FOCUS_CAPTURE=1
-          FOVEA_ADAPTIVE_L3=1
-          FOVEA_ADAPTIVE_ABSTAIN=1
-          FOVEA_LENS_SUPPRESS=1
           # FOVEA_PLAUSIBILITY_CHECK stays off: measured on the live tenant
           # 2026-09-17 it vetoed 3 of 3 verifier-supported, correctly cited
           # answers (a benign "intent: Пилотный запуск" premise judged
           # implausible) — a counterfactual-premise guard that fires on
           # ordinary personal facts costs the whole answer plane.
-          FOVEA_REQUIRE_CITATIONS=1
-          FOVEA_L3_EPISODE_CITATIONS=1
-          FOVEA_EVIDENCE_CAPABILITY=1
           FOVEA_FRAGMENT_ZOOM=1
-          FOVEA_ATTENTION_HINTS=1
           # ── Access control / privacy fences ──
           # PRIVACY_SEGMENT_USER_FENCE is fail-closed on legacy rows: run
           # POST /v1/admin/maintenance/segments/backfill-user-ids per
           # tenant right after this deploy.
-          ABAC_ENABLED=1
-          ABAC_DB_FENCE_ENABLED=1
-          SCOPE_TAGS_ENABLED=1
           SOURCE_META_STRICT=1
-          POLICY_META_UNION_ENABLED=1
-          PRIVACY_SEGMENT_USER_FENCE=1
-          PRIVACY_COMPOSER_USER_SCOPE=1
           # ── Capability probes (active monitoring) ──
           # Not pinned here: the probe is on unless CAPABILITY_PROBE_ENABLED=0,
           # which is also its kill switch (set it and restart). Cost: one
@@ -386,7 +348,6 @@ jobs:
           # cross-space) both reached production while /health and /ready
           # were green.
           # ── Packs / MCP / QA ──
-          MCP_PACK_EXTERNAL_TOOLS_ENABLED=1
           AGENT_QA_TOOLS_V2=1
           # ── Memory-fitness fix wave (#415-#417, measured on the stand:
           # same-memory re-ask 16/30 -> 20/29; D2 timeline 3/3, D6 2/2) ──
@@ -395,8 +356,6 @@ jobs:
           PROVENANCE_EPISODE_NEIGHBOURS=1
           # ── Belief transitions (#423/#426; Compass acceptance green —
           # negation revision + field fold). ──
-          SCENES_BELIEF_NEGATION_DELTAS=1
-          SCENES_BELIEF_FIELD_FOLD=1
           # ── Answer conditioning (V13 G2 shape instructions; existing
           # flag, was never enabled — the aggregation shape's coverage
           # instruction fixes broad-question domain dropout. Measured on

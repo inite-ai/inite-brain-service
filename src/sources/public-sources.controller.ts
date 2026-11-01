@@ -24,6 +24,7 @@ import {
   toPublicDetail,
   type PublicListFilter,
 } from './public-projection';
+import { decodePageCursor, encodePageCursor } from '../common/page-cursor';
 
 /**
  * Read-only trust-inputs surface for ordinary brain:read callers
@@ -51,18 +52,20 @@ export class PublicSourcesController {
       minSamples?: string;
       limit?: string;
       offset?: string;
+      cursor?: string;
     },
   ): Promise<PublicSourcesListResponse> {
     const filter = parseListQuery(query);
     const summaries = await this.sources.list(req.brainAuth.companyId, {
       domain: filter.domain,
     });
-    const { items, total } = filterAndPage(summaries, filter);
+    const { items, total, last } = filterAndPage(summaries, filter);
     return {
       sources: items,
       total,
       limit: filter.limit,
       offset: filter.offset,
+      ...(last !== undefined ? { nextCursor: encodePageCursor('sources', { after: last }) } : {}),
     } satisfies PublicSourcesListResponse;
   }
 
@@ -90,7 +93,11 @@ function parseListQuery(query: {
   minSamples?: string;
   limit?: string;
   offset?: string;
+  cursor?: string;
 }): PublicListFilter {
+  if (query.cursor !== undefined && query.offset !== undefined) {
+    throw new BadRequestException('pass cursor or offset, not both');
+  }
   if (query.type !== undefined && !SOURCE_TYPES.includes(query.type as SourceType)) {
     throw new BadRequestException(`type must be one of ${SOURCE_TYPES.join('|')}`);
   }
@@ -105,6 +112,9 @@ function parseListQuery(query: {
       PUBLIC_LIST_MAX_LIMIT,
     ),
     offset: query.offset !== undefined ? parseIntStrict('offset', query.offset, 0) : 0,
+    ...(query.cursor !== undefined
+      ? { after: decodePageCursor('sources', query.cursor, { fields: ['after'] as const }).after }
+      : {}),
   };
 }
 

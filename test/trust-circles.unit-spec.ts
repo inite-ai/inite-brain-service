@@ -26,7 +26,7 @@ const inCircle = <T>(circle: string | undefined, fn: () => T): T =>
 
 describe('trust circles — the acting circle', () => {
   afterEach(() => {
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
   });
 
   it('comes from the credential, or from a job re-entering a stored scope', () => {
@@ -74,7 +74,7 @@ describe('trust circles — writes', () => {
 
 describe('trust circles — reads', () => {
   afterEach(() => {
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
   });
 
   it('a principal acting in a circle holds that circle and none of its others', () => {

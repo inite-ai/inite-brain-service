@@ -19,6 +19,7 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { mockSynthesizeOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
+import { SceneVersionService } from '../src/admin/scene-version';
 
 const USER = 'cache_deps_u1';
 const QUERY = 'which database does the inventory service use, and what was decided first?';
@@ -91,13 +92,26 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
            gist: $gist, confidence: 1,
            stateDeltas: [{ subject: 'inventory service', field: 'database',
                            from: $from, to: $to }],
-           segmenterVersion: 'scene-segmenter-v1', generation: 'seed-gen',
+           segmenterVersion: $v, generation: 'seed-gen',
            source: { recorder: 'test-seed' },
            enrichmentVersion: 'seed-enrich-v1',
            enrichedMemoryValue: { explicitness: 0.8 } }`,
-        { id, u: USER, conv: `proj:${id}`, at, gist: `switched to ${to}`, from, to },
+        {
+          id,
+          u: USER,
+          conv: `proj:${id}`,
+          at,
+          gist: `switched to ${to}`,
+          from,
+          to,
+          v: sceneVersion(),
+        },
       );
     });
+
+  /** The world the services read: the effective (possibly fingerprinted)
+   *  segmenter version, never the bare constant. */
+  const sceneVersion = () => f.app.get(SceneVersionService).resolve().version;
 
   const promote = async () => {
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
@@ -273,7 +287,7 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
           `UPSERT projection:['scenes', $v] SET name = 'scenes', version = $v,
              status = 'live', builder = 'test-seed',
              startedAt = time::now(), finishedAt = time::now()`,
-          { v: 'scene-segmenter-v1' },
+          { v: sceneVersion() },
         );
       });
       const sceneId = 'memory_episode:cachedeps1';

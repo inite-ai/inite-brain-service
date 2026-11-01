@@ -20,7 +20,7 @@ import { JobRunService, JobRunRow } from '../jobs/job-run.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, type JobContext } from '../jobs/worker-loop.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { ReadPinService } from '../episodes/read-pin.service';
 
 export interface DreamsTenantStats {
@@ -125,7 +125,7 @@ export class DreamsService implements OnModuleInit {
     if (this.corroborate?.isEnabled()) ops.push('corroborate');
     // summarize is always available because the no-LLM concat path
     // is the fallback; the LLM path engages when DREAMS_LLM_SUMMARY_ENABLED=1.
-    if (envFlagEnabled(this.configService.get<string>('DREAMS_RUN_SUMMARIZE'))) {
+    if (envFlagNotDisabled(this.configService.get<string>('DREAMS_RUN_SUMMARIZE'))) {
       ops.push('summarize');
     }
     // Communities auto-join the default set when enabled (same pattern as

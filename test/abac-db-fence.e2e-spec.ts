@@ -98,8 +98,8 @@ describe('DB fence (scoped pool)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
-    delete process.env.ABAC_DB_FENCE_ENABLED;
+    process.env.ABAC_ENABLED = '0';
+    process.env.ABAC_DB_FENCE_ENABLED = '0';
     await f.close();
   });
 

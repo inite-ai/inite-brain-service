@@ -5,7 +5,7 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { redactPii } from './ingest-utils';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { MemoryContextService } from './memory-context.service';
 import { participantsOf } from './participants';
 import { isUserEntityRef } from './user-entity';
@@ -128,7 +128,7 @@ export class MentionExtractionService {
     // bare text → byte-identical embeddings. Only the embedding basis
     // changes; the fact's stored object/predicate/haystack are untouched.
     const ctxStamp =
-      envFlagEnabled(process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING) &&
+      envFlagNotDisabled(process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING) &&
       (speaker?.name || dto.emittedAt)
         ? [speaker?.name, dto.emittedAt?.slice(0, 10)].filter(Boolean).join(', ')
         : '';

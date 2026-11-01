@@ -103,7 +103,7 @@ describe('MCP tool annotations', () => {
   });
   afterAll(() => {
     delete process.env.MCP_PACK_TOOLS_ENABLED;
-    delete process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED;
+    process.env.MCP_PACK_EXTERNAL_TOOLS_ENABLED = '0';
   });
 
   const surfaces: Array<[string, () => Promise<McpServer>]> = [

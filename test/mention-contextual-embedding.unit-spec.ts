@@ -3,6 +3,12 @@ import type { ExtractorService } from '../src/ai/extractor.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
 import type { IngestMentionDto } from '../src/ingest/dto/ingest-mention.dto';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['INGEST_CONTEXTUAL_FACT_EMBEDDING']) process.env[k] ??= '0';
+});
+
 /**
  * INGEST_CONTEXTUAL_FACT_EMBEDDING — the fact-level Contextual Retrieval
  * stamp. Off → bare "predicate: object" (byte-identical); on → speaker + date
@@ -41,7 +47,7 @@ describe('MentionExtractionService contextual fact embedding', () => {
   } as unknown as IngestMentionDto;
 
   afterEach(() => {
-    delete process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING;
+    process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING = '0';
   });
 
   it('off → embeds bare "predicate: object"', async () => {

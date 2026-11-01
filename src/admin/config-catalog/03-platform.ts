@@ -282,7 +282,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'ABAC_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -300,7 +300,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'ABAC_DB_FENCE_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -309,7 +309,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'SCOPE_TAGS_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -318,11 +318,11 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'PRIVACY_SEGMENT_USER_FENCE',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Per-member user-scope fence for verbatim windows (migration 0117). Mixed-user episode_segment windows fold userId=NONE (tenant-global), so the legacy gate served an A+B window — verbatim text included — to EVERY user-scoped caller in the tenant. When on, all four segment read seams (segment lane transcript + anchors, fused search leg, mention scan) admit a user-scoped caller to a userId-NONE window only when its persisted userIds member set is [] (purely global) or CONTAINS the caller (window membership: co-present verbatim is re-disclosure, not disclosure). Tenant-global (M2M) callers unchanged. WARNING: OFF + any segment-serving mode ON (verbatimEvidence/timelineEvidence/l3SegmentAnchor, e.g. RETRIEVAL_GENRE=dialogue or SEARCH_SEGMENT_LANE_ENABLED) = cross-user verbatim disclosure. FAIL-CLOSED on legacy rows: userIds IS NONE (pre-0117) is hidden from user-scoped callers — run POST /v1/admin/maintenance/segments/backfill-user-ids once per tenant BEFORE the first enable on an existing deployment (order: migrate → backfill → flip). Default off in code for byte-identity only; will default ON in a future release.',
+      'Per-member user-scope fence for verbatim windows (migration 0117). Mixed-user episode_segment windows fold userId=NONE (tenant-global), so the legacy gate served an A+B window — verbatim text included — to EVERY user-scoped caller in the tenant. When on, all four segment read seams (segment lane transcript + anchors, fused search leg, mention scan) admit a user-scoped caller to a userId-NONE window only when its persisted userIds member set is [] (purely global) or CONTAINS the caller (window membership: co-present verbatim is re-disclosure, not disclosure). Tenant-global (M2M) callers unchanged. WARNING: OFF + any segment-serving mode ON (verbatimEvidence/timelineEvidence/l3SegmentAnchor, e.g. RETRIEVAL_GENRE=dialogue or RETRIEVAL_VERBATIM_EVIDENCE=always) = cross-user verbatim disclosure. FAIL-CLOSED on legacy rows: userIds IS NONE (pre-0117) is hidden from user-scoped callers — run POST /v1/admin/maintenance/segments/backfill-user-ids once per tenant BEFORE the first enable on an existing deployment (order: migrate → backfill → flip). Default off in code for byte-identity only; will default ON in a future release.',
   },
   {
     key: 'READ_SURFACE_USER_SCOPE',
@@ -336,7 +336,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'PRIVACY_COMPOSER_USER_SCOPE',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -354,7 +354,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'POLICY_META_UNION_ENABLED',
     category: 'auth',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

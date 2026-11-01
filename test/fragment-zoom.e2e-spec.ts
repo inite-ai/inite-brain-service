@@ -48,7 +48,9 @@ describe('Fragment zoom e2e', () => {
     CAPTION_HEAD + 'detail '.repeat(Math.ceil((601 - CAPTION_HEAD.length) / 7)) + CAPTION_TAIL;
   const QUERY = 'evacuation plan pinned';
   const ANSWER = 'Take the north stairwell.';
-  const GEN = JSON.stringify({ answer: ANSWER, citedFactIds: [] });
+  // The generator cites the fact it answers from, as production requires
+  // (FOVEA_REQUIRE_CITATIONS: a wholly uncited answer is not served).
+  const gen = () => JSON.stringify({ answer: ANSWER, citedFactIds: [factId] });
   const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
   const VERIFY_UNSUPPORTED = JSON.stringify({
     verdict: 'unsupported',
@@ -67,9 +69,11 @@ describe('Fragment zoom e2e', () => {
 
   beforeAll(async () => {
     expect(CAPTION.length).toBeGreaterThan(600);
+    // Every case starts with both switches off and turns on only what it
+    // proves (production runs them on, so unset is not off).
     for (const k of [...FLAG_KEYS, 'RETRIEVAL_ABSTENTION_CALIBRATION']) {
       savedEnv[k] = process.env[k];
-      delete process.env[k];
+      process.env[k] = '0';
     }
     // Pin abstention off so a thin-evidence query never pre-abstains
     // before generation (the fragment-lane e2e discipline).
@@ -130,7 +134,7 @@ describe('Fragment zoom e2e', () => {
   });
 
   afterEach(() => {
-    for (const k of FLAG_KEYS) delete process.env[k];
+    for (const k of FLAG_KEYS) process.env[k] = '0';
   });
 
   afterAll(async () => {
@@ -143,7 +147,7 @@ describe('Fragment zoom e2e', () => {
 
   it('CONTROL — zoom off: a verifier-fail abstains as today, TWO calls, no extra read', async () => {
     process.env.RETRIEVAL_FRAGMENT_LANE = '1';
-    const state = mockSynthesizeOpenAi(f.app, [GEN, VERIFY_UNSUPPORTED]);
+    const state = mockSynthesizeOpenAi(f.app, [gen(), VERIFY_UNSUPPORTED]);
     const res = await synth({ query: QUERY, userId: 'u_zoom' });
     expect(res.status).toBe(201);
     expect(res.body.answer).toBeNull();
@@ -158,7 +162,7 @@ describe('Fragment zoom e2e', () => {
   it('FLIP — zoom on: ONE re-verify over the fuller text, the SAME answer serves', async () => {
     process.env.RETRIEVAL_FRAGMENT_LANE = '1';
     process.env.FOVEA_FRAGMENT_ZOOM = '1';
-    const state = mockSynthesizeOpenAi(f.app, [GEN, VERIFY_UNSUPPORTED, VERIFY_SUPPORTED]);
+    const state = mockSynthesizeOpenAi(f.app, [gen(), VERIFY_UNSUPPORTED, VERIFY_SUPPORTED]);
     const res = await synth({ query: QUERY, userId: 'u_zoom' });
     expect(res.status).toBe(201);
     // Served on the flip — the generator's own answer, never regenerated.
@@ -181,7 +185,7 @@ describe('Fragment zoom e2e', () => {
     process.env.FOVEA_FRAGMENT_ZOOM = '1';
     // The queue's last response repeats — a second zoom step would still
     // see 'unsupported'; the call COUNT is the single-step pin.
-    const state = mockSynthesizeOpenAi(f.app, [GEN, VERIFY_UNSUPPORTED, VERIFY_UNSUPPORTED]);
+    const state = mockSynthesizeOpenAi(f.app, [gen(), VERIFY_UNSUPPORTED, VERIFY_UNSUPPORTED]);
     const res = await synth({ query: QUERY, userId: 'u_zoom' });
     expect(res.status).toBe(201);
     // The downgrade path is unchanged — the CONTROL result, byte for byte.

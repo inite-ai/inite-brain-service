@@ -2,7 +2,7 @@
  * Scope-tag visibility (G6 step 2, docs/roadmap/sota-gap-build-2026-08.md).
  *
  * The read-side evaluator for the scope-tag model, gated behind
- * `SCOPE_TAGS_ENABLED` (default off). The load-bearing safety property:
+ * `SCOPE_TAGS_ENABLED` (default on). The load-bearing safety property:
  * when the flag is ON the evaluator runs as an ADDITIONAL fence
  * ALONGSIDE the existing `userId` filter (migration 0055), never as a
  * replacement — a row must pass BOTH. Composed with AND, the flag can
@@ -15,7 +15,7 @@
  * Pure evaluator + a request-context-derived principal + a SQL-fragment
  * helper for the seams whose userId fence is a WHERE clause.
  */
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { getRequestContext } from '../common/request-context';
 import { heldTagsFor } from './scope-principal';
 import { actingCircleTags, circleTagsOf } from './circle-scope';
@@ -35,7 +35,7 @@ export type PrincipalScope = typeof TENANT_WIDE | readonly string[];
 
 /** Whether the scope-tag fence is active. Read per-call (runtime-mutable). */
 export function scopeTagsEnabled(): boolean {
-  return envFlagEnabled(process.env.SCOPE_TAGS_ENABLED);
+  return envFlagNotDisabled(process.env.SCOPE_TAGS_ENABLED);
 }
 
 /**

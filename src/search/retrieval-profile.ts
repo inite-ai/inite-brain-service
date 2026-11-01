@@ -646,18 +646,6 @@ function resolveGenre(env: NodeJS.ProcessEnv): RetrievalGenre {
   return enumEnv(env, 'RETRIEVAL_GENRE', GENRES) ?? 'assistant_chat';
 }
 
-/** Legacy per-lane keys imply 'always' ONLY when one of them is
- *  enabled; their falsy state is indistinguishable from unset, so it
- *  defers to the genre preset (the first-class key
- *  RETRIEVAL_VERBATIM_EVIDENCE is the explicit off switch). */
-function legacyVerbatimMode(env: NodeJS.ProcessEnv): VerbatimEvidenceMode | undefined {
-  return envFlagEnabled(env.SEARCH_EPISODIC_LANE_ENABLED) ||
-    envFlagEnabled(env.SYNTHESIZE_SOURCE_EXCERPTS) ||
-    envFlagEnabled(env.SEARCH_SEGMENT_LANE_ENABLED)
-    ? 'always'
-    : undefined;
-}
-
 /** SYNTHESIZE_DATE_CONTEXT set to ANY value is an explicit operator
  *  choice (E2 made date context default-on, so an explicit '0' is the
  *  measured LoCoMo pin and must beat a preset); unset defers to the
@@ -679,8 +667,8 @@ function presetFlag(env: NodeJS.ProcessEnv, name: string, preset: boolean | unde
 /**
  * The boot-default profile, from env. The enum dimensions have
  * first-class keys (RETRIEVAL_GENRE / RETRIEVAL_VERBATIM_EVIDENCE /
- * RETRIEVAL_DATE_ANCHORING); when unset they derive from the legacy
- * per-lane keys so existing deployments resolve to the same behavior.
+ * RETRIEVAL_DATE_ANCHORING); date anchoring still honours the legacy
+ * SYNTHESIZE_DATE_CONTEXT when it is set.
  * This function is the ONLY place those env keys are read.
  *
  * Field precedence (genre-presets.ts): explicit env key > genre preset
@@ -720,7 +708,6 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
         'fused',
         'routed',
       ] as const) ??
-      legacyVerbatimMode(env) ??
       preset.verbatimEvidence ??
       'shape_conditioned',
     insightEvidence:
@@ -1092,9 +1079,9 @@ function unitPenalty(env: NodeJS.ProcessEnv, name: string): number {
 
 export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): SearchTuning {
   return {
-    usageRecording: envFlagEnabled(env.SEARCH_USAGE_RECORDING_ENABLED),
-    usageDecay: envFlagEnabled(env.SEARCH_USAGE_DECAY_ENABLED),
-    usageRanking: envFlagEnabled(env.SEARCH_USAGE_RANKING_ENABLED),
+    usageRecording: envFlagNotDisabled(env.SEARCH_USAGE_RECORDING_ENABLED),
+    usageDecay: envFlagNotDisabled(env.SEARCH_USAGE_DECAY_ENABLED),
+    usageRanking: envFlagNotDisabled(env.SEARCH_USAGE_RANKING_ENABLED),
     usageBeta: nonNegativeFloat(env, 'SEARCH_USAGE_BETA'),
     usageSaturation: tuningInt(env, 'SEARCH_USAGE_SATURATION', 20),
     pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
@@ -1114,11 +1101,11 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     stageBudgets: resolveStageBudgets(env),
     tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),
     tokenOffloadMinHits: tuningInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', 24),
-    combinedVectorGraph: envFlagEnabled(env.SEARCH_COMBINED_VECTOR_GRAPH),
+    combinedVectorGraph: envFlagNotDisabled(env.SEARCH_COMBINED_VECTOR_GRAPH),
     hnswEnabled: envFlagEnabled(env.SEARCH_HNSW_ENABLED),
     hnswEf: tuningInt(env, 'SEARCH_HNSW_EF', 100),
     hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
-    highlightEnabled: envFlagEnabled(env.SEARCH_HIGHLIGHT_ENABLED),
+    highlightEnabled: envFlagNotDisabled(env.SEARCH_HIGHLIGHT_ENABLED),
     edgeExpansion: resolveExpansionConfig(env),
     softLangFilter: envFlagEnabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
     langAttribution: envFlagEnabled(env.MULTILINGUAL_LANG_ATTRIBUTION),

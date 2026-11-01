@@ -7,7 +7,7 @@ import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildSupportEdgeBatches } from '../common/support-edges';
 
 /**
- * Scene fact backlinker (SCENES_FACT_BACKLINK, default off). Contract:
+ * Scene fact backlinker (SCENES_FACT_BACKLINK, default on). Contract:
  * after a run, for every fact in scope, `source.memoryEpisodeIds` is
  * EXACTLY the set of scenes of the effective segmenter version whose
  * live membership intersects the fact's `source.episodeIds`, and

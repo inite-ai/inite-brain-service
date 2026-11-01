@@ -56,7 +56,7 @@ describe('ABAC action gate (enforce + report_only)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
+    process.env.ABAC_ENABLED = '0';
     await f.close();
   });
 
@@ -214,7 +214,7 @@ describe('ABAC master switch off — attached policies are inert', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
+    process.env.ABAC_ENABLED = '0';
     await f.close();
   });
 
