@@ -44,15 +44,15 @@ const flush = () => new Promise((r) => setImmediate(r));
 describe('ToolObservationService.record', () => {
   beforeEach(() => {
     process.env.TOOL_OBSERVATIONS_ENABLED = '1';
-    delete process.env.TOOL_OBSERVATION_CONTENT;
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
   });
   afterAll(() => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
-    delete process.env.TOOL_OBSERVATION_CONTENT;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
   });
 
   it('master flag off ⇒ no insert at all', async () => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
     const captured: CapturedQuery[] = [];
     const svc = new ToolObservationService(makeSurreal(captured));
     svc.record('co_x', { tool: 't', args: { a: 1 }, result: 'r', ok: true, durationMs: 5 });
@@ -111,11 +111,11 @@ describe('ToolObservationService.record', () => {
 describe('shapeObservationRow — excerpt gating + caps', () => {
   beforeEach(() => {
     process.env.TOOL_OBSERVATIONS_ENABLED = '1';
-    delete process.env.TOOL_OBSERVATION_CONTENT;
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
   });
   afterAll(() => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
-    delete process.env.TOOL_OBSERVATION_CONTENT;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
   });
 
   it('excerpt appears ONLY under TOOL_OBSERVATION_CONTENT', () => {
@@ -162,7 +162,7 @@ describe('ToolObservationService.verifyRef', () => {
     process.env.TOOL_OBSERVATIONS_ENABLED = '1';
   });
   afterAll(() => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
   });
 
   it('resolves an in-tenant row to its content-free note material', async () => {
@@ -195,8 +195,8 @@ describe('OutcomePruneService — tool_observation leg', () => {
   });
 
   afterEach(() => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     delete process.env.OUTCOME_DECISION_CAPTURE;
     delete process.env.TOOL_OBSERVATION_RETENTION_DAYS;
   });
