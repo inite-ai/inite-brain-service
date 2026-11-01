@@ -469,7 +469,7 @@ describe('fovea cascade shakedown — full stack composed', () => {
 
     // DERIVER_SPANS read path: the provenance surfaces the char span.
     const prov = await f.http
-      .get(`/v1/facts/${encodeURIComponent(usageFactId)}/provenance`)
+      .get(`/v1/facts/${encodeURIComponent(usageFactId)}/provenance?userId=u_usage`)
       .set(auth());
     expect(prov.status).toBe(200);
     const episodes = (prov.body.episodes ?? []) as Array<{

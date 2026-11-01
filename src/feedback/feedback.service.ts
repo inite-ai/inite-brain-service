@@ -133,6 +133,8 @@ export class FeedbackService {
     actor: string;
     /** The caller's scopes — the visibility fence is the read path's. */
     scopes: readonly BrainScope[];
+    /** The user the caller acts for; a personal fact is rated only for its own user. */
+    userId?: string | undefined;
   }): Promise<RecordFeedbackResult> {
     // A vote changes a fact's trust signals, so the caller must be allowed
     // to SEE the fact: same tenant, same user scope (a user-bound token
@@ -140,7 +142,12 @@ export class FeedbackService {
     // is the read path's own fence (FactsService.getFact) and it answers
     // 404 for every miss, so existence never leaks through a 201/404 split.
     // Before this, `brain:write` plus a guessed id was enough.
-    await this.facts.getFact({ companyId: p.companyId, factId: p.factId, scopes: p.scopes });
+    await this.facts.getFact({
+      companyId: p.companyId,
+      factId: p.factId,
+      scopes: p.scopes,
+      userId: p.userId,
+    });
     return this.surreal.withCompany(p.companyId, async (db) => {
       const fact = new StringRecordId(`knowledge_fact:${idTailOf(p.factId)}`);
       const prior = await castVote(db, {

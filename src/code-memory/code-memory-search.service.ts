@@ -3,6 +3,7 @@ import { SurrealService, queryRows } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { BrainScope } from '../auth/api-key.types';
+import { userReadFence } from '../auth/user-scope';
 import { CODE_MEMORY_PACK, codeMemoryKindOf } from '../ai/domain-packs';
 import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 
@@ -49,11 +50,16 @@ export class CodeMemorySearchService {
     query: string;
     limit?: number;
     scopes: BrainScope[];
+    /** Per-user scope: tenant-global decisions plus this user's own; omitted → tenant-global only. */
+    userId?: string | undefined;
   }): Promise<RecalledDecision[]> {
     const q = (opts.query ?? '').trim();
     if (!q) return [];
     const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
     const embedding = await this.embedder.embed(q);
+    // The read fence every entity surface applies (profile, timeline,
+    // why): without it a personal decision was recalled tenant-wide.
+    const fence = userReadFence(opts.userId);
 
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
       // retractedAt IS NONE + the bitemporal validity window mirror
@@ -79,6 +85,7 @@ export class CodeMemorySearchService {
              AND embedding != NONE AND array::len(embedding) = array::len($embedding)
              AND validFrom <= time::now()
              AND (validUntil IS NONE OR validUntil > time::now())
+             AND ${fence.clause}
            ORDER BY score DESC
            LIMIT $limit`,
         {
@@ -90,6 +97,7 @@ export class CodeMemorySearchService {
           prefix: this.prefix,
           prefixEnd: `${this.prefix}￿`,
           limit,
+          ...fence.params,
         },
       );
       // Scope + ABAC row gate — code_memory__* predicates are

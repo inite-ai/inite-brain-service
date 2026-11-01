@@ -115,7 +115,7 @@ export class CompactionRunnerService {
       // on the next cycle.
       const [factRows] = await db.query<[CandidateFactRow[]]>(
         `SELECT id, entityId, predicate, object, validFrom, validUntil, confidence, userId,
-                source.episodeIds AS eps
+                retractedAt, scope, source.episodeIds AS eps
            FROM knowledge_fact
            WHERE status != 'compacted'
              AND embedding != NONE
@@ -173,10 +173,16 @@ export class CompactionRunnerService {
   ): Promise<number> {
     const groups = new Map<string, CandidateFactRow[]>();
     for (const c of candidates) {
-      // User scope (0055) is part of the rollup key — a summary must
-      // never blend a user's personal facts with the tenant-global (or
-      // another user's) timeline.
-      const key = `${c.entityId}::${c.predicate}::${c.userId ?? ''}`;
+      // A retracted fact was never true (bitemporal semantics), so it is
+      // compacted but never retold: a summary of it served the retraction
+      // back as an active fact to every asOf read inside its window.
+      if (c.retractedAt) continue;
+      // The whole read scope is part of the rollup key — the user (0055)
+      // and the circle and team tags (G6). A summary must never blend a
+      // user's facts with the tenant-global timeline, nor a team's facts
+      // with everyone's: the summary is a row of its own, read under its
+      // own scope.
+      const key = `${c.entityId}::${c.predicate}::${c.userId ?? ''}::${scopeKey(c.scope)}`;
       const arr = groups.get(key);
       if (arr) arr.push(c);
       else groups.set(key, [c]);
@@ -235,6 +241,9 @@ export class CompactionRunnerService {
         // (audit W2 #10) — otherwise the pinned reader loses both.
         ...(derivedVersion ? { derivedVersion } : {}),
         ...(first.userId ? { userId: first.userId } : {}),
+        ...(Array.isArray(first.scope) && first.scope.length > 0
+          ? { scope: [...first.scope].map(String) }
+          : {}),
       });
       created++;
 
@@ -262,4 +271,9 @@ export class CompactionRunnerService {
 
 function isoOf(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v);
+}
+
+/** A row's scope tags as one order-free key. */
+function scopeKey(scope: unknown): string {
+  return Array.isArray(scope) ? scope.map(String).sort().join('|') : '';
 }

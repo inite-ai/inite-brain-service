@@ -19,7 +19,7 @@
  * services, pure internals, and SQL-fragment builders alike.
  */
 import { ambientWriteScope } from './write-scope';
-import { CIRCLE_NAMESPACE, actingCircleTags } from './circle-scope';
+import { CIRCLE_NAMESPACE, actingCircleTags, withSourceCircles } from './circle-scope';
 
 /** Active namespace: a single end-user's slice of the tenant (0055). */
 export const USER_NAMESPACE = 'user';
@@ -159,4 +159,29 @@ export function scopeForSource(p: {
   if (p.userId) return [userTag(p.userId)];
   const group = (p.groups ?? []).find((g) => typeof g === 'string' && g.length > 0);
   return group === undefined ? [] : [teamTag(p.connectionId, group)];
+}
+
+/**
+ * What is derived from several rows is visible only where all of them
+ * are (trust circles §3.5), for every restricting tag a source carries:
+ * its circles and its `team:` groups. A scene composed from a private
+ * repository's turns, or a segment or insight over them, was written
+ * tenant-global — the turns were fenced, what was derived from them was
+ * not. The AND-set only narrows: a tag added here can hide a row, never
+ * show one.
+ */
+export function withSourceScope(
+  scope: readonly string[],
+  sources: ReadonlyArray<{ scope?: readonly string[] | null | undefined }>,
+): string[] {
+  const out = withSourceCircles(scope, sources);
+  for (const source of sources) {
+    for (const tag of teamTagsOf(source.scope)) if (!out.includes(tag)) out.push(tag);
+  }
+  return out;
+}
+
+/** The `team:` tags of a row's scope. */
+export function teamTagsOf(scope: readonly string[] | undefined | null): string[] {
+  return (scope ?? []).filter((t) => t.startsWith(`${TEAM_NAMESPACE}:`));
 }
