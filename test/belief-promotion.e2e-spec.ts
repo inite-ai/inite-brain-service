@@ -261,6 +261,8 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
   it('promotes with the distinct-conversation floor: corroborated key in, single-conversation key out', async () => {
     process.env.SCENES_BELIEF_PROMOTION = '1';
     process.env.SCENES_BELIEF_MIN_SCENES = '2';
+    // The support-edge mirror is asserted by the revision test below.
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
     const res = await promote();
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
