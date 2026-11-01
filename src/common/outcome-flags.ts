@@ -1,4 +1,4 @@
-import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
+import { envFlagNotDisabled } from './env-validation';
 
 /**
  * Outcome telemetry (0107) master flag — OUTCOME_TELEMETRY_ENABLED.
@@ -11,11 +11,11 @@ import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
  * (src/search/ and src/synthesize/ take resolved config only —
  * engine-gates S5.2); engine callers reach it via the
  * MemoryOutcomeService static. Read at call time so a flip is
- * runtime-mutable (no restart). Default off ⇒ every writer is a guarded
- * no-op and the cron returns immediately — serving byte-identical.
+ * runtime-mutable (no restart). Default on (production's setting); `0`
+ * makes every writer a guarded no-op and the cron return immediately.
  */
 export function outcomeTelemetryEnabled(): boolean {
-  return envFlagEnabled(process.env.OUTCOME_TELEMETRY_ENABLED);
+  return envFlagNotDisabled(process.env.OUTCOME_TELEMETRY_ENABLED);
 }
 
 /**
@@ -26,29 +26,11 @@ export function outcomeTelemetryEnabled(): boolean {
  * one event per surfaced fact per search (same id list fact_usage
  * stamps). The env read lives here in the common layer, NOT inside the
  * engine dirs (engine-gates S5.2). Read at call time so a flip is
- * runtime-mutable. Default off ⇒ even with the master on, searches
- * write no `retrieved` rows — operators opt into the raw stream
- * separately from the low-volume outcome writers.
+ * runtime-mutable. Default on (production's setting); `0` keeps searches
+ * from writing `retrieved` rows while the low-volume writers go on.
  */
 export function outcomeRetrievedEventsEnabled(): boolean {
-  return envFlagEnabled(process.env.OUTCOME_RETRIEVED_EVENTS);
-}
-
-/**
- * Transactional idempotent outcome writes — OUTCOME_TX_WRITES.
- *
- * When on, MemoryOutcomeService takes the atomic branch: deterministic
- * record ids + INSERT IGNORE inside ONE BEGIN/COMMIT (raw append and
- * stat fold land together or not at all), an in-tx pre-select gates the
- * stat deltas so a replayed batch folds NOTHING twice, and an OCC abort
- * gets exactly one immediate retry. The env read lives here in the
- * common layer, NOT inside the engine dirs (engine-gates S5.2). Read at
- * call time so a flip is runtime-mutable. Default off ⇒ the legacy
- * two-statement write path runs BYTE-IDENTICAL (same SQL strings, same
- * params keys — pinned by the unit spec).
- */
-export function outcomeTxWritesEnabled(): boolean {
-  return envFlagEnabled(process.env.OUTCOME_TX_WRITES);
+  return envFlagNotDisabled(process.env.OUTCOME_RETRIEVED_EVENTS);
 }
 
 /**

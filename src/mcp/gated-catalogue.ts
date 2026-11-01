@@ -10,7 +10,8 @@ import { PUBLIC_TOOL_NAMES } from './public-tools';
 import { registerReadTools } from './read-tools';
 import { registerSourceReadTools } from './source-tools';
 import { resolveToolProfile, type ToolProfile } from './tool-profiles';
-import { registerWriteTools } from './write-tools';
+import { registerAdminTools, registerWriteTools } from './write-tools';
+import { extractionSource } from '../common/extraction-source';
 
 /**
  * The memory tools, LISTED to an anonymous caller and callable by none.
@@ -113,3 +114,42 @@ export function registerGatedCatalogue(
     );
   }
 }
+
+/**
+ * The scope a tool needs beyond `brain:read` (which the endpoint itself
+ * requires): `brain:write` for the write families, `brain:admin` for the
+ * admin ones, null for everything else. Derived by recording the same
+ * register functions buildServer gates on those scopes, so a new write
+ * tool is classified the day it is registered. Cached per harness mode,
+ * the one switch that changes which write tools exist.
+ */
+export function requiredScopeOf(name: string): BrainScope | null {
+  const key = extractionSource();
+  let map = scopeMaps.get(key);
+  if (!map) {
+    map = new Map();
+    const write: Recorded[] = [];
+    const ws = recorder(write);
+    // Every dependency present: a family that registers a tool only when
+    // its service is wired (record_feedback) must still be classified.
+    const none = new Proxy({}, { get: () => ({}) }) as never;
+    registerWriteTools({
+      server: ws,
+      companyId: '',
+      scopes: CATALOGUE_SCOPES,
+      actorKeyHash: '',
+      actorId: undefined,
+      deps: none,
+    });
+    registerCodeMemoryWriteTools({ server: ws, companyId: '', deps: none });
+    registerHarnessWorkTools({ server: ws, companyId: '', deps: {} });
+    for (const r of write) map.set(r.name, 'brain:write');
+    const admin: Recorded[] = [];
+    registerAdminTools(recorder(admin), '', none);
+    for (const r of admin) map.set(r.name, 'brain:admin');
+    scopeMaps.set(key, map);
+  }
+  return map.get(name) ?? null;
+}
+
+const scopeMaps = new Map<string, Map<string, BrainScope>>();
