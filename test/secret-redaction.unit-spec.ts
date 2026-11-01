@@ -30,23 +30,33 @@ function sourceFiles(dir: string): string[] {
     return p.endsWith('.ts') ? [p] : [];
   });
 }
-/** Best of three wall-clock runs, in ms — the least disturbed by a loaded machine. */
+/**
+ * Best of three runs in CPU time spent by this process (user + system), in
+ * ms. Wall-clock time on a loaded machine counts the time other processes
+ * held the cores and made these comparisons flaky; CPU time is what the
+ * scan itself costs.
+ */
 function bestOf3(fn: () => void): number {
   let best = Infinity;
   for (let i = 0; i < 3; i++) {
-    const t = performance.now();
+    const start = process.cpuUsage();
     fn();
-    best = Math.min(best, performance.now() - t);
+    const used = process.cpuUsage(start);
+    best = Math.min(best, (used.user + used.system) / 1000);
   }
   return best;
 }
 
 /** Growth of the cost from n to 4n: ~4 when linear, ~16 when quadratic. */
 function growth(make: (n: number) => string, n: number): number {
-  const small = bestOf3(() => redactSecrets(make(n)));
-  const large = bestOf3(() => redactSecrets(make(4 * n)));
-  return large / Math.max(small, 1);
+  const small = make(n);
+  const large = make(4 * n);
+  const tSmall = bestOf3(() => redactSecrets(small));
+  const tLarge = bestOf3(() => redactSecrets(large));
+  return tLarge / Math.max(tSmall, 1);
 }
+/** Scans that do real work; a loaded CI runner must not turn them into timeouts. */
+const HEAVY_TIMEOUT_MS = 120_000;
 const b64url = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
 
 describe('redactSecrets', () => {
@@ -82,23 +92,31 @@ describe('redactSecrets', () => {
     expect(redactSecrets(`key:\n${pem}\nthanks`).text).toBe(`key:\n${SECRET_MASK}\nthanks`);
   });
 
-  it('scans a crafted run of JWT prefixes in linear time', () => {
-    const hostile = (n: number) => 'eyJ-'.repeat(n);
-    expect(redactSecrets(hostile(1_000)).text).toBe(hostile(1_000));
-    expect(growth(hostile, 60_000)).toBeLessThan(8);
-  });
+  it(
+    'scans a crafted run of JWT prefixes in linear time',
+    () => {
+      const hostile = (n: number) => 'eyJ-'.repeat(n);
+      expect(redactSecrets(hostile(1_000)).text).toBe(hostile(1_000));
+      expect(growth(hostile, 60_000)).toBeLessThan(8);
+    },
+    HEAVY_TIMEOUT_MS,
+  );
 
   it('masks a JWT that follows other dotted text', () => {
     const jwt = `${b64url({ alg: 'HS256' })}.${b64url({ sub: 'u1' })}.${token(43, 11)}`;
     expect(redactSecrets(`v1.token.${jwt}.tail`).text).toBe(`v1.token.${SECRET_MASK}.tail`);
   });
 
-  it('scans unterminated PEM headers in linear time', () => {
-    const hostile = (n: number) =>
-      ('-----BEGIN ' + 'RSA PRIVATE KEY-----' + 'x'.repeat(40)).repeat(n);
-    expect(redactSecrets(hostile(100)).found).toBe(false);
-    expect(growth(hostile, 10_000)).toBeLessThan(8);
-  });
+  it(
+    'scans unterminated PEM headers in linear time',
+    () => {
+      const hostile = (n: number) =>
+        ('-----BEGIN ' + 'RSA PRIVATE KEY-----' + 'x'.repeat(40)).repeat(n);
+      expect(redactSecrets(hostile(100)).found).toBe(false);
+      expect(growth(hostile, 10_000)).toBeLessThan(8);
+    },
+    HEAVY_TIMEOUT_MS,
+  );
 
   it.each([
     ['a git SHA', 'reverted 42054561b9e3c1d0a7f6e5d4c3b2a1908f7e6d5c in main'],
@@ -112,28 +130,37 @@ describe('redactSecrets', () => {
     expect(redactSecrets(text)).toEqual({ text, found: false });
   });
 
-  it('catches random tokens of every length at the miss rate it is built for', () => {
-    let missed = 0;
-    let total = 0;
-    for (let len = MIN_TOKEN_LENGTH; len <= 64; len++) {
-      for (let seed = 0; seed < 25; seed++) {
-        total += 1;
-        if (!redactSecrets(token(len, len * 1000 + seed)).found) missed += 1;
+  it(
+    'catches random tokens of every length at the miss rate it is built for',
+    () => {
+      let missed = 0;
+      let total = 0;
+      for (let len = MIN_TOKEN_LENGTH; len <= 64; len++) {
+        for (let seed = 0; seed < 25; seed++) {
+          total += 1;
+          if (!redactSecrets(token(len, len * 1000 + seed)).found) missed += 1;
+        }
       }
-    }
-    // Binomial slack over the α the null quantile is taken at.
-    expect(missed / total).toBeLessThan(RANDOM_TOKEN_MISS_RATE * 3);
-  });
+      // Binomial slack over the α the null quantile is taken at.
+      expect(missed / total).toBeLessThan(RANDOM_TOKEN_MISS_RATE * 3);
+    },
+    HEAVY_TIMEOUT_MS,
+  );
 
-  it('flags no identifier, path or literal in this codebase', () => {
-    const runs = new Set<string>();
-    for (const file of sourceFiles(join(__dirname, '..', 'src'))) {
-      for (const m of readFileSync(file, 'utf8').matchAll(/[A-Za-z0-9+/=_-]{20,}/g)) runs.add(m[0]);
-    }
-    expect(runs.size).toBeGreaterThan(1000);
-    const flagged = [...runs].filter((r) => redactSecrets(r).found);
-    expect(flagged).toEqual([]);
-  });
+  it(
+    'flags no identifier, path or literal in this codebase',
+    () => {
+      const runs = new Set<string>();
+      for (const file of sourceFiles(join(__dirname, '..', 'src'))) {
+        for (const m of readFileSync(file, 'utf8').matchAll(/[A-Za-z0-9+/=_-]{20,}/g))
+          runs.add(m[0]);
+      }
+      expect(runs.size).toBeGreaterThan(1000);
+      const flagged = [...runs].filter((r) => redactSecrets(r).found);
+      expect(flagged).toEqual([]);
+    },
+    HEAVY_TIMEOUT_MS,
+  );
 });
 
 describe('redactPiiWithReport — credentials', () => {
