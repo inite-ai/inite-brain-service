@@ -1,5 +1,16 @@
 import { FactResolverService } from '../src/ingest/fact-resolver.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of [
+    'CONFLICT_DIRECT_FACT_SLOT',
+    'CONFLICT_MENTION_FACT_SLOT',
+    'CONFLICT_SLOT_CANONICALIZATION',
+  ])
+    process.env[k] ??= '0';
+});
+
 /**
  * CONFLICT_DIRECT_FACT_SLOT — semantics promotion at the
  * buildResolveCall seam. The typed direct path (recordOutcomeMetric,
@@ -14,7 +25,7 @@ import { FactResolverService } from '../src/ingest/fact-resolver.service';
  */
 describe('FactResolverService — CONFLICT_DIRECT_FACT_SLOT promotion', () => {
   afterEach(() => {
-    delete process.env.CONFLICT_DIRECT_FACT_SLOT;
+    process.env.CONFLICT_DIRECT_FACT_SLOT = '0';
   });
 
   function make() {

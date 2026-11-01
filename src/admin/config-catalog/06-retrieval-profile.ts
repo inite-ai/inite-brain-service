@@ -177,7 +177,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_DATE_RESOLVE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -204,7 +204,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_TURN_HEADERS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -213,7 +213,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_COMPOSE_PASS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -222,7 +222,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_SCENE_TRACE',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -244,7 +244,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_TYPED_ATOMS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
@@ -253,7 +253,7 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
   {
     key: 'DERIVER_SPANS',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

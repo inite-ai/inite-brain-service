@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagNotDisabled } from './env-validation';
 
 /**
  * Direct-fact conflict semantics — CONFLICT_DIRECT_FACT_SLOT.
@@ -21,12 +21,12 @@ import { envFlagEnabled } from './env-validation';
  * (load-bearing for mention extraction), as is every known predicate's
  * registry policy. The env read lives here in the common layer
  * (engine-gates S5.2), read at call time so a flip is runtime-mutable.
- * Default off ⇒ append_only passthrough, byte-identical. CONFLICT_
+ * Off ⇒ append_only passthrough, byte-identical. CONFLICT_
  * sits off the ENGINE flag budget by design (a resolver-policy knob
  * family — cfg weights/thresholds — not an engine fork).
  */
 export function conflictDirectFactSlotEnabled(): boolean {
-  return envFlagEnabled(process.env.CONFLICT_DIRECT_FACT_SLOT);
+  return envFlagNotDisabled(process.env.CONFLICT_DIRECT_FACT_SLOT);
 }
 
 /**
@@ -52,13 +52,13 @@ export function conflictDirectFactSlotEnabled(): boolean {
  * append_only bulk and DEFAULT_FALLBACK are untouched (load-bearing for
  * open-vocabulary mention extraction), as is the direct typed path. The
  * env read lives here in the common layer (engine-gates S5.2), read at
- * call time so a flip is runtime-mutable. Default off ⇒ registry
+ * call time so a flip is runtime-mutable. Off ⇒ registry
  * passthrough, byte-identical. CONFLICT_ sits off the ENGINE flag
  * budget by design (a resolver-policy knob family — cfg
  * weights/thresholds — not an engine fork).
  */
 export function conflictMentionFactSlotEnabled(): boolean {
-  return envFlagEnabled(process.env.CONFLICT_MENTION_FACT_SLOT);
+  return envFlagNotDisabled(process.env.CONFLICT_MENTION_FACT_SLOT);
 }
 
 /**
@@ -86,11 +86,11 @@ export function conflictMentionFactSlotEnabled(): boolean {
  * order. The direct typed path (caller states its slot), the harvest
  * bulk without calendar anchors, and every other predicate are
  * untouched. The env read lives here in the common layer (engine-gates
- * S5.2), read at call time so a flip is runtime-mutable. Default off ⇒
+ * S5.2), read at call time so a flip is runtime-mutable. Off ⇒
  * extracted-predicate passthrough, byte-identical. CONFLICT_ sits off
  * the ENGINE flag budget by design (a resolver-policy knob family, not
  * an engine fork).
  */
 export function conflictSlotCanonicalizationEnabled(): boolean {
-  return envFlagEnabled(process.env.CONFLICT_SLOT_CANONICALIZATION);
+  return envFlagNotDisabled(process.env.CONFLICT_SLOT_CANONICALIZATION);
 }

@@ -10,6 +10,13 @@ import {
 import { resolveExtractionProfile } from '../src/ai/extraction-profile';
 import type { RawExtractedFact } from '../src/ai/extractor-internals/types';
 
+// These cases pin the CLOSED vocabulary: verbatim values, span-grounded.
+// Production runs the open dialogue profile (EXTRACTOR_DIALOGUE_PROFILE),
+// which normalises values and so bypasses the substring gate.
+beforeEach(() => {
+  for (const k of ['EXTRACTOR_DIALOGUE_PROFILE']) process.env[k] ??= '0';
+});
+
 const norm = normalizeForGrounding;
 
 describe('isGroundedSpan word-boundary', () => {
@@ -225,7 +232,12 @@ describe('object normalization (E3b, EXTRACTION_OBJECT_NORMALIZE)', () => {
   it('objectNormalizationEnabled: flag on, but the open vocabulary wins', () => {
     expect(objectNormalizationEnabled(resolveExtractionProfile({}))).toBe(false);
     expect(
-      objectNormalizationEnabled(resolveExtractionProfile({ EXTRACTION_OBJECT_NORMALIZE: '1' })),
+      objectNormalizationEnabled(
+        resolveExtractionProfile({
+          EXTRACTION_OBJECT_NORMALIZE: '1',
+          EXTRACTOR_DIALOGUE_PROFILE: '0',
+        }),
+      ),
     ).toBe(true);
     expect(
       objectNormalizationEnabled(

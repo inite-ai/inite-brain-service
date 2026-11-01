@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { MetricsService } from '../metrics/metrics.service';
 import { sanitizeSourceMeta } from '../policy/source-meta';
@@ -43,13 +43,13 @@ export class FactIngestService {
     dto = { ...dto, userId: pinUserScope(dto.userId) };
     // G9 write-anomaly signal (fired once per direct fact write).
     this.metrics?.countIngestWrite('fact');
-    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default on):
     // strip bidi/zero-width/control chars from the free-text fields a
     // direct fact carries (predicate + string object). Flag off →
     // byte-identical (dto untouched). Grounding for direct ingest is
     // caller-asserted, so this only de-obfuscates what gets stored and
     // embedded, never changes acceptance.
-    if (envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)) {
+    if (envFlagNotDisabled(process.env.INGEST_SANITIZE_UNICODE)) {
       dto = {
         ...dto,
         predicate: sanitizeIngestText(dto.predicate),

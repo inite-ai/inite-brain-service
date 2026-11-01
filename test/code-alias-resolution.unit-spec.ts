@@ -19,6 +19,13 @@ import {
 } from '../src/ingest/code-alias';
 import { EntityUpsertService } from '../src/ingest/entity-upsert.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['INGEST_ARTICLE_NORMALIZATION', 'INGEST_CONFUSABLES_CHECK'])
+    process.env[k] ??= '0';
+});
+
 const FLAG = 'INGEST_CODE_ALIAS_RESOLUTION';
 
 describe('code-alias derivation (pure, deterministic)', () => {
@@ -112,7 +119,7 @@ describe('EntityUpsertService code-alias resolution (flag ON)', () => {
   const saved = process.env[FLAG];
   beforeEach(() => {
     process.env[FLAG] = '1';
-    delete process.env.INGEST_CONFUSABLES_CHECK;
+    process.env.INGEST_CONFUSABLES_CHECK = '0';
   });
   afterAll(() => {
     if (saved === undefined) delete process.env[FLAG];
@@ -212,7 +219,7 @@ describe('EntityUpsertService with the flag OFF (pinned: byte-identical today-be
   const saved = process.env[FLAG];
   beforeEach(() => {
     delete process.env[FLAG];
-    delete process.env.INGEST_CONFUSABLES_CHECK;
+    process.env.INGEST_CONFUSABLES_CHECK = '0';
   });
   afterAll(() => {
     if (saved !== undefined) process.env[FLAG] = saved;

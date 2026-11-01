@@ -582,7 +582,7 @@ export class FactResolverService {
     const predicate = canonicalSlot ?? p.predicate;
     const policy = await this.policyForPredicate(p, predicate);
     // Conflict-slot promotion (CONFLICT_DIRECT_FACT_SLOT /
-    // CONFLICT_MENTION_FACT_SLOT, both default off): the shared helper
+    // CONFLICT_MENTION_FACT_SLOT, both default on): the shared helper
     // routes each path's blind spot into fn::resolve_fact's 'bitemporal'
     // margin doctrine — see conflictSlotResolution above. A mention-path
     // single_active promotion also carries the slot-exact pool floor

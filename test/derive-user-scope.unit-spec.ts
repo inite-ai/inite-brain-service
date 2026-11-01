@@ -124,7 +124,7 @@ describe('derive user scope (audit 2026-08-21 P0)', () => {
 describe('char-span grounding quotes (G3, DERIVER_SPANS)', () => {
   const OLD = process.env.DERIVER_SPANS;
   afterEach(() => {
-    if (OLD === undefined) delete process.env.DERIVER_SPANS;
+    if (OLD === undefined) process.env.DERIVER_SPANS = '0';
     else process.env.DERIVER_SPANS = OLD;
   });
 
@@ -176,7 +176,7 @@ describe('char-span grounding quotes (G3, DERIVER_SPANS)', () => {
   });
 
   it('flag off: quotes are ignored — source shape is byte-identical', () => {
-    delete process.env.DERIVER_SPANS;
+    process.env.DERIVER_SPANS = '0';
     const row = buildQuoted([1], ['tenant-global'])[0]!;
     expect(row.source).not.toHaveProperty('charSpans');
   });

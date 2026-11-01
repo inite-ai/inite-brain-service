@@ -8,6 +8,12 @@ import { SurrealService } from '../src/db/surreal.service';
 import { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
 import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['DERIVER_COMPLETION_PASS', 'DERIVER_SALIENCE_STAMP']) process.env[k] ??= '0';
+});
+
 /**
  * V7 deriver-recall: the finish_reason truncation guard and the
  * DERIVER_COMPLETION_PASS "what was missed" second pass. The base
@@ -18,7 +24,7 @@ import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.serv
 describe('deriver recall (V7)', () => {
   const OLD = process.env.DERIVER_COMPLETION_PASS;
   afterEach(() => {
-    if (OLD === undefined) delete process.env.DERIVER_COMPLETION_PASS;
+    if (OLD === undefined) process.env.DERIVER_COMPLETION_PASS = '0';
     else process.env.DERIVER_COMPLETION_PASS = OLD;
   });
 
@@ -73,7 +79,7 @@ describe('deriver recall (V7)', () => {
   });
 
   it('flag off → exactly one pass', async () => {
-    delete process.env.DERIVER_COMPLETION_PASS;
+    process.env.DERIVER_COMPLETION_PASS = '0';
     const create = jest.fn(async () => ok([prop('A', 'A has a dog.')]));
     const out = await callDeriver(makeSvc(create));
     expect(out).toHaveLength(1);
@@ -81,7 +87,7 @@ describe('deriver recall (V7)', () => {
   });
 
   it('truncated response retries once at a larger cap, then succeeds', async () => {
-    delete process.env.DERIVER_COMPLETION_PASS;
+    process.env.DERIVER_COMPLETION_PASS = '0';
     const create = jest
       .fn()
       .mockResolvedValueOnce(truncated())
@@ -95,7 +101,7 @@ describe('deriver recall (V7)', () => {
   });
 
   it('still truncated at the top cap → throws (fail-loud)', async () => {
-    delete process.env.DERIVER_COMPLETION_PASS;
+    process.env.DERIVER_COMPLETION_PASS = '0';
     const create = jest.fn(async () => truncated());
     await expect(callDeriver(makeSvc(create))).rejects.toThrow(/truncated/);
   });
@@ -142,7 +148,7 @@ describe('deriver recall (V7)', () => {
   describe('DERIVER_SPANS schema gating (G3)', () => {
     const OLD_SPANS = process.env.DERIVER_SPANS;
     afterEach(() => {
-      if (OLD_SPANS === undefined) delete process.env.DERIVER_SPANS;
+      if (OLD_SPANS === undefined) process.env.DERIVER_SPANS = '0';
       else process.env.DERIVER_SPANS = OLD_SPANS;
     });
 
@@ -167,7 +173,7 @@ describe('deriver recall (V7)', () => {
       ).response_format.json_schema.schema.properties.propositions.items;
 
     it('flag off (default): no quotes in schema, no span section in prompt', async () => {
-      delete process.env.DERIVER_SPANS;
+      process.env.DERIVER_SPANS = '0';
       const create = jest.fn().mockResolvedValue(ok([prop('A', 'A has a dog.')]));
       await callDeriver(makeSvc(create));
       const items = itemSchema(create.mock.calls[0][0]);

@@ -45,7 +45,7 @@ describe('knowledge_edge scope through the ingest pipeline and the read surfaces
   afterAll(async () => {
     delete process.env.DOCUMENT_INGEST_ENABLED;
     delete process.env.INGEST_MENTION_VIA_DOCUMENT;
-    delete process.env.INGEST_BATCH_EDGES;
+    process.env.INGEST_BATCH_EDGES = '0';
     if (f) await f.close();
   });
 

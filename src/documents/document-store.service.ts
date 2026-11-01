@@ -16,7 +16,7 @@ import {
   queryRows,
 } from '../db/surreal.service';
 import { retryOnReadConflict } from '../db/surreal-retry';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
@@ -152,13 +152,13 @@ export class DocumentStoreService {
       this.logger.warn(`document meta asserts ${reserved.length} reserved key(s): ${reserved[0]}`);
     }
     const meta = mergeDocumentMeta(dto.meta, origin.internal);
-    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+    // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default on):
     // strip bidi/zero-width/control chars from the document body BEFORE
     // redaction, hashing, and chunking — so stored chunks (and the spans
     // external indexers later re-ground against them) see de-obfuscated
     // text. Layout is preserved, so chunk boundaries are unaffected. Flag
     // off → dto.text flows through verbatim (byte-identical, hash stable).
-    const rawText = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)
+    const rawText = envFlagNotDisabled(process.env.INGEST_SANITIZE_UNICODE)
       ? sanitizeIngestText(dto.text)
       : dto.text;
     const text = redactPii(rawText).trim();

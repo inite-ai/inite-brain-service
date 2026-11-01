@@ -19,7 +19,7 @@ import type { ExtractionResult } from '../ai/extractor.service';
 import type { ResolveOutcome } from './conflict-resolver';
 import { coreferentParticipant, participantHint, participantsOf } from './participants';
 import { relativeHint } from './relative-role';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import {
   edgeTiming,
   factExpectation,
@@ -149,7 +149,7 @@ export class MentionPersistService {
     const { companyId, dto, extraction, source, factEmbeddings, entityIds } = p;
     const factIds: string[] = [];
     const timeOpts = resolveEventTimeOpts(dto.timezone);
-    if (envFlagEnabled(process.env.INGEST_BATCH_FACTS)) {
+    if (envFlagNotDisabled(process.env.INGEST_BATCH_FACTS)) {
       return this.persistFactsBatched(db, p, timeOpts);
     }
     for (let i = 0; i < extraction.facts.length; i++) {
@@ -362,7 +362,7 @@ export class MentionPersistService {
     p: { extraction: ExtractionResult; entityIds: string[]; dto: IngestMentionDto },
   ): Promise<string[]> {
     const { extraction, entityIds, dto } = p;
-    if (envFlagEnabled(process.env.INGEST_BATCH_EDGES)) {
+    if (envFlagNotDisabled(process.env.INGEST_BATCH_EDGES)) {
       return this.persistEdgesBatched(db, { extraction, entityIds, dto });
     }
     const edgeIds: string[] = [];

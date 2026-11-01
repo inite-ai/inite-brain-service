@@ -14,6 +14,13 @@ import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service'
 import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
 import type { ProjectionRegistryService } from '../src/episodes/projection-registry.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['DERIVER_COMPLETION_PASS', 'DERIVER_SALIENCE_STAMP', 'DERIVER_DIGEST'])
+    process.env[k] ??= '0';
+});
+
 /**
  * Audit 2026-08-19 P1 — derive non-atomicity. The contract under test:
  *

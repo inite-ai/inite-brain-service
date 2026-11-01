@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { redactPiiWithReport } from './ingest-utils';
 import { scopeForUser } from '../auth/scope-tags';
@@ -61,13 +61,13 @@ export class EpisodeStoreService {
   async captureTurn(companyId: string, dto: IngestMentionDto): Promise<string | null> {
     if (!this.isEnabled()) return null;
     try {
-      // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default off):
+      // G9 ingest sanitization (INGEST_SANITIZE_UNICODE, default on):
       // NFC-normalize + strip bidi/zero-width/control chars BEFORE
       // redaction and language detection, so the stored turn text, the
       // PII spans computed over it, and the detected language all see the
       // same de-obfuscated text. Flag off → dto.text is used verbatim
       // (byte-identical capture). Layout (\n \t) is preserved.
-      const rawText = envFlagEnabled(process.env.INGEST_SANITIZE_UNICODE)
+      const rawText = envFlagNotDisabled(process.env.INGEST_SANITIZE_UNICODE)
         ? sanitizeIngestText(dto.text)
         : dto.text;
       const { text, classes } = redactPiiWithReport(rawText);

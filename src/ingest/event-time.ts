@@ -21,12 +21,12 @@
  * that chrono leaves unparsed. Anything unresolvable returns null and the
  * caller keeps the message time — never a guess.
  *
- * Enabled by `INGEST_EVENT_TIME_EXTRACTION` (default off; re-ingest to apply).
+ * Enabled by `INGEST_EVENT_TIME_EXTRACTION` (default on; re-ingest to apply).
  */
 import * as chrono from 'chrono-node';
 import { detectLanguage } from '../ai/locale/language-detector';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { normalizeDigits } from '../common/locale-digits';
 import { parseLocaleAbsoluteDate } from './locale-date';
 
@@ -457,7 +457,7 @@ export interface EventTimeResolveOpts {
  */
 export function resolveEventTimeOpts(timeZone: string | undefined): EventTimeResolveOpts {
   return {
-    on: envFlagEnabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
+    on: envFlagNotDisabled(process.env.INGEST_EVENT_TIME_EXTRACTION),
     ...(timeZone ? { timeZone } : {}),
   };
 }

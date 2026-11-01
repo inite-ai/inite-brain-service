@@ -14,7 +14,7 @@ import type { ExtractedFact } from './types';
  * highest-leverage extraction denoise: cleaner retrieval + a synthesis
  * window that holds real facts.
  *
- * EXTRACTOR_DROP_SAID (default off): drop every `said` fact. Deliberately
+ * EXTRACTOR_DROP_SAID (default on): drop every `said` fact. Deliberately
  * blunt — a small minority of `said` facts do carry content, but the filler
  * dominates and the flag is off by default + eval-gated before enable.
  */

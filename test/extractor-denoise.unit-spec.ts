@@ -4,6 +4,12 @@ import { resolveExtractionProfile } from '../src/ai/extraction-profile';
 const dropSaid = () => resolveExtractionProfile().dropSaid;
 import type { ExtractedFact } from '../src/ai/extractor-internals/types';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['EXTRACTOR_DROP_SAID']) process.env[k] ??= '0';
+});
+
 /**
  * EXTRACTOR_DROP_SAID — drop the generic `said` small-talk the closed-vocab
  * LLM over-emits. Off (default) → identity so extraction is byte-identical.
@@ -17,7 +23,7 @@ describe('denoiseFacts (EXTRACTOR_DROP_SAID)', () => {
   ];
 
   afterEach(() => {
-    delete process.env.EXTRACTOR_DROP_SAID;
+    process.env.EXTRACTOR_DROP_SAID = '0';
   });
 
   it('off → identity (same array reference, byte-identical)', () => {

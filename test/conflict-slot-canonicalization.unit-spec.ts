@@ -1,5 +1,16 @@
 import { FactResolverService, canonicalSlotFor } from '../src/ingest/fact-resolver.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of [
+    'CONFLICT_DIRECT_FACT_SLOT',
+    'CONFLICT_MENTION_FACT_SLOT',
+    'CONFLICT_SLOT_CANONICALIZATION',
+  ])
+    process.env[k] ??= '0';
+});
+
 /**
  * CONFLICT_SLOT_CANONICALIZATION — write-side slot canonicalization at
  * the shared buildResolveCall seam (canonicalSlotFor). The conflict
@@ -38,9 +49,9 @@ import { FactResolverService, canonicalSlotFor } from '../src/ingest/fact-resolv
  */
 describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
   afterEach(() => {
-    delete process.env.CONFLICT_SLOT_CANONICALIZATION;
-    delete process.env.CONFLICT_MENTION_FACT_SLOT;
-    delete process.env.CONFLICT_DIRECT_FACT_SLOT;
+    process.env.CONFLICT_SLOT_CANONICALIZATION = '0';
+    process.env.CONFLICT_MENTION_FACT_SLOT = '0';
+    process.env.CONFLICT_DIRECT_FACT_SLOT = '0';
   });
 
   function make(
@@ -127,7 +138,7 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
     queries.filter((q) => q.sql.includes('fn::settle_fact('));
 
   it('flag off: extracted-predicate passthrough, resolver call byte-identical', async () => {
-    // Baseline pin: with the flag unset AND with it explicitly '0', the
+    // Baseline pin: with the flag '0' (the suite's pin; production runs it on) and with it set '0' explicitly, the
     // fn::resolve_fact invocation binds the exact same parameters — the
     // default-off promise is byte-identical current behavior.
     const unset = make();
