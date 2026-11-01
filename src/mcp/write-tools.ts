@@ -347,6 +347,7 @@ function registerFeedbackTool({
         factId: z.string(),
         verdict: z.enum(['helpful', 'not_helpful', 'incorrect']),
         reason: z.string().max(1000).optional(),
+        userId: z.string().max(200).optional().describe('The user a personal fact belongs to'),
       },
     },
     async (args) => {
@@ -357,6 +358,7 @@ function registerFeedbackTool({
         ...(args.reason !== undefined ? { reason: args.reason } : {}),
         actor: actorKeyHash ?? `mcp:${companyId}`,
         scopes,
+        userId: args.userId,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],

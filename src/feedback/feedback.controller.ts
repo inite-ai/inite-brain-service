@@ -22,6 +22,7 @@ export class FeedbackController {
       reason: body.reason,
       actor: req.brainAuth.keyHash,
       scopes: req.brainAuth.scopes,
+      userId: body.userId,
     });
   }
 }

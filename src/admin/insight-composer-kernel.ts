@@ -2,8 +2,7 @@ import type { Logger } from '@nestjs/common';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
-import { scopeForUser } from '../auth/scope-tags';
-import { withSourceCircles } from '../auth/circle-scope';
+import { scopeForUser, withSourceScope } from '../auth/scope-tags';
 import { privacyComposerUserScopeEnabled } from '../common/privacy-flags';
 import { emptyBatchOutcome, foldBatchOutcome, type BatchOutcome } from '../common/batch-outcome';
 
@@ -268,10 +267,10 @@ async function composeEntity<P>(
       return {
         ...row,
         userId: x.scopeUser,
-        scope: withSourceCircles(scopeForUser(x.scopeUser), members),
+        scope: withSourceScope(scopeForUser(x.scopeUser), members),
       };
     }
-    const circles = withSourceCircles([], members);
+    const circles = withSourceScope([], members);
     return circles.length > 0 ? { ...row, scope: circles } : row;
   });
   // Wholesale replace: composed rows are derived state, a re-run owns

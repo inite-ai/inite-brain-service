@@ -15,6 +15,21 @@ import {
   brainTools,
   BrainError,
 } from '../clients/brain-sdk/src/index';
+import type { AnswerReason } from '../clients/brain-sdk/src/index';
+import type { z } from 'zod';
+import { SynthesisReasonSchema } from '../src/contracts/synthesize/synthesize.schema';
+
+/**
+ * The SDK cannot import the server's zod contract (it ships with no
+ * dependencies), so its copy of the abstention reasons is pinned here:
+ * a reason added on the server and not in the SDK fails typecheck.
+ */
+type ServerReason = z.infer<typeof SynthesisReasonSchema>;
+const reasonsMatch: [AnswerReason] extends [ServerReason]
+  ? [ServerReason] extends [AnswerReason]
+    ? true
+    : false
+  : false = true;
 
 interface Call {
   url: string;
@@ -41,8 +56,11 @@ function stub(routes: Record<string, unknown> = {}, files: Record<string, string
         : { ok: false, status: 404, text: async () => 'not found' };
     }
     if (url.includes('/v1/memory-files/list')) {
+      // brain's directory semantics: the path itself and what is inside it.
       const prefix = String(body?.prefix ?? '');
-      return ok({ paths: [...store.keys()].filter((p) => p.startsWith(prefix)).sort() });
+      return ok({
+        paths: [...store.keys()].filter((p) => p === prefix || p.startsWith(`${prefix}/`)).sort(),
+      });
     }
     if (url.includes('/v1/memory-files/delete')) {
       return store.delete(path)
@@ -234,5 +252,20 @@ describe('the LangGraph-shaped store', () => {
     await expect(store.put(['users', '../etc'], 'a', {})).rejects.toThrow(/invalid namespace/);
     await expect(store.put(['users', 'a/b'], 'a', {})).rejects.toThrow(/invalid namespace/);
     await expect(store.put(['users'], '', {})).rejects.toThrow(/invalid key/);
+  });
+});
+
+describe('answer', () => {
+  it('passes an abstention through as null with its reason', async () => {
+    expect(reasonsMatch).toBe(true);
+    expect(SynthesisReasonSchema.options).toContain('harness_mode');
+    const s = stub({
+      '/v1/synthesize': { answer: null, reason: 'harness_mode', citations: [], results: [] },
+    });
+    const out = await createBrain({ apiKey: 'brain_test', fetch: s.fetchImpl }).answer(
+      'who owns ledger sync?',
+    );
+    expect(out.answer).toBeNull();
+    expect(out.reason).toBe('harness_mode');
   });
 });

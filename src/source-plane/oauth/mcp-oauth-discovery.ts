@@ -158,15 +158,25 @@ export async function authorizationServerMetadata(
     const authorizationEndpoint = json.authorization_endpoint;
     const tokenEndpoint = json.token_endpoint;
     if (typeof authorizationEndpoint !== 'string' || typeof tokenEndpoint !== 'string') continue;
+    // RFC 8414 §3.3: the metadata's issuer MUST be the issuer it was looked
+    // up for, or it must not be used — a document naming another issuer
+    // could steer the flow to endpoints of the publisher's choosing.
+    if (typeof json.issuer !== 'string' || !sameIssuer(json.issuer, issuer)) continue;
+    // MCP authorization: a client MUST refuse an authorization server that
+    // does not advertise PKCE (S256); every flow here sends a challenge.
+    const codeChallengeMethods = stringList(json.code_challenge_methods_supported);
+    if (!codeChallengeMethods.includes('S256')) {
+      throw new McpOAuthDiscoveryError(`${issuer} does not advertise PKCE (S256) — refusing`);
+    }
     return {
-      issuer: typeof json.issuer === 'string' ? json.issuer : issuer,
+      issuer: json.issuer,
       authorizationEndpoint,
       tokenEndpoint,
       registrationEndpoint:
         typeof json.registration_endpoint === 'string' ? json.registration_endpoint : null,
       revocationEndpoint:
         typeof json.revocation_endpoint === 'string' ? json.revocation_endpoint : null,
-      codeChallengeMethods: stringList(json.code_challenge_methods_supported),
+      codeChallengeMethods,
       tokenEndpointAuthMethods: stringList(json.token_endpoint_auth_methods_supported),
       scopesSupported: stringList(json.scopes_supported),
     };
@@ -309,4 +319,14 @@ function sameResource(declared: string, wanted: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Issuer identifiers compare exactly, but for a trailing slash. */
+function sameIssuer(published: string, requested: string): boolean {
+  const norm = (v: string) => {
+    let end = v.length;
+    while (end > 0 && v[end - 1] === '/') end--;
+    return v.slice(0, end);
+  };
+  return norm(published) === norm(requested);
 }

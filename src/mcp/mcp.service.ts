@@ -654,14 +654,14 @@ export class McpService {
    * behind them (gated-catalogue.ts) — listing is what lets a client
    * reach the 401 that starts its sign-in.
    */
-  buildPublicServer(baseUrl: string): McpServer {
+  buildPublicServer(baseUrl: string, profile?: ToolProfile): McpServer {
     const server = new McpServer({
       name: 'inite-brain-service',
       version: MCP_SERVER_VERSION,
     });
     applyToolAnnotations(server);
     registerPublicTools({ server, options: { baseUrl } });
-    registerGatedCatalogue(server);
+    registerGatedCatalogue(server, profile);
     return server;
   }
 

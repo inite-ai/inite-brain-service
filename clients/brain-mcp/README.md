@@ -3,7 +3,7 @@
 First-party **stdio MCP connector** for the [INITE Brain](https://brain.inite.ai).
 
 Brain speaks MCP over **Streamable HTTP** with a Bearer API key
-(`POST /mcp/:companyId`). Harnesses that natively support remote MCP
+(`POST /mcp`). Harnesses that natively support remote MCP
 (Claude Desktop, Cursor, Goose v2) connect directly by URL — see the
 `brain-mcp-setup` skill. But many harnesses only know how to **spawn a
 stdio MCP server** as a subprocess and have no way to attach an
@@ -14,7 +14,7 @@ transparently proxies every tool the API key is scoped for to the remote
 brain:
 
 ```
-harness ──stdio──▶ brain-mcp ──HTTP + Bearer──▶ https://brain.inite.ai/mcp/<companyId>
+harness ──stdio──▶ brain-mcp ──HTTP + Bearer──▶ https://brain.inite.ai/mcp
 ```
 
 It is a **transparent passthrough** — it does not rename or curate tools.
@@ -38,10 +38,10 @@ All config is via environment variables (harnesses pass these as `env`):
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `BRAIN_API_KEY` | yes | — | `brain_…` key from https://brain.inite.ai/admin/keys |
-| `BRAIN_COMPANY_ID` | yes\* | — | your companyId (same page); \*not needed if `BRAIN_MCP_URL` is set |
+| `BRAIN_API_KEY` | yes | — | `brain_…` key from https://brain.inite.ai/en/app/keys |
+| `BRAIN_COMPANY_ID` | no | — | pins the per-tenant URL (`/mcp/<companyId>`); the key names its tenant either way |
 | `BRAIN_BASE_URL` | no | `https://brain.inite.ai` | for self-hosted brain |
-| `BRAIN_MCP_URL` | no | — | full endpoint override; wins over BASE_URL + COMPANY_ID |
+| `BRAIN_MCP_URL` | no | — | full endpoint override; wins over `BRAIN_BASE_URL` and `BRAIN_COMPANY_ID`; add `?tools=core` here for the small tool profile |
 
 ## Wiring it into a harness
 
@@ -57,8 +57,7 @@ In the harness MCP config (`mcp.servers`):
         "command": "npx",
         "args": ["-y", "@inite/brain-mcp"],
         "env": {
-          "BRAIN_API_KEY": "brain_xxxxxxxx",
-          "BRAIN_COMPANY_ID": "your-company-id"
+          "BRAIN_API_KEY": "brain_xxxxxxxx"
         }
       }
     }
@@ -80,7 +79,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const transport = new StdioClientTransport({
   command: 'npx',
   args: ['-y', '@inite/brain-mcp'],
-  env: { BRAIN_API_KEY: process.env.BRAIN_API_KEY!, BRAIN_COMPANY_ID: 'your-company-id' },
+  env: { BRAIN_API_KEY: process.env.BRAIN_API_KEY! },
 });
 const client = new Client({ name: 'hermes', version: '1.0.0' }, { capabilities: {} });
 await client.connect(transport);
@@ -90,7 +89,7 @@ const { tools } = await client.listTools();
 ### Self-hosted brain
 
 Add `BRAIN_BASE_URL` (e.g. `http://localhost:3000`) to the `env`, or set
-`BRAIN_MCP_URL` to the full `…/mcp/<companyId>` endpoint.
+`BRAIN_MCP_URL` to the full `…/mcp` endpoint.
 
 ## Notes
 

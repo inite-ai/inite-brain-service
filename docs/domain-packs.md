@@ -564,9 +564,12 @@ POST /v1/admin/packs/from-registry {packId}    # retry — now installs
 
 The 402 is self-describing; an optional `idempotency-key` header on the
 checkout call is forwarded to billing so client retries collapse into one
-order. The gate sits in `resolveForInstall` — the single install choke
-point — after the yank refusal and **before** the download counter (a
-refused install is not a download).
+order. The gate sits in `resolveForInstall`, after the yank refusal and
+**before** the download counter (a refused install is not a download). The
+same gate holds the two other doors to a paid pack: the manifest read
+(`GET /v1/registry/packs/:packId/:version`) and a pasted-manifest install
+(`POST /v1/admin/packs` with that pack id) both answer the same 402 to a
+company that has not bought it. The publishing company passes both.
 
 Posture: **pull-only + fail-closed**. Billing v1 sends no signed inbound
 webhooks, so entitlements are polled (`GET /v1/entitlements/:companyId`)

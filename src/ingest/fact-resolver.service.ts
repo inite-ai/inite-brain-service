@@ -1018,21 +1018,21 @@ export class FactResolverService {
   }
 
   /**
-   * G6 scope-tag stamp (step 1): mirror the per-user scope onto the
-   * row's `scope` column so new personal facts carry ['user:<id>'] the
-   * way the 0093 backfill set it for existing rows — the forward half of
-   * the backfill invariant. The fact CREATE itself lives inside the
-   * audit-hardened `fn::resolve_fact`, which stamps `userId`; rather than
-   * reopen that function we mirror the derived scope in a targeted
-   * follow-up UPDATE on the row(s) it returned. No-op for tenant-global
-   * writes (userId undefined → the field DEFAULT [] already holds), so
-   * the benchmark/eval path (which never stamps a userId) is untouched.
+   * G6 scope-tag stamp: mirror the write's scope onto the row's `scope`
+   * column — the per-user tag for a personal fact (the forward half of
+   * the 0093 backfill), and for a fact with no user the scope the write
+   * runs under: an org connection's `team:` groups (write-scope.ts) and
+   * the acting trust circle. The fact CREATE lives inside the
+   * audit-hardened `fn::resolve_fact`, which stamps `userId` only;
+   * rather than reopen that function the derived scope is mirrored in a
+   * follow-up UPDATE on the row(s) it returned. No-op when the scope is
+   * empty (a tenant-global write in no circle and no group).
    *
-   * STAMPING ONLY — never authorization, and best-effort. The read fence
-   * is composed with AND alongside the binding userId filter, so a fact
-   * left at scope=[] by a failed stamp is still correctly fenced by
-   * userId; the scope column can never OPEN access it lacks. A failure
-   * therefore warns instead of failing the ingest.
+   * A personal row's stamp is best-effort: the read fence ANDs it with
+   * the binding userId filter, so a failed stamp still leaves the row
+   * fenced by userId, and it only warns. A row with no user has no
+   * other fence — its scope IS what keeps a private repository's facts
+   * from the rest of the tenant — so its failed stamp fails the write.
    */
   private async stampFactScope(
     db: {
@@ -1040,26 +1040,28 @@ export class FactResolverService {
     },
     items: Array<{ userId?: string | undefined; factId: unknown }>,
   ): Promise<void> {
-    const byUser = new Map<string, StringRecordId[]>();
+    const byScope = new Map<
+      string,
+      { scope: string[]; personal: boolean; ids: StringRecordId[] }
+    >();
     for (const it of items) {
-      if (!it.userId || it.factId === undefined || it.factId === null) continue;
-      const tail = idTailOf(String(it.factId));
-      const ids = byUser.get(it.userId) ?? [];
-      ids.push(new StringRecordId(`knowledge_fact:${tail}`));
-      byUser.set(it.userId, ids);
+      if (it.factId === undefined || it.factId === null) continue;
+      const scope = scopeForUser(it.userId);
+      if (scope.length === 0) continue;
+      const key = JSON.stringify(scope);
+      const group = byScope.get(key) ?? { scope, personal: Boolean(it.userId), ids: [] };
+      group.ids.push(new StringRecordId(`knowledge_fact:${idTailOf(String(it.factId))}`));
+      byScope.set(key, group);
     }
-    if (byUser.size === 0) return;
-    try {
-      for (const [userId, ids] of byUser) {
-        await db.query(`UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`, {
-          scope: scopeForUser(userId),
-          ids,
-        });
+    for (const { scope, personal, ids } of byScope.values()) {
+      try {
+        await db.query(`UPDATE knowledge_fact SET scope = $scope WHERE id IN $ids`, { scope, ids });
+      } catch (e) {
+        if (!personal) throw e;
+        this.logger.warn(
+          `scope-tag stamp failed (non-fatal, userId scope still fences): ${(e as Error).message}`,
+        );
       }
-    } catch (e) {
-      this.logger.warn(
-        `scope-tag stamp failed (non-fatal, userId scope still fences): ${(e as Error).message}`,
-      );
     }
   }
 

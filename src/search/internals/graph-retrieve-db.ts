@@ -4,6 +4,20 @@ import { buildEdgeFence } from './edge-fence';
 import { buildLexMatchLeg } from './lex-leg';
 
 /**
+ * The read fence every query here carries (`userReadFence`): tenant-global
+ * rows, the asking user's own, and only the circle/team-tagged rows the
+ * principal holds. Before, each query said `userId IS NONE` and nothing
+ * else — personal memory was unreachable, and a tagged row with no user
+ * reached any caller.
+ */
+export interface GraphReadFence {
+  /** The pinned user the fence admits, undefined for tenant-global only. */
+  userId: string | undefined;
+  clause: string;
+  params: Record<string, unknown>;
+}
+
+/**
  * DB layer for graph-retrieve. Three queries:
  *   1. Resolve seed entities by canonicalNameLc OR substring scan.
  *   2. Fetch 1-hop neighbour ids over knowledge_edge (both directions).
@@ -25,8 +39,11 @@ import { buildLexMatchLeg } from './lex-leg';
  */
 export async function resolveSeedEntities(
   db: Surreal,
-  queryText: string,
-  entityRefs: string[],
+  {
+    queryText,
+    entityRefs,
+    fence,
+  }: { queryText: string; entityRefs: string[]; fence: GraphReadFence },
 ): Promise<GraphEntity[]> {
   const targetLc = queryText.trim().toLowerCase();
   if (entityRefs.length > 0) {
@@ -44,10 +61,10 @@ export async function resolveSeedEntities(
       `SELECT id, type, canonicalName, externalRefs
          FROM knowledge_entity
         WHERE mergedInto IS NONE
-          AND userId IS NONE
+          AND ${fence.clause}
           AND canonicalNameLc IN $refs
         LIMIT 10`,
-      { refs: refsLc },
+      { refs: refsLc, ...fence.params },
     );
     const seeds = (rows ?? []).map(toGraphEntity);
     if (seeds.length > 0) return seeds;
@@ -85,11 +102,11 @@ export async function resolveSeedEntities(
             ${lex.score} AS bm25
        FROM knowledge_entity
       WHERE mergedInto IS NONE
-        AND userId IS NONE
+        AND ${fence.clause}
         AND ${lex.where}
       ORDER BY bm25 DESC
       LIMIT 5`,
-    lex.params,
+    { ...lex.params, ...fence.params },
   );
   return (allRows ?? []).map(toGraphEntity);
 }
@@ -106,14 +123,14 @@ export async function resolveSeedEntities(
 export async function fetchOneHopNeighbourIds(
   db: Surreal,
   seedIds: string[],
-  asOf?: string,
+  { asOf, userId }: { asOf?: string | undefined; userId?: string | undefined } = {},
 ): Promise<string[]> {
   if (seedIds.length === 0) return [];
   const rids = seedIds.map((s) => new StringRecordId(s));
-  // Tenant-global surface (seeds and facts already filter userId IS
-  // NONE) — the edge walk carries the same fail-closed fence, and the
-  // same valid-time cut as the facts it reaches.
-  const fence = buildEdgeFence(undefined, asOf);
+  // The same user the seeds and facts admit — the edge walk carries the
+  // search lanes' edge fence, and the same valid-time cut as the facts
+  // it reaches.
+  const fence = buildEdgeFence(userId, asOf);
   type Row = {
     id: unknown;
     outNeighbours: Array<{
@@ -158,7 +175,11 @@ export async function fetchOneHopNeighbourIds(
  * Fetch entity records for a list of ids. Used to hydrate neighbour
  * data once we know which ids the seed-walk surfaced.
  */
-export async function fetchEntitiesByIds(db: Surreal, ids: string[]): Promise<GraphEntity[]> {
+export async function fetchEntitiesByIds(
+  db: Surreal,
+  ids: string[],
+  fence: GraphReadFence,
+): Promise<GraphEntity[]> {
   if (ids.length === 0) return [];
   const rids = ids.map((s) => new StringRecordId(s));
   const [rows] = await db.query<
@@ -175,8 +196,8 @@ export async function fetchEntitiesByIds(db: Surreal, ids: string[]): Promise<Gr
        FROM knowledge_entity
       WHERE id INSIDE $ids
         AND mergedInto IS NONE
-        AND userId IS NONE`,
-    { ids: rids },
+        AND ${fence.clause}`,
+    { ids: rids, ...fence.params },
   );
   return (rows ?? []).map(toGraphEntity);
 }
@@ -195,6 +216,7 @@ export interface FetchFactsForEntitiesOptions {
   entityIds: string[];
   predicateHints: string[];
   asOf: string | undefined;
+  fence: GraphReadFence;
 }
 
 export async function fetchFactsForEntities({
@@ -202,6 +224,7 @@ export async function fetchFactsForEntities({
   entityIds,
   predicateHints,
   asOf,
+  fence,
 }: FetchFactsForEntitiesOptions): Promise<Map<string, GraphFactRow[]>> {
   const out = new Map<string, GraphFactRow[]>();
   if (entityIds.length === 0) return out;
@@ -221,7 +244,7 @@ export async function fetchFactsForEntities({
        AND status != 'compacted'
        AND status != 'corroborating'
        AND status != 'competing'
-       AND userId IS NONE`
+       AND ${fence.clause}`
     : `entityId INSIDE $ids
        AND retractedAt IS NONE
        AND validFrom <= time::now()
@@ -229,11 +252,12 @@ export async function fetchFactsForEntities({
        AND status != 'compacted'
        AND status != 'corroborating'
        AND status != 'competing'
-       AND userId IS NONE`;
+       AND ${fence.clause}`;
   const params: Record<string, unknown> = {
     ids: rids,
     ...(asOf ? { asOf: new Date(asOf) } : {}),
     ...(hasHints ? { hints: predicateHints } : {}),
+    ...fence.params,
   };
   type FactSelect = {
     id: unknown;

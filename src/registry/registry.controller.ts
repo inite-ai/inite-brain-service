@@ -1,5 +1,6 @@
-import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { PolicyAction } from '../policy/action-registry';
 import { PackRegistryService } from './pack-registry.service';
 import { RegistryMetaService } from './registry-meta.service';
@@ -82,13 +83,16 @@ export class RegistryController {
   @Get('packs/:packId/:version')
   @RequireScopes('brain:read')
   async manifest(
+    @Req() req: AuthenticatedRequest,
     @Param('packId') packId: string,
     @Param('version') version: string,
   ): Promise<RegistryManifestResponse> {
     // `latest` is a convenience alias for "the latest non-yanked version".
+    // A paid pack's manifest is served only to a company that may install it.
     const resolved = await this.registry.getManifest(
       packId,
       version === 'latest' ? undefined : version,
+      { companyId: req.brainAuth.companyId },
     );
     if (!resolved) {
       throw new NotFoundException(`pack "${packId}" ${version} not found in the registry`);

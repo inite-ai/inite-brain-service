@@ -65,6 +65,15 @@ export class AdminPacksController {
       acceptSources?: boolean;
     },
   ): Promise<InstallPackResponse> {
+    // A pasted manifest whose id the registry sells is held to the same
+    // entitlement as from-registry; otherwise the paid gate is one GET away.
+    const packId = body?.manifest?.id;
+    if (typeof packId === 'string' && packId !== '') {
+      await this.registry.assertDirectInstallAllowed({
+        companyId: req.brainAuth.companyId,
+        packId,
+      });
+    }
     return this.packs.install(req.brainAuth.companyId, body?.manifest, {
       expectedChecksum: body?.expectedChecksum,
       acceptMcpTools: body?.acceptMcpTools,

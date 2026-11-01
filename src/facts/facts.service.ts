@@ -12,7 +12,8 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { EpisodeReadStoreService, EpisodeQuoteRow } from '../episodes/episode-read-store.service';
 import { RetractFactDto } from './dto/retract.dto';
 import { BrainScope } from '../auth/api-key.types';
-import { pinUserScope } from '../auth/user-scope';
+import { pinUserScope, userReadFence } from '../auth/user-scope';
+import { heldTagsFor } from '../auth/scope-principal';
 import {
   principalScopeTags,
   scopeFenceActive,
@@ -223,6 +224,8 @@ interface FactReadOptions {
   companyId: string;
   factId: string;
   scopes: readonly BrainScope[];
+  /** The user the caller acts for: their own facts beside the tenant-global ones. */
+  userId?: string | undefined;
 }
 
 /** Row shape loadVisibleFact selects (superset of PolicyFilterableRow). */
@@ -248,12 +251,25 @@ export interface FactReadRow extends PolicyFilterableRow {
  * without rebuilding the policy filter per depth.
  */
 export interface FactVisibilityGates {
-  /** pinUserScope(undefined) — undefined = M2M/tenant-wide. */
+  /** The read surface's pinned user (userReadFence); undefined = tenant-global only. */
   scopeUserId: string | undefined;
   /** principalScopeTags() when SCOPE_TAGS_ENABLED; null ⇒ fence inert. */
   principalTags: PrincipalScope | null;
   /** Registry-backed scope fence + ABAC verdict (surface 'fact_read'). */
   rowPolicy: Pick<RowPolicyFilter, 'filter'>;
+}
+
+/** The user and scope-tag gates of one fact read, resolved once per request. */
+function readGates(userId: string | undefined): Omit<FactVisibilityGates, 'rowPolicy'> {
+  const scopeUserId = userReadFence(userId).userId;
+  return {
+    scopeUserId,
+    principalTags: scopeFenceActive()
+      ? scopeUserId !== undefined
+        ? heldTagsFor(scopeUserId)
+        : principalScopeTags()
+      : null,
+  };
 }
 
 /**
@@ -264,9 +280,11 @@ export interface FactVisibilityGates {
  * a silent member drop.
  */
 export function factVisible(fact: FactReadRow, gates: FactVisibilityGates): boolean {
-  // User scope (0055): another user's fact is invisible.
+  // User scope (0055): another user's fact is invisible, and so is any
+  // personal fact to a caller acting for no one — omitting userId reads
+  // tenant-global memory only, on this surface as on every other. Before,
+  // a tenant-wide key read any user's personal fact by its id.
   if (
-    gates.scopeUserId !== undefined &&
     typeof fact.userId === 'string' &&
     fact.userId.length > 0 &&
     fact.userId !== gates.scopeUserId
@@ -349,8 +367,9 @@ export class FactsService {
    * Fences (each a 404, never a 403 — a 403 would confirm existence):
    *  - tenant: withScopedCompany pins the per-tenant database, same as
    *    retract — a foreign tenant's fact id simply is not present here;
-   *  - user scope (0055): via pinUserScope — a user-bound token reads
-   *    tenant-global facts and its OWN user-scoped facts; M2M reads all;
+   *  - user scope (0055): via userReadFence — the caller's `userId` (a
+   *    user-bound token's own) reads tenant-global facts and that user's;
+   *    no user reads tenant-global facts only;
    *  - row policy: the registry-backed scope fence + ABAC verdict shared
    *    with the fact lanes (makeRowPolicyFilter) — an operator
    *    scope-fenced predicate is absent to callers without the scope.
@@ -428,7 +447,7 @@ export class FactsService {
       const episodeUserId =
         typeof fact.userId === 'string' && fact.userId.length > 0
           ? fact.userId
-          : pinUserScope(undefined);
+          : readGates(opts.userId).scopeUserId;
       const rows = await this.episodes.byIds({
         companyId: opts.companyId,
         ids,
@@ -540,8 +559,7 @@ export class FactsService {
     opts: FactReadOptions,
     root: FactReadRow,
   ): Promise<FactProvenanceResult> {
-    const scopeUserId = pinUserScope(undefined);
-    const principalTags = scopeFenceActive() ? principalScopeTags() : null;
+    const { scopeUserId, principalTags } = readGates(opts.userId);
     const rowPolicy = makeRowPolicyFilter({
       callerScopes: opts.scopes,
       surface: 'fact_read',
@@ -739,8 +757,7 @@ export class FactsService {
       policyLookup: await this.predicateRegistry?.rowPolicyLookup(opts.companyId),
     });
     const visible = factVisible(fact, {
-      scopeUserId: pinUserScope(undefined),
-      principalTags: scopeFenceActive() ? principalScopeTags() : null,
+      ...readGates(opts.userId),
       rowPolicy,
     });
     rowPolicy.finish();

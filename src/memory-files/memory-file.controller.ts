@@ -41,13 +41,12 @@ export class MemoryFileController {
   @RequireScopes('brain:read')
   @PolicyAction('rest.memory_files.read')
   async list(@Req() req: AuthenticatedRequest, @Body() body: MemoryFileListDto) {
-    return {
-      paths: await this.files.list({
-        companyId: req.brainAuth.companyId,
-        prefix: body.prefix,
-        userId: body.userId,
-      }),
-    };
+    const files = await this.files.list({
+      companyId: req.brainAuth.companyId,
+      prefix: body.prefix,
+      userId: body.userId,
+    });
+    return { paths: files.map((f) => f.path), files };
   }
 
   @Put()

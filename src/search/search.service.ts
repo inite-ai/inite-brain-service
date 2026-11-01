@@ -22,7 +22,7 @@ import { makeRowPolicyFilter } from '../policy/row-filter';
 import type { PredicateDefinition } from '../ai/predicate-registry-internals/types';
 import { applyMetaUnion } from '../policy/meta-union';
 import { getPolicyContext } from '../common/request-context';
-import { pinUserScope } from '../auth/user-scope';
+import { pinUserScope, userReadFence } from '../auth/user-scope';
 import {
   expandEntityIdsViaEdges as expandEntityIdsViaEdgesDb,
   type Neighbour,
@@ -273,27 +273,33 @@ export class SearchService {
     predicateHints,
     asOf,
     callerScopes,
+    userId,
   }: GraphRetrieveOptions): Promise<{ results: GraphRetrieveHit[] }> {
+    const fence = userReadFence(userId);
     return this.surreal.withScopedCompany(companyId, callerScopes, async (db) => {
       try {
-        const seeds = await resolveSeedEntities(db, queryText, entityRefs);
+        const seeds = await resolveSeedEntities(db, { queryText, entityRefs, fence });
         if (seeds.length === 0) return { results: [] };
         const seedIds = seeds.map((s) => s.entityId);
 
-        const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds, asOf);
+        const neighbourIds = await fetchOneHopNeighbourIds(db, seedIds, {
+          asOf,
+          userId: fence.userId,
+        });
         // Neighbour hydration and the facts fetch are independent once
         // the neighbour ids are known — run them in one round-trip
         // window instead of serially.
         const allIds = [...new Set([...seedIds, ...neighbourIds])];
         const [neighbours, factsByEntity] = await Promise.all([
           neighbourIds.length > 0
-            ? fetchEntitiesByIds(db, neighbourIds)
+            ? fetchEntitiesByIds(db, neighbourIds, fence)
             : Promise.resolve([] as Awaited<ReturnType<typeof fetchEntitiesByIds>>),
           fetchFactsForEntities({
             db,
             entityIds: allIds,
             predicateHints,
             asOf,
+            fence,
           }),
         ]);
 
@@ -510,7 +516,11 @@ export class SearchService {
     // the response; bounded and failure-swallowing, because a lane that
     // can fail a search is a lane an operator turns off.
     if (this.linked?.enabled()) {
-      const lane = await this.linked.search(companyId, dto.query, limit);
+      const lane = await this.linked.search(companyId, {
+        query: dto.query,
+        k: limit,
+        userId: dto.userId,
+      });
       if (lane.results.length > 0) return { ...out, linked: lane.results };
     }
     return out;
@@ -903,6 +913,8 @@ export interface GraphRetrieveOptions {
   predicateHints: string[];
   asOf: string | undefined;
   callerScopes: string[];
+  /** Per-user scope: the asking user's personal rows beside the tenant-global ones. */
+  userId?: string | undefined;
 }
 
 /** The knowledge_fact rows a search surfaced — not the segment or edge

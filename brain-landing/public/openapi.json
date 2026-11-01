@@ -4008,6 +4008,9 @@
             },
             "type": "array"
           },
+          "pending": {
+            "type": "boolean"
+          },
           "reason": {
             "type": "string"
           },
@@ -5024,6 +5027,27 @@
       "MemoryFileListResponse": {
         "additionalProperties": false,
         "properties": {
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "path",
+                "size"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "paths": {
             "items": {
               "type": "string"
@@ -12702,6 +12726,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Per-user scope: tenant-global facts plus this user's own; omitted → tenant-global only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -13530,6 +13563,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -13569,6 +13611,15 @@
             "in": "path",
             "name": "id",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Per-user scope: a personal fact resolves only for its own user; omitted → tenant-global facts only. A user-bound token is pinned to its own end user (mismatch → 403).",
+            "in": "query",
+            "name": "userId",
+            "required": false,
             "schema": {
               "type": "string"
             }
