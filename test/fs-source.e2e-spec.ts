@@ -476,8 +476,8 @@ describe('fs source connector (e2e)', () => {
     expect(after.body.facts.length).toBeGreaterThanOrEqual(1);
     for (const fact of after.body.facts) expect(fact.validUntil).not.toBeNull();
     await f.http.delete(`/v1/admin/source-connections/${r.body.id}`).set(auth());
-    delete process.env.EVIDENCE_PROCESSOR_BROKER;
-    delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
+    process.env.EVIDENCE_PROCESSOR_BROKER = '0';
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
   });
 
   it('the folder picker: the brain browses its own disk inside the jail; an agent reports the folders it can see', async () => {
@@ -531,7 +531,7 @@ describe('fs source connector (e2e)', () => {
   });
 
   it('the kind switch off: no new connection, and an existing one records a named failed sync', async () => {
-    delete process.env.SOURCE_KIND_FS;
+    process.env.SOURCE_KIND_FS = '0';
     const refused = await f.http.post('/v1/admin/source-connections').set(auth()).send({
       packId: 'file_memory',
       sourceId: 'folder_media',

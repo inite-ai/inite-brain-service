@@ -239,7 +239,7 @@ describe('ArcComposerService (V9 §3)', () => {
 describe('ArcComposerService — summary episode stamping', () => {
   const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
   afterEach(() => {
-    if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    if (saved === undefined) process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
     else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
   });
 
@@ -258,7 +258,7 @@ describe('ArcComposerService — summary episode stamping', () => {
   };
 
   it('flag OFF (default): written source deep-equals today’s', async () => {
-    delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
     const { svc, queries } = makeSvc({
       tops: [{ entityId: 'knowledge_entity:mel', n: 5 }],
       facts: STAMPED_FACTS,

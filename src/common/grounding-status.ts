@@ -16,6 +16,12 @@
  *   - `source.conversationId` is a non-empty string (it names a
  *     conversation that happened — observational; this also keeps every
  *     mention-path fact grounded without the fail-closed capture flag), OR
+ *   - `source.messageId` or `source.eventId` is a non-empty string: the
+ *     public fact contract's pointers to the one message or event the
+ *     claim was taken from — an observation of the same kind, narrower
+ *     than a conversation. Without them a REST integrator writing
+ *     `{ vertical, messageId }` stored facts the serving gate never
+ *     answered from, OR
  *   - `source.recorder` is a non-empty string: an identified party
  *     recorded the claim directly (MCP `record_fact` stamps
  *     `mcp_agent:<actor>`; a REST caller names its own). The record IS
@@ -44,8 +50,8 @@ export function groundingStatusOf(source: unknown): GroundingStatus {
     return 'grounded';
   }
   if (Array.isArray(s.evidence) && s.evidence.length > 0) return 'grounded';
-  if (typeof s.conversationId === 'string' && s.conversationId.length > 0) {
-    return 'grounded';
+  for (const pointer of [s.conversationId, s.messageId, s.eventId]) {
+    if (typeof pointer === 'string' && pointer.length > 0) return 'grounded';
   }
   if (typeof s.recorder === 'string' && s.recorder.trim().length > 0) return 'grounded';
   return 'ungrounded';

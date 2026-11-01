@@ -23,6 +23,12 @@ import type { PredicateRegistryService } from '../src/ai/predicate-registry.serv
 import type { AuthenticatedRequest } from '../src/auth/api-key.types';
 import { runWithRequestContext } from '../src/common/request-context';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.MULTILINGUAL_SOFT_LANG_FILTER ??= '0';
+});
+
 type Row = Record<string, unknown>;
 type Capture = { sql: string; params?: Record<string, unknown> | undefined };
 

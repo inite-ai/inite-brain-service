@@ -30,6 +30,10 @@ describe('groundingStatusOf — truth table', () => {
     // mcp_agent:<actor>. Ungrounded, every such fact was unservable
     // ("I don't have that in my memory" right after the agent recorded it).
     ['direct record with a recorder', { vertical: 'crm', recorder: 'mcp_agent:claude' }],
+    // The fact contract's pointers to the one message or event a claim came
+    // from: a REST write naming them was stored unservable before.
+    ['the message it came from', { vertical: 'crm', messageId: 'm-17' }],
+    ['the event it came from', { vertical: 'crm', eventId: 'evt-3' }],
   ];
   for (const [name, source] of GROUNDED) {
     it(`grounded: ${name}`, () => {
@@ -47,6 +51,8 @@ describe('groundingStatusOf — truth table', () => {
     ['evidence not an array', { evidence: { kind: 'url', ref: 'x' } }],
     ['empty conversationId', { conversationId: '' }],
     ['conversationId not a string', { conversationId: 42 }],
+    ['empty messageId', { vertical: 'crm', messageId: '' }],
+    ['eventId not a string', { vertical: 'crm', eventId: 7 }],
     ['null source', null],
     ['undefined source', undefined],
     ['array source', ['episode:e1']],
@@ -118,13 +124,13 @@ const stampQ = (qs: Array<{ sql: string; params: any }>) =>
 describe('FactResolverService — grounding stamp (EVIDENCE_GROUNDING_STAMP)', () => {
   const saved = process.env.EVIDENCE_GROUNDING_STAMP;
   afterEach(() => {
-    if (saved === undefined) delete process.env.EVIDENCE_GROUNDING_STAMP;
+    if (saved === undefined) process.env.EVIDENCE_GROUNDING_STAMP = '0';
     else process.env.EVIDENCE_GROUNDING_STAMP = saved;
     jest.restoreAllMocks();
   });
 
   it('flag OFF (default): the db.query sequence is EXACTLY the resolver call — no stamp UPDATE', async () => {
-    delete process.env.EVIDENCE_GROUNDING_STAMP;
+    process.env.EVIDENCE_GROUNDING_STAMP = '0';
     const { svc, db, queries } = makeResolver();
     await svc.resolveMany(db as never, [input('preference', 'a', {})]);
     // Byte-identity pin: one batched resolve, nothing else.

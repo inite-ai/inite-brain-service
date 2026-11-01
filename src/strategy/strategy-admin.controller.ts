@@ -31,7 +31,7 @@ import { TRAJECTORY_MAX_STEPS, isVerifiedOutcome, type RawToolStep } from './tra
 
 /**
  * Admin surface of the strategy-memory lane (G4). Operator-invoked,
- * admin-scoped, gated by STRATEGY_MEMORY_ENABLED (default off → 404,
+ * admin-scoped, gated by STRATEGY_MEMORY_ENABLED (default on → 404,
  * indistinguishable from "not deployed" — the EPISODES_API_ENABLED
  * idiom). Deliberately NOT in the platform OpenAPI document: the
  * admin/ops surface is out of scope there by design

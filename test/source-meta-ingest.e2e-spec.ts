@@ -12,12 +12,19 @@ describe('fact-ingest sanitizes raw source.meta', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
+  // What the sanitizer drops is visible only in lax mode: strict mode (the
+  // default) answers 400 instead, which abac-meta-projection pins.
+  const savedStrict = process.env.SOURCE_META_STRICT;
+
   beforeAll(async () => {
+    process.env.SOURCE_META_STRICT = '0';
     f = await createApp({ companyId: 'co_source_meta_e2e' });
   });
 
   afterAll(async () => {
     if (f) await f.close();
+    if (savedStrict === undefined) delete process.env.SOURCE_META_STRICT;
+    else process.env.SOURCE_META_STRICT = savedStrict;
   });
 
   it('drops invalid keys/values from a raw source.meta blob', async () => {

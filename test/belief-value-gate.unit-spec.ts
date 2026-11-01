@@ -215,6 +215,8 @@ describe('the gate through run() (fake db)', () => {
         return [true];
       }
       if (sqlText.includes('UPDATE memory_episode')) return [];
+      // Support edges (provenance) are written and read by their own e2e.
+      if (sqlText.startsWith('INSERT RELATION IGNORE INTO memory_support')) return [];
       throw new Error(`FakeDb: unhandled SQL: ${sqlText}`);
     }
   }

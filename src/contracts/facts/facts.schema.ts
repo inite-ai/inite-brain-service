@@ -58,7 +58,7 @@ export const FactProvenanceEpisodeSchema = z.object({
    *  cap — span offsets reference the FULL stored text. */
   textTruncated: z.boolean().optional(),
   /**
-   * PROVENANCE_EPISODE_NEIGHBOURS (default off): 'neighbour' marks a
+   * PROVENANCE_EPISODE_NEIGHBOURS (default on): 'neighbour' marks a
    * ±radius sibling turn of the same conversation served around a
    * primary grounding turn (radius = PROVENANCE_EPISODE_NEIGHBOUR_RADIUS,
    * clamped 1..3). Absent = a primary grounding turn (source.episodeIds)

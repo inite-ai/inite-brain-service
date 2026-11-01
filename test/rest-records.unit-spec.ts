@@ -47,7 +47,7 @@ beforeAll(async () => {
   for (const k of ['SOURCE_EGRESS_ALLOW_PRIVATE', 'SOURCE_MAPPING_ASSISTANT'])
     saved[k] = process.env[k];
   process.env.SOURCE_EGRESS_ALLOW_PRIVATE = '1';
-  delete process.env.SOURCE_MAPPING_ASSISTANT;
+  process.env.SOURCE_MAPPING_ASSISTANT = '0';
   api.companies = [
     {
       id: 3,
@@ -761,7 +761,7 @@ describe('mapping assistant service', () => {
       expect(failed.warnings).toEqual([expect.stringMatching(/did not answer \(rate limited\)/)]);
       expect(failed.endpoints.deal!.paging).toMatchObject({ style: 'cursor' });
     } finally {
-      delete process.env.SOURCE_MAPPING_ASSISTANT;
+      process.env.SOURCE_MAPPING_ASSISTANT = '0';
     }
   });
 });

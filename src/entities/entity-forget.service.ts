@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'node:crypto';
+import { retryOnReadConflict } from '../db/surreal-retry';
 import { StringRecordId } from 'surrealdb';
 import {
   SurrealService,
@@ -236,7 +237,7 @@ export class EntityForgetService {
       // rows before the facts; audit mirror scrubbed by the pre-collected
       // record-id list; tombstone last).
       const forgottenAt = new Date();
-      const txResult = await runTransaction<ForgetTxResult>(db, (tx) => {
+      const txResult = await this.runForgetTx(db, (tx) => {
         tx.bind('rid', ref.id)
           .bind('eps', episodeRefs)
           .bind('recordIds', recordIds)
@@ -491,6 +492,19 @@ export class EntityForgetService {
     }
 
     return result;
+  }
+
+  /**
+   * The erase transaction, rerun on a read conflict. It is atomic, so a
+   * conflict with a background pass (scenes, dreams, compaction touch the
+   * same rows) rolls it back whole and running it again over the same
+   * collected ids is safe — erasure must complete, not fail on a busy row.
+   */
+  private runForgetTx(
+    db: Parameters<Parameters<SurrealService['withCompany']>[1]>[0],
+    build: (tx: TxBuilder) => void,
+  ): Promise<ForgetTxResult> {
+    return retryOnReadConflict(() => runTransaction<ForgetTxResult>(db, build));
   }
 
   /**

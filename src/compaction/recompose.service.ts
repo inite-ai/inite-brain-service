@@ -352,7 +352,7 @@ export class RecomposeService implements OnModuleInit {
         ...(episodeIds.length > 0 ? { episodeIds } : {}),
       },
     );
-    // Typed support graph (PROVENANCE_SUPPORT_EDGES, default off): the
+    // Typed support graph (PROVENANCE_SUPPORT_EDGES, default on): the
     // UPDATE above REWROTE derivedFrom to the current parents, so the
     // typed mirror is REPLACED — stale edges deleted (two-step
     // LET-select-ids → DELETE, mandatory on 3.2.4 — see the mirror

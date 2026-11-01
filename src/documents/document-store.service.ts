@@ -16,7 +16,7 @@ import {
   queryRows,
 } from '../db/surreal.service';
 import { retryOnReadConflict } from '../db/surreal-retry';
-import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { sanitizeSourceMeta } from '../policy/source-meta';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
@@ -132,7 +132,7 @@ export class DocumentStoreService {
     if (dto.meta !== undefined) {
       const { dropped } = sanitizeSourceMeta(dto.meta);
       if (dropped.length > 0) {
-        if (envFlagEnabled(process.env.SOURCE_META_STRICT)) {
+        if (envFlagNotDisabled(process.env.SOURCE_META_STRICT)) {
           throw new BadRequestException({
             error: 'invalid_meta',
             issues: dropped,

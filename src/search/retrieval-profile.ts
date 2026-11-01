@@ -692,7 +692,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
         // lane idiom); the read-side serving switch
         // (STRATEGY_RETRIEVAL_ENABLED) gates separately inside
         // StrategyMemoryService — lane membership alone serves nothing.
-        if (envFlagEnabled(env.STRATEGY_MEMORY_ENABLED)) lanes.add(lane);
+        if (envFlagNotDisabled(env.STRATEGY_MEMORY_ENABLED)) lanes.add(lane);
       } else {
         lanes.add(lane);
       }
@@ -1107,8 +1107,8 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
     highlightEnabled: envFlagNotDisabled(env.SEARCH_HIGHLIGHT_ENABLED),
     edgeExpansion: resolveExpansionConfig(env),
-    softLangFilter: envFlagEnabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
+    softLangFilter: envFlagNotDisabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
     langAttribution: envFlagEnabled(env.MULTILINGUAL_LANG_ATTRIBUTION),
-    langFilterConfidenceGate: envFlagEnabled(env.MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE),
+    langFilterConfidenceGate: envFlagNotDisabled(env.MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE),
   };
 }

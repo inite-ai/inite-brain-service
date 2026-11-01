@@ -57,7 +57,10 @@ describe('P1 e2e — Phase 4 DB persistence', () => {
       .send({
         entityRef: { vertical: 'rent', id: 'lang_persist_en' },
         predicate: 'status',
-        object: 'Chief technology officer in charge of engineering',
+        // Enough of the language's own words for a confident detection: a
+        // weaker one is not stamped as the row's `lang` (the stamp gate).
+        object:
+          'She is the chief technology officer and she is in charge of the whole engineering team',
         validFrom: '2026-04-01',
         source: { vertical: 'rent', eventId: 'auth.profile_updated' },
       });

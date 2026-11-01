@@ -136,6 +136,24 @@ export function retryOnReadConflict<T>(
   return retryWhen(isReadConflict, fn, { attempts, sleep });
 }
 
+/**
+ * A query handle whose every call is retried on a read conflict. For a
+ * cascade of idempotent statements — select ids then delete them, delete
+ * by a filter — where the whole body must not be re-run: a statement that
+ * aborted never committed, so running it again is safe, while re-running
+ * the body would re-read ids that earlier statements already erased.
+ * User forget is the case: the background passes production runs touch
+ * the same rows, and one "Transaction conflict: Resource busy" turned the
+ * erasure into a 500 halfway through.
+ */
+export function retryingQueries<H extends { query: (...args: never[]) => unknown }>(
+  db: H,
+): Pick<H, 'query'> {
+  const query = (...args: Parameters<H['query']>) =>
+    retryOnReadConflict(() => Promise.resolve(db.query(...args)));
+  return { query: query as H['query'] };
+}
+
 async function retryWhen<T>(
   retriable: (err: unknown) => boolean,
   fn: () => Promise<T>,
