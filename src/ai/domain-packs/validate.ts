@@ -8,6 +8,7 @@ import {
   type DomainPackManifest,
   type PackToolParam,
 } from './manifest';
+import { DomainPackError } from './domain-pack-error';
 import { validateMemoryModel } from './validate-memory-model';
 import { validateSources } from './validate-sources';
 
@@ -28,7 +29,7 @@ const SEMANTICS = new Set(['append_only', 'single_active', 'bitemporal']);
 const PII_CLASSES = new Set(['none', 'identifier', 'behavioral', 'text', 'sensitive']);
 const DATATYPES = new Set(['string', 'number', 'date', 'datetime', 'enum', 'json']);
 
-export class DomainPackError extends Error {}
+export { DomainPackError };
 
 export function validatePack(pack: DomainPackManifest): void {
   if (!SNAKE.test(pack.id) || pack.id.includes(PACK_NAMESPACE_SEP)) {

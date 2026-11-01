@@ -1,4 +1,10 @@
 import { Logger } from '@nestjs/common';
+import { envFlagEnabled, envFlagNotDisabled } from './env-flag';
+
+// The flag readers live in a leaf module so the *-flags files this
+// validator calls into can use them without an import cycle; this module
+// stays the documented place to import them from.
+export { envFlagEnabled, envFlagNotDisabled };
 import {
   validateEvidenceOrphanGcEnv,
   validateEvidenceStorageEnv,
@@ -788,29 +794,6 @@ function validateBodySize(env: NodeJS.ProcessEnv, errors: string[]): void {
  * supply-chain control — the one shape of bug this validator exists for.
  */
 const FLAG_VALUES = new Set(['1', '0', 'true', 'false']);
-
-/**
- * Parse a boolean env flag accepting BOTH house idioms ('1' and 'true',
- * case-insensitive). The repo historically mixed `=== '1'` and
- * `=== 'true'` per file; for security-relevant flags that split is a
- * fail-open trap (`DOMAIN_PACK_REQUIRE_SIGNATURE=1` silently parsed as
- * false by a 'true'-only check). Values outside FLAG_VALUES are rejected
- * at boot by validatePackTrustEnv for the pack-trust flags.
- */
-export function envFlagEnabled(value: string | undefined): boolean {
-  const v = (value ?? '').trim().toLowerCase();
-  return v === '1' || v === 'true';
-}
-
-/**
- * Default-ON flags: enabled unless explicitly set to 0/false. Use for
- * per-tenant kill-switches on genre-dependent behavior; measured-winner
- * defaults fold into the code instead of keeping a flag.
- */
-export function envFlagNotDisabled(value: string | undefined): boolean {
-  const v = (value ?? '').trim().toLowerCase();
-  return v !== '0' && v !== 'false';
-}
 
 function validatePackTrustEnv(env: NodeJS.ProcessEnv, errors: string[]): void {
   for (const name of ['DOMAIN_PACK_REQUIRE_SIGNATURE', 'PACK_REGISTRY_REQUIRE_SIGNATURE']) {
