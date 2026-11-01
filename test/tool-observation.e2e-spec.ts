@@ -31,6 +31,9 @@ describe('tool_observation — content-free evidence anchors (e2e)', () => {
   beforeAll(async () => {
     f = await createApp({ companyId: 'co_toolobs_e2e' });
     process.env.TOOL_OBSERVATIONS_ENABLED = '1';
+    // Production keeps a content excerpt (TOOL_OBSERVATION_CONTENT); the
+    // content-free shape is what this suite pins.
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
     process.env.DOCUMENT_INGEST_ENABLED = '1';
   });
 
