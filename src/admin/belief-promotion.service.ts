@@ -107,7 +107,7 @@ export { beliefIdTail } from './belief-revision';
  * the current value). Both-ends-empty deltas stay dropped, flag on or
  * off — nothing to negate.
  *
- * FIELD FOLD (#135 seam 2, SCENES_BELIEF_FIELD_FOLD — default off): the
+ * FIELD FOLD (#135 seam 2, SCENES_BELIEF_FIELD_FOLD — default on): the
  * enricher re-coins free-text field names per scene ('car' vs 'car
  * ownership'), so exact-string grouping created PARALLEL beliefs
  * instead of revisions. With the flag on, an incoming field name folds

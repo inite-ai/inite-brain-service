@@ -99,7 +99,7 @@ describe('Fovea Optics-2 adaptive L3 escalation e2e', () => {
 
   beforeAll(async () => {
     delete process.env.RETRIEVAL_L3_ESCALATION;
-    delete process.env.FOVEA_ADAPTIVE_L3;
+    process.env.FOVEA_ADAPTIVE_L3 = '0';
     delete process.env.FOVEA_ADAPTIVE_L3_THRESHOLD;
     fAdaptive = await createApp();
     fStatic = await createApp();
@@ -127,7 +127,7 @@ describe('Fovea Optics-2 adaptive L3 escalation e2e', () => {
 
   afterAll(async () => {
     delete process.env.RETRIEVAL_L3_ESCALATION;
-    delete process.env.FOVEA_ADAPTIVE_L3;
+    process.env.FOVEA_ADAPTIVE_L3 = '0';
     delete process.env.FOVEA_ADAPTIVE_L3_THRESHOLD;
     if (fAdaptive) await fAdaptive.close();
     if (fStatic) await fStatic.close();

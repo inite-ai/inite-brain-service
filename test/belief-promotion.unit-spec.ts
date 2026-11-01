@@ -1258,11 +1258,11 @@ describe('flag resolvers', () => {
     }
   });
 
-  it('all four booleans default off', () => {
+  it("promotion defaults off; synthesis, negation deltas and field fold default to production's on", () => {
     expect(sceneBeliefPromotionEnabled()).toBe(false);
-    expect(sceneBeliefLlmSynthesisEnabled()).toBe(false);
-    expect(sceneBeliefNegationDeltasEnabled()).toBe(false);
-    expect(sceneBeliefFieldFoldEnabled()).toBe(false);
+    expect(sceneBeliefLlmSynthesisEnabled()).toBe(true);
+    expect(sceneBeliefNegationDeltasEnabled()).toBe(true);
+    expect(sceneBeliefFieldFoldEnabled()).toBe(true);
     process.env.SCENES_BELIEF_PROMOTION = '1';
     process.env.SCENES_BELIEF_LLM_SYNTHESIS = '1';
     process.env.SCENES_BELIEF_NEGATION_DELTAS = '1';

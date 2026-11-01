@@ -93,7 +93,7 @@ describe('Scene serving lane e2e (the episodic plane’s first read)', () => {
     process.env.INGEST_EPISODE_ONLY = '1';
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
     // Embedder-free segmentation: session-gap + max-turns only.
-    delete process.env.SCENES_TOPIC_BOUNDARY;
+    process.env.SCENES_TOPIC_BOUNDARY = '0';
     // Pin abstention off so a thin-evidence query never pre-abstains
     // before generation (the 0113 e2e discipline).
     process.env.RETRIEVAL_ABSTENTION_CALIBRATION = 'off';

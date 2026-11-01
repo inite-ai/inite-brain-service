@@ -693,7 +693,7 @@ export class SearchService {
     const reattributed = reattributeMerged(fused, survivorRecords);
     let filtered = reattributed.filter(rowFilterFn);
 
-    // 2a. Effective-meta union (POLICY_META_UNION_ENABLED, default off):
+    // 2a. Effective-meta union (POLICY_META_UNION_ENABLED, default on):
     // a corroborated fact inherits its confirming documents' metadata
     // for deny evaluation — union = most restrictive.
     const policyCtx = getPolicyContext();

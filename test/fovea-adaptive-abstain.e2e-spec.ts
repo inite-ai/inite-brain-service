@@ -71,7 +71,7 @@ describe('Fovea Optics §4.2 adaptive abstention e2e (safety fallback)', () => {
   }
 
   beforeAll(async () => {
-    delete process.env.FOVEA_ADAPTIVE_ABSTAIN;
+    process.env.FOVEA_ADAPTIVE_ABSTAIN = '0';
     delete process.env.FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD;
     // Coverage abstention with an unreachable score floor → any evidence
     // abstains; no conformal floor → evidence survives to the coverage check.
@@ -93,7 +93,7 @@ describe('Fovea Optics §4.2 adaptive abstention e2e (safety fallback)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.FOVEA_ADAPTIVE_ABSTAIN;
+    process.env.FOVEA_ADAPTIVE_ABSTAIN = '0';
     delete process.env.FOVEA_ADAPTIVE_ABSTAIN_THRESHOLD;
     delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
     delete process.env.RETRIEVAL_ABSTENTION_MIN_SCORE;
@@ -102,7 +102,7 @@ describe('Fovea Optics §4.2 adaptive abstention e2e (safety fallback)', () => {
   });
 
   it('flag off → static coverage abstention (no generation, path=static)', async () => {
-    delete process.env.FOVEA_ADAPTIVE_ABSTAIN;
+    process.env.FOVEA_ADAPTIVE_ABSTAIN = '0';
     const before = await abstainPathCount('static');
     const { res, state } = await synthesize();
     expect(res.status).toBe(201);

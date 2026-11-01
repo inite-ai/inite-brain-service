@@ -125,12 +125,12 @@ describe('principalScopeTags — request-context derivation', () => {
 describe('scopeFenceSql — flag-gated SQL mirror of the userId filter', () => {
   const saved = process.env.SCOPE_TAGS_ENABLED;
   afterEach(() => {
-    if (saved === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+    if (saved === undefined) process.env.SCOPE_TAGS_ENABLED = '0';
     else process.env.SCOPE_TAGS_ENABLED = saved;
   });
 
   it('is fully inert when the flag is off', () => {
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
     expect(scopeTagsEnabled()).toBe(false);
     expect(scopeFenceSql('user_a')).toEqual({ clause: '', params: {} });
     expect(scopeFenceSql(undefined)).toEqual({ clause: '', params: {} });

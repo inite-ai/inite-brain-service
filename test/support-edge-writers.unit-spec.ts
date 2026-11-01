@@ -25,7 +25,7 @@ const SAVED = {
 afterEach(() => {
   if (SAVED.edges === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
   else process.env.PROVENANCE_SUPPORT_EDGES = SAVED.edges;
-  if (SAVED.backlink === undefined) delete process.env.SCENES_FACT_BACKLINK;
+  if (SAVED.backlink === undefined) process.env.SCENES_FACT_BACKLINK = '0';
   else process.env.SCENES_FACT_BACKLINK = SAVED.backlink;
 });
 
@@ -120,7 +120,7 @@ describe('SceneBacklinkService — supported_by edges', () => {
   });
 
   it('master flag off (SCENES_FACT_BACKLINK unset): no queries at all, either way', async () => {
-    delete process.env.SCENES_FACT_BACKLINK;
+    process.env.SCENES_FACT_BACKLINK = '0';
     process.env.PROVENANCE_SUPPORT_EDGES = '1';
     const { svc, calls } = makeStack();
     const result = await svc.run('co_x');

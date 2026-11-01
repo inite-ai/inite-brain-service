@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { EntityJudgeService } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { sameWidthGate } from '../db/vector-width';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 
@@ -70,7 +70,7 @@ export class DreamsDedupService {
     private readonly configService: ConfigService,
     private readonly judge: EntityJudgeService,
   ) {
-    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_DEDUP_ENABLED'));
+    this.enabled = envFlagNotDisabled(this.configService.get<string>('DREAMS_DEDUP_ENABLED'));
     this.cosineThreshold = parseFloat(
       this.configService.get<string>('DREAMS_DEDUP_COSINE_THRESHOLD', '0.92'),
     );

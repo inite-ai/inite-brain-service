@@ -260,7 +260,7 @@ describe('public sources API — ABAC action gate', () => {
   });
 
   afterAll(async () => {
-    delete process.env.ABAC_ENABLED;
+    process.env.ABAC_ENABLED = '0';
     if (f) await f.close();
   });
 

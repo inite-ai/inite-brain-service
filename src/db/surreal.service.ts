@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { SchemaMigrator } from './migrator.service';
 import { migrationLeaseName, SurrealMigrationLock } from './migration-lock';
 import { SESSION_REAUTH_MARGIN_MS, SurrealSessionKeeper } from './session-keeper';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { getPolicyContext } from '../common/request-context';
 import { compileDenyPushdown } from '../policy/db-fence';
 
@@ -516,7 +516,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     // system brain_caller user — see the withScopedCompany docstring); the
     // app-layer row filter is the effective gate. The binding is kept armed
     // for the future Record Access track.
-    const policyDeny = envFlagEnabled(process.env.ABAC_DB_FENCE_ENABLED)
+    const policyDeny = envFlagNotDisabled(process.env.ABAC_DB_FENCE_ENABLED)
       ? compileDenyPushdown(getPolicyContext())
       : [];
     if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {

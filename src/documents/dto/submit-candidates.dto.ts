@@ -52,7 +52,7 @@ export interface SubmittedRelation {
  * A pack-schema-conforming scene hypothesis (candidate kind 'scene',
  * migration 0110). `schemaId` must be one of the submitting pack's own
  * declared memoryModel.sceneSchemas ids. Accepted only when
- * PACK_MEMORY_PROJECTIONS_ENABLED is on (default off — submissions
+ * PACK_MEMORY_PROJECTIONS_ENABLED is on (default on — submissions
  * carrying scenes are rejected, so the flag-off surface is byte-identical
  * for every existing client).
  */

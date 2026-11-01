@@ -85,7 +85,7 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
   });
 
   afterAll(async () => {
-    if (savedFlag === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+    if (savedFlag === undefined) process.env.SCOPE_TAGS_ENABLED = '0';
     else process.env.SCOPE_TAGS_ENABLED = savedFlag;
     if (savedFactsApi === undefined) delete process.env.FACTS_API_ENABLED;
     else process.env.FACTS_API_ENABLED = savedFactsApi;
@@ -181,13 +181,13 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
   });
 
   it('flag OFF and flag ON produce IDENTICAL visibility (parity)', async () => {
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
     const off = await snapshot();
 
     process.env.SCOPE_TAGS_ENABLED = '1';
     const on = await snapshot();
 
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
 
     // The whole point: enabling the flag changes nothing for step-1 data.
     expect(on).toEqual(off);
@@ -195,7 +195,7 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
 
   it('user A never sees user B rows, and vice versa (both flag states)', async () => {
     for (const flag of [undefined, '1'] as const) {
-      if (flag === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+      if (flag === undefined) process.env.SCOPE_TAGS_ENABLED = '0';
       else process.env.SCOPE_TAGS_ENABLED = flag;
 
       // get-fact: A sees global + its own, never B's; symmetric for B.
@@ -215,12 +215,12 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
       expect(bSeen).toContain('scopeparity marker beta personal');
       expect(bSeen).not.toContain('scopeparity marker alpha personal');
     }
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
   });
 
   it('M2M reads a personal fact by id only for its user; its unscoped search stays tenant-global', async () => {
     for (const flag of [undefined, '1'] as const) {
-      if (flag === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+      if (flag === undefined) process.env.SCOPE_TAGS_ENABLED = '0';
       else process.env.SCOPE_TAGS_ENABLED = flag;
 
       // Omitting userId reads tenant-global memory only, by id as by search
@@ -239,6 +239,6 @@ describe('scope-tags parity (SCOPE_TAGS_ENABLED off ≡ on)', () => {
       expect(seen).not.toContain('scopeparity marker alpha personal');
       expect(seen).not.toContain('scopeparity marker beta personal');
     }
-    delete process.env.SCOPE_TAGS_ENABLED;
+    process.env.SCOPE_TAGS_ENABLED = '0';
   });
 });

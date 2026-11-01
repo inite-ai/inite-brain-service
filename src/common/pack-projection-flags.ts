@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
 
 /**
  * Pack memory projections master flag — PACK_MEMORY_PROJECTIONS_ENABLED
@@ -27,7 +27,7 @@ import { envFlagEnabled } from './env-validation';
  * (the env-validation design rule).
  */
 export function packMemoryProjectionsEnabled(): boolean {
-  return envFlagEnabled(process.env.PACK_MEMORY_PROJECTIONS_ENABLED);
+  return envFlagNotDisabled(process.env.PACK_MEMORY_PROJECTIONS_ENABLED);
 }
 
 /**

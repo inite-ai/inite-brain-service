@@ -11,7 +11,7 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { MetricsService } from '../metrics/metrics.service';
 import { FactToSummarize, SummaryGenerator } from '../compaction/summary-generator';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { isoDay } from '../common/surreal-date';
 
 /**
@@ -46,7 +46,7 @@ export class LlmSummaryGenerator implements SummaryGenerator {
     private readonly configService: ConfigService,
     @Optional() private readonly metrics?: MetricsService,
   ) {
-    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
+    this.enabled = envFlagNotDisabled(this.configService.get<string>('DREAMS_LLM_SUMMARY_ENABLED'));
     this.openai = createOpenAiClient(this.configService) ?? (undefined as unknown as OpenAI);
     this.model = this.configService.get<string>(
       'DREAMS_SUMMARY_MODEL',

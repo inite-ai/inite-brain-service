@@ -962,7 +962,7 @@ describe('belief-arm citations and the serving gates (BELIEFS_SERVING_LANE)', ()
       });
       expect(ok).toEqual({});
     } finally {
-      if (saved === undefined) delete process.env.FOVEA_EVIDENCE_CAPABILITY;
+      if (saved === undefined) process.env.FOVEA_EVIDENCE_CAPABILITY = '0';
       else process.env.FOVEA_EVIDENCE_CAPABILITY = saved;
     }
   });

@@ -10,7 +10,7 @@ import { SUMMARY_GENERATOR } from '../compaction/compaction.service';
 import type { FactToSummarize, SummaryGenerator } from '../compaction/summary-generator';
 import { buildAdjacency, labelPropagation } from './label-propagation';
 import { policyFor } from '../ingest/conflict-resolver';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
 
 /**
@@ -50,7 +50,7 @@ export class CommunityBuilderService {
     // disabled the propagation simply runs in-thread as before.
     @Optional() private readonly workerPool?: JobWorkerPool,
   ) {
-    this.enabled = envFlagEnabled(this.config.get<string>('DREAMS_COMMUNITIES_ENABLED'));
+    this.enabled = envFlagNotDisabled(this.config.get<string>('DREAMS_COMMUNITIES_ENABLED'));
     this.minSize = parseInt(this.config.get<string>('COMMUNITIES_MIN_SIZE', '3'), 10);
     this.maxIterations = parseInt(this.config.get<string>('COMMUNITIES_MAX_ITERATIONS', '10'), 10);
     this.summaryMaxMembers = parseInt(

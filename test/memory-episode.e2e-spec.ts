@@ -246,7 +246,7 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
       expect(byVersion.get('scene-segmenter-v1')).toBe('built');
       expect(byVersion.get(effectiveB)).toBe('residual');
     } finally {
-      delete process.env.SCENES_VERSION_FINGERPRINT;
+      process.env.SCENES_VERSION_FINGERPRINT = '0';
       delete process.env.SCENES_MAX_TURNS;
     }
   });

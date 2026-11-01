@@ -91,7 +91,7 @@ describe('pack memory projections (e2e)', () => {
 
   afterAll(async () => {
     delete process.env.DOCUMENT_INGEST_ENABLED;
-    delete process.env.PACK_MEMORY_PROJECTIONS_ENABLED;
+    process.env.PACK_MEMORY_PROJECTIONS_ENABLED = '0';
     if (savedEpisodes === undefined) delete process.env.EPISODE_SUBSTRATE_ENABLED;
     else process.env.EPISODE_SUBSTRATE_ENABLED = savedEpisodes;
     if (f) await f.close();

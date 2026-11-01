@@ -49,7 +49,7 @@ describe('ABAC policy tightening reaches a second resolver instance (real Surrea
 
   afterAll(async () => {
     if (f) await f.close();
-    if (savedAbac === undefined) delete process.env.ABAC_ENABLED;
+    if (savedAbac === undefined) process.env.ABAC_ENABLED = '0';
     else process.env.ABAC_ENABLED = savedAbac;
   });
 

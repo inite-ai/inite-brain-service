@@ -256,7 +256,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     // same id, member turns and gist is the same scene and inherits what
     // was paid for it (scene-carry.ts) — it used to come back bare and be
     // re-enriched on every settle (LLM spend audit, 2026-10-28).
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     const plain = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
     expect(plain.status).toBe(201);
     expect(plain.body.skipped).toEqual([]);
@@ -349,7 +349,7 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
     // (`|links`), so the next enrich run treats every scene as stale; the
     // recompose keeps their enrichment and no longer forces anything.
     process.env.SCENES_ENTITY_LINKS = '1';
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     const recompose = await f.http.post('/v1/admin/maintenance/scenes').set(auth()).send({});
     expect(recompose.status).toBe(201);
 

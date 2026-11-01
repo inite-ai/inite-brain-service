@@ -4,6 +4,12 @@ import type { ExtractorService } from '../src/ai/extractor.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
 import type { IngestMentionDto } from '../src/ingest/dto/ingest-mention.dto';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['INGEST_CONTEXTUAL_FACT_EMBEDDING']) process.env[k] ??= '0';
+});
+
 /** The fact's embedding basis is the bare `predicate: object` (pinned). */
 describe('factIndexText', () => {
   it('→ bare "predicate: object" (pinned)', () => {
@@ -50,7 +56,7 @@ describe('MentionExtractionService predicate index text', () => {
   } as unknown as IngestMentionDto;
 
   afterEach(() => {
-    delete process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING;
+    process.env.INGEST_CONTEXTUAL_FACT_EMBEDDING = '0';
   });
 
   it('embeds bare "predicate: object" (pinned)', async () => {

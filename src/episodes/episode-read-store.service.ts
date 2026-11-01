@@ -98,7 +98,7 @@ export class EpisodeReadStoreService {
   }
 
   /**
-   * G6 scope-tag fence (SCOPE_TAGS_ENABLED, default off). An ADDED
+   * G6 scope-tag fence (SCOPE_TAGS_ENABLED, default on). An ADDED
    * AND-condition mirroring userGate against the `scope` column, or an
    * empty fragment when the flag is off (userGate stays the sole
    * enforcement). Defense-in-depth — composed with AND, never replacing

@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagNotDisabled } from './env-validation';
 
 /**
  * PRIVACY_ flag family — data-protection fences, not engine forks.
@@ -36,7 +36,7 @@ import { envFlagEnabled } from './env-validation';
  * exact pre-0117 WHERE strings — byte-identical served behavior.
  */
 export function privacySegmentUserFenceEnabled(): boolean {
-  return envFlagEnabled(process.env.PRIVACY_SEGMENT_USER_FENCE);
+  return envFlagNotDisabled(process.env.PRIVACY_SEGMENT_USER_FENCE);
 }
 
 /**
@@ -54,5 +54,5 @@ export function privacySegmentUserFenceEnabled(): boolean {
  * composed rows are byte-identical (no userId/scope stamp, no drops).
  */
 export function privacyComposerUserScopeEnabled(): boolean {
-  return envFlagEnabled(process.env.PRIVACY_COMPOSER_USER_SCOPE);
+  return envFlagNotDisabled(process.env.PRIVACY_COMPOSER_USER_SCOPE);
 }

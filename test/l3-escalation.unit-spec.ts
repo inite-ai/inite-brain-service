@@ -41,6 +41,12 @@ import type { SynthesizeDto } from '../src/synthesize/dto/synthesize.dto';
 import type { Citation } from '../src/synthesize/fact-index';
 import type { VerifierOutput } from '../src/synthesize/verifier';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['FOVEA_L3_EPISODE_CITATIONS', 'FOVEA_ATTENTION_HINTS']) process.env[k] ??= '0';
+});
+
 // ── pure: trigger matrix ────────────────────────────────────────────
 describe('l3TriggerDecision — the monotone trigger matrix', () => {
   const base = {
@@ -1304,7 +1310,7 @@ describe('L3EscalationService — over-budget degrade centers from every anchor 
 // ── service: L3 evidence citations (FOVEA_L3_EPISODE_CITATIONS) ─────
 describe('L3EscalationService — evidence citations', () => {
   afterEach(() => {
-    delete process.env.FOVEA_L3_EPISODE_CITATIONS;
+    process.env.FOVEA_L3_EPISODE_CITATIONS = '0';
   });
 
   /** The captured L3 generator request, narrowed for assertions. */
@@ -1486,7 +1492,7 @@ describe('L3EscalationService — evidence citations', () => {
 // ── service: attention hints (FOVEA_ATTENTION_HINTS) ────────────────
 describe('L3EscalationService — attention hints', () => {
   afterEach(() => {
-    delete process.env.FOVEA_ATTENTION_HINTS;
+    process.env.FOVEA_ATTENTION_HINTS = '0';
   });
 
   /** Two facts, equal (below-floor) scores, grounded in different

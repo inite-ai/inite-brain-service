@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
 
 /**
  * Fovea optics (Optics-1) master flag — FOVEA_FOCUS_CAPTURE.
@@ -11,7 +11,7 @@ import { envFlagEnabled } from './env-validation';
  * and the admin routes 404.
  */
 export function focusCaptureEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_FOCUS_CAPTURE);
+  return envFlagNotDisabled(process.env.FOVEA_FOCUS_CAPTURE);
 }
 
 /** Default escalate cutoff on calibrated confidence (Optics-2 §4.1). */
@@ -29,7 +29,7 @@ const DEFAULT_ADAPTIVE_L3_THRESHOLD = 0.5;
  * byte-identical to the static L3 — the load-bearing safety property.
  */
 export function adaptiveL3Enabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_ADAPTIVE_L3);
+  return envFlagNotDisabled(process.env.FOVEA_ADAPTIVE_L3);
 }
 
 /**
@@ -63,7 +63,7 @@ const DEFAULT_ADAPTIVE_ABSTAIN_THRESHOLD = 0.5;
  * static coverage abstention — the load-bearing safety property.
  */
 export function adaptiveAbstainEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_ADAPTIVE_ABSTAIN);
+  return envFlagNotDisabled(process.env.FOVEA_ADAPTIVE_ABSTAIN);
 }
 
 /**
@@ -97,7 +97,7 @@ const DEFAULT_LENS_SUPPRESS_MIN_COSINE = 0.5;
  * to the static lane set (the load-bearing safety property).
  */
 export function lensSuppressEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_LENS_SUPPRESS);
+  return envFlagNotDisabled(process.env.FOVEA_LENS_SUPPRESS);
 }
 
 /**
@@ -151,7 +151,7 @@ export function plausibilityCheckEnabled(): boolean {
  * runtime-mutable. Default off ⇒ today's behavior byte-identical.
  */
 export function requireCitationsEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_REQUIRE_CITATIONS);
+  return envFlagNotDisabled(process.env.FOVEA_REQUIRE_CITATIONS);
 }
 
 /**
@@ -182,7 +182,7 @@ export function requireCitationsEnabled(): boolean {
  * byte-identical to before and no evidenceCitations field is ever emitted.
  */
 export function l3EpisodeCitationsEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_L3_EPISODE_CITATIONS);
+  return envFlagNotDisabled(process.env.FOVEA_L3_EPISODE_CITATIONS);
 }
 
 /**
@@ -214,7 +214,7 @@ export function l3EpisodeCitationsEnabled(): boolean {
  * param — serving byte-identical (the answer-integrity precedent).
  */
 export function evidenceCapabilityEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_EVIDENCE_CAPABILITY);
+  return envFlagNotDisabled(process.env.FOVEA_EVIDENCE_CAPABILITY);
 }
 
 /**
@@ -235,7 +235,7 @@ export function evidenceCapabilityEnabled(): boolean {
  * byte-identical to the hint-free path.
  */
 export function attentionHintsEnabled(): boolean {
-  return envFlagEnabled(process.env.FOVEA_ATTENTION_HINTS);
+  return envFlagNotDisabled(process.env.FOVEA_ATTENTION_HINTS);
 }
 
 /**

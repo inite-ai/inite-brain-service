@@ -45,7 +45,7 @@ describe('segment user fence (0117 + PRIVACY_SEGMENT_USER_FENCE) e2e', () => {
     process.env.PRIVACY_SEGMENT_USER_FENCE = '1';
   };
   const fenceOff = () => {
-    delete process.env.PRIVACY_SEGMENT_USER_FENCE;
+    process.env.PRIVACY_SEGMENT_USER_FENCE = '0';
   };
 
   beforeAll(async () => {
@@ -53,7 +53,7 @@ describe('segment user fence (0117 + PRIVACY_SEGMENT_USER_FENCE) e2e', () => {
     process.env.EPISODE_SUBSTRATE_ENABLED = '1';
     process.env.INGEST_EPISODE_ONLY = '1';
     process.env.RETRIEVAL_VERBATIM_EVIDENCE = 'fused';
-    delete process.env.PRIVACY_SEGMENT_USER_FENCE;
+    process.env.PRIVACY_SEGMENT_USER_FENCE = '0';
 
     f = await createApp({
       companyId: 'co_segment_fence_e2e',

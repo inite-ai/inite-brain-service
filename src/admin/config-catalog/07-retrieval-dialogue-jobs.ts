@@ -236,7 +236,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'INGEST_CONTEXTUAL_FACT_EMBEDDING',
     category: 'embedder',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -365,7 +365,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_COMBINED_VECTOR_GRAPH',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -374,7 +374,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'SEARCH_HIGHLIGHT_ENABLED',
     category: 'search',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -384,7 +384,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DREAMS_CORROBORATE_ENABLED',
     category: 'dreams',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
@@ -402,7 +402,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
   {
     key: 'DREAMS_COMMUNITIES_ENABLED',
     category: 'dreams',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description: 'Build + persist entity-community summaries during dreams.',

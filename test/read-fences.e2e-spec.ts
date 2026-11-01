@@ -177,7 +177,7 @@ describe('read fences — REST profile userId, recall_decisions (real SurrealDB)
       expect(tenant).toEqual(expect.arrayContaining(['Node 22', 'private runbook']));
       expect(tenant).not.toContain('my phone');
     } finally {
-      if (prev === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+      if (prev === undefined) process.env.SCOPE_TAGS_ENABLED = '0';
       else process.env.SCOPE_TAGS_ENABLED = prev;
     }
   });

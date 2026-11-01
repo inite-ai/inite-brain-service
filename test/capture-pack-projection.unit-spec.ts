@@ -361,12 +361,12 @@ const dto = (over: Partial<IngestMentionDto> = {}): IngestMentionDto =>
 describe('MentionProjectionService', () => {
   const saved = process.env.PACK_MEMORY_PROJECTIONS_ENABLED;
   afterEach(() => {
-    if (saved === undefined) delete process.env.PACK_MEMORY_PROJECTIONS_ENABLED;
+    if (saved === undefined) process.env.PACK_MEMORY_PROJECTIONS_ENABLED = '0';
     else process.env.PACK_MEMORY_PROJECTIONS_ENABLED = saved;
   });
 
   it('is a byte-identical no-op with the flag off — not even a cache read', async () => {
-    delete process.env.PACK_MEMORY_PROJECTIONS_ENABLED;
+    process.env.PACK_MEMORY_PROJECTIONS_ENABLED = '0';
     const { svc, queries, reader, registry, calls } = makeService([BINDING]);
     await expect(
       svc.projectTurn({ companyId: 'co', dto: dto(), episodeId: EPISODE_ID }),

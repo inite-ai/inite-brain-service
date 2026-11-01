@@ -128,7 +128,7 @@ describe('scene prediction baseline (e2e)', () => {
     process.env.INGEST_EPISODE_ONLY = '1';
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
     // Both PR flags start OFF — each `it` flips only what it proves.
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     delete process.env.SCENES_PREDICTION_BASELINE;
     f = await createApp({ companyId: 'co_scene_pred_e2e' });
 

@@ -184,11 +184,11 @@ describe('resolveEvidenceCapability', () => {
     process.env.FOVEA_EVIDENCE_CAPABILITY = '1';
   });
   afterEach(() => {
-    delete process.env.FOVEA_EVIDENCE_CAPABILITY;
+    process.env.FOVEA_EVIDENCE_CAPABILITY = '0';
   });
 
   it('flag off → {} with NO registry lookup (byte-identical)', async () => {
-    delete process.env.FOVEA_EVIDENCE_CAPABILITY;
+    process.env.FOVEA_EVIDENCE_CAPABILITY = '0';
     const calls: string[] = [];
     const out = await resolveEvidenceCapability(
       capDeps(registryOf({ whiteboard_layout: 'visual' }, calls)),

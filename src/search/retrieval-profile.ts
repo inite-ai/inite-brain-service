@@ -1079,9 +1079,9 @@ function unitPenalty(env: NodeJS.ProcessEnv, name: string): number {
 
 export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): SearchTuning {
   return {
-    usageRecording: envFlagEnabled(env.SEARCH_USAGE_RECORDING_ENABLED),
-    usageDecay: envFlagEnabled(env.SEARCH_USAGE_DECAY_ENABLED),
-    usageRanking: envFlagEnabled(env.SEARCH_USAGE_RANKING_ENABLED),
+    usageRecording: envFlagNotDisabled(env.SEARCH_USAGE_RECORDING_ENABLED),
+    usageDecay: envFlagNotDisabled(env.SEARCH_USAGE_DECAY_ENABLED),
+    usageRanking: envFlagNotDisabled(env.SEARCH_USAGE_RANKING_ENABLED),
     usageBeta: nonNegativeFloat(env, 'SEARCH_USAGE_BETA'),
     usageSaturation: tuningInt(env, 'SEARCH_USAGE_SATURATION', 20),
     pprAutoThreshold: tuningInt(env, 'SEARCH_PPR_AUTO_THRESHOLD', 0),
@@ -1101,11 +1101,11 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     stageBudgets: resolveStageBudgets(env),
     tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),
     tokenOffloadMinHits: tuningInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', 24),
-    combinedVectorGraph: envFlagEnabled(env.SEARCH_COMBINED_VECTOR_GRAPH),
+    combinedVectorGraph: envFlagNotDisabled(env.SEARCH_COMBINED_VECTOR_GRAPH),
     hnswEnabled: envFlagEnabled(env.SEARCH_HNSW_ENABLED),
     hnswEf: tuningInt(env, 'SEARCH_HNSW_EF', 100),
     hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
-    highlightEnabled: envFlagEnabled(env.SEARCH_HIGHLIGHT_ENABLED),
+    highlightEnabled: envFlagNotDisabled(env.SEARCH_HIGHLIGHT_ENABLED),
     edgeExpansion: resolveExpansionConfig(env),
     softLangFilter: envFlagEnabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
     langAttribution: envFlagEnabled(env.MULTILINGUAL_LANG_ATTRIBUTION),

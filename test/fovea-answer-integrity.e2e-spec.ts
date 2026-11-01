@@ -66,7 +66,7 @@ describe('Fovea verifier answer-integrity arm e2e', () => {
       process.env[k] = v;
     }
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
-    delete process.env.FOVEA_REQUIRE_CITATIONS;
+    process.env.FOVEA_REQUIRE_CITATIONS = '0';
     f = await createApp({ companyId: 'co_answer_integrity_e2e' });
 
     const r = await f.http
@@ -88,7 +88,7 @@ describe('Fovea verifier answer-integrity arm e2e', () => {
 
   afterEach(() => {
     delete process.env.FOVEA_PLAUSIBILITY_CHECK;
-    delete process.env.FOVEA_REQUIRE_CITATIONS;
+    process.env.FOVEA_REQUIRE_CITATIONS = '0';
   });
 
   afterAll(async () => {

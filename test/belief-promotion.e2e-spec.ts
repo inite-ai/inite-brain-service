@@ -353,7 +353,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
   });
 
   it('revises on a new value: supersede chain, baselineRef, contradiction edges — never in-place', async () => {
-    delete process.env.SCENES_BELIEF_LLM_SYNTHESIS;
+    process.env.SCENES_BELIEF_LLM_SYNTHESIS = '0';
     await seedScene({
       tail: 'sb',
       conv: 'proj:c3',
@@ -478,8 +478,8 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       supersededFrom: { belief: String(rev1!.id), revision: 1, value: 'Jeep Compass' },
     });
 
-    delete process.env.SCENES_BELIEF_NEGATION_DELTAS;
-    delete process.env.SCENES_BELIEF_FIELD_FOLD;
+    process.env.SCENES_BELIEF_NEGATION_DELTAS = '0';
+    process.env.SCENES_BELIEF_FIELD_FOLD = '0';
   });
 
   it('user-forget erases beliefs + their support edges unconditionally, with the beliefsDeleted counter', async () => {

@@ -53,7 +53,7 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
   };
 
   beforeAll(async () => {
-    delete process.env.FOVEA_FOCUS_CAPTURE;
+    process.env.FOVEA_FOCUS_CAPTURE = '0';
     f = await createApp();
     surreal = f.app.get(SurrealService);
     await f.http
@@ -70,12 +70,12 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
   });
 
   afterAll(async () => {
-    delete process.env.FOVEA_FOCUS_CAPTURE;
+    process.env.FOVEA_FOCUS_CAPTURE = '0';
     if (f) await f.close();
   });
 
   it('writes NO sample when the flag is off (serving-neutral)', async () => {
-    delete process.env.FOVEA_FOCUS_CAPTURE;
+    process.env.FOVEA_FOCUS_CAPTURE = '0';
     const before = await sampleCount();
     await runSynthesize('engineer');
     const after = await sampleCount();
@@ -83,7 +83,7 @@ describe('Fovea Optics-1 — focus-signal capture + calibration surface', () => 
   });
 
   it('404s the admin surface when the master flag is off', async () => {
-    delete process.env.FOVEA_FOCUS_CAPTURE;
+    process.env.FOVEA_FOCUS_CAPTURE = '0';
     const rel = await f.http.get('/v1/admin/focus/reliability').set(auth());
     expect(rel.status).toBe(404);
     const fit = await f.http.post('/v1/admin/focus/fit').set(auth()).send({});

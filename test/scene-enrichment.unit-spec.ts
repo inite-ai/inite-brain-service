@@ -162,7 +162,7 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
     process.env.SCENES_LLM_ENRICHMENT = '1';
   });
   afterAll(() => {
-    if (savedFlag === undefined) delete process.env.SCENES_LLM_ENRICHMENT;
+    if (savedFlag === undefined) process.env.SCENES_LLM_ENRICHMENT = '0';
     else process.env.SCENES_LLM_ENRICHMENT = savedFlag;
   });
 
@@ -321,7 +321,7 @@ describe('SceneEnricherService degrade contract (scripted provider)', () => {
   });
 
   it('is a no-op with the flag off', async () => {
-    delete process.env.SCENES_LLM_ENRICHMENT;
+    process.env.SCENES_LLM_ENRICHMENT = '0';
     try {
       const { svc, captured } = build(JSON.stringify(WELL_FORMED));
       const result = await svc.enrich('co_test');

@@ -20,7 +20,7 @@ interface StubProposal {
 
 const savedFlag = process.env.PRIVACY_COMPOSER_USER_SCOPE;
 afterEach(() => {
-  if (savedFlag === undefined) delete process.env.PRIVACY_COMPOSER_USER_SCOPE;
+  if (savedFlag === undefined) process.env.PRIVACY_COMPOSER_USER_SCOPE = '0';
   else process.env.PRIVACY_COMPOSER_USER_SCOPE = savedFlag;
 });
 
@@ -108,7 +108,7 @@ function insertedRows(
 
 describe('composer user scope (PRIVACY_COMPOSER_USER_SCOPE)', () => {
   it('fact SELECT projects userId unconditionally (the fold input)', async () => {
-    delete process.env.PRIVACY_COMPOSER_USER_SCOPE;
+    process.env.PRIVACY_COMPOSER_USER_SCOPE = '0';
     const h = makeHarness(PROPOSALS);
     await h.run();
     const factsQ = h.queries.find((q) => q.sql.includes('entityId = $eid AND status'));
@@ -116,7 +116,7 @@ describe('composer user scope (PRIVACY_COMPOSER_USER_SCOPE)', () => {
   });
 
   it('flag off: rows byte-identical (no userId/scope key), nothing dropped', async () => {
-    delete process.env.PRIVACY_COMPOSER_USER_SCOPE;
+    process.env.PRIVACY_COMPOSER_USER_SCOPE = '0';
     const h = makeHarness(PROPOSALS);
     const result = await h.run();
     const rows = insertedRows(h.queries);

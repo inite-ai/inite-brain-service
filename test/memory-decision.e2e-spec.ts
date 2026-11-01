@@ -45,7 +45,7 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
     delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
     delete process.env.RETRIEVAL_ABSTENTION_MIN_EVIDENCE;
     delete process.env.RETRIEVAL_ABSTENTION_MIN_SCORE;
-    delete process.env.FOVEA_FOCUS_CAPTURE;
+    process.env.FOVEA_FOCUS_CAPTURE = '0';
     if (f) await f.close();
   });
 
@@ -224,7 +224,7 @@ describe('memory_decision — decision-context capture, joins and cascade', () =
       delete process.env.RETRIEVAL_ABSTENTION_CALIBRATION;
       delete process.env.RETRIEVAL_ABSTENTION_MIN_EVIDENCE;
       delete process.env.RETRIEVAL_ABSTENTION_MIN_SCORE;
-      delete process.env.FOVEA_FOCUS_CAPTURE;
+      process.env.FOVEA_FOCUS_CAPTURE = '0';
     }
   });
 

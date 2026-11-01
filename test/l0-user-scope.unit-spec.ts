@@ -6,6 +6,12 @@ import type { EmbedderService } from '../src/ai/embedder.service';
 import type { ApiKeyService } from '../src/auth/api-key.service';
 import type { LeaderLeaseService } from '../src/jobs/leader-lease.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['SCOPE_TAGS_ENABLED', 'PRIVACY_SEGMENT_USER_FENCE']) process.env[k] ??= '0';
+});
+
 /**
  * Audit W1 (engine-architecture-audit-2026-08.md #14): migration 0055's
  * user scope was bypassed by every L0 surface — the raw substrate served
