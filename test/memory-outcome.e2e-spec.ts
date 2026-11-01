@@ -317,6 +317,8 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
     };
 
     // Flags off: the use is not attached — the fact has faded.
+    process.env.RETRIEVAL_VERIFIED_USE_DECAY = '0';
+    process.env.RETRIEVAL_VERIFIED_USE_RANKING = '0';
     const before = await decayOf();
     expect(before).toBeLessThan(1);
 
@@ -327,8 +329,8 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
       // The verified use just now is a fresh trace: fully available.
       expect(after).toBe(1);
     } finally {
-      process.env.RETRIEVAL_VERIFIED_USE_DECAY = '0';
-      process.env.RETRIEVAL_VERIFIED_USE_RANKING = '0';
+      delete process.env.RETRIEVAL_VERIFIED_USE_DECAY;
+      delete process.env.RETRIEVAL_VERIFIED_USE_RANKING;
     }
   });
 

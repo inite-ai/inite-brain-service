@@ -14,6 +14,8 @@
  * slot shares one vector (the slot-exact promotion floor is -1 anyway).
  */
 import { AppFixture, createApp } from './app-fixture';
+import { atWidth } from './test-doubles';
+import { EmbedderService } from '../src/ai/embedder.service';
 import { SurrealService } from '../src/db/surreal.service';
 
 type Outcome = {
@@ -54,7 +56,7 @@ describe('fn::resolve_fact — fact valid time (0165)', () => {
       const [r] = await db.query<[Outcome]>(
         `RETURN fn::resolve_fact(
           type::record('knowledge_entity', $eid),
-          $predicate, $object, NONE, [1.0, 0.0],
+          $predicate, $object, NONE, $embedding,
           0.7, type::datetime($vf), $vu, $source,
           0.5, $semantics, $similarity,
           0.30, 0.40, 0.20, 0.10,
@@ -64,6 +66,7 @@ describe('fn::resolve_fact — fact valid time (0165)', () => {
         )`,
         {
           eid: p.entity,
+          embedding: atWidth([1.0, 0.0], f.app.get(EmbedderService).primaryDimensions()),
           predicate: p.predicate,
           object: p.object,
           vf: p.validFrom,

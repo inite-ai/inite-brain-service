@@ -19,12 +19,20 @@ describe('vector corpus width: gate, census, repair (real SurrealDB)', () => {
   const FOREIGN = 1024;
   const vec = (w: number) => Array.from({ length: w }, (_, i) => (i % 7) / 7);
 
+  // A foreign-width row can only exist in a tenant without the HNSW indexes:
+  // an index fixes the column's width and refuses such a write outright. The
+  // preprod tenant had none, and that state is this suite's subject.
+  const savedHnsw = process.env.SEARCH_HNSW_ENABLED;
+
   beforeAll(async () => {
+    process.env.SEARCH_HNSW_ENABLED = '0';
     f = await createApp({ companyId: 'co_vector_width_e2e' });
   });
 
   afterAll(async () => {
     if (f) await f.close();
+    if (savedHnsw === undefined) delete process.env.SEARCH_HNSW_ENABLED;
+    else process.env.SEARCH_HNSW_ENABLED = savedHnsw;
   });
 
   const ingest = async (object: string, entity = 'width_subject') => {

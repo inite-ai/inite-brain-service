@@ -15,6 +15,8 @@
  * cos(A,C)=cos(B,C)≈0.906 ≥ 0.9 gate and cos(A,B)≈0.643 < gate.
  */
 import { AppFixture, createApp } from './app-fixture';
+import { atWidth } from './test-doubles';
+import { EmbedderService } from '../src/ai/embedder.service';
 import { SurrealService } from '../src/db/surreal.service';
 
 const deg = (d: number): number[] => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)];
@@ -59,7 +61,11 @@ describe('0085 pairwise closure + competing re-admission (real SurrealDB)', () =
             NONE, NONE, NONE, NONE, 'wdtest',
             NONE, 0.9
           )`,
-          { object, embedding, day: `${day}T00:00:00Z` },
+          {
+            object,
+            embedding: atWidth(embedding, f.app.get(EmbedderService).primaryDimensions()),
+            day: `${day}T00:00:00Z`,
+          },
         );
         return r;
       };

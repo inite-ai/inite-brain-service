@@ -15,6 +15,8 @@
  */
 import { StringRecordId } from 'surrealdb';
 import { AppFixture, createApp } from './app-fixture';
+import { atWidth } from './test-doubles';
+import { EmbedderService } from '../src/ai/embedder.service';
 import { SurrealService } from '../src/db/surreal.service';
 import { FactResolutionService } from '../src/dreams/fact-resolution.service';
 import { verifyWorkToken, type ResolutionTokenPayload } from '../src/common/harness-work-token';
@@ -193,7 +195,7 @@ describe('typed support graph (real SurrealDB)', () => {
     registry.invalidate(f.companyId);
 
     const resolver = f.app.get(FactResolverService);
-    const embedding = Array.from({ length: 8 }, (_, i) => (i === 0 ? 1 : 0));
+    const embedding = atWidth([1], f.app.get(EmbedderService).primaryDimensions());
     const base = {
       companyId: f.companyId,
       entityId,

@@ -12,12 +12,20 @@ describe('HNSW vector leg (real SurrealDB)', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
+  // The subject is a tenant mid-rollout, before the provisioner reached it:
+  // boot with provisioning held off so the tenant starts without indexes,
+  // and the admin endpoint below builds them.
+  const savedProvision = process.env.HNSW_PROVISION_ENABLED;
+
   beforeAll(async () => {
+    process.env.HNSW_PROVISION_ENABLED = '0';
     f = await createApp({ companyId: 'co_hnsw_e2e' });
   });
 
   afterAll(async () => {
     process.env.SEARCH_HNSW_ENABLED = '0';
+    if (savedProvision === undefined) delete process.env.HNSW_PROVISION_ENABLED;
+    else process.env.HNSW_PROVISION_ENABLED = savedProvision;
     if (f) await f.close();
   });
 

@@ -167,6 +167,9 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       delete process.env[k];
     }
     process.env.SCENES_SEGMENTATION_ENABLED = '1';
+    // The suite opens on the belief switch off (the first test is its gate);
+    // the tests that promote turn it on.
+    process.env.SCENES_BELIEF_PROMOTION = '0';
     f = await createApp({ companyId: 'co_belief_e2e' });
 
     // Corroborating pair (distinct conversations) + a single-conversation
