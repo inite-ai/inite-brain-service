@@ -75,6 +75,16 @@ transport writes its own response); retry an MCP tool with a fresh
 JSON-RPC id. User forget erases the kept responses of requests made for
 that user.
 
+## Paging lists: `cursor`
+
+A list that pages by key answers with `nextCursor` while more rows remain.
+Send it back as `cursor` to get the next page, and stop when it is absent.
+A page starts strictly after the last row of the one before it, so rows added
+or removed in between do not shift pages the way an offset does. Cursors are
+opaque: do not build or parse them. A cursor from one list is refused by
+another (`400`). Today this applies to `GET /v1/sources` (where `cursor` and
+`offset` are mutually exclusive) and `GET /v1/episodes`.
+
 ## Health + observability
 
 | Endpoint                                    | Notes                                                                                                                                         |

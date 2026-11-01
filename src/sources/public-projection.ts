@@ -57,6 +57,8 @@ export interface PublicListFilter {
   domain?: string;
   limit: number;
   offset: number;
+  /** Keyset: start strictly after this sourceKey (from a `nextCursor`). */
+  after?: string;
 }
 
 /**
@@ -68,7 +70,7 @@ export interface PublicListFilter {
 export function filterAndPage(
   summaries: SourceSummary[],
   filter: PublicListFilter,
-): { items: PublicSourceSummary[]; total: number } {
+): { items: PublicSourceSummary[]; total: number; last?: string } {
   const domainRequested = filter.domain !== undefined;
   const filtered = summaries.filter((s) => {
     if (filter.type !== undefined && s.declared?.type !== filter.type) {
@@ -82,8 +84,18 @@ export function filterAndPage(
   });
   filtered.sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
   const limit = Math.min(filter.limit, PUBLIC_LIST_MAX_LIMIT);
-  const items = filtered
-    .slice(filter.offset, filter.offset + limit)
-    .map((s) => toPublicSummary(s, domainRequested));
-  return { items, total: filtered.length };
+  const start =
+    filter.after === undefined
+      ? filter.offset
+      : filtered.findIndex((s) => s.sourceKey.localeCompare(filter.after!) > 0);
+  const from = start < 0 ? filtered.length : start;
+  const page = filtered.slice(from, from + limit);
+  const items = page.map((s) => toPublicSummary(s, domainRequested));
+  // A further page exists: hand back the last key as the cursor.
+  const more = from + limit < filtered.length;
+  return {
+    items,
+    total: filtered.length,
+    ...(more && page.length > 0 ? { last: page[page.length - 1]!.sourceKey } : {}),
+  };
 }
