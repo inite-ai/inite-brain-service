@@ -54,8 +54,8 @@ type Json = Record<string, unknown>
  * with nothing declaring it, that reference resolved to nothing and Brain read
  * as a company nobody had heard of that happens to share a word in its name.
  *
- * `sameAs` carries the family handles as well as the repository, for the same
- * reason: they are how a search engine ties this domain to the rest.
+ * `sameAs` carries only pages about Brain itself (its repository). The family
+ * tie is `parentOrganization`; inite.ai's own handles identify the parent.
  */
 export function organizationSchema(): Json {
   return {
@@ -66,14 +66,9 @@ export function organizationSchema(): Json {
     url: ORG.url,
     logo: ORG.logo,
     description: ORG.description,
-    // Not PARENT.url: inite.ai is the parent, stated in parentOrganization
-    // below; in sameAs it would say Brain is inite.ai.
-    sameAs: [
-      ...ORG.sameAs,
-      'https://www.linkedin.com/company/inite-ai/',
-      'https://t.me/initeai',
-      'https://github.com/inite-ai',
-    ],
+    // Brain's own pages only. inite.ai and its LinkedIn, Telegram and GitHub
+    // identify the parent, stated in parentOrganization below.
+    sameAs: [...ORG.sameAs],
     parentOrganization: {
       '@type': 'Organization',
       '@id': `${PARENT.url}/#organization`,
