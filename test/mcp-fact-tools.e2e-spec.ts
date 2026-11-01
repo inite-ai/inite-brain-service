@@ -122,11 +122,16 @@ describe('MCP get_fact / get_fact_provenance (e2e)', () => {
     expect(out.result.isError).toBeFalsy();
     const prov = out.result.structuredContent;
     expect(prov.factId).toBe(factId);
-    // Evidence-grounded fact, no derivation episodes: empty list, and no
-    // closure keys (PROVENANCE_RECURSIVE_CLOSURE off → byte-identical).
+    // Evidence-grounded fact, no derivation episodes: an empty list.
     expect(Array.isArray(prov.episodes)).toBe(true);
     expect(prov.episodes).toEqual([]);
-    expect('derivedFacts' in prov).toBe(false);
+    // Passthrough: whatever shape the service answers (closure keys
+    // included), the tool hands back the REST twin's body unchanged.
+    const rest = await f.http
+      .get(`/v1/facts/${encodeURIComponent(factId)}/provenance`)
+      .set({ Authorization: `Bearer ${f.apiKey}` });
+    expect(rest.status).toBe(200);
+    expect(prov).toEqual(rest.body);
   });
 
   it('an unknown factId surfaces the REST-parity not-found error, not a raw DB error', async () => {

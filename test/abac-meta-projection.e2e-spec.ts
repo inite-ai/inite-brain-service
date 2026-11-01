@@ -46,7 +46,7 @@ describe('ABAC source.meta projection', () => {
   afterAll(async () => {
     process.env.ABAC_ENABLED = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
-    process.env.SOURCE_META_STRICT = '0';
+    delete process.env.SOURCE_META_STRICT;
     await f.close();
   });
 
@@ -131,7 +131,8 @@ describe('ABAC source.meta projection', () => {
     expect(explain.body.row.view.source.meta).toEqual({ data_class: 'pii' });
   });
 
-  it('sanitizer drops invalid entries silently by default, 400s under SOURCE_META_STRICT', async () => {
+  it('sanitizer drops invalid entries silently in lax mode, 400s under SOURCE_META_STRICT (the default)', async () => {
+    process.env.SOURCE_META_STRICT = '0';
     const lax = await f.http
       .post('/v1/ingest/fact')
       .set(auth())
@@ -175,7 +176,7 @@ describe('ABAC source.meta projection', () => {
         });
       expect(strictDoc.status).toBe(400);
     } finally {
-      process.env.SOURCE_META_STRICT = '0';
+      delete process.env.SOURCE_META_STRICT;
     }
   });
 });

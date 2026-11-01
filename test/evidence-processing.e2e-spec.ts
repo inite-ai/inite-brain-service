@@ -79,6 +79,11 @@ describe('evidence processing lifecycle (e2e)', () => {
     }
     process.env.EVIDENCE_FS_ROOT = fsRoot;
     process.env.EVIDENCE_SUBSTRATE_ENABLED = '1';
+    // The suite opens on the processing seams switched off (its first test
+    // pins that state) and turns each on where a test needs it.
+    process.env.EVIDENCE_PROCESSOR_BROKER = '0';
+    process.env.EVIDENCE_QUARANTINE = '0';
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
     f = await createApp({
       companyId: COMPANY,
       scopes: ['brain:read', 'brain:write', 'brain:admin'],
