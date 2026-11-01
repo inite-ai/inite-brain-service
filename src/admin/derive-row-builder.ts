@@ -38,7 +38,7 @@ function derivedScopeFields(
 
 /**
  * The derived row's language stamp, write-side-gated
- * (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE, default off): derived rows
+ * (MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE, default on): derived rows
  * land in knowledge_fact and feed the same hard same-language search
  * filter as live facts, so a below-floor detection (the k07 shape: one
  * stray stopword flips a technical proposition to it@0.33) withholds the

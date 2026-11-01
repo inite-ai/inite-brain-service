@@ -478,7 +478,7 @@ export function validateEvidenceOrphanGcEnv(env: NodeJS.ProcessEnv, warnings: st
  * by design (a substrate builder, not an engine fork).
  */
 export function processorBrokerEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_PROCESSOR_BROKER);
+  return envFlagNotDisabled(process.env.EVIDENCE_PROCESSOR_BROKER);
 }
 
 /**
@@ -496,7 +496,7 @@ export function processorBrokerEnabled(): boolean {
  * at call time (runtime-mutable). Requires the jobs queue.
  */
 export function evidenceDocumentBridgeEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_DOCUMENT_BRIDGE);
+  return envFlagNotDisabled(process.env.EVIDENCE_DOCUMENT_BRIDGE);
 }
 
 /**
@@ -512,7 +512,7 @@ export function evidenceDocumentBridgeEnabled(): boolean {
  * (runtime-mutable); common layer per engine-gates S5.2.
  */
 export function evidenceQuarantineEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_QUARANTINE);
+  return envFlagNotDisabled(process.env.EVIDENCE_QUARANTINE);
 }
 
 /** Default derived-output cap: 1 MiB. (Named WITHOUT the full env-key
@@ -557,7 +557,7 @@ export function evidenceDerivedMaxBytes(): number {
  * groundingStatusOf helper; this PR deliberately marks, never rejects.
  */
 export function groundingStampEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_GROUNDING_STAMP);
+  return envFlagNotDisabled(process.env.EVIDENCE_GROUNDING_STAMP);
 }
 
 /**
@@ -574,7 +574,7 @@ export function groundingStampEnabled(): boolean {
  * is today — byte-identical. Read at call time (runtime-mutable).
  */
 export function failClosedCaptureEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_FAIL_CLOSED_CAPTURE);
+  return envFlagNotDisabled(process.env.EVIDENCE_FAIL_CLOSED_CAPTURE);
 }
 
 /**
@@ -589,7 +589,7 @@ export function failClosedCaptureEnabled(): boolean {
  * are byte-identical. Read at call time (runtime-mutable).
  */
 export function ungroundedExcludeEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_UNGROUNDED_EXCLUDE);
+  return envFlagNotDisabled(process.env.EVIDENCE_UNGROUNDED_EXCLUDE);
 }
 
 /**
@@ -609,7 +609,7 @@ export function ungroundedExcludeEnabled(): boolean {
  * even with the lane on. Read at call time (runtime-mutable).
  */
 export function fragmentCitationsEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_FRAGMENT_CITATIONS);
+  return envFlagNotDisabled(process.env.EVIDENCE_FRAGMENT_CITATIONS);
 }
 
 /**
@@ -690,7 +690,7 @@ export function evidenceSignedUrlTtlSeconds(): number {
  * design (a substrate builder, not an engine fork).
  */
 export function fragmentEmbeddingsEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_FRAGMENT_EMBEDDINGS);
+  return envFlagNotDisabled(process.env.EVIDENCE_FRAGMENT_EMBEDDINGS);
 }
 
 /**
@@ -706,7 +706,7 @@ export function fragmentEmbeddingsEnabled(): boolean {
  * (runtime-mutable).
  */
 export function ungroundedServingGateEnabled(): boolean {
-  return envFlagEnabled(process.env.EVIDENCE_UNGROUNDED_SERVING_GATE);
+  return envFlagNotDisabled(process.env.EVIDENCE_UNGROUNDED_SERVING_GATE);
 }
 
 /**

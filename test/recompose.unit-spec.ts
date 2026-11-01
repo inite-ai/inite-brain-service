@@ -305,7 +305,7 @@ describe('RecomposeService', () => {
   describe('rewrite — summary episode re-stamping', () => {
     const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
     afterEach(() => {
-      if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+      if (saved === undefined) process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
       else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
     });
 
@@ -326,7 +326,7 @@ describe('RecomposeService', () => {
     };
 
     it("flag OFF (default): today's EXACT statement — golden, no episodeIds fragment", async () => {
-      delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+      process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
       const { svc, queries } = make({ stale: [staleSummary], parents: stampedParents });
       await svc.recompute('co_x');
       const write = queries.find((q) => q.sql.includes('staleAt = NONE'));
@@ -405,7 +405,7 @@ describe('RecomposeService', () => {
   describe('rewrite — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES)', () => {
     const saved = process.env.PROVENANCE_SUPPORT_EDGES;
     afterEach(() => {
-      if (saved === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+      if (saved === undefined) process.env.PROVENANCE_SUPPORT_EDGES = '0';
       else process.env.PROVENANCE_SUPPORT_EDGES = saved;
     });
 
@@ -423,7 +423,7 @@ describe('RecomposeService', () => {
     };
 
     it('flag OFF (default): no memory_support statement in the log', async () => {
-      delete process.env.PROVENANCE_SUPPORT_EDGES;
+      process.env.PROVENANCE_SUPPORT_EDGES = '0';
       const { svc, queries } = make({ stale: [staleSummary], parents });
       await svc.recompute('co_x');
       expect(queries.filter((q) => q.sql.includes('memory_support'))).toEqual([]);

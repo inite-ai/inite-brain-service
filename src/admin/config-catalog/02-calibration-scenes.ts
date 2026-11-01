@@ -479,22 +479,22 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // Read at call time (resolveSearchTuning per request, user-profile
     // getProfile) — never constructor-captured — so a flip takes effect
     // without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Soft same-language filter: replaces the hard `lang = q OR lang IS NONE` exclusion at both read sites (search where-builder + user-profile) with a same-language RANKING boost — a cross-lingual fact is demoted, never hidden. In search it is gated on a high-confidence detected query language (an explicit dto.queryLang / caller-supplied profile lang counts as confident); below the confidence floor no boost AND no exclusion. Off (default) → the hard filter is byte-identical.',
+      'Soft same-language filter: replaces the hard `lang = q OR lang IS NONE` exclusion at both read sites (search where-builder + user-profile) with a same-language RANKING boost — a cross-lingual fact is demoted, never hidden. In search it is gated on a high-confidence detected query language (an explicit dto.queryLang / caller-supplied profile lang counts as confident); below the confidence floor no boost AND no exclusion. Off (`0`) → the hard filter is byte-identical.',
   },
   {
     key: 'MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE',
     category: 'pipeline',
     // Read at call time (resolveSearchTuning per request) — never
     // constructor-captured — so a flip takes effect without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Confidence gate on the HARD same-language search exclusion: the `lang = q OR lang IS NONE` WHERE filter (and its cross-lingual backoff pass) fires only when the detected query language cleared the same high-confidence floor the Tier-1 soft boost trusts. Below the floor — including the detector\'s zero-evidence `en` fallback on stopword-less identifier queries like "acme-api webhooks rate limit" — the pass is single and unfiltered, so a fact mislabeled with another language is never hidden from a query that expressed no language at all (the code-memory k07 miss). An explicit dto.queryLang carries confidence 1 and always filters. Off (default) → any non-`und` detection filters, byte-identical.',
+      'Confidence gate on the HARD same-language search exclusion: the `lang = q OR lang IS NONE` WHERE filter (and its cross-lingual backoff pass) fires only when the detected query language cleared the same high-confidence floor the Tier-1 soft boost trusts. Below the floor — including the detector\'s zero-evidence `en` fallback on stopword-less identifier queries like "acme-api webhooks rate limit" — the pass is single and unfiltered, so a fact mislabeled with another language is never hidden from a query that expressed no language at all (the code-memory k07 miss). An explicit dto.queryLang carries confidence 1 and always filters. Off (`0`) → any non-`und` detection filters, byte-identical.',
   },
   {
     key: 'MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE',
@@ -503,11 +503,11 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     // the language detector, consumed by fact-resolver buildResolveCall +
     // derive-row-builder) — never constructor-captured — so a flip takes
     // effect on the next ingest/derive without restart.
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Write-side mirror of MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE (migration 0127): a language DETECTION below the same shared high-confidence floor (0.5) is NOT stamped as the row\'s authoritative `lang` column — the hard same-language search filter\'s input — so a one-stopword mislabel ("120 requests per minute" → it@0.33 off the lone Italian "per", the k07 write-side root) stops polluting facts for every future lang-aware consumer. Applies to live fact ingest (fact-resolver) and derived rows (derive-row-builder). Only `lang` is withheld: the detected script stays, and on the fact-resolver path the attribution metadata records what the detector said (detectedLang + langConfidence + detectorVersion, langSource=detected) even while MULTILINGUAL_LANG_ATTRIBUTION is off — withholding is never silent. Inherited/explicit language paths are untouched (a weak detection does NOT divert to sourceLang inheritance — that stays strictly for detector-`und` objects). Off (default) → any non-`und` detection stamps, byte-identical.',
+      'Write-side mirror of MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE (migration 0127): a language DETECTION below the same shared high-confidence floor (0.5) is NOT stamped as the row\'s authoritative `lang` column — the hard same-language search filter\'s input — so a one-stopword mislabel ("120 requests per minute" → it@0.33 off the lone Italian "per", the k07 write-side root) stops polluting facts for every future lang-aware consumer. Applies to live fact ingest (fact-resolver) and derived rows (derive-row-builder). Only `lang` is withheld: the detected script stays, and on the fact-resolver path the attribution metadata records what the detector said (detectedLang + langConfidence + detectorVersion, langSource=detected) even while MULTILINGUAL_LANG_ATTRIBUTION is off — withholding is never silent. Inherited/explicit language paths are untouched (a weak detection does NOT divert to sourceLang inheritance — that stays strictly for detector-`und` objects). Off (`0`) → any non-`und` detection stamps, byte-identical.',
   },
   // ── Multilingual (Tier 3, migration 0102) ───────────
 

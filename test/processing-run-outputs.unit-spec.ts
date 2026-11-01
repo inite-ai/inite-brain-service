@@ -146,7 +146,7 @@ beforeAll(() => {
     savedEnv[k] = process.env[k];
   }
   process.env.EVIDENCE_SUBSTRATE_ENABLED = '1';
-  delete process.env.EVIDENCE_FRAGMENT_EMBEDDINGS;
+  process.env.EVIDENCE_FRAGMENT_EMBEDDINGS = '0';
 });
 
 afterAll(() => {
@@ -157,7 +157,7 @@ afterAll(() => {
 });
 
 afterEach(() => {
-  delete process.env.EVIDENCE_FRAGMENT_EMBEDDINGS;
+  process.env.EVIDENCE_FRAGMENT_EMBEDDINGS = '0';
 });
 
 const execute = (runs: ProcessingRunService, adapter: ProcessorAdapter) =>

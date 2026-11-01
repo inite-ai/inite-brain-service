@@ -368,7 +368,7 @@ describe('scan before serve', () => {
 describe('dispatch is fire-and-forget', () => {
   const saved = process.env.EVIDENCE_PROCESSOR_BROKER;
   afterEach(() => {
-    if (saved === undefined) delete process.env.EVIDENCE_PROCESSOR_BROKER;
+    if (saved === undefined) process.env.EVIDENCE_PROCESSOR_BROKER = '0';
     else process.env.EVIDENCE_PROCESSOR_BROKER = saved;
   });
 
@@ -384,7 +384,7 @@ describe('dispatch is fire-and-forget', () => {
   });
 
   it('dispatches nothing while the broker flag is off, or with no packId', async () => {
-    delete process.env.EVIDENCE_PROCESSOR_BROKER;
+    process.env.EVIDENCE_PROCESSOR_BROKER = '0';
     const off = harness();
     expect((await off.service.upload(COMPANY, blob(), input({ packId: 'p1' }))).dispatched).toBe(
       false,
