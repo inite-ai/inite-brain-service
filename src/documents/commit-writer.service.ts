@@ -454,6 +454,9 @@ export class CommitWriterService {
                 documentId: p.doc.id,
                 originKey: originKeyOf(p.doc.contentHash),
                 confidence: mr.confidence,
+                // A record door's relation says so, like its facts: fact
+                // resolution never closes it (#834).
+                ...(p.doc.kind === 'source_record' ? { kind: 'source_record' } : {}),
               },
               // Same scope as the document's facts (0055).
               userId: p.doc.userId,
