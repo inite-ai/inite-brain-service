@@ -1,7 +1,9 @@
-import { Controller, Get, Header, NotFoundException, Query } from '@nestjs/common';
+import { Controller, Get, Header, NotFoundException, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { sourceOAuthClientEnabled, sourcePlaneEnabled } from '../../common/source-plane-flags';
 import { OAuthCallbackError } from './oauth-errors';
 import { SourceOAuthService } from './source-oauth.service';
+import { redirectUriOf } from './admin-source-oauth.controller';
 
 /**
  * The provider's return leg — PUBLIC by construction (the browser
@@ -17,6 +19,23 @@ import { SourceOAuthService } from './source-oauth.service';
 @Controller('v1/source-connections/oauth')
 export class SourceOAuthCallbackController {
   constructor(private readonly oauth: SourceOAuthService) {}
+
+  /**
+   * The brain's Client ID Metadata Document (MCP 2026-07-28). An
+   * authorization server that takes one fetches this URL, which is the
+   * client_id itself, to learn the brain's name and redirect URI, so the
+   * brain needs no registration there. Public: it holds no secret. 404
+   * where it cannot be used (the surface is off, or the brain is not on
+   * HTTPS).
+   */
+  @Get('client-metadata.json')
+  @Header('Cache-Control', 'public, max-age=3600')
+  clientMetadata(@Req() req: Request): Record<string, unknown> {
+    if (!sourcePlaneEnabled() || !sourceOAuthClientEnabled()) throw new NotFoundException();
+    const doc = this.oauth.clientMetadata(redirectUriOf(req));
+    if (!doc) throw new NotFoundException();
+    return doc;
+  }
 
   @Get('callback')
   @Header('Content-Type', 'text/html; charset=utf-8')
