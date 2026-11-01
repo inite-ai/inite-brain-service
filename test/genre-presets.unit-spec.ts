@@ -84,16 +84,18 @@ describe('genre presets — explicit env beats preset', () => {
     );
   });
 
-  it('legacy lane flags force always on any genre (enable-only)', () => {
-    expect(
-      resolveRetrievalProfile(env({ SEARCH_SEGMENT_LANE_ENABLED: '1' })).verbatimEvidence,
-    ).toBe('always');
-    // Their falsy state reads as unset → the genre preset applies.
+  it('the retired per-lane keys no longer move the verbatim mode', () => {
+    // They once implied 'always' and flipped an assistant-chat tenant into
+    // the dialogue profile unless RETRIEVAL_VERBATIM_EVIDENCE pinned it.
     expect(
       resolveRetrievalProfile(
-        env({ RETRIEVAL_GENRE: 'dialogue', SEARCH_SEGMENT_LANE_ENABLED: '0' }),
+        env({
+          SEARCH_EPISODIC_LANE_ENABLED: '1',
+          SYNTHESIZE_SOURCE_EXCERPTS: '1',
+          SEARCH_SEGMENT_LANE_ENABLED: '1',
+        }),
       ).verbatimEvidence,
-    ).toBe('always');
+    ).toBe('shape_conditioned');
   });
 });
 

@@ -251,13 +251,8 @@ jobs:
           DERIVER_DIGEST=1
           DERIVER_COMPLETION_PASS=1
           DERIVER_SALIENCE_STAMP=1
-          # ── Verbatim/segment/episodic lanes + rerank legs ──
-          # PIN: legacy lane flags imply verbatim='always' (dialogue
-          # profile) when RETRIEVAL_VERBATIM_EVIDENCE is unset — pin the
-          # assistant-chat mode so the lanes do NOT flip the genre.
-          SEARCH_EPISODIC_LANE_ENABLED=1
-          SYNTHESIZE_SOURCE_EXCERPTS=1
-          SEARCH_SEGMENT_LANE_ENABLED=1
+          # ── Verbatim lanes (they follow RETRIEVAL_VERBATIM_EVIDENCE,
+          # assistant-chat default shape_conditioned) + rerank legs ──
           SEARCH_SEGMENT_LANE_RERANK=1
           SEARCH_FACT_RERANK=1
           # ── Search stack ──
