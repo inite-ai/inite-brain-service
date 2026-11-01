@@ -10,6 +10,8 @@ import { correlationIdMiddleware } from '../src/common/correlation-id.middleware
 import { debugTraceMiddleware } from '../src/common/debug-trace';
 import { TenantRegistryService } from '../src/auth/tenant-registry.service';
 import { ExtractionBatchService } from '../src/documents/extraction-batch.service';
+import { MetricsService } from '../src/metrics/metrics.service';
+import { httpMetrics, httpMetricsMiddleware } from '../src/metrics/http-metrics';
 import {
   InlineExtractionBatch,
   StubEmbedder,
@@ -155,6 +157,8 @@ export async function createApp(
   // context. Without it no e2e could exercise a trace, which is how the
   // debug_trace write-through stayed broken on 3.x unobserved.
   app.use(debugTraceMiddleware());
+  // Mirror main.ts: request RED metrics on the service's own registry.
+  app.use(httpMetricsMiddleware(httpMetrics(app.get(MetricsService).registry)));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

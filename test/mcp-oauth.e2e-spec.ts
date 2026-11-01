@@ -304,4 +304,77 @@ describe('MCP client OAuth (e2e)', () => {
       JSON.stringify({ ...set, expiresAt: new Date(Date.now() - 1000).toISOString() }),
     );
   }
+
+  describe('MCP 2026-07-28 client authorization', () => {
+    const start = () =>
+      f.http
+        .post('/v1/admin/source-connections/oauth/mcp/start')
+        .set(auth())
+        .send({ serverUrl: mcp.serverUrl, allowPrivate: true });
+    const consent = async (authorizeUrl: string) => {
+      const html = await (await fetch(authorizeUrl)).text();
+      const allow = /id="allow" href="([^"]+)"/.exec(html)![1]!.replace(/&amp;/g, '&');
+      const back = new URL(allow);
+      return (await f.http.get(`${back.pathname}${back.search}`)).text;
+    };
+
+    afterEach(() => {
+      mcp.cimd = false;
+      mcp.iss = 'absent';
+      mcp.issAdvertised = false;
+    });
+
+    it('registers with application_type web (SEP-837)', async () => {
+      await rows(`DELETE source_oauth_client`);
+      expect((await start()).status).toBe(201);
+      const registration = mcp.calls.filter((c) => c.path === '/auth/register').at(-1)!;
+      expect(JSON.parse(registration.body)).toMatchObject({ application_type: 'web' });
+    });
+
+    it('a server that moved to another issuer gets a new client (SEP-2352); one that takes metadata documents gets the document URL, not a registration', async () => {
+      await rows(`UPDATE source_oauth_client SET issuer = 'https://old-as.example.test'`);
+      mcp.cimd = true;
+      const registrations = mcp.calls.filter((c) => c.path === '/auth/register').length;
+      const begun = await start();
+      expect(begun.status).toBe(201);
+      const clientId = new URL(begun.body.authorizeUrl).searchParams.get('client_id');
+      expect(clientId).toBe(
+        'https://brain.example.test/v1/source-connections/oauth/client-metadata.json',
+      );
+      expect(mcp.calls.filter((c) => c.path === '/auth/register')).toHaveLength(registrations);
+      const [row] = await rows<{ issuer: string; registration: string; clientId: string }>(
+        `SELECT issuer, registration, clientId FROM source_oauth_client`,
+      );
+      expect(row).toMatchObject({
+        issuer: `${mcp.base}/auth`,
+        registration: 'metadata_document',
+        clientId,
+      });
+      expect(await consent(begun.body.authorizeUrl)).toContain('Connected');
+
+      const doc = await f.http.get('/v1/source-connections/oauth/client-metadata.json');
+      expect(doc.status).toBe(200);
+      expect(doc.body).toEqual({
+        client_id: clientId,
+        client_name: 'INITE Brain',
+        redirect_uris: ['https://brain.example.test/v1/source-connections/oauth/callback'],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+        application_type: 'web',
+      });
+    });
+
+    it('checks iss on the authorization response (RFC 9207): the right issuer passes, another fails, an advertised one must be present', async () => {
+      mcp.iss = 'correct';
+      expect(await consent((await start()).body.authorizeUrl)).toContain('Connected');
+      mcp.iss = 'wrong';
+      expect(await consent((await start()).body.authorizeUrl)).toContain('another issuer');
+      mcp.iss = 'absent';
+      mcp.issAdvertised = true;
+      expect(await consent((await start()).body.authorizeUrl)).toContain('another issuer');
+      mcp.issAdvertised = false;
+      expect(await consent((await start()).body.authorizeUrl)).toContain('Connected');
+    });
+  });
 });

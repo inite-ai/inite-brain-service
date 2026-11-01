@@ -22,6 +22,12 @@ export interface FakeMcpOAuth {
   close(): Promise<void>;
   calls: Array<{ method: string; path: string; auth: string | null; body: string }>;
   registration: boolean;
+  /** Advertise and accept Client ID Metadata Documents (MCP 2026-07-28). */
+  cimd: boolean;
+  /** `iss` on the authorization response (RFC 9207): absent, the real issuer, or another one. */
+  iss: 'absent' | 'correct' | 'wrong';
+  /** Advertise `authorization_response_iss_parameter_supported`. */
+  issAdvertised: boolean;
   /** Seconds a minted access token lives. */
   expiresIn: number;
   scopes: string[];
@@ -41,6 +47,9 @@ export async function startFakeMcpOAuth(): Promise<FakeMcpOAuth> {
     close: async () => undefined,
     calls: [],
     registration: true,
+    cimd: false,
+    iss: 'absent',
+    issAdvertised: false,
     expiresIn: 3600,
     scopes: ['resources:read'],
     clients: new Map(),
@@ -135,6 +144,8 @@ async function route(p: {
       token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
       scopes_supported: f.scopes,
       grant_types_supported: ['authorization_code', 'refresh_token'],
+      ...(f.cimd ? { client_id_metadata_document_supported: true } : {}),
+      ...(f.issAdvertised ? { authorization_response_iss_parameter_supported: true } : {}),
     });
   }
   if (path === '/auth/register' && m === 'POST') {
@@ -158,6 +169,9 @@ async function route(p: {
   }
   if (path === '/auth/authorize' && m === 'GET') {
     const clientId = url.searchParams.get('client_id') ?? '';
+    // A Client ID Metadata Document client: the id is an https URL (a real
+    // server fetches the document; the e2e serves it from the brain).
+    if (f.cimd && clientId.startsWith('https://')) f.clients.set(clientId, null);
     if (!f.clients.has(clientId)) return json(res, 400, { error: 'invalid_client' });
     if (url.searchParams.get('resource') !== f.serverUrl)
       return json(res, 400, { error: 'invalid_target', got: url.searchParams.get('resource') });
@@ -169,6 +183,9 @@ async function route(p: {
     const back = new URL(url.searchParams.get('redirect_uri') ?? '');
     back.searchParams.set('code', code);
     back.searchParams.set('state', url.searchParams.get('state') ?? '');
+    if (f.iss !== 'absent') {
+      back.searchParams.set('iss', f.iss === 'correct' ? `${f.base}/auth` : 'https://evil.example');
+    }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(
       `<!doctype html><html><body><h2>Fake MCP AS</h2><p>scope: <code>${url.searchParams.get('scope') ?? ''}</code></p><p><a id="allow" href="${back.toString().replace(/&/g, '&amp;')}">Allow</a></p></body></html>`,

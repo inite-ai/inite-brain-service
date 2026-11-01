@@ -16,12 +16,19 @@ import {
 } from '../../common/secret-cipher';
 import {
   McpOAuthDiscoveryError,
+  clientMetadataDocument,
+  clientMetadataUrl,
   discoverMcpAuth,
   registerClient,
+  type AuthorizationServerMetadata,
   type RegisteredClient,
 } from './mcp-oauth-discovery';
 import { OAuthCallbackError } from './oauth-errors';
-import { OAuthClientRegistryService, type DynamicClient } from './oauth-client-registry.service';
+import {
+  OAuthClientRegistryService,
+  type ClientRegistration,
+  type DynamicClient,
+} from './oauth-client-registry.service';
 import { signState, verifyState } from './oauth-state';
 import {
   OAUTH_PROVIDER_IDS,
@@ -76,6 +83,10 @@ interface StateRow {
   origin?: string | null;
   actor: string;
   userId?: string | null;
+  /** The authorization server an MCP flow started with (RFC 9207). */
+  issuer?: string | null;
+  /** That server advertises `iss` on its responses, so it must be there. */
+  issRequired?: boolean | null;
   expiresAt: unknown;
 }
 
@@ -226,30 +237,26 @@ export class SourceOAuthService {
     const resource = discovered.resource;
     const scopes = discovered.prm?.scopesSupported ?? [];
     let client = p.client ? null : await this.clients.find(companyId, resource);
+    // SEP-2352: a client belongs to the authorization server that issued
+    // it. A resource that moved to another server gets a new one.
+    if (client && client.issuer !== discovered.as.issuer) client = null;
     if (!client) {
-      const registered: RegisteredClient = p.client
-        ? {
-            clientId: p.client.clientId,
-            clientSecret: p.client.clientSecret ?? null,
-            tokenAuth: p.client.clientSecret ? 'body' : 'none',
-          }
-        : await registerClient(
-            discovered.as,
-            { redirectUri: p.redirectUri, clientName: MCP_CLIENT_NAME, scopes },
-            { allowPrivate: p.allowPrivate },
-          ).catch((e: Error) => {
-            throw e instanceof McpOAuthDiscoveryError ? new BadRequestException(e.message) : e;
-          });
+      const { registered, registration } = await this.holdClient(discovered.as, {
+        operator: p.client,
+        redirectUri: p.redirectUri,
+        scopes,
+        allowPrivate: p.allowPrivate,
+      });
       client = await this.clients.put(companyId, {
         resource,
         as: discovered.as,
         client: registered,
-        registration: p.client ? 'operator' : 'dynamic',
+        registration,
         scopes,
         allowPrivate: p.allowPrivate,
       });
       this.logger.log(
-        `oauth client for ${resource} (${p.client ? 'operator' : 'dynamic'} registration at ${discovered.as.issuer}) for ${companyId}`,
+        `oauth client for ${resource} (${registration} at ${discovered.as.issuer}) for ${companyId}`,
       );
     }
     const begun = await this.begin(companyId, {
@@ -263,8 +270,60 @@ export class SourceOAuthService {
       origin: p.origin,
       actor: p.actor,
       userId: p.userId,
+      issuer: { issuer: discovered.as.issuer, required: discovered.as.issParameter },
     });
     return { ...begun, resource };
+  }
+
+  /**
+   * The client the brain holds at a new authorization server: the
+   * operator's when one was pasted; else its Client ID Metadata Document
+   * when the server takes one (MCP 2026-07-28: nothing is registered, the
+   * client_id is the document's HTTPS URL); else a dynamic registration
+   * (RFC 7591, deprecated by that revision, kept as the fallback).
+   */
+  private async holdClient(
+    as: AuthorizationServerMetadata,
+    p: {
+      operator?: { clientId: string; clientSecret?: string | undefined } | undefined;
+      redirectUri: string;
+      scopes: string[];
+      allowPrivate: boolean;
+    },
+  ): Promise<{ registered: RegisteredClient; registration: ClientRegistration }> {
+    if (p.operator) {
+      return {
+        registered: {
+          clientId: p.operator.clientId,
+          clientSecret: p.operator.clientSecret ?? null,
+          tokenAuth: p.operator.clientSecret ? 'body' : 'none',
+        },
+        registration: 'operator',
+      };
+    }
+    const metadataUrl = as.clientIdMetadataDocuments ? clientMetadataUrl(p.redirectUri) : null;
+    if (metadataUrl) {
+      return {
+        registered: { clientId: metadataUrl, clientSecret: null, tokenAuth: 'none' },
+        registration: 'metadata_document',
+      };
+    }
+    const registered = await registerClient(
+      as,
+      { redirectUri: p.redirectUri, clientName: MCP_CLIENT_NAME, scopes: p.scopes },
+      { allowPrivate: p.allowPrivate },
+    ).catch((e: Error) => {
+      throw e instanceof McpOAuthDiscoveryError ? new BadRequestException(e.message) : e;
+    });
+    return { registered, registration: 'dynamic' };
+  }
+
+  /** The brain's Client ID Metadata Document, for the public route that serves it. */
+  clientMetadata(redirectUri: string): Record<string, unknown> | null {
+    const clientId = clientMetadataUrl(redirectUri);
+    return clientId
+      ? clientMetadataDocument({ clientId, redirectUri, clientName: MCP_CLIENT_NAME })
+      : null;
   }
 
   /** The state row and the consent URL — PKCE (S256), the signed state, the provider's own parameters. */
@@ -283,6 +342,8 @@ export class SourceOAuthService {
       origin?: string | undefined;
       actor: string;
       userId?: string | undefined;
+      /** The authorization server an MCP flow starts with, and whether it must send `iss`. */
+      issuer?: { issuer: string; required: boolean } | undefined;
     },
   ): Promise<{ authorizeUrl: string; state: string; expiresAt: string }> {
     const nonce = randomBytes(24).toString('base64url');
@@ -302,6 +363,7 @@ export class SourceOAuthService {
           ...(p.origin ? { origin: p.origin } : {}),
           actor: p.actor,
           ...(p.userId ? { userId: p.userId } : {}),
+          ...(p.issuer ? { issuer: p.issuer.issuer, issRequired: p.issuer.required } : {}),
           expiresAt,
         },
       }),
@@ -354,6 +416,21 @@ export class SourceOAuthService {
     const origin = row.origin ?? null;
     if (new Date(row.expiresAt as string).getTime() < Date.now()) {
       throw new OAuthCallbackError('the authorization took too long — start again', origin);
+    }
+    // RFC 9207 (MCP 2026-07-28, SEP-2468): the response names its issuer,
+    // and it must be the one this flow started with, before anything in
+    // it is trusted, an error included. A server that advertises `iss`
+    // must send it. This is what stops a mix-up between two servers.
+    const iss = q.params?.iss;
+    if (row.issuer && (iss !== undefined || row.issRequired === true)) {
+      // Simple string comparison (RFC 9207 §2.4): the recorded issuer is the
+      // one the server's metadata published.
+      if (iss !== row.issuer) {
+        throw new OAuthCallbackError(
+          'the authorization response came from another issuer — start again',
+          origin,
+        );
+      }
     }
     if (q.error) {
       throw new OAuthCallbackError(
