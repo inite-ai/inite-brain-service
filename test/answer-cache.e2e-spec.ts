@@ -38,7 +38,7 @@ describe('G1 answer cache e2e', () => {
   function mockRound(answer: string, factId: string) {
     return mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer, citedFactIds: [factId] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
   }
 

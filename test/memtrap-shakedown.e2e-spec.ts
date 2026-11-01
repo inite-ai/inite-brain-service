@@ -301,7 +301,7 @@ describe('MemTrapBench-style trap-resistance shakedown', () => {
     // exact-match cache (a fresh script proves the LLM is not re-called).
     const s1b = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'A DIFFERENT answer that must not surface.', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const r1repeat = await synth({ query: 'atlas-tier-plan', userId: 'u_taskboundary' });
     expect(r1repeat.status).toBe(201);

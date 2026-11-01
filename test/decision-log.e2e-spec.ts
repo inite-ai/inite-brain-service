@@ -66,6 +66,7 @@ describe('Phase 1 e2e — DecisionLog via /v1/synthesize', () => {
     const verifierResp = JSON.stringify({
       verdict: 'supported',
       unsupportedClaims: [],
+      questionAnswered: true,
     });
     mockSynthesizeOpenAi(f.app, [generatorResp, verifierResp]);
 
@@ -109,7 +110,7 @@ describe('Phase 1 e2e — DecisionLog via /v1/synthesize', () => {
   it('omits decisionLog when explain is falsy (back-compat)', async () => {
     mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok.', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http
       .post('/v1/synthesize')

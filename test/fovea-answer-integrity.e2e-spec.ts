@@ -21,6 +21,17 @@ import { createApp } from './app-fixture';
 import { mockSynthesizeOpenAi } from './test-doubles';
 import { MetricsService } from '../src/metrics/metrics.service';
 
+// Each test reads what the generator and verifier were given for a query
+// the suite repeats; a cached answer skips both, so the cache is off here.
+const savedAnswerCache = process.env.SYNTHESIZE_ANSWER_CACHE;
+beforeAll(() => {
+  process.env.SYNTHESIZE_ANSWER_CACHE = '0';
+});
+afterAll(() => {
+  if (savedAnswerCache === undefined) delete process.env.SYNTHESIZE_ANSWER_CACHE;
+  else process.env.SYNTHESIZE_ANSWER_CACHE = savedAnswerCache;
+});
+
 describe('Fovea verifier answer-integrity arm e2e', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
@@ -34,7 +45,11 @@ describe('Fovea verifier answer-integrity arm e2e', () => {
   const BELIEF_QUERY = 'is mixing amber-cleaner and violet-cleaner safe';
   const TRAP_ANSWER = `Yes — ${BELIEF_OBJECT}.`;
 
-  const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+  const VERIFY_SUPPORTED = JSON.stringify({
+    verdict: 'supported',
+    unsupportedClaims: [],
+    questionAnswered: true,
+  });
   const JUDGE_IMPLAUSIBLE = JSON.stringify({
     plausible: false,
     rationale: 'sandbox-only premise applied as a general safety truth',
