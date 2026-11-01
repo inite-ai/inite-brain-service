@@ -22,7 +22,7 @@ describe('episodic→semantic promotion (real SurrealDB)', () => {
   });
 
   afterAll(async () => {
-    delete process.env.COMPACTION_PROMOTION_ENABLED;
+    process.env.COMPACTION_PROMOTION_ENABLED = '0';
     if (f) await f.close();
   });
 

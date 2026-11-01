@@ -219,7 +219,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'DREAMS_ENABLED',
     category: 'dreams',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
     description: 'Master switch for the 04:00 UTC cron. Read once at boot.',
@@ -300,7 +300,7 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
   {
     key: 'COMPACTION_SUMMARIES',
     category: 'compaction',
-    defaultValue: 'false',
+    defaultValue: '1',
     runtimeMutable: false,
     isBooleanFlag: true,
   },

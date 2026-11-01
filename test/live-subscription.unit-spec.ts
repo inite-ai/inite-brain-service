@@ -428,7 +428,7 @@ describe('LiveSubscriptionManager', () => {
     });
 
     it('refuses to subscribe while the flag is off (no socket is ever opened)', async () => {
-      const mgr = makeManager();
+      const mgr = makeManager({ LIVE_SUBSCRIPTIONS_ENABLED: '0' });
       expect(mgr.isEnabled()).toBe(false);
       await expect(
         mgr.subscribe('co_x', { callerScopes: ['brain:read'], sink: () => {} }),

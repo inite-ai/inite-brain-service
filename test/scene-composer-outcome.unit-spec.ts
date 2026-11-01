@@ -188,7 +188,7 @@ describe('SceneComposerService — terminal status', () => {
   });
 
   it('with the master flag off the run is an empty complete batch', async () => {
-    delete process.env.SCENES_SEGMENTATION_ENABLED;
+    process.env.SCENES_SEGMENTATION_ENABLED = '0';
     const { svc, enumerations } = makeComposer({ enumerated: ['c1'] });
     const res = await svc.run('co_x');
     expect(enumerations).toHaveLength(0);

@@ -182,7 +182,6 @@ jobs:
           tee "${PROJECT_DIR}/enablement.env" > /dev/null << 'EOF'
           # ── L0 episode substrate + read APIs ──
           EPISODE_SUBSCRIPTIONS_ENABLED=1
-          LIVE_SUBSCRIPTIONS_ENABLED=1
           # ── Ingest / extraction quality ──
           EXTRACTION_OBJECT_NORMALIZE=1
           # The open (dialogue) extraction profile: the model coins a
@@ -261,11 +260,7 @@ jobs:
           # also turns index creation on — no separate pin restating it.
           # Provisioning only ADDS absent indexes, always CONCURRENTLY,
           # capped at 5 tenants starting builds per nightly run.
-          SEARCH_HNSW_ENABLED=1
           SEARCH_USAGE_BETA=0.1
-          RETRIEVAL_VERIFIED_USE_DECAY=1
-          RETRIEVAL_VERIFIED_USE_RANKING=1
-          RETRIEVAL_TENANT_DECAY=1
           # ── Retrieval profile boolean points (V8-V13 + G2 L3) ──
           RETRIEVAL_ENTITY_EXPANSION=1
           RETRIEVAL_SALIENCE_SCORING=1
@@ -299,13 +294,7 @@ jobs:
           STRATEGY_DISTILL_CRON_ENABLED=1
           STRATEGY_TRAJECTORIES_ENABLED=1
           # ── Dreams + compaction lifecycle ──
-          DREAMS_ENABLED=1
-          COMPACTION_PROMOTION_ENABLED=1
-          COMPACTION_SUMMARIES=1
-          COMPACTION_PROMOTION_CONFLICT_GUARD=1
           # ── Scenes + beliefs (Brain v2 episodic/semantic planes) ──
-          SCENES_SEGMENTATION_ENABLED=1
-          SCENES_BELIEF_PROMOTION=1
           BELIEFS_SERVING_LANE=1
           BELIEFS_FACT_DAMPING=1
           # ── Evidence plane (grounding + lifecycle + raw-read) ──

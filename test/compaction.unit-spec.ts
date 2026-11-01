@@ -101,7 +101,7 @@ describe('CompactionService — mark + drop (default mode)', () => {
     });
     const runner = new CompactionRunnerService(
       surreal,
-      new StubConfig() as unknown as ConfigService,
+      new StubConfig({ COMPACTION_SUMMARIES: '0' }) as unknown as ConfigService,
     );
 
     const stats = await runner.compactAll(['co_a', 'co_b', 'co_c']);
@@ -110,7 +110,7 @@ describe('CompactionService — mark + drop (default mode)', () => {
     expect(byTenant.co_a!.factsCompacted).toBe(12);
     expect(byTenant.co_b!.factsCompacted).toBe(0);
     expect(byTenant.co_c!.factsCompacted).toBe(5);
-    expect(byTenant.co_a!.summariesCreated).toBe(0); // summaries off by default
+    expect(byTenant.co_a!.summariesCreated).toBe(0); // summaries off in this mode
     expect(byTenant.co_a!.bytesFreed).toBe(12 * 6 * 1024);
 
     const calls_b = calls.find((c) => c.companyId === 'co_b')!;
@@ -331,7 +331,7 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
     const gen = new StubGenerator(() => 'should-not-run');
     const runner = new CompactionRunnerService(
       surreal,
-      new StubConfig() as unknown as ConfigService, // default = false
+      new StubConfig({ COMPACTION_SUMMARIES: 'false' }) as unknown as ConfigService,
       gen,
     );
     const [stats] = await runner.compactAll(['co_a']);

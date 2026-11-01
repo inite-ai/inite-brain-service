@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LiveSubscriptionError, Surreal, Table } from 'surrealdb';
 import type { LiveSubscription } from 'surrealdb';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { queryRows, withTimeout } from '../db/surreal.service';
 import { SurrealSessionKeeper } from '../db/session-keeper';
 import { changefeedRow } from '../db/changefeed-row';
@@ -108,7 +108,7 @@ type LiveCredentials =
 
 /**
  * LiveSubscriptionManager — realtime fact subscriptions (flag
- * `LIVE_SUBSCRIPTIONS_ENABLED`, default off). Stage 3 of
+ * `LIVE_SUBSCRIPTIONS_ENABLED`, default on). Stage 3 of
  * docs/roadmap/live-queries-2026-07.md: a SINGLE-POD, single-connection-per-
  * tenant prototype that proves the two hard parts (resume without gaps, and
  * the ABAC fence on a push path) before any multi-pod fan-out is designed.
@@ -170,7 +170,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   private seq = 0;
 
   constructor(private readonly config: ConfigService) {
-    this.enabled = envFlagEnabled(config.get<string>('LIVE_SUBSCRIPTIONS_ENABLED'));
+    this.enabled = envFlagNotDisabled(config.get<string>('LIVE_SUBSCRIPTIONS_ENABLED'));
     this.url = config.get<string>('SURREALDB_URL', '');
     this.namespace = config.get<string>('SURREALDB_NAMESPACE', 'brain');
     // Same identity as the caller-facing read pool: `brain_caller` when the

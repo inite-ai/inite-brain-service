@@ -282,9 +282,11 @@ describe('PromotionRunnerService — conflict guard', () => {
   });
 });
 
-describe('PromotionRunnerService — gate off/unset is byte-identical (pin)', () => {
+describe('PromotionRunnerService — gate off is byte-identical (pin)', () => {
   it('single-conversation group promotes exactly as today; no competing query fires', async () => {
-    const { runner, created, calls } = makePromotionStack(ONE_CONVERSATION, {});
+    const { runner, created, calls } = makePromotionStack(ONE_CONVERSATION, {
+      COMPACTION_PROMOTION_CONFLICT_GUARD: '0',
+    });
     const stats = await runner.promoteCompany('co_a');
     expect(stats.groupsPromoted).toBe(1);
     expect(stats.factsPromoted).toBe(5);

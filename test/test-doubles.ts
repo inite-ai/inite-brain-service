@@ -9,6 +9,16 @@ import { SceneEnricherService } from '../src/admin/scene-enricher.service';
 import { BeliefPromotionService } from '../src/admin/belief-promotion.service';
 
 /**
+ * A hand-built vector padded with zeros to the embedder's width. Suites that
+ * steer similarity with low-dimensional vectors (an angle, a basis vector)
+ * keep every cosine exactly while writing a vector the tenant's HNSW index
+ * (fixed at the embedder's width) accepts — the only width production writes.
+ */
+export function atWidth(v: number[], width: number): number[] {
+  return v.length >= width ? v : [...v, ...new Array<number>(width - v.length).fill(0)];
+}
+
+/**
  * Deterministic embedder stub for e2e tests. Same text → same vector;
  * different text → mostly different vector (normalized hash bytes).
  *

@@ -811,9 +811,9 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     // Verified-use successor signals (0107) + tenant-aware decay.
     // Deliberately preset-ineligible until measured per genre (the
     // MULTILINGUAL_ idiom: resolved straight from env, no genre preset).
-    verifiedUseDecay: envFlagEnabled(env.RETRIEVAL_VERIFIED_USE_DECAY),
-    verifiedUseRanking: envFlagEnabled(env.RETRIEVAL_VERIFIED_USE_RANKING),
-    tenantDecayPolicy: envFlagEnabled(env.RETRIEVAL_TENANT_DECAY),
+    verifiedUseDecay: envFlagNotDisabled(env.RETRIEVAL_VERIFIED_USE_DECAY),
+    verifiedUseRanking: envFlagNotDisabled(env.RETRIEVAL_VERIFIED_USE_RANKING),
+    tenantDecayPolicy: envFlagNotDisabled(env.RETRIEVAL_TENANT_DECAY),
     lanes,
   };
 }
@@ -1102,7 +1102,7 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     tokenCountOffload: envFlagEnabled(env.SEARCH_TOKEN_COUNT_OFFLOAD ?? '1'),
     tokenOffloadMinHits: tuningInt(env, 'SEARCH_TOKEN_OFFLOAD_MIN_HITS', 24),
     combinedVectorGraph: envFlagNotDisabled(env.SEARCH_COMBINED_VECTOR_GRAPH),
-    hnswEnabled: envFlagEnabled(env.SEARCH_HNSW_ENABLED),
+    hnswEnabled: envFlagNotDisabled(env.SEARCH_HNSW_ENABLED),
     hnswEf: tuningInt(env, 'SEARCH_HNSW_EF', 100),
     hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
     highlightEnabled: envFlagNotDisabled(env.SEARCH_HIGHLIGHT_ENABLED),

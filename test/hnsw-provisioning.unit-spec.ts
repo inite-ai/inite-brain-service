@@ -278,7 +278,7 @@ describe('HnswProvisionService — the hook', () => {
   });
 
   it('does nothing at all while the master flag is off', async () => {
-    delete process.env.HNSW_PROVISION_ENABLED;
+    process.env.HNSW_PROVISION_ENABLED = '0';
     const { svc, listeners, apply, registry } = provision({});
     svc.onModuleInit();
     listeners[0]!('co-new');

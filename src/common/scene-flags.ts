@@ -7,14 +7,14 @@ import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
  * /v1/admin/maintenance/scenes) batch-derives the shadow memory_episode
  * substrate (migration 0106) from raw L0 episodes. The env read lives here
  * in the common layer, NOT inside the engine dirs (engine-gates S5.2).
- * Read at call time so a flip is runtime-mutable (no restart). Default off
+ * Read at call time so a flip is runtime-mutable (no restart). Off
  * ⇒ the admin route 404s and NO memory_episode row is ever written —
  * byte-identical prod (shadow substrate: nothing on the serving path reads
  * these tables even when on). SCENES_ family sits off the ENGINE flag
  * budget by design (a shadow-substrate builder, not an engine fork).
  */
 export function sceneSegmentationEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_SEGMENTATION_ENABLED);
+  return envFlagNotDisabled(process.env.SCENES_SEGMENTATION_ENABLED);
 }
 
 /**
@@ -25,7 +25,7 @@ export function sceneSegmentationEnabled(): boolean {
  * splits WITHIN a session where cosine(mean of the last 3 turns, next
  * turn) drops below the SCENES_TOPIC_MIN_COSINE floor. The env read lives
  * here in the common layer, NOT inside the engine dirs (engine-gates
- * S5.2). Read at call time so a flip is runtime-mutable. Default off ⇒
+ * S5.2). Read at call time so a flip is runtime-mutable. Off ⇒
  * session-gap + max-turns segmentation only, embedder-free — and with the
  * master flag off the whole surface is byte-identical prod.
  */
@@ -62,7 +62,7 @@ export function sceneTopicMinCosine(): number {
  * FULL memoryValue vector (scorerVersion 'scene-scorer-llm-v1'), stateDeltas
  * and unexpectedDetails. The env read lives here in the common layer, NOT
  * inside the engine dirs (engine-gates S5.2). Read at call time so a flip is
- * runtime-mutable. Default off ⇒ NO LLM call is ever made and scenes keep
+ * runtime-mutable. Off ⇒ NO LLM call is ever made and scenes keep
  * their deterministic gist/score — byte-identical to PR1 behavior. Enrichment
  * degrades, never fails: a bad reply for one scene logs a warning and leaves
  * that scene untouched.
@@ -160,7 +160,7 @@ export function sceneEntityLinksEnabled(): boolean {
  * become pointers into the episodic plane. FLEXIBLE `source` ride, no
  * migration. The env read lives here in the common layer, NOT inside the
  * engine dirs (engine-gates S5.2). Read at call time so a flip is
- * runtime-mutable. Default off ⇒ no fact row is ever touched. Serving stays
+ * runtime-mutable. Off ⇒ no fact row is ever touched. Serving stays
  * byte-identical even when on — nothing READS source.memoryEpisodeIds; the
  * keys are merely visible wherever `source` is already returned verbatim
  * (facts read/provenance API) — an additive payload change, not a behavioral
@@ -183,7 +183,7 @@ export function sceneFactBacklinkEnabled(): boolean {
  * evidence refs are a graceful no-op (the metadata-ingest path is the
  * producer). The env read lives here in the common layer, NOT inside the
  * engine dirs (engine-gates S5.2). Read at call time so a flip is
- * runtime-mutable. Default off ⇒ no edge is ever written, the admin
+ * runtime-mutable. Off ⇒ no edge is ever written, the admin
  * route 404s and the composer's post-swap hook is skipped —
  * byte-identical prod. The GDPR cascades erase the edges REGARDLESS of
  * this flag (the EVIDENCE_SUBSTRATE_ENABLED precedent).
@@ -208,7 +208,7 @@ export function sceneEvidenceLinksEnabled(): boolean {
  * env read lives here in the common layer, NOT inside the engine dirs
  * (engine-gates S5.2). Read once per composer/enricher/backlinker run
  * (SceneVersionService.resolve) so a flip is runtime-mutable and a mid-run
- * flip can never mix id-spaces. Default off ⇒ the effective version is
+ * flip can never mix id-spaces. Off ⇒ the effective version is
  * exactly the literal SEGMENTER_VERSION constant — byte-identical
  * ids/stamps/registry keys.
  */
@@ -225,14 +225,14 @@ export function sceneVersionFingerprintEnabled(): boolean {
  * migration 0118) into the shadow semantic_belief substrate (migration
  * 0120), keyed by free-text (subject, field). The env read lives here in
  * the common layer, NOT inside the engine dirs (engine-gates S5.2). Read
- * at call time so a flip is runtime-mutable. Default off ⇒ the admin
+ * at call time so a flip is runtime-mutable. Off ⇒ the admin
  * route 404s and the promotion service returns without a single query —
  * NO semantic_belief row is ever written, byte-identical prod (shadow
  * substrate: no serving path reads the table even when on). SCENES_
  * family sits off the ENGINE flag budget by design.
  */
 export function sceneBeliefPromotionEnabled(): boolean {
-  return envFlagEnabled(process.env.SCENES_BELIEF_PROMOTION);
+  return envFlagNotDisabled(process.env.SCENES_BELIEF_PROMOTION);
 }
 
 /**
@@ -243,7 +243,7 @@ export function sceneBeliefPromotionEnabled(): boolean {
  * any failure degrades to the deterministic template (statementSource
  * 'template'), never fails the write. The env read lives here in the
  * common layer (engine-gates S5.2); read at call time so a flip is
- * runtime-mutable. Default off ⇒ NO LLM call is ever made and every
+ * runtime-mutable. Off ⇒ NO LLM call is ever made and every
  * statement is the deterministic template — the fold works identically.
  */
 export function sceneBeliefLlmSynthesisEnabled(): boolean {
@@ -261,7 +261,7 @@ export function sceneBeliefLlmSynthesisEnabled(): boolean {
  * the current value). A delta with BOTH ends empty stays dropped —
  * nothing to negate. The env read lives here in the common layer, NOT
  * inside the engine dirs (engine-gates S5.2). Read at call time so a
- * flip is runtime-mutable. Default off ⇒ empty-`to` deltas are dropped
+ * flip is runtime-mutable. Off ⇒ empty-`to` deltas are dropped
  * exactly as before — byte-identical fold output and prompts.
  */
 export function sceneBeliefNegationDeltasEnabled(): boolean {
@@ -282,7 +282,7 @@ export function sceneBeliefNegationDeltasEnabled(): boolean {
  * than one match folds NOTHING and warns loudly (the skip-loudly,
  * never-flip-flop doctrine). The env read lives here in the common
  * layer, NOT inside the engine dirs (engine-gates S5.2). Read at call
- * time so a flip is runtime-mutable. Default off ⇒ exact-string
+ * time so a flip is runtime-mutable. Off ⇒ exact-string
  * grouping and zero extra queries — byte-identical fold output.
  */
 export function sceneBeliefFieldFoldEnabled(): boolean {

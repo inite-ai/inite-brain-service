@@ -7,7 +7,7 @@ import { retryOnReadConflict } from '../db/surreal-retry';
 import { ReadPinService } from '../episodes/read-pin.service';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { CandidateFactRow, CompactionStats, SUMMARY_GENERATOR } from './compaction.types';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { summaryEpisodeStampEnabled, supportEdgesEnabled } from '../common/provenance-flags';
 import { unionEpisodeIds } from '../common/episode-ids';
 import { insertDerivedFromEdges } from './support-edge-mirror';
@@ -46,7 +46,7 @@ export class CompactionRunnerService {
     if (!Number.isFinite(this.hotRetentionDays) || this.hotRetentionDays < 1) {
       throw new Error('COMPACTION_HOT_RETENTION_DAYS must be a positive integer');
     }
-    this.summariesEnabled = envFlagEnabled(config.get<string>('COMPACTION_SUMMARIES'));
+    this.summariesEnabled = envFlagNotDisabled(config.get<string>('COMPACTION_SUMMARIES'));
     this.summaryGenerator = injectedGenerator ?? new ConcatSummaryGenerator();
     this.logger.log(
       `Compaction config: retention=${this.hotRetentionDays}d, summaries=${this.summariesEnabled}, generator=${this.summaryGenerator.constructor.name}`,

@@ -274,7 +274,7 @@ describe('segment composer persists the sorted member set (0117 write side)', ()
 describe('scene composer persists fold.userIds (0117 write side)', () => {
   const savedScenes = process.env.SCENES_SEGMENTATION_ENABLED;
   afterEach(() => {
-    if (savedScenes === undefined) delete process.env.SCENES_SEGMENTATION_ENABLED;
+    if (savedScenes === undefined) process.env.SCENES_SEGMENTATION_ENABLED = '0';
     else process.env.SCENES_SEGMENTATION_ENABLED = savedScenes;
   });
 

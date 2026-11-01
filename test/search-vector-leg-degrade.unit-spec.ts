@@ -15,6 +15,13 @@ import type { CalibrationService } from '../src/ai/calibration/calibration.servi
 import type { MetricsService } from '../src/metrics/metrics.service';
 import type { PipelineContext } from '../src/search/pipeline-context';
 
+// Production rides the HNSW legs (SEARCH_HNSW_ENABLED); this suite covers
+// the exact scan they fall back to. The KNN path is covered by
+// segment-hnsw.e2e-spec.ts and hnsw.e2e-spec.ts.
+beforeEach(() => {
+  for (const k of ['SEARCH_HNSW_ENABLED']) process.env[k] ??= '0';
+});
+
 const LEX = {
   id: 'knowledge_fact:f1',
   entityId: 'knowledge_entity:e1',

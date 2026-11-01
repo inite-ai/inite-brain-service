@@ -20,7 +20,7 @@ import { JobRunService, JobRunRow } from '../jobs/job-run.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, type JobContext } from '../jobs/worker-loop.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
-import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { ReadPinService } from '../episodes/read-pin.service';
 
 export interface DreamsTenantStats {
@@ -114,7 +114,7 @@ export class DreamsService implements OnModuleInit {
     // EpisodesModule. Legs fenced to the live derived world (audit W2 #10).
     @Optional() private readonly readPin?: ReadPinService,
   ) {
-    this.enabled = envFlagEnabled(this.configService.get<string>('DREAMS_ENABLED'));
+    this.enabled = envFlagNotDisabled(this.configService.get<string>('DREAMS_ENABLED'));
     // Default operation set: every sub-service that's been individually
     // enabled. An operator who only wants dedup flips
     // DREAMS_DEDUP_ENABLED=1 and DREAMS_ENABLED=1 — the cron then

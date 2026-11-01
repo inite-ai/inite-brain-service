@@ -239,7 +239,7 @@ describe('DreamsService', () => {
     expect(failedCount).toBe(1);
   });
 
-  it('runDaily is a no-op when DREAMS_ENABLED!=1 even with sub-services on', async () => {
+  it('runDaily is a no-op when DREAMS_ENABLED=0 even with sub-services on', async () => {
     const { metrics } = makeMetrics();
     const svc = new DreamsService(
       makeSurreal(),
@@ -256,7 +256,7 @@ describe('DreamsService', () => {
       }),
       makeResolver({ enabled: false }),
       makeCompaction(),
-      makeConfig({} /* DREAMS_ENABLED unset → '0' */),
+      makeConfig({ DREAMS_ENABLED: '0' }),
       metrics as never,
     );
     const out = await svc.runDaily();

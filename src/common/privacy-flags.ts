@@ -32,7 +32,7 @@ import { envFlagNotDisabled } from './env-validation';
  * flip this fence. Tenant-global (M2M) callers are unchanged either
  * way. The env read lives here in the common layer, NOT inside the
  * engine dirs (engine-gates S5.2); read at call time so a flip is
- * runtime-mutable (no restart). Default off ⇒ the seams keep their
+ * runtime-mutable (no restart). Off ⇒ the seams keep their
  * exact pre-0117 WHERE strings — byte-identical served behavior.
  */
 export function privacySegmentUserFenceEnabled(): boolean {
@@ -50,7 +50,7 @@ export function privacySegmentUserFenceEnabled(): boolean {
  * DROPPED (warned + counted) — a cross-user summary must never become a
  * tenant-global row readable by every user. The env read lives here in
  * the common layer, NOT inside the engine dirs (engine-gates S5.2);
- * read at call time so a flip is runtime-mutable. Default off ⇒
+ * read at call time so a flip is runtime-mutable. Off ⇒
  * composed rows are byte-identical (no userId/scope stamp, no drops).
  */
 export function privacyComposerUserScopeEnabled(): boolean {

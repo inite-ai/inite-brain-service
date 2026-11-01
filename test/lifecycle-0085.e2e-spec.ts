@@ -20,10 +20,14 @@
  * 0.9 gate (cos 25° ≈ 0.906), the same geometry the triangle uses.
  */
 import { AppFixture, createApp } from './app-fixture';
+import { atWidth } from './test-doubles';
+import { EmbedderService } from '../src/ai/embedder.service';
 import { SurrealService } from '../src/db/surreal.service';
 import { retryOnUniqueViolation } from '../src/db/surreal-retry';
 
 const deg = (d: number): number[] => [Math.cos((d * Math.PI) / 180), Math.sin((d * Math.PI) / 180)];
+/** The embedder's width, read once the app is up (beforeAll). */
+let embeddingWidth = 0;
 
 type Outcome =
   'INSERTED' | 'SUPERSEDED' | 'COMPETING' | 'INSERTED_HISTORICAL' | 'CORROBORATED' | 'REJECTED';
@@ -185,7 +189,12 @@ async function resolveFact(db: Db, entity: string, w: Write): Promise<ResolveRes
       NONE, NONE, NONE, NONE, 'wdtest',
       NONE, 0.9
     )`,
-    { entity, object: w.object, embedding: deg(w.deg), day: `${w.day}T00:00:00Z` },
+    {
+      entity,
+      object: w.object,
+      embedding: atWidth(deg(w.deg), embeddingWidth),
+      day: `${w.day}T00:00:00Z`,
+    },
   );
   return r;
 }
@@ -268,6 +277,7 @@ describe('0085 lifecycle state machine (real SurrealDB, table-driven)', () => {
 
   beforeAll(async () => {
     f = await createApp({ companyId: 'co_lifecycle_0085_e2e' });
+    embeddingWidth = f.app.get(EmbedderService).primaryDimensions();
   });
 
   afterAll(async () => {

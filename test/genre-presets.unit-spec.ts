@@ -223,9 +223,10 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     l3TemporalAnchor: false,
     abstentionMinTopScore: 0.35,
     abstentionMinEvidence: 2,
-    verifiedUseDecay: false,
-    verifiedUseRanking: false,
-    tenantDecayPolicy: false,
+    // Production's outcome-driven ranking and decay are the code default.
+    verifiedUseDecay: true,
+    verifiedUseRanking: true,
+    tenantDecayPolicy: true,
     lanes: [] as string[],
   };
 

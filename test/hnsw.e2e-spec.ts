@@ -12,12 +12,20 @@ describe('HNSW vector leg (real SurrealDB)', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
+  // The subject is a tenant mid-rollout, before the provisioner reached it:
+  // boot with provisioning held off so the tenant starts without indexes,
+  // and the admin endpoint below builds them.
+  const savedProvision = process.env.HNSW_PROVISION_ENABLED;
+
   beforeAll(async () => {
+    process.env.HNSW_PROVISION_ENABLED = '0';
     f = await createApp({ companyId: 'co_hnsw_e2e' });
   });
 
   afterAll(async () => {
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
+    if (savedProvision === undefined) delete process.env.HNSW_PROVISION_ENABLED;
+    else process.env.HNSW_PROVISION_ENABLED = savedProvision;
     if (f) await f.close();
   });
 
@@ -43,7 +51,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const results = await search('HNSW Probe Tenant');
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
     expect(results.length).toBeGreaterThan(0);
     // Named by its `name` fact (entity-name.ts) — 'HNSW Probe Tenant' — the
     // reference id stays among the aliases.
@@ -119,7 +127,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const viaKnn = await search('HNSW Probe Tenant');
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
 
     expect(viaKnn.length).toBeGreaterThan(0);
     expect(viaKnn[0]!.canonicalName).toBe(baseline[0]!.canonicalName);
@@ -171,7 +179,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
       process.env.SEARCH_HNSW_ENABLED = '1';
       const results = await search('HNSW Probe Tenant');
-      delete process.env.SEARCH_HNSW_ENABLED;
+      process.env.SEARCH_HNSW_ENABLED = '0';
       expect(results.length).toBeGreaterThan(0);
 
       // A malformed wait is a 400 before any DDL, never a silent default.
@@ -193,7 +201,7 @@ describe('HNSW vector leg (real SurrealDB)', () => {
 
     process.env.SEARCH_HNSW_ENABLED = '1';
     const results = await search('HNSW Probe Tenant');
-    delete process.env.SEARCH_HNSW_ENABLED;
+    process.env.SEARCH_HNSW_ENABLED = '0';
     expect(results.length).toBeGreaterThan(0);
   });
 

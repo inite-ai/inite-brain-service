@@ -2,6 +2,7 @@ import { CompactionRunnerService } from '../src/compaction/compaction-runner.ser
 import type { ConfigService } from '@nestjs/config';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { ReadPinService } from '../src/episodes/read-pin.service';
+import type { SummaryGenerator } from '../src/compaction/summary-generator';
 
 /**
  * Audit W2 (engine-architecture-audit-2026-08.md #10): compaction was
@@ -58,7 +59,7 @@ function makeRunner(pin: string | null): {
   const svc = new CompactionRunnerService(
     surreal,
     config,
-    { summarize: async () => 'lived in Berlin, then Munich' } as never,
+    { generate: async () => 'lived in Berlin, then Munich' } satisfies SummaryGenerator,
     readPin,
   );
   return { svc, queries };
@@ -66,13 +67,16 @@ function makeRunner(pin: string | null): {
 
 describe('compaction stays inside the tenant live world (W2)', () => {
   const savedEnv = process.env.RETRIEVAL_DERIVED_VERSION;
-  const savedSummaries = process.env.COMPACTION_SUMMARIES_ENABLED;
   afterEach(() => {
     if (savedEnv === undefined) delete process.env.RETRIEVAL_DERIVED_VERSION;
     else process.env.RETRIEVAL_DERIVED_VERSION = savedEnv;
-    if (savedSummaries === undefined) delete process.env.COMPACTION_SUMMARIES_ENABLED;
-    else process.env.COMPACTION_SUMMARIES_ENABLED = savedSummaries;
   });
+
+  const summaryWrite = (
+    queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>,
+  ) =>
+    queries.find((q) => q.sql.startsWith('CREATE type::table'))?.params?.d as
+      Record<string, unknown> | undefined;
 
   it('pinned tenant: candidates are fenced to the pin', async () => {
     const { svc, queries } = makeRunner('wd-v3');
@@ -80,6 +84,8 @@ describe('compaction stays inside the tenant live world (W2)', () => {
     const select = queries.find((q) => q.sql.includes('SELECT id, entityId, predicate'));
     expect(select?.sql).toContain('AND derivedVersion = $derivedVersion');
     expect(select?.params?.derivedVersion).toBe('wd-v3');
+    // The replacement summary lands in the same world as the facts it retires.
+    expect(summaryWrite(queries)?.derivedVersion).toBe('wd-v3');
   });
 
   it('legacy tenant: candidates are fenced to the legacy namespace', async () => {
@@ -89,5 +95,8 @@ describe('compaction stays inside the tenant live world (W2)', () => {
     const select = queries.find((q) => q.sql.includes('SELECT id, entityId, predicate'));
     expect(select?.sql).toContain('AND derivedVersion IS NONE');
     expect(select?.params?.derivedVersion).toBeUndefined();
+    const summary = summaryWrite(queries);
+    expect(summary).toBeDefined();
+    expect(summary).not.toHaveProperty('derivedVersion');
   });
 });

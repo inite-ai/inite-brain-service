@@ -154,13 +154,20 @@ describe('cross-width vectors on a real SurrealDB', () => {
   const W_BGE = 1024;
   const W_OPENAI = 1536;
   const vec = (w: number) => new Array(w).fill(0.1);
+  // The column without an index is the subject — an HNSW index fixes the
+  // width and refuses the second one — so the tenant boots before the
+  // provisioner reaches it.
+  const savedProvision = process.env.HNSW_PROVISION_ENABLED;
 
   beforeAll(async () => {
+    process.env.HNSW_PROVISION_ENABLED = '0';
     f = await createApp();
   });
 
   afterAll(async () => {
     if (f) await f.close();
+    if (savedProvision === undefined) delete process.env.HNSW_PROVISION_ENABLED;
+    else process.env.HNSW_PROVISION_ENABLED = savedProvision;
   });
 
   it('accepts BOTH widths into the same column — the store is no guard', async () => {

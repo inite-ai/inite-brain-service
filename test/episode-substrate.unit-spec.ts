@@ -6,6 +6,13 @@ import type { IngestMentionDto } from '../src/ingest/dto/ingest-mention.dto';
 import type { MentionExtractionService } from '../src/ingest/mention-extraction.service';
 import type { MentionPersistService } from '../src/ingest/mention-persist.service';
 
+// Production turns scene segmentation on, which adds a dirty-mark write to
+// every capture; this suite counts the capture's own statements, so it pins
+// the switch off (the mark is covered by scene-dirty-trigger.unit-spec.ts).
+beforeEach(() => {
+  for (const k of ['SCENES_SEGMENTATION_ENABLED']) process.env[k] ??= '0';
+});
+
 // ── P0: redactor goldens ────────────────────────────────────────────────
 // The historical phone regex destroyed temporal text — the exact failure
 // class the substrate redesign's P0 exists to stop. Golden pairs pin both
