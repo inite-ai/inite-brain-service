@@ -105,7 +105,7 @@ const LANG_QUERY_HIGH_CONFIDENCE = LANG_HIGH_CONFIDENCE;
 
 /**
  * The hard same-language WHERE exclusion's language, confidence-gated
- * (MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE, default off). Pure and
+ * (MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE, default on). Pure and
  * exported for tests.
  *
  * The measured miss (code-memory battery k07): the identifier-soup query

@@ -8,6 +8,17 @@ import type { PredicateRegistryService } from '../src/ai/predicate-registry.serv
 import type { AuthenticatedRequest, BrainScope } from '../src/auth/api-key.types';
 import type { RetractFactDto } from '../src/facts/dto/retract.dto';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of [
+    'PROVENANCE_EPISODE_NEIGHBOURS',
+    'PROVENANCE_RECURSIVE_CLOSURE',
+    'PROVENANCE_SUPPORT_GRAPH_READ',
+  ])
+    process.env[k] ??= '0';
+});
+
 /**
  * Fact read + provenance API ("show me why I remember this").
  *
@@ -455,7 +466,7 @@ describe('GET /v1/facts/:id/provenance — grounding episodes', () => {
 describe('PROVENANCE_RECURSIVE_CLOSURE — recursive support closure', () => {
   const saved = process.env.PROVENANCE_RECURSIVE_CLOSURE;
   afterEach(() => {
-    if (saved === undefined) delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    if (saved === undefined) process.env.PROVENANCE_RECURSIVE_CLOSURE = '0';
     else process.env.PROVENANCE_RECURSIVE_CLOSURE = saved;
   });
 
@@ -488,7 +499,7 @@ describe('PROVENANCE_RECURSIVE_CLOSURE — recursive support closure', () => {
   };
 
   it('flag OFF (default): promotion-summary response is byte-identical — GOLDEN empty episodes', async () => {
-    delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '0';
     const { svc } = makeStack({
       factsByCompany: { co_a: [SUMMARY, MEMBER_1, MEMBER_2] },
       episodesByCompany: { co_a: EPISODES },
@@ -504,7 +515,7 @@ describe('PROVENANCE_RECURSIVE_CLOSURE — recursive support closure', () => {
   });
 
   it('flag OFF: a leaf fact keeps its exact one-hop shape (no optional keys)', async () => {
-    delete process.env.PROVENANCE_RECURSIVE_CLOSURE;
+    process.env.PROVENANCE_RECURSIVE_CLOSURE = '0';
     const { svc } = makeStack({
       factsByCompany: { co_a: [FACT_GLOBAL] },
       episodesByCompany: { co_a: EPISODES },
@@ -676,7 +687,7 @@ describe('PROVENANCE_EPISODE_NEIGHBOURS — sibling-turn widening', () => {
   const NEIGHBOUR_CORPUS: Row[] = [N0, EPISODES[0]!, N1, EPISODES[1]!, N2];
 
   it('flag OFF (default): GOLDEN — the full response is byte-identical, no window query issued', async () => {
-    delete process.env.PROVENANCE_EPISODE_NEIGHBOURS;
+    process.env.PROVENANCE_EPISODE_NEIGHBOURS = '0';
     const { svc, queries } = makeStack({
       factsByCompany: { co_a: [FACT_GLOBAL] },
       episodesByCompany: { co_a: NEIGHBOUR_CORPUS },

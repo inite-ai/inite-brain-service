@@ -69,12 +69,14 @@ const DISTILLED = JSON.stringify({
   ],
 });
 
-describe('strategy lane — flags off (default)', () => {
+describe('strategy lane — flags off', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
     clearStrategyEnv();
+    process.env.STRATEGY_MEMORY_ENABLED = '0';
+    process.env.STRATEGY_RETRIEVAL_ENABLED = '0';
     f = await createApp();
   });
   afterAll(async () => {
@@ -111,6 +113,7 @@ describe('strategy lane — master on, retrieval off', () => {
     clearStrategyEnv();
     process.env.STRATEGY_MEMORY_ENABLED = '1';
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    process.env.STRATEGY_RETRIEVAL_ENABLED = '0';
     f = await createApp();
     await f.http
       .post('/v1/ingest/fact')

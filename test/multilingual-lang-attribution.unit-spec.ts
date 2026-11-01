@@ -14,6 +14,17 @@ import { resolveSearchTuning } from '../src/search/retrieval-profile';
 import { MetricsService } from '../src/metrics/metrics.service';
 import { FactResolverService } from '../src/ingest/fact-resolver.service';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of [
+    'MULTILINGUAL_SOFT_LANG_FILTER',
+    'MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE',
+    'MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE',
+  ])
+    process.env[k] ??= '0';
+});
+
 const ATTR = 'MULTILINGUAL_LANG_ATTRIBUTION';
 const SOFT = 'MULTILINGUAL_SOFT_LANG_FILTER';
 
@@ -161,10 +172,11 @@ describe('buildBaseWhere — soft same-language filter', () => {
 // ── Tuning plumbing ────────────────────────────────────────────────────
 
 describe('resolveSearchTuning — multilingual flags', () => {
-  it('both default off', () => {
+  it('the soft filter defaults on, attribution off; 0 switches the filter off', () => {
     const t = resolveSearchTuning({} as NodeJS.ProcessEnv);
-    expect(t.softLangFilter).toBe(false);
+    expect(t.softLangFilter).toBe(true);
     expect(t.langAttribution).toBe(false);
+    expect(resolveSearchTuning({ [SOFT]: '0' } as NodeJS.ProcessEnv).softLangFilter).toBe(false);
   });
 
   it('resolve to true when set', () => {

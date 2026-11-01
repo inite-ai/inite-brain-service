@@ -115,7 +115,7 @@ describe('EvidenceProcessorBrokerService', () => {
   });
 
   it('flag off ⇒ 503 and ZERO queries issued', async () => {
-    delete process.env.EVIDENCE_PROCESSOR_BROKER;
+    process.env.EVIDENCE_PROCESSOR_BROKER = '0';
     const f = fixture({ adapters: [stubAdapter()] });
     await expect(
       f.broker.dispatchForPack('co_x', { packId: 'proc_pack', assetId: 'evidence_asset:a1' }),

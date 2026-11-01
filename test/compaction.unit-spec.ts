@@ -351,7 +351,7 @@ describe('CompactionService — summary mode (COMPACTION_SUMMARIES=true)', () =>
 describe('CompactionRunnerService — summary episode stamping', () => {
   const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
   afterEach(() => {
-    if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    if (saved === undefined) process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
     else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
   });
 
@@ -381,7 +381,7 @@ describe('CompactionRunnerService — summary episode stamping', () => {
     );
 
   it('flag OFF (default): written source deep-equals today’s', async () => {
-    delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
     const { surreal, created } = makeFakeSurreal({ co_a: { rows: stampedRows() } });
     await makeRunner(surreal).compactAll(['co_a']);
     expect(created).toHaveLength(1);
@@ -432,7 +432,7 @@ describe('CompactionRunnerService — summary episode stamping', () => {
 describe('PromotionRunnerService — summary episode stamping', () => {
   const saved = process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
   afterEach(() => {
-    if (saved === undefined) delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    if (saved === undefined) process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
     else process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = saved;
   });
 
@@ -510,7 +510,7 @@ describe('PromotionRunnerService — summary episode stamping', () => {
   ];
 
   it('flag OFF (default): written source is kind + the summarised event range, no stamp', async () => {
-    delete process.env.PROVENANCE_SUMMARY_EPISODE_STAMP;
+    process.env.PROVENANCE_SUMMARY_EPISODE_STAMP = '0';
     const { runner, created } = makePromotionStack(SEEDS);
     const stats = await runner.promoteCompany('co_a');
     expect(stats.groupsPromoted).toBe(1);
@@ -559,7 +559,7 @@ describe('PromotionRunnerService — summary episode stamping', () => {
 describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES)', () => {
   const saved = process.env.PROVENANCE_SUPPORT_EDGES;
   afterEach(() => {
-    if (saved === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+    if (saved === undefined) process.env.PROVENANCE_SUPPORT_EDGES = '0';
     else process.env.PROVENANCE_SUPPORT_EDGES = saved;
   });
 
@@ -620,7 +620,7 @@ describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES
   ]);
 
   it('compaction, flag OFF (default): no memory_support statement in the log', async () => {
-    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
     const { surreal, calls } = makeMirrorSurreal(COMPACTION_SEEDS);
     const runner = new CompactionRunnerService(
       surreal,
@@ -676,7 +676,7 @@ describe('summary runners — derived_from edge mirror (PROVENANCE_SUPPORT_EDGES
   ]);
 
   it('promotion, flag OFF (default): no memory_support statement in the log', async () => {
-    delete process.env.PROVENANCE_SUPPORT_EDGES;
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
     const { surreal, calls } = makeMirrorSurreal(PROMOTION_SEEDS);
     await promotionRunner(surreal).promoteCompany('co_a');
     expect(supportCalls(calls)).toEqual([]);

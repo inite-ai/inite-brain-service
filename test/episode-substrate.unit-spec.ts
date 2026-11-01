@@ -257,7 +257,7 @@ function makeMentionStack(episodeId: string | null) {
 describe('MentionIngestService — fail-closed capture (EVIDENCE_FAIL_CLOSED_CAPTURE)', () => {
   const saved = process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
   afterEach(() => {
-    if (saved === undefined) delete process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
+    if (saved === undefined) process.env.EVIDENCE_FAIL_CLOSED_CAPTURE = '0';
     else process.env.EVIDENCE_FAIL_CLOSED_CAPTURE = saved;
   });
 
@@ -294,7 +294,7 @@ describe('MentionIngestService — fail-closed capture (EVIDENCE_FAIL_CLOSED_CAP
     // they were coupled, a default deployment stored every episode,
     // stored every fact, and linked none of them — provenance answered
     // `[]` for the whole mention path.
-    delete process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
+    process.env.EVIDENCE_FAIL_CLOSED_CAPTURE = '0';
     const { svc, persisted } = makeMentionStack('episode:cap1');
     const out = await svc.ingestMention('co_x', dto());
     expect(out.skipped).toBe(false);
@@ -306,7 +306,7 @@ describe('MentionIngestService — fail-closed capture (EVIDENCE_FAIL_CLOSED_CAP
   });
 
   it('no captured episode → the source object rides through untouched', async () => {
-    delete process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
+    process.env.EVIDENCE_FAIL_CLOSED_CAPTURE = '0';
     const { svc, persisted, prepSource } = makeMentionStack(null);
     await svc.ingestMention('co_x', dto());
     // Byte-identity: the very same object reference, no episodeIds key.
@@ -315,7 +315,7 @@ describe('MentionIngestService — fail-closed capture (EVIDENCE_FAIL_CLOSED_CAP
   });
 
   it('flag OFF + capture null → mention still ingests (advisory capture, unchanged behavior)', async () => {
-    delete process.env.EVIDENCE_FAIL_CLOSED_CAPTURE;
+    process.env.EVIDENCE_FAIL_CLOSED_CAPTURE = '0';
     const { svc, persisted, mentionMetrics } = makeMentionStack(null);
     const out = await svc.ingestMention('co_x', dto());
     expect(out.skipped).toBe(false);

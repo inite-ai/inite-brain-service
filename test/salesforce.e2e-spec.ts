@@ -27,6 +27,7 @@ const ENV = [
   'DOCUMENT_INGEST_ENABLED',
   'WORKER_LOOP_ENABLED',
   'BRAIN_PUBLIC_URL',
+  'SOURCE_KIND_HUBSPOT',
 ];
 
 describe('salesforce (e2e)', () => {
@@ -46,6 +47,8 @@ describe('salesforce (e2e)', () => {
       SOURCE_OAUTH_CLIENT: '1',
       SOURCE_CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
       SOURCE_KIND_SALESFORCE: '1',
+      // Switched off to show a disabled connector in the catalogue.
+      SOURCE_KIND_HUBSPOT: '0',
       SOURCE_OAUTH_SALESFORCE_CLIENT_ID: 'sf-client',
       SOURCE_OAUTH_SALESFORCE_CLIENT_SECRET: 'sf-secret',
       SOURCE_OAUTH_SALESFORCE_BASE_URL: sf.base,
@@ -106,7 +109,7 @@ describe('salesforce (e2e)', () => {
       'lead',
       'ticket',
     ]);
-    // HubSpot's kind is off in this app: a disabled connector shows no lane at all, like its oauth.
+    // HubSpot's kind is switched off in this app: a disabled connector shows no lane at all, like its oauth.
     const hubspot = catalog.body.sources.find(
       (s: { sourceId: string }) => s.sourceId === 'hubspot',
     );

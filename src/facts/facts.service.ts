@@ -164,7 +164,7 @@ export interface FactProvenanceEpisode {
    *  span offsets reference the FULL stored text, not the capped view. */
   textTruncated?: boolean;
   /**
-   * PROVENANCE_EPISODE_NEIGHBOURS (default off): 'neighbour' marks a
+   * PROVENANCE_EPISODE_NEIGHBOURS (default on): 'neighbour' marks a
    * ±radius sibling turn of the same conversation served around a
    * primary grounding turn. Absent = a primary grounding turn
    * (source.episodeIds) — primaries keep their exact pre-flag shape.
@@ -455,7 +455,7 @@ export class FactsService {
         userId: episodeUserId,
         db,
       });
-      // PROVENANCE_EPISODE_NEIGHBOURS (default off): widen to the
+      // PROVENANCE_EPISODE_NEIGHBOURS (default on): widen to the
       // ±radius sibling turns of the SAME conversation around each
       // primary grounding turn — a mention-extracted fact stamps exactly
       // ONE turn, so a verbatim constraint in the neighbouring

@@ -256,7 +256,7 @@ describe('SynthesizeService — 0107 outcome writer seams', () => {
       expect(named(calls, 'used_in_answer')).toHaveLength(0);
       expect(named(calls, 'verifier_supported')).toHaveLength(0);
     } finally {
-      delete process.env.EVIDENCE_UNGROUNDED_SERVING_GATE;
+      process.env.EVIDENCE_UNGROUNDED_SERVING_GATE = '0';
     }
   });
 

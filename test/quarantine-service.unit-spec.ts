@@ -64,7 +64,7 @@ describe('EvidenceQuarantineService.runScan', () => {
     );
 
   it('flag off ⇒ 503 and no queries', async () => {
-    delete process.env.EVIDENCE_QUARANTINE;
+    process.env.EVIDENCE_QUARANTINE = '0';
     const h = mockDbHarness(quarantinedRow);
     await expect(
       service(h, new AllowAllScanHook()).runScan('co_q', 'evidence_asset:q1'),

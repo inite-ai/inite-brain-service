@@ -20,6 +20,12 @@ import type { IngestDocumentDto } from '../src/documents/dto/ingest-document.dto
 import type { IngestMentionDto } from '../src/ingest/dto/ingest-mention.dto';
 import { runWithRequestContext } from '../src/common/request-context';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['SOURCE_META_STRICT', 'EVIDENCE_FAIL_CLOSED_CAPTURE']) process.env[k] ??= '0';
+});
+
 /**
  * The caller/internal boundary over `source_document.meta`.
  *
@@ -200,7 +206,7 @@ const docDto = (meta?: Record<string, unknown>): IngestDocumentDto =>
 
 describe('DocumentStoreService: SOURCE_META_STRICT polices the caller channel only', () => {
   afterEach(() => {
-    delete process.env.SOURCE_META_STRICT;
+    process.env.SOURCE_META_STRICT = '0';
   });
 
   it('rejects non-operator CALLER meta under the flag (gate unchanged)', async () => {

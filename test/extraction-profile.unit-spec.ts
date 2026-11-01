@@ -10,6 +10,12 @@ import { ExtractorLlmService } from '../src/ai/extractor-llm.service';
 import { buildSystemPrompt, renderExtractionProfiles } from '../src/ai/extractor-internals/prompts';
 import type { PackExtractionProfile } from '../src/ai/predicate-registry-internals/types';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.EXTRACTION_OBJECT_NORMALIZE ??= '0';
+});
+
 // These cases pin the CLOSED vocabulary: verbatim values, span-grounded.
 // Production runs the open dialogue profile (EXTRACTOR_DIALOGUE_PROFILE),
 // which normalises values and so bypasses the substring gate.

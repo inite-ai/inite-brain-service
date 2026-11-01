@@ -163,7 +163,7 @@ describe('EvidenceProcessorBrokerService — evidence → document bridge enqueu
   });
 
   it('flag off ⇒ the runs happen, nothing is enqueued', async () => {
-    delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
     const f = fixture({ adapters: [textAdapter()] });
     const r = await f.broker.dispatchForPack('co_x', {
       packId: 'doc_pack',

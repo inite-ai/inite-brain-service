@@ -1,4 +1,4 @@
-import { envFlagEnabled } from './env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from './env-validation';
 
 /**
  * Source plane master switch — SOURCE_PLANE_ENABLED
@@ -6,9 +6,8 @@ import { envFlagEnabled } from './env-validation';
  *
  * When on: the admin surface (/v1/admin/source-connections) answers, the
  * sync engine registers its job handlers and the scheduler enqueues due
- * connections. Off (default) ⇒ the routes answer a bare 404, no handler
- * is registered, no job is ever enqueued and no connector is ever run —
- * byte-identical prod. Read at call time (runtime-mutable); the handler
+ * connections. Off (`0`) ⇒ the routes answer a bare 404, no handler
+ * is registered, no job is ever enqueued and no connector is ever run. Read at call time (runtime-mutable); the handler
  * registration happens at boot, so a flip to ON needs a restart for the
  * scheduler while the admin verbs and sync-now work immediately.
  *
@@ -16,17 +15,20 @@ import { envFlagEnabled } from './env-validation';
  * in W1; the master alone enables no connector.
  */
 export function sourcePlaneEnabled(): boolean {
-  return envFlagEnabled(process.env.SOURCE_PLANE_ENABLED);
+  return envFlagNotDisabled(process.env.SOURCE_PLANE_ENABLED);
 }
 
 /**
- * Per-connector switch — SOURCE_KIND_<KIND> (e.g. SOURCE_KIND_FS). The
- * master alone enables no connector: a kind that is off is "not
- * installed" to the engine (a connection of it records a failed run,
- * never runs). Read at call time.
+ * Per-connector switch — SOURCE_KIND_<KIND> (e.g. SOURCE_KIND_FS). Every
+ * connector is installed until its switch is `0`; a kind that is off is
+ * "not installed" to the engine (a connection of it records a failed
+ * run, never runs). Installing grants nothing by itself: a connector
+ * takes its target and credentials from the connection, and `fs` reads
+ * only inside SOURCE_FS_ROOTS, which is empty until the operator names a
+ * root. Read at call time.
  */
 export function sourceKindEnabled(kind: string): boolean {
-  return envFlagEnabled(process.env[`SOURCE_KIND_${kind.toUpperCase()}`]);
+  return envFlagNotDisabled(process.env[`SOURCE_KIND_${kind.toUpperCase()}`]);
 }
 
 /**
@@ -64,14 +66,14 @@ export function sourceEgressAllowPrivate(): boolean {
  * connected-accounts surface (`/v1/admin/source-connections/oauth/*`)
  * and the public callback answer, grants can be made and refreshed,
  * and the cloud connectors (gdrive, onedrive, dropbox) can run. Off
- * (default) ⇒ the routes answer 404, no grant is ever created or
- * refreshed, no provider is ever contacted — byte-identical. Needs
+ * (`0`) ⇒ the routes answer 404, no grant is ever created or
+ * refreshed, no provider is ever contacted. Needs
  * SOURCE_CREDENTIAL_ENCRYPTION_KEY as well: a refresh token is never stored in
  * the clear, so without the key the client refuses to start. Read at
  * call time.
  */
 export function sourceOAuthClientEnabled(): boolean {
-  return envFlagEnabled(process.env.SOURCE_OAUTH_CLIENT);
+  return envFlagNotDisabled(process.env.SOURCE_OAUTH_CLIENT);
 }
 
 /**
@@ -79,11 +81,11 @@ export function sourceOAuthClientEnabled(): boolean {
  * (W4.2b′): with it, `POST /v1/admin/source-connections/assist` sends
  * the API digest and the heuristic proposal to the model
  * (MAPPING_ASSISTANT_MODEL) for a refined `rest_records` config.
- * Off (default) ⇒ the deterministic proposal only — no model is ever
+ * Off (`0`) ⇒ the deterministic proposal only — no model is ever
  * called by the assistant; the endpoint and the preview work the same.
  */
 export function sourceMappingAssistantEnabled(): boolean {
-  return envFlagEnabled(process.env.SOURCE_MAPPING_ASSISTANT);
+  return envFlagNotDisabled(process.env.SOURCE_MAPPING_ASSISTANT);
 }
 
 /**
@@ -103,13 +105,13 @@ export function sourceOAuthRedirectUrl(): string | null {
  * connection's webhook on (a secret, an address), and the public
  * `POST /v1/source-connections/webhook/:address` accepts the vendor's
  * calls — verified per vendor, the named records fetched through the
- * records door. Off (default) ⇒ both routes answer 404, no address is
- * ever handed out, no vendor call is ever accepted — byte-identical.
+ * records door. Off (`0`) ⇒ both routes answer 404, no address is
+ * ever handed out, no vendor call is ever accepted.
  * Needs SOURCE_CREDENTIAL_ENCRYPTION_KEY: the address is signed and the
  * secret encrypted under it.
  */
 export function sourceWebhooksEnabled(): boolean {
-  return envFlagEnabled(process.env.SOURCE_WEBHOOKS);
+  return envFlagNotDisabled(process.env.SOURCE_WEBHOOKS);
 }
 
 /**
@@ -117,12 +119,12 @@ export function sourceWebhooksEnabled(): boolean {
  * (W4.3): `POST /v1/admin/source-connections/oauth/mcp/start` discovers
  * the server's authorization server (RFC 9728 → RFC 8414), registers a
  * client there (RFC 7591) and sends the admin to consent; a pack's
- * `auth: 'oauth'` MCP source then runs as that grant. Off (default) ⇒
+ * `auth: 'oauth'` MCP source then runs as that grant. Off (`0`) ⇒
  * the route answers 404, no server is ever discovered, such a source
- * says so by name — byte-identical. Needs SOURCE_OAUTH_CLIENT.
+ * says so by name. Needs SOURCE_OAUTH_CLIENT.
  */
 export function sourceMcpOAuthEnabled(): boolean {
-  return envFlagEnabled(process.env.SOURCE_MCP_OAUTH);
+  return envFlagNotDisabled(process.env.SOURCE_MCP_OAUTH);
 }
 
 /**
