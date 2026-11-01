@@ -20,7 +20,7 @@ import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { SceneBacklinkService } from '../src/admin/scene-backlink.service';
 import { SceneEvidenceLinkerService } from '../src/admin/scene-evidence-linker.service';
-import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
+import { SceneVersionService } from '../src/admin/scene-version';
 import { UserForgetService } from '../src/entities/user-forget.service';
 
 const FLAG_KEYS = [
@@ -51,6 +51,8 @@ describe('scene evidence links (real SurrealDB)', () => {
       return rows?.[0]?.n ?? 0;
     });
 
+  let sceneVersion: string;
+
   beforeAll(async () => {
     for (const k of FLAG_KEYS) savedEnv.set(k, process.env[k]);
     process.env.FACTS_API_ENABLED = '1';
@@ -61,6 +63,9 @@ describe('scene evidence links (real SurrealDB)', () => {
     process.env.SCENES_EVIDENCE_LINKS = '1';
     f = await createApp({ companyId: 'co_scene_evidence_links_e2e' });
     surreal = f.app.get(SurrealService);
+    // Scenes are seeded in the world the services read (the effective,
+    // possibly fingerprinted, segmenter version).
+    sceneVersion = f.app.get(SceneVersionService).resolve().version;
 
     await surreal.withCompany(f.companyId, async (db) => {
       // Evidence rows owned by 'user-evd' — the forget subject whose
@@ -121,7 +126,7 @@ describe('scene evidence links (real SurrealDB)', () => {
             occurredTo: new Date('2026-07-01T10:01:00Z'),
             gist: 'user: here is the signed lease scan',
             confidence: 0.9,
-            segmenterVersion: SEGMENTER_VERSION,
+            segmenterVersion: sceneVersion,
             generation: 'gen-e2e',
             source: {},
           },
@@ -135,7 +140,7 @@ describe('scene evidence links (real SurrealDB)', () => {
           role: 'core',
           ord,
           relevance: 1,
-          segmenterVersion: SEGMENTER_VERSION,
+          segmenterVersion: sceneVersion,
         })),
       });
 
@@ -194,7 +199,7 @@ describe('scene evidence links (real SurrealDB)', () => {
     for (const row of rows) {
       expect(String(row.in)).toBe(sceneId);
       expect(row.writer).toBe('scene_evidence_linker');
-      expect(row.writerVersion).toBe(SEGMENTER_VERSION);
+      expect(row.writerVersion).toBe(sceneVersion);
     }
     expect(rows.map((r) => String(r.out)).sort()).toEqual([assetId, fragmentId].sort());
   });

@@ -43,14 +43,19 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
       saved[k] = process.env[k];
       process.env[k] = '1';
     }
+    // Segmentation starts off: the first case is the disabled verb.
     saved.SCENES_SEGMENTATION_ENABLED = process.env.SCENES_SEGMENTATION_ENABLED;
-    delete process.env.SCENES_SEGMENTATION_ENABLED;
-    // The fingerprint/coexistence test flips these; start from a known-off
-    // state and restore whatever the environment had in afterAll.
-    for (const k of ['SCENES_VERSION_FINGERPRINT', 'SCENES_MAX_TURNS']) {
+    process.env.SCENES_SEGMENTATION_ENABLED = '0';
+    // World A is the constant-version world cut by time gaps alone (topic
+    // cuts would follow the stub embedder, not the text); the
+    // fingerprint/coexistence case flips the fingerprint on for world B.
+    // Restore whatever the environment had in afterAll.
+    for (const k of ['SCENES_VERSION_FINGERPRINT', 'SCENES_TOPIC_BOUNDARY']) {
       saved[k] = process.env[k];
-      delete process.env[k];
+      process.env[k] = '0';
     }
+    saved.SCENES_MAX_TURNS = process.env.SCENES_MAX_TURNS;
+    delete process.env.SCENES_MAX_TURNS;
     f = await createApp({ companyId: 'co_scenes_e2e' });
     // One conversation, two sessions: 3 turns, then a >60-min gap, then 2.
     const turns = [
@@ -131,8 +136,8 @@ describe('memory_episode — shadow scenes substrate (e2e)', () => {
     for (const [index, scene] of scenes.entries()) {
       expect(scene.gist.length).toBeGreaterThan(0);
       // Flag off ⇒ the LITERAL constant version — byte-identical to the
-      // pre-fingerprint build (SCENES_VERSION_FINGERPRINT default-off
-      // contract) — and the locked id formula:
+      // pre-fingerprint build (SCENES_VERSION_FINGERPRINT=0 contract) —
+      // and the locked id formula:
       // sha256(conversation|version|index) first 24 hex chars.
       expect(scene.segmenterVersion).toBe('scene-segmenter-v1');
       const expectedTail = createHash('sha256')

@@ -18,6 +18,7 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { mockBeliefSynthesisOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
+import { SceneVersionService } from '../src/admin/scene-version';
 import { beliefIdTail } from '../src/admin/belief-promotion.service';
 import { readSceneBaselineRef } from '../src/admin/scene-baseline-ref';
 
@@ -33,6 +34,7 @@ interface BeliefRow {
   userId: string;
   subject: string;
   field: string;
+  predicateId?: string;
   value: string;
   priorValue?: string;
   statement: string;
@@ -100,7 +102,7 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
            gist: 'seed gist',
            confidence: 1,
            stateDeltas: $deltas,
-           segmenterVersion: 'scene-segmenter-v1',
+           segmenterVersion: $v,
            generation: 'seed-gen',
            source: { recorder: 'test-seed' }
            ${opts.enriched !== false ? `, enrichmentVersion: 'seed-enrich-v1', enrichedMemoryValue: $value` : ''}
@@ -111,12 +113,16 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
           to: opts.occurredTo,
           deltas: opts.deltas,
           value: opts.value ?? { explicitness: 0.8 },
+          v: sceneVersion(),
           ...(opts.user !== undefined ? { user: opts.user } : {}),
           ...(opts.users !== undefined ? { users: opts.users } : {}),
         },
       );
     });
   };
+
+  /** The world the promoter reads: the effective segmenter version. */
+  const sceneVersion = () => f.app.get(SceneVersionService).resolve().version;
 
   const beliefs = (): Promise<BeliefRow[]> =>
     db(async (d) => {
@@ -281,10 +287,14 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
       conversationIds: ['proj:c1', 'proj:c2'],
       corroborationCount: 2,
       conversationCount: 2,
-      promoterVersion: 'belief-promotion-v1|scene-segmenter-v1',
+      promoterVersion: `belief-promotion-v1|${sceneVersion()}`,
     });
+    // The id hashes the registry SLOT the field resolves to (0147), which
+    // the row records — not the written field name.
+    const slot = rows[0]!.predicateId;
+    expect(typeof slot === 'string' && slot.length > 0).toBe(true);
     expect(String(rows[0]!.id)).toContain(
-      beliefIdTail({ userId: USER, subject: 'mika', predicateId: 'home.city' }, 1),
+      beliefIdTail({ userId: USER, subject: 'mika', predicateId: slot! }, 1),
     );
     expect((rows[0]!.sourceSceneIds ?? []).map(String).sort()).toEqual([
       'memory_episode:sa1',
@@ -530,15 +540,16 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
            occurredFrom: <datetime>'2026-03-01T09:00:00.000Z',
            occurredTo: <datetime>'2026-03-01T09:00:00.000Z',
            gist: 'seed gist', confidence: 1,
-           segmenterVersion: 'scene-segmenter-v1', generation: 'seed-gen',
+           segmenterVersion: $v, generation: 'seed-gen',
            source: { recorder: 'test-seed' } }`,
-        { u: OTHER_USER },
+        { u: OTHER_USER, v: sceneVersion() },
       );
       await d.query(
         `INSERT RELATION INTO memory_episode_member {
            in: memory_episode:bf_scene, out: episode:bf_ep,
            role: 'core', ord: 0, relevance: 1,
-           segmenterVersion: 'scene-segmenter-v1' }`,
+           segmenterVersion: $v }`,
+        { v: sceneVersion() },
       );
       await d.query(
         `CREATE semantic_belief:bf_belief CONTENT {
@@ -549,8 +560,8 @@ describe('belief promotion + GDPR cascade (e2e)', () => {
            sourceSceneIds: [memory_episode:bf_scene],
            conversationIds: ['proj:c9'], corroborationCount: 1,
            conversationCount: 1,
-           promoterVersion: 'belief-promotion-v1|scene-segmenter-v1' }`,
-        { u: OTHER_USER },
+           promoterVersion: $pv }`,
+        { u: OTHER_USER, pv: `belief-promotion-v1|${sceneVersion()}` },
       );
       await d.query(
         `INSERT RELATION INTO memory_support {
