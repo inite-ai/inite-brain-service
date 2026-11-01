@@ -12,11 +12,11 @@ export const GITHUB_URL = `https://github.com/${REPO}`
 /**
  * The company Brain belongs to.
  *
- * It was declared twice and linked zero times: `organizationSchema` asserts
- * `parentOrganization` and lists inite.ai under `sameAs`, and neither is a
- * hyperlink. JSON-LD states a relationship; it does not carry one. Every MCP
- * catalogue that lists this server (pulsemcp, mcphq, mcp-marketplace,
- * roninforge) points at brain.inite.ai, and from here nothing pointed on — the
+ * It was declared and never linked: `organizationSchema` asserts
+ * `parentOrganization`, which is not a hyperlink. JSON-LD states a
+ * relationship; it does not carry one. Every MCP catalogue that lists this
+ * server (pulsemcp, mcphq, mcp-marketplace, roninforge) points at
+ * brain.inite.ai, and from here nothing pointed on — the
  * whole family's earned links dead-ended on a subdomain.
  *
  * The footer link below is the only crawlable edge from Brain to the parent,
@@ -66,9 +66,10 @@ export function organizationSchema(): Json {
     url: ORG.url,
     logo: ORG.logo,
     description: ORG.description,
+    // Not PARENT.url: inite.ai is the parent, stated in parentOrganization
+    // below; in sameAs it would say Brain is inite.ai.
     sameAs: [
       ...ORG.sameAs,
-      PARENT.url,
       'https://www.linkedin.com/company/inite-ai/',
       'https://t.me/initeai',
       'https://github.com/inite-ai',

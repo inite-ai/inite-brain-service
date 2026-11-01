@@ -33,7 +33,8 @@ describe('the parent link', () => {
     const org = organizationSchema() as Record<string, any>
     expect(org.parentOrganization.url).toBe(PARENT.url)
     expect(org.parentOrganization['@id']).toBe(`${PARENT.url}/#organization`)
-    expect(org.sameAs).toContain(PARENT.url)
+    // The parent is a parent, not this entity: never in sameAs.
+    expect(org.sameAs).not.toContain(PARENT.url)
   })
 
   it('points somewhere outside this site', () => {
