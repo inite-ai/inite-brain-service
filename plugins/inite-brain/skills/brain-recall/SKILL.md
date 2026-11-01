@@ -26,13 +26,24 @@ Do **not** use for:
 - Open-ended search where the entity isn't yet identified → use `brain-search` first
 - Recording new facts → `record_fact`
 
+## Whose memory — pass `userId`
+
+When you act for a particular person, pass their id as `userId` on every read and write. Brain keeps each person's memory apart from the shared, tenant-wide memory:
+
+- reads with `userId` return the shared facts plus that person's own; reads without it return shared facts only;
+- writes with `userId` land in that person's memory; without it they are shared with the whole tenant;
+- some views exist only per person: the beliefs in `get_entity_profile` and the belief lines of the focus view.
+
+The Claude Code plugin's hooks capture under the `user_id` you configured; pass the same id, or your calls will not see what the hooks remembered. A user-bound token is pinned to its own user whether or not you pass one.
+
 ## How to invoke
 
 Identifying the entity:
 
 - If the user gave a brain entity id (`knowledge_entity:01HXYZ...`), pass it directly.
-- If the user named a person/company, call `search_knowledge({ query: "<name>", limit: 3 })` first, pick the top hit's `entity.id`, and confirm with the user if there's ambiguity ("I found two Acmes — Inc and LLC. Which?").
-- If the user gave a vertical+id (`rent.cust_42`), call `get_entity_profile({ entityId: "rent.cust_42" })` — brain resolves the external ref.
+- If the user named a person/company, call `search_knowledge({ query: "<name>", limit: 3, detail: "compact", userId })` first and take `results[].entityId` (the default focus view is text and carries no ids). Confirm with the user if there's ambiguity ("I found two Acmes — Inc and LLC. Which?").
+- If the user gave an id from another system (`cust_42` in the rental app), search for it the same way: `get_entity_profile` takes brain entity ids only. For a code anchor (a file path or symbol) use `why`.
+- On a connection with the `core` tool profile, `get_entity_profile`, `get_entity_timeline` and `summarize_entity` are reached through `find_tool` / `run_tool`.
 
 ### Step 0 — briefing (the cheap path)
 
@@ -56,28 +67,32 @@ When you do need more than a line, drop down to Step 1.
 ```ts
 get_entity_profile({
   entityId: "knowledge_entity:01HXYZ...",
+  userId: "u_42",
   asOf: undefined,  // omit for "now"
 })
 ```
 
-Returns canonical name, type, all externalRefs (cross-vertical ids), and **active** facts only. This is what brain currently believes is true.
+By default (`detail: "text"`) you get the entity at a glance: its current state as beliefs, one line per attribute with the value it replaced (`queue_backend: NATS JetStream (was: Redis Streams) — since 2026-03-18`), the facts in dispute, and an index of every attribute with recorded facts. Beliefs are personal, so without `userId`, or before any belief is built, the text lists the facts instead. `detail: "compact"` lists every current fact, one line per attribute; `detail: "full"` is JSON with fact ids and externalRefs (cross-vertical ids).
 
 ### Step 2 — timeline (full bitemporal sweep)
 
 ```ts
 get_entity_timeline({
   entityId: "knowledge_entity:01HXYZ...",
-  since: "2026-01-01T00:00:00Z",  // optional lower bound
+  userId: "u_42",
+  since: "2026-01-01T00:00:00Z",  // optional lower bound on when brain learned it
   until: undefined,                // open-ended
 })
 ```
 
-Returns every fact ever recorded, **including retracted and superseded ones**. Each carries `validFrom`, `validUntil`, `recordedAt`, `retractedAt`, and a `status` field (`active` / `superseded` / `retracted`).
+By default (`detail: "text"`) the timeline reads as a history: the conversations (scenes) the entity's facts came from, oldest first, each with a short gist and the entity's state changes in it (`queue_backend: Redis Streams → NATS JetStream`), then one line per fact that came from no conversation (direct writes, documents).
+
+For the audit trail ask for `detail: "compact"` (JSON with fact ids) or `"full"` (adds sources and confidence). It is a list of events: `{ type: "fact.recorded", at, validFrom, factId, predicate, object }` when brain learned a fact (`at` = when it learned it, `validFrom` = when it became true), and `{ type: "fact.retracted", at, factId, reason, supersededBy }` when one was walked back.
 
 Use this when the user asks:
-- "What did we know on X?" — filter the returned rows by `recordedAt <= X AND (retractedAt IS NULL OR retractedAt > X)`
-- "Did anything get walked back?" — filter to `status = 'retracted'`
-- "When did the tier change?" — group `tier` rows by `validFrom`
+- "What did we know on X?" — keep `fact.recorded` events with `at <= X` and drop those retracted by then
+- "Did anything get walked back?" — the `fact.retracted` events
+- "When did the tier change?" — the state changes in the text, or `tier` events ordered by `validFrom`
 
 ### Step 3 — connections (graph context)
 
@@ -120,7 +135,7 @@ Don't always pull all five. Each call is a round-trip; spending one when the use
 
 ## Reading retracted rows
 
-A retracted fact is **not deleted**. It stays in the timeline with `status: 'retracted'`, `retractedAt: <ts>`, and a reason. Two valid surfaces:
+A retracted fact is **not deleted**. It stays in the timeline's audit trail as a `fact.retracted` event with its time and reason. Two valid surfaces:
 
 - **Default UX** — hide retracted from the user unless they ask "anything walked back?"
 - **Audit UX** — show them inline with a strikethrough or `(retracted: <reason>)` annotation
@@ -130,7 +145,7 @@ Never lie that the fact never existed. Brain holds the audit trail precisely so 
 ## Pitfalls
 
 - **`get_entity_profile` with stale `asOf`** — if you pass `asOf` from a previous turn, you'll get the snapshot from then, not now. Either drop the arg or freshen it to current time.
-- **Timeline can be large**. For long-lived entities (years of history) use `since` to window it. The MCP transport will happily ship 10MB JSON; the agent context window won't.
+- **The audit trail can be large**. The default text is the compact view; for the JSON of a long-lived entity use `since`/`until` to window it.
 - **Graph walks aren't transitive in one call**. `find_related_entities` returns 1-hop neighbours. For 2+ hops, walk recursively — but stop at 3 hops or the answer drowns in noise.
 
 ## Companion tools

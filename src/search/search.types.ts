@@ -7,9 +7,11 @@ import type { ScoreBreakdown } from './internals/types';
  * multi-hop, synthesize) and the internal stage modules can import
  * the type without dragging in the full SearchService class.
  *
- * `breakdown` is optional and only populated when the caller requested
- * `explain=true`. It carries the per-fact scoring components and the
- * retrieval-stage provenance needed to render a DecisionLog.
+ * `breakdown` carries the per-fact scoring components and the
+ * retrieval-stage provenance needed to render a DecisionLog. It is on
+ * every REST hit (the agent-actions manifest advertises it); the MCP
+ * search_knowledge default strips it with the rest of the bookkeeping
+ * (src/mcp/compact-read.ts).
  */
 export interface SearchHit {
   entityId: string;

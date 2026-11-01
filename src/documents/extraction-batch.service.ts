@@ -1,4 +1,6 @@
 import { runInCircle } from '../auth/circle-scope';
+import { ModuleRef } from '@nestjs/core';
+import { FactResolutionService } from '../dreams/fact-resolution.service';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, JobContext } from '../jobs/worker-loop.service';
@@ -69,6 +71,8 @@ export class ExtractionBatchService implements OnModuleInit {
     @Optional() private readonly decisions?: DecisionService,
     @Optional() private readonly metrics?: ExtractionMetrics,
     @Optional() private readonly lease?: LeaderLeaseService,
+    // Fact resolution (#828) lives in DreamsModule: resolved per call.
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   onModuleInit(): void {
@@ -155,6 +159,24 @@ export class ExtractionBatchService implements OnModuleInit {
   ): Promise<PassOutcome> {
     if (extractionSource() === 'harness') return this.leaveForHarness(companyId);
     return this.exclusive(companyId, opts.force === true, () => this.pass(companyId, opts));
+  }
+
+  /**
+   * Judge what a pass just committed against the memory it resembles
+   * (#828), off the pass's own path: a failure is logged, never thrown.
+   */
+  private resolveNewFacts(companyId: string): void {
+    let resolution: FactResolutionService | undefined;
+    try {
+      resolution = this.moduleRef?.get(FactResolutionService, { strict: false });
+    } catch {
+      resolution = undefined;
+    }
+    void resolution
+      ?.runPending(companyId)
+      .catch((e: unknown) =>
+        this.logger.warn(`fact resolution ${companyId} failed: ${(e as Error).message}`),
+      );
   }
 
   /**
@@ -275,6 +297,7 @@ export class ExtractionBatchService implements OnModuleInit {
         `extract_documents ${ctx.companyId}: read=${read} failed=${failed} committed=${committed} retry=${retry}`,
       );
     }
+    if (committed > 0) this.resolveNewFacts(ctx.companyId);
     return { read, failed, committed, retry };
   }
 

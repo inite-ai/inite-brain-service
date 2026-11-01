@@ -189,6 +189,51 @@ describe('MemoryDiffService.diff — window math', () => {
     expect(out.newEntities.map((e) => e.entityId)).not.toContain(ENT_FULL);
   });
 
+  it('a supersede with no retraction (the resolver shape) is a change, learned when its winner was recorded', async () => {
+    // fn::resolve_fact / markSuperseded close the loser's valid time and
+    // stamp no retractedAt; before, the pair surfaced as two creates.
+    const m1 = new Date('2026-05-01T00:00:00Z');
+    const m2 = new Date('2026-05-10T00:00:00Z');
+    const m3 = new Date('2026-05-20T00:00:00Z');
+    await f.app.get(SurrealService).withCompany(f.companyId, async (db) => {
+      const make = (rid: string, object: string, at: Date) =>
+        db.query(
+          `CREATE type::record('knowledge_fact', $rid) CONTENT {
+              entityId: type::record('knowledge_entity', $eid), predicate: 'queue', object: $object,
+              confidence: 0.9, validFrom: $at, recordedAt: $at, status: 'active',
+              source: { vertical: 'rent' } }`,
+          { rid, eid: ENT, object, at },
+        );
+      await make('md_m_old', 'redis', m1);
+      await make('md_m_new', 'nats', m2);
+      await db.query(
+        `UPDATE type::record('knowledge_fact', 'md_m_old') SET status = 'superseded',
+            retractionReason = 'superseded', retractedBy = 'system', validUntil = $m2,
+            supersededBy = type::record('knowledge_fact', 'md_m_new')`,
+        { m2 },
+      );
+    });
+    const diff = f.app.get(MemoryDiffService);
+    const scopes = ['brain:read' as const, 'brain:read_pii' as const];
+    const both = await diff.diff(
+      f.companyId,
+      { from: m1.toISOString(), to: m3.toISOString(), predicates: ['queue'] },
+      scopes,
+    );
+    expect(both.changedFacts.map((c) => [c.factId, c.after?.object])).toEqual([
+      ['knowledge_fact:md_m_old', 'nats'],
+    ]);
+    expect(both.createdFacts.map((c) => c.factId)).toEqual(['knowledge_fact:md_m_new']);
+    // Before the winner was recorded, nothing had changed yet.
+    const before = await diff.diff(
+      f.companyId,
+      { from: m1.toISOString(), to: m2.toISOString(), predicates: ['queue'] },
+      scopes,
+    );
+    expect(before.changedFacts).toEqual([]);
+    expect(before.createdFacts.map((c) => c.factId)).toEqual(['knowledge_fact:md_m_old']);
+  });
+
   it('window before any activity returns empty buckets', async () => {
     const diff = f.app.get(MemoryDiffService);
     const out = await diff.diff(

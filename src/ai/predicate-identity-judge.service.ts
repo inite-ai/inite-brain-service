@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { serverModelsRefused } from '../common/extraction-source';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';
@@ -64,7 +65,8 @@ export class PredicateIdentityJudgeService {
 
   /** True when a key is configured, so an adjudication is possible. */
   isAvailable(): boolean {
-    return !!this.openai;
+    // Harness mode refuses every server chat call (placeholder key).
+    return !!this.openai && !serverModelsRefused();
   }
 
   /**

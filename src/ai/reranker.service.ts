@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';
 import { Semaphore } from '../common/semaphore';
+import { serverModelsRefused } from '../common/extraction-source';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';
@@ -61,8 +62,15 @@ export class RerankerService {
     this.scN = Number.isFinite(rawN) && rawN > 0 ? rawN : 1;
   }
 
+  /**
+   * In harness mode the server holds a placeholder key (env-validation)
+   * and every chat call is refused: the reranker is not enabled there.
+   * Reporting it enabled cost twice — the refused call, and the entity
+   * cross-encoder, which skips itself whenever the LLM reranker "orders"
+   * the entities, never ran, so entities stayed in fused order.
+   */
   isEnabled(): boolean {
-    return !!this.openai;
+    return !!this.openai && !serverModelsRefused();
   }
 
   /**

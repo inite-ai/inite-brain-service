@@ -129,4 +129,4 @@ When the user wants to record something new on a predicate that's already in COM
 - `get_source_reputation` — the learned trust profile of each side's source vertical; a disagreement between a high-reputation and a low-reputation source often resolves itself
 - `get_fact` / `get_fact_provenance` — audit one competing fact's trust record (incl. `groundingStatus`) and the verbatim turns behind it before retracting (`FACTS_API_ENABLED` servers)
 - `get_entity_timeline` — full history including superseded chain (see `brain-recall`)
-- `search_knowledge` with `includeContested: true` — surfaces COMPETING facts in search results (see `brain-search`)
+- `search_knowledge` — its answer already includes competing values, marked `[competing]`, so a dispute is never hidden behind one side (see `brain-search`)

@@ -5,16 +5,15 @@ description: Walk a developer through connecting a fresh MCP client (Claude Desk
 
 # brain-mcp-setup
 
-INITE Brain ships a Streamable HTTP MCP endpoint at `/mcp/:companyId`. Each tenant has its own URL, scoped by API key. This skill walks the user from zero to "tools visible in Claude".
+INITE Brain ships a Streamable HTTP MCP endpoint at `/mcp`. The API key names its tenant; `/mcp/<companyId>` is the same endpoint pinned to one tenant. This skill walks the user from zero to "tools visible in Claude".
 
 ## What the user needs
 
 1. A **brain API key** for their company (format `brain_<base64>`).
-2. The **companyId** the key was issued for (visible at `https://brain.inite.ai/admin/keys`).
-3. The **MCP URL**: `https://brain.inite.ai/mcp/<companyId>`.
-4. One of: Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, or a raw `@modelcontextprotocol/sdk` client.
+2. The **MCP URL**: `https://brain.inite.ai/mcp` (or `https://brain.inite.ai/mcp/<companyId>`, which brain refuses when the companyId is not the key's — useful when one config serves several tenants).
+3. One of: Claude Desktop, Cursor, Goose v2, Aider, Continue.dev, n8n, or a raw `@modelcontextprotocol/sdk` client.
 
-If they don't have a key yet, point them to `https://brain.inite.ai/admin/keys` and pause. Brain refuses unsigned MCP calls — there's no anonymous mode.
+If they don't have a key yet, point them to `https://brain.inite.ai/en/app/keys` and pause. Brain refuses unsigned MCP calls — there's no anonymous mode.
 
 ## Claude Desktop
 
@@ -24,7 +23,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "url": "https://brain.inite.ai/mcp",
       "transport": "http",
       "headers": {
         "Authorization": "Bearer <api-key>"
@@ -34,7 +33,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-Restart Claude Desktop. The brain server should appear in the MCP panel — 20 tools for a read-only key (22 when the server runs with `FACTS_API_ENABLED`), up to 32 for a full read+write+admin key (see the scope matrix below).
+Restart Claude Desktop. The brain server should appear in the MCP panel — which tools depends on the key's scopes (see the scope matrix below).
 
 ## Cursor
 
@@ -44,7 +43,7 @@ Edit `.cursor/mcp.json` in the user's workspace (or `~/.cursor/mcp.json` for glo
 {
   "mcpServers": {
     "brain": {
-      "url": "https://brain.inite.ai/mcp/<companyId>",
+      "url": "https://brain.inite.ai/mcp",
       "transport": "http",
       "headers": {
         "Authorization": "Bearer <api-key>"
@@ -64,7 +63,7 @@ Edit `~/.config/goose/config.yaml`:
 extensions:
   brain:
     type: streamable_http
-    uri: https://brain.inite.ai/mcp/<companyId>
+    uri: https://brain.inite.ai/mcp
     headers:
       Authorization: Bearer <api-key>
     enabled: true
@@ -78,7 +77,7 @@ extensions:
 Aider gained MCP support in 0.95. Pass the brain URL on the command line:
 
 ```bash
-aider --mcp brain.inite.ai/mcp/<companyId> \
+aider --mcp brain.inite.ai/mcp \
       --mcp-header "Authorization: Bearer <api-key>"
 ```
 
@@ -87,7 +86,7 @@ Or in `~/.aider.conf.yml`:
 ```yaml
 mcp-servers:
   brain:
-    url: https://brain.inite.ai/mcp/<companyId>
+    url: https://brain.inite.ai/mcp
     headers:
       Authorization: Bearer <api-key>
 ```
@@ -100,7 +99,7 @@ Edit `~/.continue/config.yaml`:
 mcpServers:
   - name: brain
     type: streamable-http
-    url: https://brain.inite.ai/mcp/<companyId>
+    url: https://brain.inite.ai/mcp
     requestOptions:
       headers:
         Authorization: Bearer <api-key>
@@ -112,7 +111,7 @@ Reload the editor. Tools appear in the `@` mention list.
 
 Use the **MCP Client** node in n8n:
 
-- URL: `https://brain.inite.ai/mcp/<companyId>`
+- URL: `https://brain.inite.ai/mcp`
 - Transport: HTTP (Streamable)
 - Header: `Authorization: Bearer <api-key>`
 
@@ -127,7 +126,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const transport = new StreamableHTTPClientTransport(
-  new URL("https://brain.inite.ai/mcp/<companyId>"),
+  new URL("https://brain.inite.ai/mcp"),
   {
     requestInit: {
       headers: { Authorization: "Bearer <api-key>" },
@@ -153,27 +152,38 @@ Once the client is connected, ask it:
 
 > List available brain tools and call `search_knowledge` with query `"hello"` limit 1.
 
-Expected: a tool list whose count depends on the key's scopes (see matrix below) and a `search_knowledge` call that returns an empty `hits` array on a fresh tenant (or one hit if there's seed data). If the tool call returns a 401 or 403, the API key scope is wrong — go back to `https://brain.inite.ai/admin/keys` and check the key's scopes.
+Expected: a tool list that depends on the key's scopes (see matrix below) and a `search_knowledge` answer of `No facts in memory match this question.` on a fresh tenant (a few lines of facts if there's seed data). If the tool call returns a 401 or 403, the API key scope is wrong — check the key's scopes on the keys page of the brain app.
 
 ## Scope matrix
 
 | Scope | Tools unlocked |
 | --- | --- |
-| `brain:read` (always) | search: `search_knowledge`, `search_multi_hop`, `graph_retrieve`, `synthesize`, `memory_diff`; entity reads: `get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `detect_contradiction`, `find_related_entities`; procedural: `match_procedure`, `list_procedures`; communities: `search_communities`, `list_communities`, `find_entity_communities`; code memory: `why`, `recall_decisions`; sources: `get_source_reputation`; onboarding: `workspace_status` (**20 tools**) — plus `get_fact`, `get_fact_provenance` when the server runs with `FACTS_API_ENABLED` (**22**), plus 2 resources (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
-| `brain:write` | + `record_fact`, `link_entities`, `retract_fact`, `record_feedback`, `record_procedure`, `retire_procedure`, `record_decision` (**7 more**), plus `ingest_document` when the server runs with `DOCUMENT_INGEST_ENABLED`, plus `rename_workspace` while the workspace is still unnamed (**9 more** = up to 31 total) |
-| `brain:admin` | + `forget_entity` (1 more = up to **30 total**) |
+| `brain:read` (always) | search: `search_knowledge`, `search_multi_hop`, `graph_retrieve`, `synthesize`, `memory_diff`; entity reads: `get_entity_profile`, `get_entity_timeline`, `summarize_entity`, `get_competing_facts`, `detect_contradiction`, `find_related_entities`; procedural: `match_procedure`, `list_procedures`; communities: `search_communities`, `list_communities`, `find_entity_communities`; code memory: `why`, `recall_decisions`; sources: `get_source_reputation`; onboarding: `workspace_status`; `relationship_context` when its pack is installed; plus `get_fact`, `get_fact_provenance` when the server runs with `FACTS_API_ENABLED`, plus 2 resources (`brain://entity/{id}`, `brain://entity/{id}/timeline`) |
+| `brain:write` | + `record_fact`, `link_entities`, `retract_fact`, `record_feedback`, `record_procedure`, `retire_procedure`, `record_decision`, plus `ingest_document` when the server runs with `DOCUMENT_INGEST_ENABLED`, plus `rename_workspace` while the workspace is still unnamed; on a server in harness mode also `take_memory_work` / `submit_memory_work` (the connected agent does brain's background model work in batches) |
+| `brain:admin` | + `forget_entity` |
 | `brain:read_pii` | unlocks `email` / `phone` / `dob` / `address` object values in read results (predicate stays visible without it; no new tool surface) |
 | `brain:read_media` | media/biometric evidence access (faces, voices, ID documents) — a stricter regime than `brain:read_pii`, hosting-operator-only (granted via env-key config, never mintable through tokens); no new tool surface |
 
-A key with only `brain:read` will see 20 tools (22 with `FACTS_API_ENABLED`), not 32 — that's the security invariant, not a bug. Tell the user explicitly when their key is read-only so they don't waste time looking for `record_fact` / `forget_entity`. On top of the built-ins, installed Domain Packs with a consented `mcpTools` section contribute namespaced tools (`<packId>__<tool>`) behind `MCP_PACK_TOOLS_ENABLED`.
+A key with only `brain:read` sees only the read tools — that's the security invariant, not a bug. `tools/list` is the authoritative list for a connection. The connection URL can also pick a tool profile: `?tools=core` lists a handful of everyday tools plus `find_tool` / `run_tool` to reach the rest, and `?tools=chatgpt` lists exactly `search` and `fetch` for ChatGPT connectors. Tell the user explicitly when their key is read-only so they don't waste time looking for `record_fact` / `forget_entity`. On top of the built-ins, installed Domain Packs with a consented `mcpTools` section contribute namespaced tools (`<packId>__<tool>`) behind `MCP_PACK_TOOLS_ENABLED`.
 
 The detailed taxonomy (which tool for which question) lives in the workflow skills — `brain-search`, `brain-recall`, `brain-bitemporal`, `brain-write`, `brain-conflict`.
+
+## Harness mode: brain's model work is yours
+
+A server running in harness mode (`EXTRACTION_SOURCE=harness`) calls no model of its own. It lists `take_memory_work` and `submit_memory_work`, and its background reading waits for the connected agent: extraction, fact resolution, entity matching, scene summaries, belief sentences. Until someone drains it, conversations are remembered but not understood. Drain it between tasks:
+
+1. `take_memory_work({ userId })`, with the same `userId` your other calls use, returns one batch: a `systemPrompt`, `userContent`, the JSON schema of the reply, and a signed `token`.
+2. Answer it as the prompt asks, in that schema.
+3. `submit_memory_work({ token, result })`. The server grounds, validates and applies the reply with its own code.
+4. Repeat until `take_memory_work` returns `{ work: null }`.
+
+The Claude Code plugin's start-of-session hook says so when it finds a server in this mode.
 
 ## Common failures
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `400: MCP path companyId (...) does not match ApiKey companyId` | URL has wrong companyId for this key | Use the companyId from the `/admin/keys` row, not from another tenant |
+| `400: MCP path companyId (...) does not match ApiKey companyId` | URL has wrong companyId for this key | Use the companyId shown on the keys page for this key, or drop it and use `/mcp` |
 | `401: Unauthorized` | Key missing, expired, or wrong format | Check the `Authorization` header is `Bearer brain_…` exactly; no quotes, no extra spaces |
 | `403: scope brain:write required` | The user has `brain:read` only and tried `record_fact` | Either elevate the key to `brain:write` (admin only) or drop the write call |
 | Tools list empty | Client never reached brain — check the URL is HTTPS and reachable | Opening `https://brain.inite.ai/.well-known/oauth-protected-resource/mcp` in a browser should show a JSON document (not a 404 or a DNS error) |
@@ -189,4 +199,4 @@ Once connected, point the user at the workflow skills:
 - `brain-write` — recording, linking, and retracting (with `detect_contradiction` preflight)
 - `brain-conflict` — adjudicating COMPETING facts and 3+ multi-way disagreements
 
-These describe how to actually *use* the up-to-30 tools brain exposes, not just how to wire them in.
+These describe how to actually *use* the tools brain exposes, not just how to wire them in.

@@ -39,17 +39,64 @@ const hiddenAtom = atom({ plugin: 'inite-brain', key: 'isBandHidden' } as const,
 
 type Options = { user_id?: string; recall_each_prompt?: boolean }
 
-/** The JSON a brain tool answered with, or null when it answered none. */
-function payload(result: McpToolResult) {
+/** The text a brain tool answered with, or null when it answered none. */
+function textOf(result: McpToolResult): string | null {
   if (result.isError) return null
   const block = result.content.find(one => one.type === 'text')
   const text = block && 'text' in block ? block.text : undefined
-  if (typeof text !== 'string' || !text) return null
+  return typeof text === 'string' && text ? text : null
+}
+
+/** The JSON a brain tool answered with, or null when it answered none. */
+function payload(result: McpToolResult) {
+  const text = textOf(result)
+  if (text === null) return null
   try {
     return JSON.parse(text) as Record<string, unknown>
   } catch {
     return null
   }
+}
+
+/**
+ * search_knowledge's default (focus) answer is already lines for a model:
+ * `Name: fact; fact`, a belief `Name — field: value`, a quoted source turn
+ * `[day] speaker: "…"` standing in for the facts above it, `links: …`
+ * between the entities shown, and closing `(…)` notes. A hit is one
+ * entity: its lines merge, a quote joins the entity it came after, and
+ * links and notes are no entity (the model asks brain for them).
+ */
+export function hitsOfText(text: string | null): BrainHit[] {
+  if (!text || text.startsWith('No facts in memory')) return []
+  const hits: BrainHit[] = []
+  const byName = new Map<string, BrainHit>()
+  const add = (name: string, facts: string[]) => {
+    const hit = byName.get(name) ?? { name, facts: [] }
+    if (!byName.has(name)) {
+      byName.set(name, hit)
+      hits.push(hit)
+    }
+    hit.facts.push(...facts)
+    return hit
+  }
+  let last: BrainHit | undefined
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('(') || line.startsWith('links: ')) continue
+    if (line.startsWith('[')) {
+      if (last) last.facts.push(line)
+      else last = add(line.slice(0, line.indexOf(']') + 1), [line])
+      continue
+    }
+    const belief = / — /.exec(line)
+    const at = line.indexOf(': ')
+    if (belief && (at < 0 || belief.index < at)) {
+      last = add(line.slice(0, belief.index), [line.slice(belief.index + 3)])
+    } else if (at > 0) {
+      last = add(line.slice(0, at), line.slice(at + 2).split('; '))
+    }
+  }
+  return hits.slice(0, HITS)
 }
 
 export function hitsOf(out: Record<string, unknown> | null): BrainHit[] {
@@ -97,7 +144,9 @@ async function search(
   if (at.userId) args.userId = at.userId
   const call = $.mcp.call(at.server, 'search_knowledge', args).then(
     (result: McpToolResult) => ({
-      hits: hitsOf(payload(result)),
+      // A JSON answer (detail compact/full, or an older server) or the
+      // focus lines the server answers by default.
+      hits: payload(result) ? hitsOf(payload(result)) : hitsOfText(textOf(result)),
       failure: result.isError ? 'error' : undefined,
     }),
     () => ({ hits: [] as BrainHit[], failure: 'error' }),

@@ -52,7 +52,7 @@ const RECORD_FACT_INPUT = {
   expectedUntil: isoDateTime()
     .optional()
     .describe(
-      'For a temporary state with no stated end (ill, travelling, away): when it should be over. Not an end — the fact stays current; answers say it was expected to be over once this passes',
+      'When a temporary state with no stated end (ill, away) should be over; not an end: the fact stays current',
     ),
   confidence: z.number().min(0).max(1).optional(),
   sourceVertical: z.string().describe('Vertical name attributed as source (e.g. "rent")'),
@@ -60,9 +60,7 @@ const RECORD_FACT_INPUT = {
     .string()
     .max(200)
     .optional()
-    .describe(
-      "Per-user memory scope: the fact (and, for a vertical+id entityRef, the entity) belongs to this end-user only — invisible to other users and to requests that don't assert the same userId",
-    ),
+    .describe('Per-user scope: the fact (and a vertical+id entity) belongs to this user only'),
   // Drift-1 grounding inputs (additive, not flag-gated — the tool
   // LISTING grows either way): an MCP agent CAN name the observation
   // behind its claim, so its facts count as grounded instead of being
@@ -71,9 +69,7 @@ const RECORD_FACT_INPUT = {
     .string()
     .max(512)
     .optional()
-    .describe(
-      'Conversation this fact was observed in — names an observation, so the fact counts as grounded (claim-grounding plane)',
-    ),
+    .describe('Conversation the fact was observed in; marks it grounded'),
   evidence: z
     .array(
       z.object({
@@ -84,9 +80,7 @@ const RECORD_FACT_INPUT = {
     )
     .max(10)
     .optional()
-    .describe(
-      'Supporting observations behind the claim (≤10 typed pointers) — stored verbatim in the fact source; their presence marks the fact grounded (claim-grounding plane)',
-    ),
+    .describe('Up to 10 pointers to observations behind the claim; marks it grounded'),
 };
 
 /**
@@ -121,7 +115,7 @@ export function registerWriteTools({
     {
       title: 'Record a fact about an entity',
       description:
-        'Insert a fact about an entity. Triggers brain conflict resolution (INSERTED / SUPERSEDED / COMPETING / REJECTED). Most facts come from event ingestion; this records one directly.',
+        'Records one fact about an entity directly; the memory settles it against the facts it holds (INSERTED / SUPERSEDED / COMPETING). Most facts arrive through ingestion.',
       inputSchema: RECORD_FACT_INPUT,
     },
     async (args) => {
@@ -433,7 +427,7 @@ function registerIngestDocumentTool({
     {
       title: 'Ingest a normalized document',
       description:
-        "Feed a normalized document (meeting transcript, email body, markdown…) through the Source → Indexer → Candidates → Brain pipeline: it is stored (content-hash deduped), read by the generalist indexer, staged as candidates, and committed through conflict resolution. Pass indexers:'auto' to additionally route relevant installed domain packs (requires DOCUMENT_MULTI_INDEXER_ENABLED on the server; default 'general' runs only the generalist union pass). Suited to text that holds more than one claim: extraction and conflict resolution run over it.",
+        'Stores a normalized document (transcript, email body, markdown…) and reads it into facts: deduped by content hash, extracted by the general indexer, settled against the memory. Suited to text that holds more than one claim.',
       inputSchema: {
         kind: z.string().max(64).describe('Container kind: chat | email | markdown | pdf | …'),
         text: z.string().max(DOC_TEXT_HARD_CAP).describe('Normalized document text'),
@@ -451,14 +445,14 @@ function registerIngestDocumentTool({
           .enum(['general', 'auto'])
           .optional()
           .describe(
-            "'general' (default) = generalist union pass only; 'auto' = also route relevant installed domain packs (server must have DOCUMENT_MULTI_INDEXER_ENABLED)",
+            "'general' (default), or 'auto' to also route matching installed domain packs (DOCUMENT_MULTI_INDEXER_ENABLED)",
           ),
         toolObservationRef: z
           .string()
           .max(160)
           .optional()
           .describe(
-            'Provenance hop back to the tool result this document was derived from: tool_observation:<id> (migration 0111). Honored only under TOOL_OBSERVATIONS_ENABLED — validated against this tenant\'s own observation rows, stored on the document header, and folded into every committed fact\'s source.evidence[] as a "tool_observation" entry. Closes the tool result → document → fact loop.',
+            'tool_observation:<id> of the tool result this document came from; its facts then cite it (TOOL_OBSERVATIONS_ENABLED)',
           ),
       },
     },

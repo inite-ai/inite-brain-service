@@ -25,6 +25,7 @@
 import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
+import { ScenesService } from '../src/scenes/scenes.service';
 import {
   SceneReadResponseSchema,
   ScenesListResponseSchema,
@@ -214,5 +215,22 @@ describe('scenes read API (e2e)', () => {
     expect((await f.http.get('/v1/scenes?since=yesterday').set(m2m())).status).toBe(400);
     const one = await f.http.get(`/v1/scenes?${other}&limit=1`).set(m2m());
     expect(one.body.found).toBe(1);
+  });
+
+  it("scenes of turns (the entity timeline's read): same fences — own scene only, none unscoped", async () => {
+    const svc = f.app.get(ScenesService);
+    const members = await db(async (d) => {
+      const [r] = await d.query<[string[]]>(
+        `SELECT VALUE <string> out FROM memory_episode_member WHERE in IN [type::record($a), type::record($b)]`,
+        { a: userSceneId, b: otherSceneId },
+      );
+      return r ?? [];
+    });
+    expect(members.length).toBeGreaterThanOrEqual(2);
+    const base = { companyId: f.companyId, scopes: ['brain:read' as const], episodeIds: members };
+    const mine = await svc.scenesOfEpisodes({ ...base, userId: USER });
+    expect(mine.map((s) => s.sceneId)).toEqual([userSceneId]);
+    expect(await svc.scenesOfEpisodes(base)).toEqual([]);
+    expect(await svc.scenesOfEpisodes({ ...base, userId: USER, episodeIds: [] })).toEqual([]);
   });
 });

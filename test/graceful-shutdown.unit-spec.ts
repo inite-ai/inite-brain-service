@@ -21,7 +21,7 @@ describe('GracefulShutdownService', () => {
   let exit: jest.SpyInstance;
   beforeEach(() => {
     jest.useFakeTimers();
-    exit = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    exit = jest.spyOn(process, 'kill').mockImplementation((() => true) as never);
   });
   afterEach(() => {
     exit.mockRestore();
@@ -65,7 +65,8 @@ describe('GracefulShutdownService', () => {
     await jest.advanceTimersByTimeAsync(24_999);
     expect(exit).not.toHaveBeenCalled();
     await jest.advanceTimersByTimeAsync(1);
-    expect(exit).toHaveBeenCalledWith(1);
+    // Not process.exit(): it waits for worker threads a native call can wedge.
+    expect(exit).toHaveBeenCalledWith(process.pid, 'SIGKILL');
   });
 
   it('a programmatic close disarms the deadline once the lifecycle has run', async () => {

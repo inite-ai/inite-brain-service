@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { SurrealService, queryRows } from '../db/surreal.service';
+import { StringRecordId } from 'surrealdb';
 import { BrainScope } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
 import { sceneUserGate, sceneVisibleToUser } from '../auth/segment-scope';
@@ -175,25 +176,7 @@ export class ScenesService {
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
       const world = await currentSceneWorld(db);
       if (world === '') return { scenes: [], found: 0, world };
-      const clauses = [`segmenterVersion = $world`];
-      const params: Record<string, unknown> = { world };
-      if (scopeUserId !== undefined) {
-        const gate = sceneUserGate(scopeUserId);
-        clauses.push(gate.clause.replace(/^AND /u, ''));
-        Object.assign(params, gate.params);
-      } else {
-        // Unscoped: tenant-global rows with a persisted member set — the
-        // fail-closed leg of sceneVisible pushed into WHERE, so an
-        // out-of-contract row never occupies a page slot.
-        clauses.push('userId IS NONE AND userIds IS NOT NONE');
-      }
-      const scope = scopeFenceSql(scopeUserId);
-      if (scope.clause !== '') {
-        clauses.push(scope.clause.replace(/^AND /u, ''));
-        Object.assign(params, scope.params);
-      }
-      const pii = piiFence(opts.scopes);
-      if (pii !== null) clauses.push(pii);
+      const { clauses, params } = visibilityClauses(world, scopeUserId, opts.scopes);
       if (opts.conversationId !== undefined) {
         clauses.push('conversationIds CONTAINS $conv');
         params.conv = opts.conversationId;
@@ -223,6 +206,71 @@ export class ScenesService {
       return { scenes, found: scenes.length, world };
     });
   }
+
+  /**
+   * The scenes of the current world that contain any of these turns,
+   * oldest first, under the same visibility fences as listScenes. The
+   * entity timeline reads an entity's history through the scenes its
+   * facts were read from: the member edge is written by the composer for
+   * every scene, while the semantic back-links (`entityIds`) exist only
+   * with SCENES_ENTITY_LINKS on.
+   */
+  async scenesOfEpisodes(opts: {
+    companyId: string;
+    scopes: readonly BrainScope[];
+    userId?: string | undefined;
+    episodeIds: string[];
+  }): Promise<SceneReadResult[]> {
+    if (opts.episodeIds.length === 0) return [];
+    const scopeUserId = pinUserScope(opts.userId);
+    return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
+      const world = await currentSceneWorld(db);
+      if (world === '') return [];
+      const { clauses, params } = visibilityClauses(world, scopeUserId, opts.scopes);
+      clauses.push('id IN (SELECT VALUE in FROM memory_episode_member WHERE out IN $episodes)');
+      params.episodes = opts.episodeIds.map((id) => new StringRecordId(id));
+      const rows = await queryRows<SceneReadRow>(
+        db,
+        `SELECT ${SELECT_COLUMNS}
+           FROM memory_episode
+          WHERE ${clauses.join(' AND ')}
+          ORDER BY occurredFrom ASC`,
+        params,
+      );
+      return rows.filter((r) => sceneVisible(r, scopeUserId)).map(toWire);
+    });
+  }
+}
+
+/**
+ * The read fences every scene query applies: the served world, the user
+ * gate (a caller who names no user sees only tenant-global rows with a
+ * persisted member set — the fail-closed leg of sceneVisible pushed into
+ * WHERE, so an out-of-contract row never occupies a page slot), scope
+ * tags and the PII gate.
+ */
+function visibilityClauses(
+  world: string,
+  scopeUserId: string | undefined,
+  scopes: readonly BrainScope[],
+): { clauses: string[]; params: Record<string, unknown> } {
+  const clauses = [`segmenterVersion = $world`];
+  const params: Record<string, unknown> = { world };
+  if (scopeUserId !== undefined) {
+    const gate = sceneUserGate(scopeUserId);
+    clauses.push(gate.clause.replace(/^AND /u, ''));
+    Object.assign(params, gate.params);
+  } else {
+    clauses.push('userId IS NONE AND userIds IS NOT NONE');
+  }
+  const scope = scopeFenceSql(scopeUserId);
+  if (scope.clause !== '') {
+    clauses.push(scope.clause.replace(/^AND /u, ''));
+    Object.assign(params, scope.params);
+  }
+  const pii = piiFence(scopes);
+  if (pii !== null) clauses.push(pii);
+  return { clauses, params };
 }
 
 /** `piiClass IS NONE` unless the caller may read PII (the episode port's gate). */

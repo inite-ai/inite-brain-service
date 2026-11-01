@@ -406,6 +406,8 @@ type Verdict = Pick<CheckResult, 'status' | 'detail'> & { answer?: string | null
 
 async function searchHits(ctx: CheckContext, query: string, limit: number): Promise<SearchHit[]> {
   const out = await callTool<SearchOut>(ctx.mcp, 'search_knowledge', {
+    // The battery reads ids and statuses: the full shape, not the model's focus view.
+    detail: 'full',
     query,
     limit,
     userId: ctx.cfg.userId,
@@ -443,6 +445,7 @@ async function runTransitionCheck(ctx: CheckContext, check: PackTransitionCheck)
   let best: { matchedStages: number; detail: string } | null = null;
   for (const hit of hits.slice(0, HISTORY_ENTITY_CAP)) {
     const timeline = await callTool<TimelineOut>(ctx.mcp, 'get_entity_timeline', {
+      detail: 'full',
       entityId: hit.entityId,
       userId: ctx.cfg.userId,
     });
@@ -531,6 +534,7 @@ async function runTraceInterleaveCheck(
     };
   }
   const timeline = await callTool<TimelineOut>(ctx.mcp, 'get_entity_timeline', {
+    detail: 'full',
     entityId: target.entityId,
     userId: ctx.cfg.userId,
   });

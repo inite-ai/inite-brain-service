@@ -55,8 +55,8 @@ function surrealOver(query: Query) {
 }
 
 describe('work tokens of every kind', () => {
-  it('offers the kinds in order, facts first and beliefs last', () => {
-    expect(HARNESS_WORK_KINDS[0]).toBe('extraction');
+  it('offers the kinds in order: attributes, then facts, beliefs last', () => {
+    expect(HARNESS_WORK_KINDS.slice(0, 2)).toEqual(['predicate_semantics', 'extraction']);
     expect(HARNESS_WORK_KINDS.at(-1)).toBe('belief_statement');
   });
 

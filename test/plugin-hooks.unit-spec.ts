@@ -22,7 +22,7 @@ interface Captured {
   auth: string | undefined;
 }
 
-/** A brain that records what it was asked and answers with `reply`. */
+/** A brain that records what it was asked and answers with `reply` (per path when a function). */
 async function stubBrain(
   reply: unknown,
   status = 200,
@@ -43,7 +43,11 @@ async function stubBrain(
         auth: req.headers.authorization,
       });
       res.writeHead(status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(reply));
+      res.end(
+        JSON.stringify(
+          typeof reply === 'function' ? (reply as (p: string) => unknown)(req.url ?? '') : reply,
+        ),
+      );
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -116,14 +120,60 @@ describe('brain-hook: recall (SessionStart)', () => {
         { session_id: 's1', cwd: process.cwd(), source: 'startup' },
         { CLAUDE_PLUGIN_OPTION_API_KEY: 'brain_test', CLAUDE_PLUGIN_OPTION_BASE_URL: brain.url },
       );
-      expect(brain.calls).toHaveLength(1);
-      expect(brain.calls[0]?.path).toBe('/v1/search');
-      expect(brain.calls[0]?.auth).toBe('Bearer brain_test');
+      const search = brain.calls.filter((c) => c.path === '/v1/search');
+      expect(search).toHaveLength(1);
+      expect(search[0]?.auth).toBe('Bearer brain_test');
       const out = JSON.parse(stdout) as {
         hookSpecificOutput: { hookEventName: string; additionalContext: string };
       };
       expect(out.hookSpecificOutput.hookEventName).toBe('SessionStart');
       expect(out.hookSpecificOutput.additionalContext).toContain('uses SurrealDB');
+    } finally {
+      await brain.close();
+    }
+  });
+
+  it('on a server in harness mode, says how to drain its memory work under the configured user', async () => {
+    const brain = await stubBrain((path: string) =>
+      path === '/mcp'
+        ? { jsonrpc: '2.0', id: 1, result: { tools: [{ name: 'take_memory_work' }] } }
+        : { results: [] },
+    );
+    try {
+      const { stdout } = await run(
+        'recall',
+        { session_id: 's1', cwd: process.cwd() },
+        {
+          CLAUDE_PLUGIN_OPTION_API_KEY: 'brain_test',
+          CLAUDE_PLUGIN_OPTION_BASE_URL: brain.url,
+          CLAUDE_PLUGIN_OPTION_USER_ID: 'u_7',
+        },
+      );
+      const context = (JSON.parse(stdout) as { hookSpecificOutput: { additionalContext: string } })
+        .hookSpecificOutput.additionalContext;
+      expect(context).toContain("take_memory_work({ userId: 'u_7' })");
+      expect(context).toContain('submit_memory_work');
+      expect(brain.calls.find((c) => c.path === '/mcp')?.body).toMatchObject({
+        method: 'tools/list',
+      });
+    } finally {
+      await brain.close();
+    }
+  });
+
+  it('says nothing about memory work on a server that does its own', async () => {
+    const brain = await stubBrain((path: string) =>
+      path === '/mcp'
+        ? { jsonrpc: '2.0', id: 1, result: { tools: [{ name: 'search_knowledge' }] } }
+        : SEARCH_REPLY,
+    );
+    try {
+      const { stdout } = await run(
+        'recall',
+        { session_id: 's1', cwd: process.cwd() },
+        { CLAUDE_PLUGIN_OPTION_API_KEY: 'brain_test', CLAUDE_PLUGIN_OPTION_BASE_URL: brain.url },
+      );
+      expect(stdout).not.toContain('take_memory_work');
     } finally {
       await brain.close();
     }
