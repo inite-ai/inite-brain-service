@@ -646,18 +646,6 @@ function resolveGenre(env: NodeJS.ProcessEnv): RetrievalGenre {
   return enumEnv(env, 'RETRIEVAL_GENRE', GENRES) ?? 'assistant_chat';
 }
 
-/** Legacy per-lane keys imply 'always' ONLY when one of them is
- *  enabled; their falsy state is indistinguishable from unset, so it
- *  defers to the genre preset (the first-class key
- *  RETRIEVAL_VERBATIM_EVIDENCE is the explicit off switch). */
-function legacyVerbatimMode(env: NodeJS.ProcessEnv): VerbatimEvidenceMode | undefined {
-  return envFlagEnabled(env.SEARCH_EPISODIC_LANE_ENABLED) ||
-    envFlagEnabled(env.SYNTHESIZE_SOURCE_EXCERPTS) ||
-    envFlagEnabled(env.SEARCH_SEGMENT_LANE_ENABLED)
-    ? 'always'
-    : undefined;
-}
-
 /** SYNTHESIZE_DATE_CONTEXT set to ANY value is an explicit operator
  *  choice (E2 made date context default-on, so an explicit '0' is the
  *  measured LoCoMo pin and must beat a preset); unset defers to the
@@ -679,8 +667,8 @@ function presetFlag(env: NodeJS.ProcessEnv, name: string, preset: boolean | unde
 /**
  * The boot-default profile, from env. The enum dimensions have
  * first-class keys (RETRIEVAL_GENRE / RETRIEVAL_VERBATIM_EVIDENCE /
- * RETRIEVAL_DATE_ANCHORING); when unset they derive from the legacy
- * per-lane keys so existing deployments resolve to the same behavior.
+ * RETRIEVAL_DATE_ANCHORING); date anchoring still honours the legacy
+ * SYNTHESIZE_DATE_CONTEXT when it is set.
  * This function is the ONLY place those env keys are read.
  *
  * Field precedence (genre-presets.ts): explicit env key > genre preset
@@ -720,7 +708,6 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
         'fused',
         'routed',
       ] as const) ??
-      legacyVerbatimMode(env) ??
       preset.verbatimEvidence ??
       'shape_conditioned',
     insightEvidence:

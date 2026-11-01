@@ -530,15 +530,6 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
       'L0 episode substrate (memory-substrate-redesign P1): store every ingested dialogue turn verbatim (P0-redacted, piiClass-tagged) BEFORE extraction — lossless, idempotent (INSERT IGNORE on conversationId+messageId), LLM- and embedder-free. Extraction failures stop losing turns; future derivers re-derive from here. On by default: the retained turn is what makes a memory inspectable and the derived world rebuildable. Off = turns are not stored and those two properties are gone; the cost of on is storage, not behaviour.',
   },
   {
-    key: 'SEARCH_EPISODIC_LANE_ENABLED',
-    category: 'pipeline',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Episodic retrieval lane (memory-substrate P2): BM25 top-k over the L0 episode substrate rendered as dated, chronological transcript quotes in their own generator-prompt section — the lossless fallback when extraction missed or fragmented a fact. Callers without brain:read_pii only see piiClass-clean episodes.',
-  },
-  {
     key: 'SEARCH_EPISODIC_LANE_TOPK',
     category: 'pipeline',
     defaultValue: '8',
@@ -548,15 +539,6 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
       'Transcript quotes per synthesis prompt from the episodic lane — verbatim turns are token-heavy, keep the cap low.',
   },
   {
-    key: 'SYNTHESIZE_SOURCE_EXCERPTS',
-    category: 'pipeline',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Provenance lane (road-to-90 A1): quote the verbatim source turns of the selected evidence facts (knowledge_fact.source.episodeIds → episode) in the synthesis prompt — restores the concrete detail a derivation summarized away. Same PII gate and degradation contract as the episodic lane.',
-  },
-  {
     key: 'SYNTHESIZE_SOURCE_EXCERPTS_CAP',
     category: 'pipeline',
     defaultValue: '16',
@@ -564,15 +546,6 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
     description:
       'Episode quotes per synthesis prompt from the provenance lane; first-seen (≈ evidence relevance order) wins under the cap.',
-  },
-  {
-    key: 'SEARCH_SEGMENT_LANE_ENABLED',
-    category: 'pipeline',
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'L0 segment lane (memory-rebuild R1): retrieve verbatim multi-turn segments (episode_segment, built by POST /v1/admin/maintenance/segments) via dense+BM25 RRF as retrieval units in their own right, rendered as transcript excerpts in the synthesis prompt. PII-gated like the episodic lane.',
   },
   {
     key: 'SEARCH_SEGMENT_LANE_TOPK',
