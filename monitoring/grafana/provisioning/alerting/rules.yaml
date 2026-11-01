@@ -421,3 +421,167 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: lt, params: [0.08] }
+
+      # ── SLOs (docs/slo.md) ────────────────────────────────────────────
+      # Multi-window, multi-burn-rate alerts (Google SRE Workbook, ch. 5,
+      # table 5-8) over a 30-day window. Each expression is the MIN of the
+      # long- and short-window burn rates, so it crosses the threshold only
+      # while both do: the long window proves the budget is really going,
+      # the short one that it still is (fast reset after a fix). Burn rate
+      # = observed bad ratio / allowed bad ratio. The terms carry distinct
+      # labels (label_replace) because `or` would drop same-label series.
+
+      - uid: brain-availability-slo-fast-burn
+        title: AvailabilitySLOFastBurn
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: critical
+          slo: 'availability'
+        annotations:
+          summary: 'Availability error budget burning 14.4x (2% of the 30-day budget in 1h): 5xx + MCP internal errors'
+          runbook_url: 'https://github.com/inite-ai/inite-brain-service/blob/main/docs/slo.md'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: >-
+                min(label_replace((((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[1h])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[1h])) or vector(0))) / clamp_min(sum(increase(brain_http_requests_total{route!~"/(health|ready|metrics).*"}[1h])), 1)) / 0.005, "w", "long", "", "") or label_replace((((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[5m])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[5m])) or vector(0))) / clamp_min(sum(increase(brain_http_requests_total{route!~"/(health|ready|metrics).*"}[5m])), 1)) / 0.005, "w", "short", "", "") or label_replace(((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[1h])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[1h])) or vector(0))) * 14.4 / 5, "w", "events", "", ""))
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [14.4] }
+
+      - uid: brain-availability-slo-slow-burn
+        title: AvailabilitySLOSlowBurn
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: critical
+          slo: 'availability'
+        annotations:
+          summary: 'Availability error budget burning 6x (5% of the 30-day budget in 6h)'
+          runbook_url: 'https://github.com/inite-ai/inite-brain-service/blob/main/docs/slo.md'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: >-
+                min(label_replace((((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[6h])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[6h])) or vector(0))) / clamp_min(sum(increase(brain_http_requests_total{route!~"/(health|ready|metrics).*"}[6h])), 1)) / 0.005, "w", "long", "", "") or label_replace((((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[30m])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[30m])) or vector(0))) / clamp_min(sum(increase(brain_http_requests_total{route!~"/(health|ready|metrics).*"}[30m])), 1)) / 0.005, "w", "short", "", "") or label_replace(((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[6h])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[6h])) or vector(0))) * 6 / 10, "w", "events", "", ""))
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [6] }
+
+      - uid: brain-availability-slo-budget-drain
+        title: AvailabilitySLOBudgetDrain
+        condition: C
+        for: 1h
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+          slo: 'availability'
+        annotations:
+          summary: 'Availability error budget burning faster than it refills (1x over 3d): the 30-day SLO will be missed at this rate'
+          runbook_url: 'https://github.com/inite-ai/inite-brain-service/blob/main/docs/slo.md'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 259200, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: >-
+                min(label_replace((((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[3d])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[3d])) or vector(0))) / clamp_min(sum(increase(brain_http_requests_total{route!~"/(health|ready|metrics).*"}[3d])), 1)) / 0.005, "w", "long", "", "") or label_replace((((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[6h])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[6h])) or vector(0))) / clamp_min(sum(increase(brain_http_requests_total{route!~"/(health|ready|metrics).*"}[6h])), 1)) / 0.005, "w", "short", "", "") or label_replace(((sum(increase(brain_http_requests_total{status_class="5xx",route!~"/(health|ready|metrics).*"}[3d])) or vector(0)) + (sum(increase(brain_mcp_tool_calls_total{outcome="internal_error"}[3d])) or vector(0))) * 1 / 20, "w", "events", "", ""))
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+
+      - uid: brain-latency-slo-rest-burn
+        title: LatencySLORestBurn
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+          slo: 'latency'
+        annotations:
+          summary: 'REST latency budget burning 6x: more than 30% of interactive requests slower than 5s over 6h and 30m'
+          runbook_url: 'https://github.com/inite-ai/inite-brain-service/blob/main/docs/slo.md'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: >-
+                min(label_replace(((1 - sum(increase(brain_http_request_duration_seconds_bucket{le="5",route!~"/(health|ready|metrics).*|/mcp.*|/v1/synthesize.*|/v1/search/multi-hop.*|/v1/answer.*|/v1/documents.*|/v1/admin.*|/v1/live.*|/v1/source-connections.*"}[6h])) / clamp_min(sum(increase(brain_http_request_duration_seconds_count{route!~"/(health|ready|metrics).*|/mcp.*|/v1/synthesize.*|/v1/search/multi-hop.*|/v1/answer.*|/v1/documents.*|/v1/admin.*|/v1/live.*|/v1/source-connections.*"}[6h])), 1)) / 0.05), "w", "long", "", "") or label_replace(((1 - sum(increase(brain_http_request_duration_seconds_bucket{le="5",route!~"/(health|ready|metrics).*|/mcp.*|/v1/synthesize.*|/v1/search/multi-hop.*|/v1/answer.*|/v1/documents.*|/v1/admin.*|/v1/live.*|/v1/source-connections.*"}[30m])) / clamp_min(sum(increase(brain_http_request_duration_seconds_count{route!~"/(health|ready|metrics).*|/mcp.*|/v1/synthesize.*|/v1/search/multi-hop.*|/v1/answer.*|/v1/documents.*|/v1/admin.*|/v1/live.*|/v1/source-connections.*"}[30m])), 1)) / 0.05), "w", "short", "", ""))
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [6] }
+
+      - uid: brain-latency-slo-mcp-burn
+        title: LatencySLOMcpBurn
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          severity: warning
+          slo: 'latency'
+        annotations:
+          summary: 'MCP tool latency budget burning 6x: more than 30% of interactive tool calls slower than 5s over 6h and 30m'
+          runbook_url: 'https://github.com/inite-ai/inite-brain-service/blob/main/docs/slo.md'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: >-
+                min(label_replace(((1 - sum(increase(brain_mcp_tool_duration_seconds_bucket{le="5",tool!~"synthesize|search_multi_hop|agent_qa|summarize_entity|detect_contradiction|why|ingest_document|submit_memory_work|other"}[6h])) / clamp_min(sum(increase(brain_mcp_tool_duration_seconds_count{tool!~"synthesize|search_multi_hop|agent_qa|summarize_entity|detect_contradiction|why|ingest_document|submit_memory_work|other"}[6h])), 1)) / 0.05), "w", "long", "", "") or label_replace(((1 - sum(increase(brain_mcp_tool_duration_seconds_bucket{le="5",tool!~"synthesize|search_multi_hop|agent_qa|summarize_entity|detect_contradiction|why|ingest_document|submit_memory_work|other"}[30m])) / clamp_min(sum(increase(brain_mcp_tool_duration_seconds_count{tool!~"synthesize|search_multi_hop|agent_qa|summarize_entity|detect_contradiction|why|ingest_document|submit_memory_work|other"}[30m])), 1)) / 0.05), "w", "short", "", ""))
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [6] }
