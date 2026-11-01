@@ -16,6 +16,12 @@ import { buildBaseWhere } from '../src/search/internals/where-builder';
 import type { SurrealService } from '../src/db/surreal.service';
 import type { FactEmbeddingService } from '../src/ingest/fact-embedding.service';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE ??= '0';
+});
+
 describe('segmentSessions', () => {
   const ep = (id: string, iso: string): EpisodeRow => ({
     id,

@@ -345,7 +345,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_META_STRICT',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

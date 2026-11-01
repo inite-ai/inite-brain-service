@@ -28,7 +28,7 @@
  * corpora ever land.
  */
 
-import { envFlagEnabled } from '../../common/env-validation';
+import { envFlagEnabled, envFlagNotDisabled } from '../../common/env-validation';
 
 export type LanguageCode =
   'en' | 'ru' | 'es' | 'fr' | 'de' | 'pt' | 'it' | 'zh' | 'ja' | 'ko' | 'ar' | 'hi' | 'und';
@@ -100,7 +100,7 @@ export const LANG_HIGH_CONFIDENCE = 0.5;
  * idiom — never constructor-captured) so a flip lands without restart.
  */
 export function langStampConfidenceGateEnabled(): boolean {
-  return envFlagEnabled(process.env.MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE);
+  return envFlagNotDisabled(process.env.MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE);
 }
 
 // Top-30 stopwords per Latin-script language. Ordered by frequency so

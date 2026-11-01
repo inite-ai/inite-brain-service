@@ -10,7 +10,7 @@ import {
 } from '../ai/openai-client';
 import { ApiKeyService } from '../auth/api-key.service';
 import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-lease.guard';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import {
   StrategyMemoryService,
   type ScoredStrategyItem,
@@ -245,7 +245,7 @@ export class StrategyDistillService {
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = chatModel(config);
-    this.cronEnabled = envFlagEnabled(config.get<string>('STRATEGY_DISTILL_CRON_ENABLED'));
+    this.cronEnabled = envFlagNotDisabled(config.get<string>('STRATEGY_DISTILL_CRON_ENABLED'));
   }
 
   /**

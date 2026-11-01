@@ -79,6 +79,11 @@ describe('evidence processing lifecycle (e2e)', () => {
     }
     process.env.EVIDENCE_FS_ROOT = fsRoot;
     process.env.EVIDENCE_SUBSTRATE_ENABLED = '1';
+    // The suite opens on the processing seams switched off (its first test
+    // pins that state) and turns each on where a test needs it.
+    process.env.EVIDENCE_PROCESSOR_BROKER = '0';
+    process.env.EVIDENCE_QUARANTINE = '0';
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
     f = await createApp({
       companyId: COMPANY,
       scopes: ['brain:read', 'brain:write', 'brain:admin'],
@@ -284,7 +289,7 @@ describe('evidence processing lifecycle (e2e)', () => {
     });
     expect(r2).toEqual({ parts: 1, ingested: 0, deduplicated: 1, failed: 0 });
 
-    delete process.env.EVIDENCE_DOCUMENT_BRIDGE;
+    process.env.EVIDENCE_DOCUMENT_BRIDGE = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
   });
 
@@ -532,7 +537,7 @@ describe('evidence processing lifecycle (e2e)', () => {
       expect(repr.embedding).toEqual([0.25, -0.5, 0.75]);
       expect(repr.embeddingSpaceId).toBe('stub:e2e-embedder:3:l2');
     } finally {
-      delete process.env.EVIDENCE_FRAGMENT_EMBEDDINGS;
+      process.env.EVIDENCE_FRAGMENT_EMBEDDINGS = '0';
       textAdapter.version = originalVersion;
       storeWithEmbedder.embedder = originalEmbedder;
     }

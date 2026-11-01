@@ -6,7 +6,7 @@ import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { EpisodeReadStoreService } from './episode-read-store.service';
 
 export interface EpisodeSubscriptionRow {
@@ -88,7 +88,7 @@ export class EpisodeSubscriptionService {
   ) {}
 
   static enabled(): boolean {
-    return envFlagEnabled(process.env.EPISODE_SUBSCRIPTIONS_ENABLED);
+    return envFlagNotDisabled(process.env.EPISODE_SUBSCRIPTIONS_ENABLED);
   }
 
   /** Register an endpoint; the signing secret is returned exactly once. */

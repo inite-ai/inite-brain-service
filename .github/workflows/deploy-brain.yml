@@ -181,9 +181,7 @@ jobs:
           mkdir -p "${PROJECT_DIR}"
           tee "${PROJECT_DIR}/enablement.env" > /dev/null << 'EOF'
           # ── L0 episode substrate + read APIs ──
-          EPISODE_SUBSCRIPTIONS_ENABLED=1
           # ── Ingest / extraction quality ──
-          EXTRACTION_OBJECT_NORMALIZE=1
           # The open (dialogue) extraction profile: the model coins a
           # specific predicate per clause; the closed CRM vocabulary is
           # applied downstream by canonicalization. Production ran the
@@ -270,33 +268,16 @@ jobs:
           SYNTHESIZE_INSTRUCTION_LANE=1
           SYNTHESIZE_ANSWER_CACHE=1
           # ── G4 strategy-memory lane ──
-          STRATEGY_MEMORY_ENABLED=1
-          STRATEGY_RETRIEVAL_ENABLED=1
-          STRATEGY_DISTILL_CRON_ENABLED=1
-          STRATEGY_TRAJECTORIES_ENABLED=1
           # ── Dreams + compaction lifecycle ──
           # ── Scenes + beliefs (Brain v2 episodic/semantic planes) ──
           BELIEFS_SERVING_LANE=1
           BELIEFS_FACT_DAMPING=1
           # ── Evidence plane (grounding + lifecycle + raw-read) ──
-          EVIDENCE_GROUNDING_STAMP=1
-          EVIDENCE_FAIL_CLOSED_CAPTURE=1
-          EVIDENCE_UNGROUNDED_EXCLUDE=1
-          EVIDENCE_UNGROUNDED_SERVING_GATE=1
-          EVIDENCE_PROCESSOR_BROKER=1
-          EVIDENCE_QUARANTINE=1
-          EVIDENCE_FRAGMENT_CITATIONS=1
           # An uploaded PDF's extracted text goes through the ordinary
           # document pipeline, so it yields facts — off, a PDF gave
           # fragments for retrieval and never one fact (flag audit #788).
           # Its vectors make the fragment lane's dense leg non-empty.
-          EVIDENCE_DOCUMENT_BRIDGE=1
-          EVIDENCE_FRAGMENT_EMBEDDINGS=1
           # ── Provenance DAG ──
-          PROVENANCE_SUMMARY_EPISODE_STAMP=1
-          PROVENANCE_RECURSIVE_CLOSURE=1
-          PROVENANCE_SUPPORT_EDGES=1
-          PROVENANCE_SUPPORT_GRAPH_READ=1
           # ── Outcome telemetry + tool observations ──
           # ── Fovea optics + serving integrity ──
           # FOVEA_PLAUSIBILITY_CHECK stays off: measured on the live tenant
@@ -304,12 +285,10 @@ jobs:
           # answers (a benign "intent: Пилотный запуск" premise judged
           # implausible) — a counterfactual-premise guard that fires on
           # ordinary personal facts costs the whole answer plane.
-          FOVEA_FRAGMENT_ZOOM=1
           # ── Access control / privacy fences ──
           # PRIVACY_SEGMENT_USER_FENCE is fail-closed on legacy rows: run
           # POST /v1/admin/maintenance/segments/backfill-user-ids per
           # tenant right after this deploy.
-          SOURCE_META_STRICT=1
           # ── Capability probes (active monitoring) ──
           # Not pinned here: the probe is on unless CAPABILITY_PROBE_ENABLED=0,
           # which is also its kill switch (set it and restart). Cost: one
@@ -322,7 +301,6 @@ jobs:
           # ── Memory-fitness fix wave (#415-#417, measured on the stand:
           # same-memory re-ask 16/30 -> 20/29; D2 timeline 3/3, D6 2/2) ──
           BELIEFS_LANE_DATE_DISAMBIGUATION=1
-          PROVENANCE_EPISODE_NEIGHBOURS=1
           # ── Belief transitions (#423/#426; Compass acceptance green —
           # negation revision + field fold). ──
           # ── Answer conditioning (V13 G2 shape instructions; existing
@@ -355,11 +333,9 @@ jobs:
           #   when detection clears the 0.5 confidence floor.
           # Measured: code-memory battery k07 flipped green (14/16);
           # transitions/domain-packs/memory-fitness no regression. ──
-          MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE=1
           # Write-side mirror of the gate above: a weak detection ("120
           # requests per minute" → it@0.33) is not stamped as the fact's
           # `lang` (#788).
-          MULTILINGUAL_LANG_STAMP_CONFIDENCE_GATE=1
           # Homoglyph / mixed-script entity names are logged for review —
           # never blocked, never merged (#788).
           # ── One memory holds several languages (Russian conversations,
@@ -370,7 +346,6 @@ jobs:
           # answers it. Soft mode demotes a cross-lingual fact, never hides
           # it (bge-m3 is one multilingual space). Measured on the dogfood
           # battery on a prod-parity stand. ──
-          MULTILINGUAL_SOFT_LANG_FILTER=1
           # ── Temporal tiebreaker (#465, migration 0129): the promoted
           # conflict machinery was pairing legitimate UPDATES (queue
           # Redis -> NATS) into permanent COMPETING mush — score margin
@@ -395,26 +370,6 @@ jobs:
           # its own to read (SOURCE_FS_ROOTS would have to name a
           # directory on this droplet) — a machine's folders are read by
           # @inite/brain-agent, which runs where they live. ──
-          SOURCE_PLANE_ENABLED=1
-          SOURCE_KIND_URL=1
-          SOURCE_KIND_S3=1
-          SOURCE_KIND_MCP=1
-          SOURCE_KIND_GITHUB=1
-          SOURCE_KIND_GDRIVE=1
-          SOURCE_KIND_ONEDRIVE=1
-          SOURCE_KIND_DROPBOX=1
-          SOURCE_KIND_NOTION=1
-          SOURCE_KIND_CONFLUENCE=1
-          SOURCE_KIND_GMAIL=1
-          SOURCE_KIND_IMAP=1
-          SOURCE_KIND_SLACK=1
-          SOURCE_KIND_TELEGRAM=1
-          SOURCE_KIND_PIPEDRIVE=1
-          SOURCE_KIND_HUBSPOT=1
-          SOURCE_KIND_BITRIX24=1
-          SOURCE_KIND_KOMMO=1
-          SOURCE_KIND_SALESFORCE=1
-          SOURCE_KIND_REST_RECORDS=1
           # The brain as an outbound OAuth client, and the same client
           # against any MCP server (RFC 7591 dynamic registration, so an
           # MCP server needs no app of ours). A PLATFORM provider still
@@ -422,18 +377,14 @@ jobs:
           # / _CLIENT_SECRET; until one is set the catalogue reports that
           # provider as not configured rather than pretending, which is
           # why the kinds above can be on before the apps exist.
-          SOURCE_OAUTH_CLIENT=1
-          SOURCE_MCP_OAUTH=1
           # Inbound webhooks per vendor: the address is an HMAC of the
           # credential key, the vendor's secret is stored encrypted under
           # it, and the call only NAMES records — the data still arrives
           # through the same records door a sync uses.
-          SOURCE_WEBHOOKS=1
           # The model half of the mapping assistant: a rest_records config
           # refined from an OpenAPI document or a sample answer. Off leaves
           # the deterministic proposal the endpoint answers anyway; on it
           # is one admin-triggered call, never a serving-path cost.
-          SOURCE_MAPPING_ASSISTANT=1
           # NOT set: SOURCE_EGRESS_ALLOW_PRIVATE. Reaching loopback,
           # private or link-local hosts is a DOUBLE opt-in — the operator
           # half here and the connection's own `allowPrivate` — and this

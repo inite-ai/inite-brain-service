@@ -491,7 +491,7 @@ describe('memory-injection red-team suite (G5)', () => {
         });
         expect(r.status).toBe(400);
       } finally {
-        delete process.env.SOURCE_META_STRICT;
+        process.env.SOURCE_META_STRICT = '0';
       }
     });
   });
