@@ -58,23 +58,17 @@ describe('Phase 2 — conflict explanation', () => {
     expect(ce.outcome).toBe('SUPERSEDED');
     expect(ce.winnerFactId).toBe(upgrade.factId);
     expect(ce.bestOpponentFactId).toBeTruthy();
-    expect(['confidence', 'source_trust', 'recency', 'authority']).toContain(ce.dominantDimension);
-
-    expect(ce.scoreBreakdown.winner.total).toBeGreaterThan(ce.scoreBreakdown.loser.total);
-    expect(ce.scoreBreakdown.margin).toBeGreaterThan(0);
-
-    expect(typeof ce.narrativeBullet).toBe('string');
-    expect(ce.narrativeBullet.length).toBeGreaterThan(0);
-    expect(ce.narrativeBullet).toContain('superseded');
+    // #830: write time decides by valid time alone — the explanation
+    // names that rule, never a weighted score.
+    expect(ce.decidedBy).toBe('valid_time');
+    expect(ce).not.toHaveProperty('scoreBreakdown');
+    expect(ce.narrativeBullet).toContain('starts after');
   });
 
-  it('flags the `object` slot as differing between winner and best opponent', async () => {
+  it('names the rule and the closed value on the next successor too', async () => {
     const next = await ingestTier('platinum', '2026-05-01', 0.95, true);
     expect(next.outcome).toBe('SUPERSEDED');
-    const slot = next.conflictExplanation?.slotDelta;
-    expect(slot).toBeDefined();
-    expect(slot.object).toBe(true);
-    // Same predicate by construction — must be reported equal.
-    expect(slot.predicate).toBe(false);
+    expect(next.conflictExplanation?.decidedBy).toBe('valid_time');
+    expect(next.conflictExplanation?.bestOpponentFactId).toBe(next.supersededFactIds?.[0]);
   });
 });

@@ -59,7 +59,7 @@ describe('FactResolverService — CONFLICT_DIRECT_FACT_SLOT promotion', () => {
   }
 
   const semanticsParam = (queries: Array<{ sql: string; params: Record<string, unknown> }>) => {
-    const call = queries.find((q) => q.sql.includes('fn::resolve_fact('));
+    const call = queries.find((q) => q.sql.includes('fn::settle_fact('));
     return call?.params.semantics;
   };
 

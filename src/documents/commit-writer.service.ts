@@ -16,6 +16,7 @@ import {
 import { traceSpan } from '../common/debug-trace';
 import { originKeyOf, StoredDocument } from './document-store.service';
 import { internalMetaString, participantsFromMeta } from './document-meta';
+import { retireDroppedClaims } from './revision-closure';
 import { coreferentParticipant, participantHint } from '../ingest/participants';
 import { relativeHint } from '../ingest/relative-role';
 import { sanitizeSourceMeta } from '../policy/source-meta';
@@ -55,6 +56,9 @@ export interface WriteMergedResult {
  *   originKey = 'doc:' + contentHash (corroboration independence, 0050)
  *   indexers  = full contributor provenance from the cross-indexer merge
  */
+/** A clause is a sentence or two; a runaway one is cut, never stored whole. */
+const CLAUSE_MAX_CHARS = 1000;
+
 @Injectable()
 export class CommitWriterService {
   private readonly logger = new Logger(CommitWriterService.name);
@@ -98,9 +102,47 @@ export class CommitWriterService {
           entityTypes: new Map(p.merge.entities.map((me) => [me.key, me.type])),
         });
         const relations = await this.writeRelations(db, { ...p, entityIds });
+        await this.retireDropped(db, { doc: p.doc, facts, relations });
         return { entityIds, facts, relations };
       }),
     );
+  }
+
+  /**
+   * A source item's new revision closes what it no longer says
+   * (revision-closure.ts). Best-effort: a failure leaves the earlier
+   * claims open, as before, and never fails the commit that already wrote
+   * the new ones.
+   */
+  private async retireDropped(
+    db: Surreal,
+    {
+      doc,
+      facts,
+      relations,
+    }: { doc: StoredDocument; facts: FactWriteOutcome[]; relations: RelationWriteOutcome[] },
+  ): Promise<void> {
+    const itemId = internalMetaString(doc.meta, 'sourceItemId');
+    if (!itemId) return;
+    const field = doc.meta?.record_field;
+    try {
+      const r = await retireDroppedClaims(db, {
+        itemId,
+        documentId: doc.id,
+        kind: doc.kind,
+        field: typeof field === 'string' ? field : undefined,
+        at: new Date(doc.occurredAt),
+        factIds: facts.flatMap((f) => (f.factId ? [f.factId] : [])),
+        edgeIds: relations.flatMap((e) => (e.edgeId ? [e.edgeId] : [])),
+      });
+      if (r.facts + r.edges > 0) {
+        this.logger.log(
+          `[brain.commit.revision] ${doc.id}: ${r.facts} fact(s), ${r.edges} edge(s) the revision no longer states closed`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`[brain.commit.revision] ${doc.id}: ${(err as Error).message}`);
+    }
   }
 
   private async resolveEntities(
@@ -542,7 +584,13 @@ export class CommitWriterService {
       recorder: mf.recorder,
       documentId: doc.id,
       originKey: originKeyOf(doc.contentHash),
+      // A record door's fact says so: a system of record decides its own
+      // slot, and fact resolution must not change its status (#830).
+      ...(doc.kind === 'source_record' ? { kind: 'source_record' } : {}),
       ...(episodeId ? { episodeIds: [episodeId] } : {}),
+      // The verbatim span the fact was read from: a later revision that
+      // drops it retracts the claim's justification (revision-closure.ts).
+      ...(mf.clause ? { clause: mf.clause.slice(0, CLAUSE_MAX_CHARS) } : {}),
       ...(meta ? { meta } : {}),
       ...sourceVersionOf(mf, doc),
       indexers: mf.contributors.map((c) => ({

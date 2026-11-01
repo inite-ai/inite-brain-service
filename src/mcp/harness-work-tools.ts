@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ExtractionWorkService } from '../documents/extraction-work.service';
 import type { DreamsWorkService } from '../dreams/dreams-work.service';
+import type { FactResolutionService } from '../dreams/fact-resolution.service';
 import type { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
 import type { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import type { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
@@ -20,6 +21,7 @@ import { asStructuredContent } from './structured';
 
 export interface HarnessWorkToolDeps {
   extraction?: ExtractionWorkService | undefined;
+  resolution?: FactResolutionService | undefined;
   predicates?: PredicateSemanticsWorkService | undefined;
   dreams?: DreamsWorkService | undefined;
   /** Resolved lazily: these live in AdminModule, which imports McpModule. */
@@ -31,8 +33,8 @@ export interface HarnessWorkToolDeps {
  * Harness mode (#819): everything the server's own model did in the
  * background — reading documents into facts, judging same-entity and
  * competing-fact pairs, summarising scenes — handed to the connected
- * agent in batches, offered in that order (facts first: the judges and
- * summaries read them). Registered only when EXTRACTION_SOURCE=harness —
+ * agent in batches, offered in that order (attributes, then facts: the
+ * judges and summaries read them). Registered only when EXTRACTION_SOURCE=harness —
  * a server-mode tenant's tools/list does not pay for tools it never needs.
  * brain:write (the caller gates registration). Called from BOTH
  * McpService.buildServer and gated-catalogue.ts.
@@ -50,7 +52,7 @@ export function registerHarnessWorkTools(p: {
     {
       title: 'Take memory work',
       description:
-        'Returns the next batch of work the memory left for a connected model, in this order: extraction (stored documents to read into facts), predicate_semantics (new attributes: one value at a time or several), entity_match (pairs of entities that may be one thing), fact_conflict (pairs of competing facts), fact_corroboration (pairs of facts that may state one thing twice), scene_summary (conversation scenes to summarise), belief_statement (remembered states to phrase as a sentence). A batch holds the systemPrompt and userContent the server model would have been sent, the JSON schema of the reply, how many items it covers, and the signed work token its reply is submitted with, valid until expiresAt. Returns {work: null} when nothing is waiting.',
+        'Returns the next batch of work the memory left for a connected model, in this order: predicate_semantics (new attributes: one value at a time or several), extraction (stored documents to read into facts), fact_resolution (new facts beside the memory facts they resemble: same, replaces, contradicts or unrelated), entity_match (pairs of entities that may be one thing), fact_conflict (pairs of competing facts), fact_corroboration (pairs of facts that may state one thing twice), scene_summary (conversation scenes to summarise), belief_statement (remembered states to phrase as a sentence). A batch holds the systemPrompt and userContent the server model would have been sent, the JSON schema of the reply, how many items it covers, and the signed work token its reply is submitted with, valid until expiresAt. Returns {work: null} when nothing is waiting.',
       inputSchema: {
         userId: z
           .string()
@@ -116,6 +118,8 @@ async function take(
       return deps.extraction
         ? deps.extraction.take(companyId, { userId: opts.userId, maxDocs: opts.max })
         : null;
+    case 'fact_resolution':
+      return deps.resolution ? deps.resolution.take(companyId, opts) : null;
     case 'entity_match':
       return deps.dreams ? deps.dreams.takeEntityMatch(companyId, opts) : null;
     case 'fact_conflict':
@@ -139,6 +143,8 @@ async function submit(
   switch (payload.t) {
     case 'extraction':
       return need(deps.extraction).submit(companyId, payload, result);
+    case 'fact_resolution':
+      return need(deps.resolution).submit(companyId, payload, result);
     case 'entity_match':
     case 'fact_conflict':
     case 'fact_corroboration':

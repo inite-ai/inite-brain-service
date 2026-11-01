@@ -1,0 +1,21 @@
+-- 0174_fact_resolution_checked — when a fact was judged against memory (#828).
+--
+-- WHY. A new fact used to be reconciled only inside its slot (entity +
+-- predicate string) under the predicate's registered policy, and the
+-- extractor had to name what a turn replaced from the entity's 12 newest
+-- facts. Measured on the memory-fitness corpus (harness mode, 2026-10-30):
+-- every revision but two stayed current beside the value it replaced
+-- (queue backend, deploy target, launch date), and a two-source
+-- disagreement was never marked competing.
+--
+-- Fact resolution (src/dreams/fact-resolution.ts) judges each new open
+-- fact against the entity's open facts that resemble it — across
+-- predicate names, no recency window — and applies the verdict with
+-- valid-time precedence through the resolver's existing stamps
+-- (superseded / competing / corroborating). This column says the fact
+-- has been judged: NONE = not yet, which is every row written before
+-- this migration too — they are worked through in bounded runs.
+--
+-- The index serves the pending scan (WHERE resolutionCheckedAt IS NONE).
+DEFINE FIELD IF NOT EXISTS resolutionCheckedAt ON knowledge_fact TYPE option<datetime>;
+DEFINE INDEX IF NOT EXISTS fact_resolution_checked_idx ON knowledge_fact FIELDS resolutionCheckedAt;

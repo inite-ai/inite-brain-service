@@ -1,80 +1,68 @@
 # Conflict resolution
 
-When two ingests claim contradicting values for the same `(entity, predicate, valid-window)` triple, brain scores both and decides one of four outcomes. The scoring is declarative, not learned — operators tune the weights, not the model.
+When a new fact meets an existing value of the same slot (entity, predicate, overlapping valid window), brain settles it in two steps. At write time it applies only rules that need no judgement, and valid time decides. A pair valid time cannot order goes to fact resolution, where a judge names the relation. Nothing is scored: there are no weights, no margin and no reject floor.
 
-## Scoring formula
+## At write time: valid time decides
 
-```
-score = 0.30 · confidence
-      + 0.40 · source_trust
-      + 0.20 · recency
-      + 0.10 · authority
-```
-
-Each term in `[0, 1]`:
-
-- **confidence** — per-fact value set by the ingester (NLU extractor emits 0.5–0.8; structured ingest defaults 0.95).
-- **source_trust** — per-vertical per-predicate. `rent` is highly trusted for `address`; `inbox` less so. Lives in the vocabulary YAML.
-- **recency** — `0.5 ^ (age_days / decay_halflife)`, computed off `validFrom`.
-- **authority** — explicit override for human-curated facts. Defaults 0.
-
-Override the weights per tenant via env: `CONFLICT_W_CONFIDENCE=0.35`, etc. Validated at boot.
-
-## The four outcomes
-
-| Margin = score(new) − score(best contradicting) | Outcome | What happens |
+| The new fact… | Outcome | What happens |
 | --- | --- | --- |
-| `margin ≥ 0.15` | **INSERTED** (new wins) | Old fact supersedes — its `validUntil` collapses to the new fact's `validFrom`. Status `superseded`. |
-| `0 < margin < 0.15` | **COMPETING** | Both stay active. Brain emits an event for human resolution. |
-| `−0.30 < margin ≤ 0` | **SUPERSEDED** (old wins) | New fact stored but immediately `superseded`. Visible in timeline. |
-| `margin ≤ −0.30` | **REJECTED** | New fact routed to `dead_letter_fact` for operator review. Audit trail intact, but the fact doesn't enter the searchable graph. |
+| states the same object (or restates it) | **CORROBORATED** | Stored as `corroborating`, pointing at the value it confirms. The original stays the active row. |
+| starts strictly later than a value of the slot | **SUPERSEDED** | The earlier value closes at the new fact's `validFrom` (status `superseded`). The new fact is active. |
+| starts strictly earlier than a value of the slot | **INSERTED_HISTORICAL** | The new fact goes straight to history, closed where the later value starts. |
+| holds from the same moment with a different object | **INSERTED** (`reason: for_resolution`) | Both stay active; fact resolution judges the pair. |
 
-Thresholds tunable via `CONFLICT_MARGIN_INSERT`, `CONFLICT_MARGIN_REJECT`. Defaults match the spec.
+By predicate semantics:
+
+- `single_active` (`name`, `email`, …) — one value at a time: every value that overlaps the new one in valid time closes where it starts.
+- `bitemporal` — the rules above, among values that are about the same object (cosine above the similarity threshold) and overlap in valid time.
+- `bitemporal_event` — the same rules by calendar day; two different values on the same day are both marked `competing`.
+- `append_only` — never closes anything; an exact restatement from another origin corroborates.
+
+Confidence, source trust and authority are recorded on every fact (`trustSnapshot`) as provenance. They do not decide a conflict. The fact's `conflictTrace` says what did: `decidedBy: 'valid_time'` or `'event_day'`, and which facts it closed.
+
+## Fact resolution: the judge names the relation
+
+For each new fact, a judge compares it with the most similar facts on the same entity and answers one of:
+
+- **same** — a paraphrase or confirmation: the new fact corroborates.
+- **replaces** — successive values of one attribute: valid time decides which one closes.
+- **contradicts** — the same attribute at the same time, two values that cannot both be true: both are marked `competing`.
+- **unrelated** — nothing changes.
+
+`COMPETING` therefore marks a real disagreement, never a close score. Search shows both values, marked `[competing]`, so a dispute is never hidden behind one side.
+
+A fact from a system of record (`source.kind = 'source_record'`, a CRM or database door) keeps its slot: the judge never changes its status. A claim that disputes it is marked `competing` beside it. To change the record's value, change it in the source system; the next sync supersedes it.
 
 ## A worked example
 
-Tenant: `co_demo`. Predicate: `tier` (bitemporal, decay 30d, PII none).
+Tenant: `co_demo`. Predicate: `tier` (bitemporal).
 
 Existing fact:
 ```
-predicate: tier, object: gold, validFrom: 2026-02-01, confidence: 0.92, source: rent (trust 0.9)
+predicate: tier, object: gold, validFrom: 2026-02-01, source: rent
 ```
 
-New ingest at 2026-04-01:
+New ingest:
 ```
-predicate: tier, object: platinum, validFrom: 2026-04-01, confidence: 0.88, source: inbox (trust 0.4)
-```
-
-Scoring at ingest time:
-
-```
-new = 0.30·0.88 + 0.40·0.40 + 0.20·1.0  + 0.10·0  = 0.624
-old = 0.30·0.92 + 0.40·0.90 + 0.20·0.21 + 0.10·0  = 0.678
-margin = -0.054  → SUPERSEDED (old wins, new stored superseded)
+predicate: tier, object: platinum, validFrom: 2026-04-01, source: inbox
 ```
 
-Result: the user sees `tier=gold` as the active fact. The inbox-source platinum is in the timeline with `status: 'superseded'` — brain didn't trust the noisy source enough to flip the tier.
+The platinum fact starts strictly later, so `gold` closes at 2026-04-01 and `platinum` is the active value. The timeline keeps both: gold for February and March, platinum from April. Which source said it is on each fact; it did not change the outcome.
 
-If the inbox source had `confidence: 0.95` and recent enough, margin would have tipped positive — `INSERTED` outcome.
+If the inbox had said `platinum` from 2026-02-01, the same moment as `gold`, both would stay active and fact resolution would judge them. Two different tiers for the same customer from the same day contradict, so both become `competing` until a later value, the dreams resolver or a person settles it.
 
 ## Dreams resolver
 
-Off-hours, `dreams_resolve` re-scores `COMPETING` pairs aged > 7 days. An LLM judge picks a winner using surrounding entity context; the loser is marked `superseded` with `retractionReason='dreams_resolution'`. Conservative — `unsure` verdict leaves both for human review.
+Off-hours, `dreams_resolve` takes `COMPETING` pairs aged > 7 days. An LLM judge picks a winner using surrounding entity context; the loser is marked `superseded` with `retractionReason='dreams_resolution'`. Conservative — an `unsure` verdict leaves both for human review. Groups of three or more always wait for a person.
 
 Enable via `DREAMS_RESOLVE_ENABLED=1`. Bounded by `DREAMS_RESOLVE_MAX_PAIRS` (default 20).
 
 ## Dead-letter
 
-`REJECTED` facts land in `dead_letter_fact` with the score, the contradicting fact id, and the rejection reason. Operators query it via:
-
-```sql
-SELECT * FROM dead_letter_fact WHERE companyId = 'co_demo' AND createdAt > '2026-05-01';
-```
-
-Use it to find systematic source-trust mismatches — when a vertical is shipping bad data, the dead-letter shows it before users complain.
+A fact is rejected only when the store could not create the row (`REJECTED`, `reason: create_returned_none`). It lands in `ingest_dead_letter` with the reason, so an operator can see a write that never arrived. A low-confidence or low-trust fact is never dropped: it is stored, and its provenance says how much to trust it.
 
 ## Related
 
-- [Predicate vocabulary](/en/docs/concepts/predicates) — where source_trust and decay live
+- [Predicate vocabulary](/en/docs/concepts/predicates) — where semantics and decay live
 - [POST /v1/ingest](/en/docs/api/ingest) — every ingest goes through this resolver
-- [Operator playbook](/en/docs/operator-playbook) — re-scoring dead-letter, tuning weights
+- [Operator playbook](/en/docs/operator-playbook) — the dreams resolver and the dead-letter

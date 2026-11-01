@@ -30,6 +30,17 @@ interface BeliefLaneRow {
   score?: number;
 }
 
+/** One belief a query reaches, as the focus view ranks and renders it. */
+export interface BeliefCandidate {
+  beliefId: string;
+  subject: string;
+  field: string;
+  /** The belief's one-sentence statement (it names the prior value). */
+  statement: string;
+  /** The day the current value holds from. */
+  since?: string;
+}
+
 /** The lane's output: rendered lines + the rendered-set citation fence. */
 export interface BeliefLaneResult {
   /** One line per (subject, field), validFrom-ascending, headed by the
@@ -102,6 +113,30 @@ export class BeliefLaneService {
     private readonly embedder: EmbedderService,
   ) {}
 
+  /**
+   * The active beliefs a query reaches, best-fused first, one per
+   * (subject, slot) key, at most `limit` — the lane's retrieval and
+   * fences without its prompt rendering. The focus view of
+   * search_knowledge ranks them with the facts in one pool (RAPTOR's
+   * collapsed tree: summaries and leaves compete on relevance).
+   */
+  async candidates(opts: {
+    companyId: string;
+    query: string;
+    userId?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<BeliefCandidate[]> {
+    const fused = await this.retrieve(opts);
+    if (opts.userId === undefined) return [];
+    return this.dedupe(fused, opts.userId, opts.limit ?? BELIEF_LANE_TOP_K).map((row) => ({
+      beliefId: String(row.id),
+      subject: String(row.subject ?? ''),
+      field: String(row.field ?? ''),
+      statement: String(row.statement).slice(0, BELIEF_EXCERPT_MAX_CHARS),
+      ...(isoDay(row.validFrom) ? { since: isoDay(row.validFrom) } : {}),
+    }));
+  }
+
   async beliefLines(opts: {
     companyId: string;
     query: string;
@@ -116,13 +151,25 @@ export class BeliefLaneService {
      *  Off/absent ⇒ byte-identical lines. */
     dateDisambiguation?: boolean | undefined;
   }): Promise<BeliefLaneResult> {
+    if (opts.userId === undefined) return EMPTY_RESULT;
+    const fused = await this.retrieve(opts);
+    if (fused.length === 0) return EMPTY_RESULT;
+    return this.render(fused, opts.userId, opts.dateDisambiguation === true);
+  }
+
+  /** The two legs, fused (RRF); [] on any failure or a fence that empties the lane. */
+  private async retrieve(opts: {
+    companyId: string;
+    query: string;
+    userId?: string | undefined;
+  }): Promise<BeliefLaneRow[]> {
     // Fence 2 (D4): an unscoped request serves NO beliefs — checked
     // before any IO so the off-path issues zero queries.
-    if (opts.userId === undefined) return EMPTY_RESULT;
+    if (opts.userId === undefined) return [];
     // Trust circles §3.5: semantic_belief has no scope column, so a belief
     // cannot say which circle it was learned in — acting in a circle, the
     // lane serves none rather than one learned somewhere else.
-    if (actingCircleTags().length > 0) return EMPTY_RESULT;
+    if (actingCircleTags().length > 0) return [];
     const userId = opts.userId;
     const fetchK = Math.max(BELIEF_LANE_TOP_K * 3, 9);
     try {
@@ -172,12 +219,11 @@ export class BeliefLaneService {
         );
         return rrfFuse([dense ?? [], bm25 ?? []]);
       });
-      if (fused.length === 0) return EMPTY_RESULT;
-      return this.render(fused, userId, opts.dateDisambiguation === true);
+      return fused;
     } catch (e) {
       // Fence 6: degrade to an empty section, never fail the answer.
       this.logger.warn(`belief lane failed (companyId=${opts.companyId}): ${(e as Error).message}`);
-      return EMPTY_RESULT;
+      return [];
     }
   }
 
@@ -206,6 +252,14 @@ export class BeliefLaneService {
     userId: string,
     dateDisambiguation: boolean,
   ): BeliefLaneResult {
+    const kept = this.dedupe(fused, userId, BELIEF_LANE_TOP_K).sort(
+      (a, b) => toMs(a.validFrom) - toMs(b.validFrom),
+    );
+    return this.lines(kept, dateDisambiguation);
+  }
+
+  /** Visible rows (fence 4), one per (subject, slot), best-fused first, at most `limit`. */
+  private dedupe(fused: BeliefLaneRow[], userId: string, limit: number): BeliefLaneRow[] {
     const byKey = new Map<string, BeliefLaneRow>();
     for (const row of fused) {
       // Fence 4: JS re-check of the user fence (the read-API doctrine).
@@ -225,9 +279,12 @@ export class BeliefLaneService {
         typeof row.slot === 'string' && row.slot !== '' ? row.slot : String(row.field ?? '');
       const key = `${String(row.subject ?? '')}|${slot}`;
       if (!byKey.has(key)) byKey.set(key, row);
-      if (byKey.size >= BELIEF_LANE_TOP_K) break;
+      if (byKey.size >= limit) break;
     }
-    const kept = [...byKey.values()].sort((a, b) => toMs(a.validFrom) - toMs(b.validFrom));
+    return [...byKey.values()];
+  }
+
+  private lines(kept: BeliefLaneRow[], dateDisambiguation: boolean): BeliefLaneResult {
     const lines: string[] = [];
     const byId = new Map<string, CitableBelief>();
     for (const row of kept) {

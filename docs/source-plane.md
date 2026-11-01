@@ -57,7 +57,22 @@ with independent lifecycles.
    with W1. An item that comes back byte-identical (a restored record)
    deduplicates at the store, so nothing is re-extracted: the facts
    closed at that instant reopen instead (`reopen`, the inverse).
-6. **Bookkeeping** — checkpoint, `lastSyncAt`, `lastSyncStatus`,
+   Edges close too. An edge keeps the set of documents that assert it
+   (`source.documentIds`, 0178): it closes when the last of them is gone,
+   never while another live document asserts it, and never when a
+   conversation also said it (`source.undocumented`). A returning item
+   reopens exactly the edges it closed.
+6. **Revisions** — a new revision closes, at its time, the claims it no
+   longer makes. What it restates stays open (the new row corroborates
+   the first one). A record render (`source_record`) is a closed world: it
+   lists every field and relation the record has, so a field or relation
+   it no longer carries closes, edges included. Prose is an open world: a
+   model re-reading a page may simply not restate a claim, so a claim
+   closes only when its justification is gone, meaning the verbatim
+   clause it was read from (`source.clause`, or the turn for older rows)
+   no longer appears in the new text. Prose edges carry no passage and
+   close only when the item goes.
+7. **Bookkeeping** — checkpoint, `lastSyncAt`, `lastSyncStatus`,
    counters; a queued run's counters are its `job_run.result`.
 
 A re-run over an unchanged source is 0 fetches, 0 LLM calls. A connector

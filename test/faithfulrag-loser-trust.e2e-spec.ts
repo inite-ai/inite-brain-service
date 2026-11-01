@@ -25,6 +25,18 @@ import type { AppFixture } from './app-fixture';
 import { createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 
+/** The learned trust the resolver froze onto a fact (0044 trustSnapshot). */
+async function learnedTrustOf(f: AppFixture, factId: string): Promise<number> {
+  const surreal = f.app.get(SurrealService);
+  return surreal.withCompany(f.companyId, async (db) => {
+    const [rows] = await db.query<[number[]]>(
+      `SELECT VALUE trustSnapshot.learnedTrust FROM type::record('knowledge_fact', $t)`,
+      { t: factId.split(':')[1] },
+    );
+    return Number(rows[0]);
+  });
+}
+
 describe('FaithfulRAG — loser-side source trust feeds from learned rate', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
@@ -39,8 +51,8 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
 
   // Seed source_trust with a known low-trust row above the 8-sample
   // bootstrap floor, then ingest a competing fact from the same
-  // source and inspect the scoreBreakdown.
-  it('low-trust loser source produces a scoreBreakdown.loser.sourceTrust well below the 0.5 baseline', async () => {
+  // source and read the trust its fact froze.
+  it("a low-trust source's learned rate is frozen onto its fact, not the 0.5 baseline", async () => {
     const surreal = f.app.get(SurrealService);
     await surreal.withCompany(f.companyId, async (db) => {
       // Wipe + seed deterministically.
@@ -86,16 +98,9 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
     expect(winner.status).toBe(201);
     expect(winner.body.outcome).toBe('SUPERSEDED');
 
-    // CONFLICT_WEIGHT_SOURCE_TRUST defaults to 0.40 (see
-    // IngestService.cfgNum). With the pre-0022 hardcoded constant the
-    // loser's scoreBreakdown.loser.sourceTrust would have been
-    // 0.5 × 0.40 = 0.20. With our seeded rate of 0.10 it should now
-    // be 0.10 × 0.40 = 0.04. The boundary at 0.10 cleanly distinguishes
-    // both regimes regardless of the other score components.
-    const loserSt = winner.body.conflictExplanation?.scoreBreakdown?.loser?.sourceTrust;
-    expect(typeof loserSt).toBe('number');
-    expect(loserSt).toBeLessThan(0.1);
-    expect(loserSt).toBeGreaterThan(0);
+    // #830: trust is provenance, not a vote — the learned rate (0022/0045)
+    // is what the loser's trust snapshot froze, not the 0.5 fallback.
+    expect(await learnedTrustOf(f, String(loser.body.factId))).toBeCloseTo(0.1, 2);
   });
 
   // Sources below the bootstrap floor stay on 0.5 — this is the
@@ -141,8 +146,7 @@ describe('FaithfulRAG — loser-side source trust feeds from learned rate', () =
         explain: true,
       });
     expect(winner.body.outcome).toBe('SUPERSEDED');
-    const loserSt = winner.body.conflictExplanation?.scoreBreakdown?.loser?.sourceTrust;
-    // Bootstrap fallback => 0.5 * 0.40 = 0.20 (within float epsilon).
-    expect(loserSt).toBeCloseTo(0.2, 2);
+    // Below the bootstrap floor the snapshot holds the 0.5 fallback.
+    expect(await learnedTrustOf(f, String(loser.body.factId))).toBeCloseTo(0.5, 2);
   });
 });

@@ -537,7 +537,6 @@ jobs:
           # private or link-local hosts is a DOUBLE opt-in — the operator
           # half here and the connection's own `allowPrivate` — and this
           # deployment shares its network with nothing a source should read.
-          CONFLICT_TEMPORAL_TIEBREAKER=1
           EOF
           # The heredoc carries the YAML block's 10-space indent into the
           # file; strip it so every line is a clean KEY=value / #comment

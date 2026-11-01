@@ -148,19 +148,15 @@ describe('source registry + authority activation (Phase 3)', () => {
     expect(badLevel.status).toBe(400);
   });
 
-  it('declared authority flips a COMPETING conflict to SUPERSEDED', async () => {
-    // Control: challenger from an UNREGISTERED source. Margin 0.06 < 0.15
-    // → the resolver refuses to auto-pick.
+  it('declared authority is provenance on the fact, not a vote in the conflict (#830)', async () => {
+    // The same challenge from an unregistered source and from a source
+    // declared at authLevel 1.0 resolves the same way: a value that starts
+    // later closes the earlier one. Authority is frozen onto the fact.
     const controlIncumbentId = await seedIncumbent('hq_control');
-    const controlChallenge = await challenge(
+    const control = await challenge(
       { vertical: 'ops', recorder: 'unregistered_auditor' },
       'hq_control',
     );
-    expect(controlChallenge.body.outcome).toBe('COMPETING');
-    expect(controlChallenge.body.competingFactIds).toContain(controlIncumbentId);
-
-    // Same conflict, but the challenger's source carries a declared
-    // authLevel of 1.0 (registered in the previous test): margin 0.16.
     const incumbentId = await seedIncumbent('hq_live');
     const live = await f.http
       .post('/v1/ingest/fact')
@@ -172,12 +168,20 @@ describe('source registry + authority activation (Phase 3)', () => {
         validFrom: '2026-06-01T00:00:00Z',
         source: SENIOR,
         confidence: 1.0,
-        explain: true,
       });
-    expect(live.body.outcome).toBe('SUPERSEDED');
-    expect(live.body.supersededFactIds).toContain(incumbentId);
-    // The decomposition names authority as a live component now.
-    expect(live.body.conflictExplanation.scoreBreakdown.winner.authority).toBeCloseTo(0.1);
+    expect(live.body.outcome).toBe(control.body.outcome);
+    if (live.body.outcome === 'SUPERSEDED') {
+      expect(live.body.supersededFactIds).toContain(incumbentId);
+      expect(control.body.supersededFactIds).toContain(controlIncumbentId);
+    }
+    const authority = await f.app.get(SurrealService).withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[number[]]>(
+        `SELECT VALUE trustSnapshot.authority FROM type::record('knowledge_fact', $t)`,
+        { t: String(live.body.factId).split(':')[1] },
+      );
+      return rows[0];
+    });
+    expect(authority).toBeCloseTo(1.0);
   });
 
   it('get_source_reputation is served through the sources service', async () => {

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { entailmentLabels, type NliPipelineParts } from './nli-entailment';
 import { ConfigService } from '@nestjs/config';
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
@@ -247,6 +248,29 @@ export class IntentClassifierService implements OnModuleInit, OnApplicationShutd
     }
   }
 
+  /**
+   * Whether `premise` entails each hypothesis, by the NLI model's own top
+   * label (nli-entailment.ts); `undefined` for every hypothesis when no
+   * model can answer now (disabled, warming, failed) — the caller then
+   * keeps its facts rather than trusting a quote.
+   */
+  async entails(premise: string, hypotheses: string[]): Promise<Array<boolean | undefined>> {
+    const unknown = hypotheses.map((): boolean | undefined => undefined);
+    if (hypotheses.length === 0 || !this.hasNliRuntime()) return unknown;
+    try {
+      return this.classifier
+        ? await entailmentLabels(
+            this.classifier as unknown as NliPipelineParts,
+            premise,
+            hypotheses,
+          )
+        : await this.rpc<boolean[]>('entail', { premise, hypotheses });
+    } catch (e) {
+      this.logger.warn(`NLI entailment failed: ${(e as Error).message}`);
+      return unknown;
+    }
+  }
+
   /** Whether an NLI backend can serve this request right now: the
    *  in-thread pipeline (or test seam), or a warmed worker outside the
    *  failure latch. */
@@ -398,7 +422,7 @@ export class IntentClassifierService implements OnModuleInit, OnApplicationShutd
     this.pending.clear();
   }
 
-  private rpc<R>(kind: 'warmup' | 'classify', payload: unknown): Promise<R> {
+  private rpc<R>(kind: 'warmup' | 'classify' | 'entail', payload: unknown): Promise<R> {
     if (!this.worker) {
       return Promise.reject(new Error('intent-classifier worker not initialised'));
     }
@@ -417,7 +441,7 @@ export class IntentClassifierService implements OnModuleInit, OnApplicationShutd
           // slow host that would cycle a new ~340 MB worker per timeout.
           // The latch gives the host FAIL_RETRY_MS to recover; intent
           // degrades to the punctuation heuristic meanwhile.
-          if (kind === 'classify') {
+          if (kind !== 'warmup') {
             this.nextWarmupAt = Date.now() + FAIL_RETRY_MS;
           }
           reject(new Error(`intent-classifier '${kind}' RPC timed out after ${timeoutMs}ms`));

@@ -142,14 +142,64 @@ async function identityLine(cfg) {
   );
 }
 
+/** The tool names this key's MCP connection lists, or [] when brain cannot say. */
+async function mcpToolNames(cfg) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${cfg.baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        Authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    const text = await res.text();
+    // Streamable HTTP may answer as one SSE event.
+    const data = text.split('\n').filter((l) => l.startsWith('data: ')).pop();
+    const body = JSON.parse(data ? data.slice(6) : text);
+    return (body?.result?.tools ?? []).map((t) => t.name);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Harness mode: brain calls no model of its own and leaves its background
+ * reading — extraction, fact resolution, scene summaries — to the
+ * connected agent. Nothing else tells the agent that work is waiting, so
+ * a server in that mode (the only one that lists take_memory_work) gets a
+ * line saying how to drain it, under the same user the hooks capture as.
+ */
+async function harnessLine(cfg) {
+  const tools = await mcpToolNames(cfg);
+  if (!tools.includes('take_memory_work')) return '';
+  const user = cfg.userId ? `{ userId: '${cfg.userId}' }` : '{}';
+  return (
+    `Brain runs in harness mode: its background memory work waits for you. Between tasks, call ` +
+    `take_memory_work(${user}); answer the batch as its systemPrompt asks, in its schema, and pass the ` +
+    `reply to submit_memory_work with the batch's token. Repeat until it returns { work: null }.`
+  );
+}
+
 async function recall(payload, cfg) {
   if (!cfg.recallOn) return;
   const project = await projectName(payload.cwd ?? process.cwd());
   const body = { query: project, limit: 8 };
   if (cfg.userId) body.userId = cfg.userId;
-  const [out, identity] = await Promise.all([api('/v1/search', body, cfg), identityLine(cfg)]);
+  const [out, identity, harness] = await Promise.all([
+    api('/v1/search', body, cfg),
+    identityLine(cfg),
+    harnessLine(cfg),
+  ]);
   const rendered = renderRecall(out?.results ?? []);
-  if (!rendered && !identity) return;
+  if (!rendered && !identity && !harness) return;
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
@@ -162,6 +212,7 @@ async function recall(payload, cfg) {
               ]
             : []),
           ...(identity ? [identity] : []),
+          ...(harness ? [harness] : []),
         ].join('\n'),
       },
     }),

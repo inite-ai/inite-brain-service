@@ -23,6 +23,8 @@ import { WorkspaceStatusService } from './workspace-status.service';
 import { ApiKeyGuard } from '../auth/api-key.guard';
 import { McpOptionalAuthGuard } from './mcp-optional-auth.guard';
 import { DreamsModule } from '../dreams/dreams.module';
+import { BeliefsModule } from '../beliefs/beliefs.module';
+import { ScenesModule } from '../scenes/scenes.module';
 
 @Module({
   imports: [
@@ -43,6 +45,8 @@ import { DreamsModule } from '../dreams/dreams.module';
     FeedbackModule,
     OutcomesModule,
     StatsModule,
+    BeliefsModule,
+    ScenesModule,
   ],
   controllers: [McpController],
   providers: [

@@ -13,8 +13,9 @@ silently recomputed. This page explains the model and how to operate it.
 
 Trust is layered on top of — not a replacement for — the conflict resolver
 ([data model](data-model.md), [bitemporal semantics](bitemporal-semantics.md)).
-The resolver still decides who wins a duel; reputation feeds that decision and,
-optionally, re-weights retrieval.
+The resolver decides by valid time alone (#830, migration 0177): reputation is
+recorded on each fact as provenance, never as a vote in that decision, and it
+can optionally re-weight retrieval.
 
 ## The source key
 
@@ -30,11 +31,12 @@ At ingest, inside the resolver, each created fact is stamped with:
 
 - **`trustSnapshot`** — `{ sourceKey, domain, declaredTrust, learnedTrust,
   calculatedAt }`. A *point-in-time* reputation reading. It is written once and
-  never back-filled: replay the graph and you see the trust that actually drove
-  the decision, not today's opinion of it.
-- **`conflictTrace`** (on a fact that won or is `COMPETING`) — the resolver's
-  `{ scoreBreakdown, dominantDimension, slotDelta, bestOpponentId, decidedAt }`.
-  The "because" behind the outcome.
+  never back-filled: replay the graph and you see the trust the source had when
+  it made the claim, not today's opinion of it.
+- **`conflictTrace`** (on a fact that closed earlier values or competes by
+  event day) — `{ decidedBy, supersededFactIds | competingFactIds,
+  bestOpponentId, decidedAt }`, where `decidedBy` is `'valid_time'` or
+  `'event_day'`. There is no score breakdown: no weight decided the outcome.
 
 ## Domain-scoped reputation
 
@@ -53,17 +55,18 @@ calibration refit; every meaningful change is appended to `source_trust_history`
 2. the source's global `(sourceKey, domain = NONE)` score if it has ≥ 8, else
 3. a neutral `0.5`.
 
-The winner/loser asymmetry from the resolver is preserved: a winner is scored by
-a static heuristic, a loser by its learned agreement rate.
+The learned rate is frozen into the fact's `trustSnapshot.learnedTrust` at
+write time.
 
 ## Source registry & authority
 
 Operators can declare a source in `source_registry` (`type` ∈ `human`,
 `website`, `document`, `api`, `agent`, `sensor`, `system`; `authLevel` 0..1;
-`owner`; `note`). A declared `authLevel` activates the resolver's authority slot
-via `fn::source_authority_of` — an opt-in, per-source lever (a government
-registry can be given standing that an anonymous scrape isn't). Unregistered
-sources resolve byte-identically to before, so this is never a flag day.
+`owner`; `note`). A declared `authLevel` (read via `fn::source_authority_of`) is
+provenance: it rides the fact's trust snapshot and feeds the read-time
+authority term (`SEARCH_AUTHORITY_DELTA`, below), so a government registry can
+rank above an anonymous scrape. It does not decide write-time conflicts, which
+follow valid time.
 
 Manage it over REST (all `brain:admin`):
 
@@ -141,7 +144,8 @@ committing to a value.
 
 - No `bias_profile` / `verification_level` dream-fields — only what's computed.
 - No retroactive back-fill of snapshots — history is what it was.
-- No multiplicative rewrite of the resolver — it stays a tuned weighted sum; the
+- No trust in the resolver — write-time conflicts follow valid time, and a
+  same-moment disagreement goes to fact resolution's judge; the
   multiplicative trust composite is read-time only, behind the flags above.
 - Sources are **not** knowledge entities — no embeddings / merge / forget-cascade
   machinery is pointed at them.

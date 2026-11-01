@@ -41,16 +41,21 @@ memory_diff({
   to:   "2026-05-22T00:00:00Z",
   entityIds: undefined,         // optional — scope to a set of entities
   predicates: ["status", "tier"], // optional — scope to a predicate family
+  userId: "u_42",                 // the person you act for
 })
 ```
 
-Returns five buckets for the half-open window `[from, to)`:
+By default (`detail: "text"`) the answer reads as a changelog of the half-open window `[from, to)`:
 
-- `createdFacts` — net-new active facts (excludes rows that were superseded in-window — those go in changedFacts so consecutive diffs never double-count)
-- `retractedFacts` — pure retracts with no successor
-- `changedFacts` — superseded transitions, each carrying `{ before, after }`
-- `newEntities` — `knowledge_entity.createdAt` in-window
-- `forgottenEntities` — GDPR-erased tombstones in-window
+- `changed:` one line per attribute that took a new value, oldest first: `ledger-sync — queue_backend: Redis Streams (2026-03-02) → NATS JetStream (2026-03-18)`;
+- `learned:` everything else brain learned, under one heading per day, each piece as its facts or as the turn it was read from, whichever is shorter. When the window's turns cost less than the facts restating them (a window spanning most of a memory), you get the turns themselves under `said`;
+- then `retracted:` (walked back, with the day), `new:` entities, `forgotten:` (GDPR-erased), and `expected to be over, not confirmed since:` (temporary states, like ill or away, whose expected end passed with nothing confirming it: worth asking about).
+
+`detail: "full"` returns the JSON buckets with ids:
+- `createdFacts`: net-new facts (rows superseded in-window go in `changedFacts`, so consecutive diffs never double-count);
+- `retractedFacts`: pure retracts with no successor;
+- `changedFacts`: superseded transitions, each carrying `{ before, after }`;
+- `newEntities`, `forgottenEntities`, `lapsedExpectations`, and `truncated` when a bucket hit its cap.
 
 The killer use case: a session-resume agent fetches `memory_diff(lastSessionEnd, now)` and uses the result to brief the user on what brain learned while they were away. Cheaper than re-fetching every relevant profile from scratch.
 
@@ -75,10 +80,11 @@ Returns the fact that was valid on that date.
 
 ```
 "On April 1, what did brain believe about this dispute?"
-→ get_entity_profile({ entityId: "...", asOf: "2026-04-01T00:00:00Z" })
+→ get_entity_timeline({ entityId: "...", detail: "compact" })
+  keep fact.recorded events with at <= 2026-04-01, drop those retracted by then
 ```
 
-Returns the snapshot of beliefs as of that wall-clock moment — including facts that have since been retracted but were believed then.
+`asOf` on the profile is valid time (what was true then), not a knowledge snapshot: a fact retracted since is not shown. The knowledge-time snapshot is the REST route `GET /v1/entities/:id?recordedAt=2026-04-01T00:00:00Z`, or the timeline events above.
 
 ### 3. Pre-incident reconstruction
 
@@ -91,21 +97,16 @@ Same as case 2 but with a sharper temporal frame — useful for postmortems wher
 
 ## Reading retracted facts in timeline
 
-`get_entity_timeline` returns the audit trail — retracted facts included. Each row carries:
+`get_entity_timeline` with `detail: "compact"` returns the audit trail as events — retractions included:
 
 ```json
-{
-  "factId": "...",
-  "predicate": "tier",
-  "object": "platinum",
-  "validFrom": "2026-04-01T00:00:00Z",
-  "validUntil": null,
-  "recordedAt": "2026-04-02T08:33:00Z",
-  "retractedAt": "2026-04-10T14:00:00Z",   // ← present means retracted
-  "retractionReason": "Source misattributed; was Bob, not Alice.",
-  "status": "retracted"
-}
+{ "type": "fact.recorded", "at": "2026-04-02T08:33:00Z", "validFrom": "2026-04-01T00:00:00Z",
+  "factId": "...", "predicate": "tier", "object": "platinum" }
+{ "type": "fact.retracted", "at": "2026-04-10T14:00:00Z", "factId": "...",
+  "reason": "Source misattributed; was Bob, not Alice." }
 ```
+
+`at` is when brain learned (or unlearned) it; `validFrom` is when it became true in the world.
 
 How to surface to the user:
 
@@ -137,7 +138,7 @@ Default to no `asOf`. Brain's "actual now" answers ~95% of agent questions corre
 
 ## "When did we first learn this?"
 
-The `recordedAt` axis on `get_entity_timeline` is the transaction-time question. Sorting the timeline by `recordedAt` gives you brain's learning order; sorting by `validFrom` gives the real-world order. They're often different — a fact "valid from 2026-01-01" might be `recordedAt = 2026-05-12` if a backfill landed late.
+The `at` of a timeline event is the transaction-time question. Sorting the events by `at` gives you brain's learning order; sorting by `validFrom` gives the real-world order. They're often different — a fact "valid from 2026-01-01" might be `recordedAt = 2026-05-12` if a backfill landed late.
 
 ## Companion docs
 

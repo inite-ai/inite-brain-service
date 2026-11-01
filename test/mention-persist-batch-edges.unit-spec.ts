@@ -21,7 +21,7 @@ describe('MentionPersistService batched edge persistence', () => {
     existingIdx?: number[];
     relateThrows?: boolean;
     /** Stored period of every existing edge (0164). */
-    stored?: { validFrom?: string; validUntil?: string };
+    stored?: { validFrom?: string; validUntil?: string; documentId?: string };
   }) {
     const queries: Q[] = [];
     const existing = new Set(opts.existingIdx ?? []);
@@ -36,7 +36,9 @@ describe('MentionPersistService batched edge persistence', () => {
         };
         // Multi-statement existence check (batched, indexed params f0/t0/k0…).
         if (
-          s.startsWith('SELECT id, validFrom, validUntil FROM knowledge_edge') &&
+          s.startsWith(
+            'SELECT id, validFrom, validUntil, source.documentId AS documentId, source.undocumented AS undocumented FROM knowledge_edge',
+          ) &&
           params.f0 !== undefined
         ) {
           const n = indexedCount();
@@ -113,7 +115,9 @@ describe('MentionPersistService batched edge persistence', () => {
     expect(
       queries[0]!.sql
         .trimStart()
-        .startsWith('SELECT id, validFrom, validUntil FROM knowledge_edge'),
+        .startsWith(
+          'SELECT id, validFrom, validUntil, source.documentId AS documentId, source.undocumented AS undocumented FROM knowledge_edge',
+        ),
     ).toBe(true);
     expect(queries[1]!.sql.trimStart().startsWith('RELATE')).toBe(true);
     // Edge content threaded through: kind + source with confidence.
@@ -133,6 +137,20 @@ describe('MentionPersistService batched edge persistence', () => {
     expect(ids).toEqual(['knowledge_edge:exist_0', 'knowledge_edge:exist_1']);
     expect(queries).toHaveLength(1);
     expect(queries[0]!.sql.trimStart().startsWith('SELECT')).toBe(true);
+  });
+
+  it('a turn restating a document-born edge marks it undocumented (0178), in one more write', async () => {
+    const { db, queries } = fakeDb({
+      existingIdx: [0],
+      stored: { documentId: 'source_document:d1' },
+    });
+    const extraction = {
+      edges: [{ fromEntityIndex: 0, toEntityIndex: 1, kind: 'knows', confidence: 0.9 }],
+    };
+    await run(make(), db, extraction, ['entity:a', 'entity:b']);
+    expect(queries).toHaveLength(2);
+    expect(queries[1]!.sql).toContain('source.undocumented = true');
+    expect((queries[1]!.params.ids as unknown[]).map(String)).toEqual(['knowledge_edge:exist_0']);
   });
 
   it('mixed → existing kept, only missing RELATEd', async () => {
@@ -255,7 +273,9 @@ describe('MentionPersistService batched edge persistence', () => {
     expect(
       queries[0]!.sql
         .trimStart()
-        .startsWith('SELECT id, validFrom, validUntil FROM knowledge_edge'),
+        .startsWith(
+          'SELECT id, validFrom, validUntil, source.documentId AS documentId, source.undocumented AS undocumented FROM knowledge_edge',
+        ),
     ).toBe(true);
   });
 

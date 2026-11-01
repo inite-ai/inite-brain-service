@@ -80,7 +80,7 @@ describe('FactResolverService — CONFLICT_MENTION_FACT_SLOT promotion', () => {
   }
 
   const resolveCalls = (queries: Array<{ sql: string; params: Record<string, unknown> }>) =>
-    queries.filter((q) => q.sql.includes('fn::resolve_fact('));
+    queries.filter((q) => q.sql.includes('fn::settle_fact('));
 
   const semanticsParam = (queries: Array<{ sql: string; params: Record<string, unknown> }>) =>
     resolveCalls(queries)[0]?.params.semantics;

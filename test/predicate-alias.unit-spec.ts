@@ -134,7 +134,7 @@ describe('predicate alias (W3 0082)', () => {
       const db = {
         query: jest.fn(async (sql: string, params: any) => {
           queries.push({ sql, params });
-          if (sql.includes('fn::resolve_facts')) {
+          if (sql.includes('fn::settle_facts')) {
             return [
               params.facts.map(() => ({
                 factId: 'knowledge_fact:b',
@@ -174,7 +174,7 @@ describe('predicate alias (W3 0082)', () => {
     it('per-fact path binds $predicate_alias as the 24th arg', async () => {
       const { svc, db, queries } = make();
       await svc.resolve(db as never, input('status', 'state'));
-      const q = queries.find((x) => x.sql.includes('fn::resolve_fact('));
+      const q = queries.find((x) => x.sql.includes('fn::settle_fact('));
       expect(q!.sql).toContain('$predicate_alias');
       expect(q!.params.predicate_alias).toBe('state');
       expect(q!.params.predicate).toBe('status');
@@ -186,7 +186,7 @@ describe('predicate alias (W3 0082)', () => {
         input('painted_seascape', 'painted'),
         input('researched'),
       ]);
-      const batch = queries.find((x) => x.sql.includes('fn::resolve_facts'));
+      const batch = queries.find((x) => x.sql.includes('fn::settle_facts'));
       expect(batch!.params.facts[0].predicate_alias).toBe('painted');
       expect(batch!.params.facts[0].predicate).toBe('painted_seascape');
       expect('predicate_alias' in batch!.params.facts[1]).toBe(false);

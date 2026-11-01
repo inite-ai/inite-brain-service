@@ -34,6 +34,7 @@ record_fact({
   validUntil: undefined,            // optional — leave open-ended unless the user said "until X"
   confidence: 0.9,                  // 0..1
   sourceVertical: "rent",
+  userId: "u_42",                   // the person whose memory this is; omit = shared with the whole tenant
   // Grounding inputs (claim-grounding plane) — name the observation
   // behind the claim so the fact counts as GROUNDED:
   conversationId: "conv-2026-05-01-support",   // the conversation you observed it in
@@ -63,7 +64,7 @@ turns), both available when the server runs `FACTS_API_ENABLED`.
 
 ### Picking confidence
 
-The conflict resolver scores each candidate against existing facts using `confidence × CONFLICT_WEIGHT_CONFIDENCE + sourceTrust × CONFLICT_WEIGHT_SOURCE_TRUST + recency + authority`. Confidence is the per-fact axis you control; pick it honestly:
+Confidence is not a vote: the conflict resolver decides by valid time (a later `validFrom` supersedes, a restated value corroborates, a same-moment disagreement goes to fact resolution) and never by score. Confidence is recorded on the fact as provenance; readers and consolidation use it, and so does the human adjudicating a dispute. Pick it honestly:
 
 | Situation | confidence |
 | --- | --- |
@@ -104,7 +105,10 @@ The dry-run is JS-side approximation of `fn::resolve_fact` — small fidelity ga
 
 For anything longer than one claim (meeting transcript, email body,
 markdown), don't loop `record_fact` — feed the whole document through
-the Source → Indexer → Candidates → Brain pipeline:
+the Source → Indexer → Candidates → Brain pipeline. `ingest_document`
+takes no `userId`: with a key not bound to one user, what it writes is
+shared with the whole tenant, so don't feed it one person's private
+material that way.
 
 ```ts
 ingest_document({

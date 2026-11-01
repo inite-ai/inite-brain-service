@@ -124,7 +124,7 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
   }
 
   const resolveCalls = (queries: Array<{ sql: string; params: Record<string, unknown> }>) =>
-    queries.filter((q) => q.sql.includes('fn::resolve_fact('));
+    queries.filter((q) => q.sql.includes('fn::settle_fact('));
 
   it('flag off: extracted-predicate passthrough, resolver call byte-identical', async () => {
     // Baseline pin: with the flag unset AND with it explicitly '0', the

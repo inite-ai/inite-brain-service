@@ -66,7 +66,7 @@ function makeResolver(outcome = 'INSERTED') {
   const db = {
     query: jest.fn(async (sql: string, params: any) => {
       queries.push({ sql, params });
-      if (sql.includes('fn::resolve_facts')) {
+      if (sql.includes('fn::settle_facts')) {
         return [
           params.facts.map((f: any, i: number) => ({
             factId: outcome === 'REJECTED' ? null : `knowledge_fact:b${i}_${f.object}`,
@@ -74,7 +74,7 @@ function makeResolver(outcome = 'INSERTED') {
           })),
         ];
       }
-      if (sql.includes('fn::resolve_fact(')) {
+      if (sql.includes('fn::settle_fact(')) {
         return [
           {
             factId: outcome === 'REJECTED' ? null : `knowledge_fact:single_${params.object}`,
@@ -128,7 +128,7 @@ describe('FactResolverService — grounding stamp (EVIDENCE_GROUNDING_STAMP)', (
     const { svc, db, queries } = makeResolver();
     await svc.resolveMany(db as never, [input('preference', 'a', {})]);
     // Byte-identity pin: one batched resolve, nothing else.
-    expect(queries.map((q) => q.sql)).toEqual(['RETURN fn::resolve_facts($facts, $cfg)']);
+    expect(queries.map((q) => q.sql)).toEqual(['RETURN fn::settle_facts($facts, $cfg)']);
     expect(stampQ(queries)).toHaveLength(0);
   });
 
@@ -179,7 +179,7 @@ describe('FactResolverService — grounding stamp (EVIDENCE_GROUNDING_STAMP)', (
     const { svc, db } = makeResolver();
     (db.query as jest.Mock).mockImplementation(async (sql: string, params: any) => {
       if (sql.includes('groundingStatus')) throw new Error('stamp down');
-      if (sql.includes('fn::resolve_facts')) {
+      if (sql.includes('fn::settle_facts')) {
         return [
           params.facts.map((f: any, i: number) => ({
             factId: `knowledge_fact:b${i}`,
