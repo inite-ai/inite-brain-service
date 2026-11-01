@@ -21,6 +21,7 @@ import { EmbedderService } from '../ai/embedder.service';
 import { BrainScope } from '../auth/api-key.types';
 import { registerCommunityTools } from './community-tools';
 import { MetricsService } from '../metrics/metrics.service';
+import { mcpToolMetrics, type ToolCallOutcome } from '../metrics/http-metrics';
 import { registerReadTools, READ_RESOURCE_ACTIONS, type ReadToolDeps } from './read-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { registerWriteTools, registerAdminTools } from './write-tools';
@@ -259,10 +260,23 @@ export class McpService {
         name as never,
         config as never,
         (async (...args: unknown[]) => {
+          const started = process.hrtime.bigint();
+          const observe = (outcome: ToolCallOutcome) => {
+            const labels = { tool: toolMetricName(name), outcome };
+            const tools = this.metrics ? mcpToolMetrics(this.metrics.registry) : undefined;
+            tools?.calls.inc(labels);
+            tools?.duration.observe(labels, Number(process.hrtime.bigint() - started) / 1e9);
+          };
           try {
-            return await handler(...args);
+            const result = await handler(...args);
+            observe((result as { isError?: unknown } | undefined)?.isError ? 'tool_error' : 'ok');
+            return result;
           } catch (e) {
-            if (e instanceof HttpException && e.getStatus() < 500) throw e;
+            if (e instanceof HttpException && e.getStatus() < 500) {
+              observe('client_error');
+              throw e;
+            }
+            observe('internal_error');
             const ref = randomUUID().slice(0, 8);
             this.logger.error(`tool ${name} failed (ref ${ref}): ${(e as Error).stack ?? e}`);
             return {
@@ -911,4 +925,9 @@ export class McpService {
     const bindings = await this.packToolsReader.installedPackTools(companyId);
     return packIds ? bindings.filter((b) => packIds.includes(b.packId)) : bindings;
   }
+}
+
+/** A registry tool keeps its name; anything else (a pack's tool, run_tool) is `other`: bounded series. */
+function toolMetricName(name: string): string {
+  return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? name : 'other';
 }

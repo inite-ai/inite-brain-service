@@ -11,6 +11,9 @@ import type { AuthorizationServerMetadata, RegisteredClient } from './mcp-oauth-
  * resource refreshes and revokes through this row, the way a static
  * provider's grant goes through the registry in oauth-providers.ts.
  */
+/** How the brain holds its client at an authorization server (0180). */
+export type ClientRegistration = 'dynamic' | 'operator' | 'metadata_document';
+
 export interface OAuthClientRow {
   id: unknown;
   resource: string;
@@ -24,7 +27,7 @@ export interface OAuthClientRow {
   clientSecret?: string | null;
   tokenAuth: 'none' | 'body' | 'basic';
   scopes?: string[];
-  registration: 'dynamic' | 'operator';
+  registration: ClientRegistration;
   allowPrivate?: boolean;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -67,7 +70,7 @@ export class OAuthClientRegistryService {
       resource: string;
       as: AuthorizationServerMetadata;
       client: RegisteredClient;
-      registration: 'dynamic' | 'operator';
+      registration: ClientRegistration;
       scopes: string[];
       allowPrivate: boolean;
     },
@@ -90,13 +93,16 @@ export class OAuthClientRegistryService {
     const row = await this.surreal.withCompany(companyId, async (db) => {
       const existing = await queryFirst<OAuthClientRow>(
         db,
-        `SELECT id FROM source_oauth_client WHERE resource = $resource LIMIT 1`,
+        `SELECT id, createdAt FROM source_oauth_client WHERE resource = $resource LIMIT 1`,
         { resource: p.resource },
       );
       if (existing) {
+        // CONTENT replaces the whole row, so the creation time is carried
+        // over; without it the required datetime made every replacement
+        // fail (a client re-made for a moved issuer was the first caller).
         const [updated] = await queryRows<OAuthClientRow>(db, `UPDATE $id CONTENT $content`, {
           id: existing.id,
-          content: { ...content, updatedAt: new Date() },
+          content: { ...content, createdAt: existing.createdAt, updatedAt: new Date() },
         });
         return updated;
       }

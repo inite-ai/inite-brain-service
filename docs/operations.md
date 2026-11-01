@@ -843,6 +843,19 @@ silently discarded on the next deploy. A value at or below the 5-minute
 re-auth margin is honoured but logged at error level: every scoped acquire
 then re-signs, which only the expiry e2e wants.
 
+## Request metrics and SLOs
+
+`/metrics` exports request RED metrics for every route and every MCP tool:
+`brain_http_requests_total{method,route,status_class}`,
+`brain_http_request_duration_seconds` (same labels),
+`brain_mcp_tool_calls_total{tool,outcome}` and
+`brain_mcp_tool_duration_seconds`. `route` is the matched route template
+(`/v1/facts/:id`), never the raw path, and a request no route matched is
+`unmatched`. An MCP call that fails inside the tool still answers HTTP 200,
+so `outcome="internal_error"` is the only place it shows. The SLOs built on
+them, their burn-rate alerts and the error budget policy are in
+[slo.md](slo.md).
+
 ## Capability probes
 
 The failure class: **the service reports healthy while a whole capability is

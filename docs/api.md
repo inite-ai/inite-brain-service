@@ -53,6 +53,25 @@ clients. A 5xx never carries internal detail: the message is generic and
 the cause is in the server log under the request id. A disabled surface
 answers 404, the same as an absent route.
 
+## Retrying writes: `Idempotency-Key`
+
+Any authenticated `POST`, `PUT`, `PATCH` or `DELETE` accepts an
+`Idempotency-Key` header (1–255 printable ASCII characters, e.g. a UUID),
+per [draft-ietf-httpapi-idempotency-key-header](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/):
+
+- the first request under a key runs, and its response (2xx or 4xx) is
+  kept for 24 hours, per credential;
+- a retry with the same key and the same request (method, route, query,
+  body) gets that response back with `Idempotent-Replayed: true`, and
+  nothing runs again;
+- the same key with a different request answers `422`; a retry while the
+  first is still running answers `409`;
+- a `5xx` is not kept, so retrying it runs the request again.
+
+Without the header nothing changes. MCP calls are not covered (the
+transport writes its own response); retry an MCP tool with a fresh
+JSON-RPC id. User forget erases the kept responses of requests made for
+that user.
 ## Health + observability
 
 | Endpoint                                    | Notes                                                                                                                                         |
@@ -339,7 +358,7 @@ the admin UI at brain-landing is the primary consumer):
 
 | Endpoint              | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ALL /mcp/:companyId` | Streamable HTTP MCP endpoint per tenant. Besides the static tool families, installed Domain Packs with a consented `mcpTools` section contribute tools named `<packId>__<toolName>` (behind `MCP_PACK_TOOLS_ENABLED`, default off) — see [mcp-pack-tools.md](mcp-pack-tools.md). Installing such a pack requires `acceptMcpTools: true` in the `POST /v1/admin/packs` (or `/from-registry`) body; a changed section on upgrade re-requires it. The unauthenticated `/health` probe lists only the static read baseline. |
+| `ALL /mcp/:companyId` | Streamable HTTP MCP endpoint per tenant. Besides the static tool families, installed Domain Packs with a consented `mcpTools` section contribute tools named `<packId>__<toolName>` (behind `MCP_PACK_TOOLS_ENABLED`, default off) — see [mcp-pack-tools.md](mcp-pack-tools.md). Installing such a pack requires `acceptMcpTools: true` in the `POST /v1/admin/packs` (or `/from-registry`) body; a changed section on upgrade re-requires it. The unauthenticated `/health` probe lists only the static read baseline. A `tools/call` for a tool the token's scopes do not reach answers `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="…", resource_metadata="…"` (MCP scope challenge): the scopes to step up to are the brain scopes already held plus the missing one. |
 
 ## Self-serve keys
 
