@@ -30,6 +30,23 @@ function sourceFiles(dir: string): string[] {
     return p.endsWith('.ts') ? [p] : [];
   });
 }
+/** Best of three wall-clock runs, in ms — the least disturbed by a loaded machine. */
+function bestOf3(fn: () => void): number {
+  let best = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const t = performance.now();
+    fn();
+    best = Math.min(best, performance.now() - t);
+  }
+  return best;
+}
+
+/** Growth of the cost from n to 4n: ~4 when linear, ~16 when quadratic. */
+function growth(make: (n: number) => string, n: number): number {
+  const small = bestOf3(() => redactSecrets(make(n)));
+  const large = bestOf3(() => redactSecrets(make(4 * n)));
+  return large / Math.max(small, 1);
+}
 const b64url = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
 
 describe('redactSecrets', () => {
@@ -66,10 +83,9 @@ describe('redactSecrets', () => {
   });
 
   it('scans a crafted run of JWT prefixes in linear time', () => {
-    const hostile = 'eyJ-'.repeat(50_000);
-    const started = Date.now();
-    expect(redactSecrets(hostile).text).toBe(hostile);
-    expect(Date.now() - started).toBeLessThan(1_000);
+    const hostile = (n: number) => 'eyJ-'.repeat(n);
+    expect(redactSecrets(hostile(1_000)).text).toBe(hostile(1_000));
+    expect(growth(hostile, 60_000)).toBeLessThan(8);
   });
 
   it('masks a JWT that follows other dotted text', () => {
@@ -78,10 +94,10 @@ describe('redactSecrets', () => {
   });
 
   it('scans unterminated PEM headers in linear time', () => {
-    const hostile = ('-----BEGIN ' + 'RSA PRIVATE KEY-----' + 'x'.repeat(40)).repeat(5_000);
-    const started = Date.now();
-    expect(redactSecrets(hostile).found).toBe(false);
-    expect(Date.now() - started).toBeLessThan(1_000);
+    const hostile = (n: number) =>
+      ('-----BEGIN ' + 'RSA PRIVATE KEY-----' + 'x'.repeat(40)).repeat(n);
+    expect(redactSecrets(hostile(100)).found).toBe(false);
+    expect(growth(hostile, 10_000)).toBeLessThan(8);
   });
 
   it.each([

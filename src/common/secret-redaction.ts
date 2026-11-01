@@ -170,17 +170,32 @@ function privateKeyLabelEnd(text: string, at: number): number {
 function maskPrivateKeys(text: string, mask: () => string): string {
   let out = '';
   let from = 0;
+  // The nearest END at or after the last position searched. END searches
+  // only ever move forward, so all of them together cost one pass.
+  let end = -2;
+  const endAtOrAfter = (pos: number): number => {
+    if (end === -2 || (end >= 0 && end < pos)) end = text.indexOf(PEM_END, pos);
+    return end;
+  };
   for (let begin = text.indexOf(PEM_BEGIN); begin >= 0; begin = text.indexOf(PEM_BEGIN, from)) {
     const headerEnd = privateKeyLabelEnd(text, begin + PEM_BEGIN.length);
-    const end = headerEnd < 0 ? -1 : text.indexOf(PEM_END, headerEnd);
-    const footerEnd = end < 0 ? -1 : privateKeyLabelEnd(text, end + PEM_END.length);
-    if (footerEnd < 0) {
-      out += text.slice(from, begin + PEM_BEGIN.length);
-      from = begin + PEM_BEGIN.length;
-      continue;
+    if (headerEnd >= 0) {
+      let close = endAtOrAfter(headerEnd);
+      if (close < 0) break; // no END anywhere ahead: no later BEGIN can close either
+      let footerEnd = privateKeyLabelEnd(text, close + PEM_END.length);
+      while (footerEnd < 0 && close >= 0) {
+        close = endAtOrAfter(close + PEM_END.length);
+        footerEnd = close < 0 ? -1 : privateKeyLabelEnd(text, close + PEM_END.length);
+      }
+      if (footerEnd >= 0) {
+        out += text.slice(from, begin) + mask();
+        from = footerEnd;
+        continue;
+      }
+      if (close < 0) break;
     }
-    out += text.slice(from, begin) + mask();
-    from = footerEnd;
+    out += text.slice(from, begin + PEM_BEGIN.length);
+    from = begin + PEM_BEGIN.length;
   }
   return out + text.slice(from);
 }
