@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 const ROOT = join(__dirname, '..');
 const DEPLOY = readFileSync(join(ROOT, '.github', 'workflows', 'deploy-brain.yml'), 'utf8');
-const CI = readFileSync(join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+const CI = readFileSync(join(ROOT, '.github', 'workflows', 'checks.yml'), 'utf8');
 const READER = join(ROOT, 'scripts', 'ci', 'read-deploy-manifest.mjs');
 
 /** Run the manifest reader over a manifest body; return its exit code. */

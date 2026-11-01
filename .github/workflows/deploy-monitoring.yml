@@ -5,12 +5,17 @@ name: Deploy monitoring
 # own runner, same pattern as deploy-brain.yml: no SSH, just rsync the
 # checked-out monitoring/ dir into the stack path and compose up.
 
+# PRODUCTION MOVES ON A RELEASE, NOT ON A MERGE (family standard, 29.10.2026;
+# inite-shared/.planning/family-standards-2026-10.md), like the engine
+# (deploy-brain.yml). release-please.yml calls this workflow in the run that
+# cut the release (a release made with GITHUB_TOKEN starts no `release`
+# workflow); `release: published` is for a release a person publishes. The
+# `changes` job keeps the old path filter, measured against the previous
+# release. `workflow_dispatch` deploys, restarts or shows logs by hand.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'monitoring/**'
-      - '.github/workflows/deploy-monitoring.yml'
+  release:
+    types: [published]
+  workflow_call:
   workflow_dispatch:
     inputs:
       action:
@@ -18,9 +23,10 @@ on:
         required: false
         default: 'deploy'
 
+# One monitoring deploy at a time, queued; never cancelled halfway.
 concurrency:
   group: deploy-monitoring
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   STACK_DIR: /opt/projects/inite-monitoring
@@ -31,7 +37,57 @@ permissions:
   contents: read
 
 jobs:
+  # Only a commit main took through a green ci (or a released tag) goes out.
+  gate:
+    uses: inite-ai/inite-shared/.github/workflows/release-gate.yml@main
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+
+  # What changed since the previous release (it is what production runs):
+  # the same paths that used to trigger this workflow on a push, monitoring/ and this workflow.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      monitoring: ${{ steps.diff.outputs.monitoring }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Paths changed since the previous release
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          # The newest published release behind this commit (not this commit
+          # itself); without one, everything counts as changed.
+          base=""
+          for tag in $(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 20 --json tagName -q '.[].tagName'); do
+            git fetch -q origin "refs/tags/$tag:refs/tags/$tag" || continue
+            c=$(git rev-list -n 1 "$tag")
+            if [ "$c" != "$SHA" ] && git merge-base --is-ancestor "$c" "$SHA"; then base="$c"; break; fi
+          done
+          if [ -z "$base" ]; then
+            echo "no previous release behind ${SHA:0:8}: deploying"
+            echo "monitoring=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base" "$SHA" | grep -E '^(monitoring/|\.github/workflows/deploy-monitoring\.yml$)' || true)
+          echo "since ${base:0:8}:"; echo "${changed:-  (nothing for this lane)}"
+          if [ -n "$changed" ]; then echo "monitoring=true"; else echo "monitoring=false"; fi >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: [gate, changes]
+    # A release deploys when monitoring/ changed; a dispatch always runs, and
+    # restart and logs need no green gate (they ship nothing new).
+    if: |
+      always() && (
+        (github.event_name != 'workflow_dispatch' && needs.gate.result == 'success' && needs.changes.outputs.monitoring == 'true') ||
+        (github.event_name == 'workflow_dispatch' && (needs.gate.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs'))
+      )
     runs-on: [self-hosted, sfo]
 
     steps:
@@ -152,3 +208,12 @@ jobs:
           docker-compose ps
           docker-compose logs --tail=50
           exit 1
+
+  # From outside the host (family verify-deploy): Grafana answers on its
+  # public route.
+  verify:
+    needs: deploy
+    if: needs.deploy.result == 'success' && github.event.inputs.action != 'logs' && github.event.inputs.action != 'restart'
+    uses: inite-ai/inite-shared/.github/workflows/verify-deploy.yml@main
+    with:
+      urls: https://brain.inite.ai/grafana/api/health

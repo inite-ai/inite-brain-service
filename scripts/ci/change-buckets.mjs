@@ -48,7 +48,7 @@ export const SKIP_EXCEPTIONS = ['docs/openapi.json', 'brain-landing/public/opena
  * every gate, or the edit is unreviewable — you cannot see the new
  * pipeline's verdict on the PR that introduces it.
  */
-export const ALWAYS_EVERYTHING = ['.github/workflows/ci.yml', 'scripts/ci/'];
+export const ALWAYS_EVERYTHING = ['.github/workflows/checks.yml', 'scripts/ci/'];
 
 function matchesGlob(file, glob) {
   if (glob.endsWith('/**')) {

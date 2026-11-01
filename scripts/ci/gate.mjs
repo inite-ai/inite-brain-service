@@ -25,7 +25,7 @@
 // was expected and came back 'skipped' is case (b) and fails the gate.
 //
 // The expectation table below duplicates each job's `if:` condition, and
-// duplication rots. test/ci-gate-truth.unit-spec.ts parses ci.yml and fails
+// duplication rots. test/ci-gate-truth.unit-spec.ts parses checks.yml and fails
 // if the table and the YAML disagree, if a job exists that the gate does not
 // judge, or if the gate judges a job that no longer exists.
 

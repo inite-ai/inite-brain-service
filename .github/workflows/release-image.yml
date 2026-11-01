@@ -15,7 +15,7 @@ name: Release image
 #   * pull_request — only when something that shapes the image changes. It
 #     builds and smoke-tests BOTH architectures and publishes nothing, so a
 #     change that breaks the arm64 image is found on its PR, not on the next
-#     release. (ci.yml's `docker` job keeps covering amd64 on every engine PR.)
+#     release. (checks.yml's `docker` job keeps covering amd64 on every engine PR.)
 #
 # How the two architectures are built — native runners, not emulation:
 # each platform builds on a runner of its own architecture
@@ -100,7 +100,7 @@ jobs:
 
       # Build for this runner's own platform and load it into the local
       # daemon, so the smoke test below runs the very build that is pushed.
-      # The amd64 leg also reads the registry cache ci.yml's main publish
+      # The amd64 leg also reads the registry cache checks.yml's main publish
       # writes (amd64-only); both legs keep a per-arch GHA cache.
       - name: Build (${{ matrix.platform }})
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -116,7 +116,7 @@ jobs:
           cache-to: type=gha,scope=release-${{ steps.pair.outputs.pair }},mode=max
 
       # Boot the image against SurrealDB (the same pinned, multi-arch image
-      # docker-compose.yml and ci.yml use) and require two things:
+      # docker-compose.yml and checks.yml use) and require two things:
       #   1. /health answers — the process is up and SurrealDB is reachable;
       #   2. the local ONNX models warm up. onnxruntime-node is a native
       #      binding (bin/napi-v3/linux/{x64,arm64}); when it fails to load,

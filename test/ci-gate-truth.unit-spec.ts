@@ -12,7 +12,7 @@ import { join } from 'node:path';
  *
  * Two ways that arrangement goes wrong, both silent, both checked here:
  *
- *   1. A new job is added to ci.yml and nobody adds it to the gate's
+^ *   1. A new job is added to checks.yml and nobody adds it to the gate's
  *      `needs:`. It reports its own red X, main's protection does not
  *      require it by name, and the PR merges green. The gate must know
  *      about every job.
@@ -25,7 +25,7 @@ import { join } from 'node:path';
  */
 
 const ROOT = join(__dirname, '..');
-const CI_YML = readFileSync(join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+const CI_YML = readFileSync(join(ROOT, '.github', 'workflows', 'checks.yml'), 'utf8');
 const GATE_SRC = readFileSync(join(ROOT, 'scripts', 'ci', 'gate.mjs'), 'utf8');
 const GATE = join(ROOT, 'scripts', 'ci', 'gate.mjs');
 
@@ -123,7 +123,7 @@ function allGreen(selection: {
 }
 
 describe('the required check keeps its name and covers every job', () => {
-  it('ci.yml still defines a job literally named build-test', () => {
+  it('checks.yml still defines a job literally named build-test', () => {
     // Renaming this deletes a required status check from main's protection.
     // GitHub's failure mode is the dangerous one: the branch stops
     // requiring the gate rather than blocking on it.
