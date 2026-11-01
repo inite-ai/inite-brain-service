@@ -103,12 +103,13 @@ function prune(guard?: DistributedLeaseGuard) {
 describe('OutcomePruneService — nightly prune under the distributed lease', () => {
   beforeEach(() => {
     process.env.OUTCOME_TELEMETRY_ENABLED = '1';
-    // The decision leg (0119) is default-on; this suite isolates the
-    // other legs, so it says so rather than relying on a default.
+    // The decision (0119) and tool-observation (0111) legs are default-on;
+    // this suite isolates the outcome leg, so it says so.
     process.env.OUTCOME_DECISION_CAPTURE = '0';
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
   });
   afterEach(() => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     delete process.env.OUTCOME_DECISION_CAPTURE;
   });
 
@@ -128,7 +129,7 @@ describe('OutcomePruneService — nightly prune under the distributed lease', ()
   });
 
   it('the master flag is checked before the lease: a disabled prune never touches it', async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     const { guard, run } = fakeGuard();
     const { svc } = prune(guard);
     expect(await svc.runNightly()).toEqual({ tenants: 0, pruned: 0 });

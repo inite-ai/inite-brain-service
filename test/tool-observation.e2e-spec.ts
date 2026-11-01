@@ -31,12 +31,15 @@ describe('tool_observation — content-free evidence anchors (e2e)', () => {
   beforeAll(async () => {
     f = await createApp({ companyId: 'co_toolobs_e2e' });
     process.env.TOOL_OBSERVATIONS_ENABLED = '1';
+    // Production keeps a content excerpt (TOOL_OBSERVATION_CONTENT); the
+    // content-free shape is what this suite pins.
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
     process.env.DOCUMENT_INGEST_ENABLED = '1';
   });
 
   afterAll(async () => {
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
-    delete process.env.TOOL_OBSERVATION_CONTENT;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
+    process.env.TOOL_OBSERVATION_CONTENT = '0';
     delete process.env.DOCUMENT_INGEST_ENABLED;
     if (f) await f.close();
   });
@@ -93,7 +96,7 @@ describe('tool_observation — content-free evidence anchors (e2e)', () => {
 
   it('master flag off ⇒ an MCP tool call writes ZERO rows', async () => {
     const before = (await allRows()).length;
-    delete process.env.TOOL_OBSERVATIONS_ENABLED;
+    process.env.TOOL_OBSERVATIONS_ENABLED = '0';
     await callTool('list_procedures', {});
     await new Promise((r) => setTimeout(r, 300));
     expect((await allRows()).length).toBe(before);
