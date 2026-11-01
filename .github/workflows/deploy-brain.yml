@@ -183,7 +183,6 @@ jobs:
           # ── L0 episode substrate + read APIs ──
           EPISODE_SUBSCRIPTIONS_ENABLED=1
           LIVE_SUBSCRIPTIONS_ENABLED=1
-          AUDIT_CHANGEFEED_ENABLED=1
           # ── Ingest / extraction quality ──
           EXTRACTION_OBJECT_NORMALIZE=1
           # The open (dialogue) extraction profile: the model coins a
@@ -353,11 +352,6 @@ jobs:
           PROVENANCE_SUPPORT_EDGES=1
           PROVENANCE_SUPPORT_GRAPH_READ=1
           # ── Outcome telemetry + tool observations ──
-          OUTCOME_TELEMETRY_ENABLED=1
-          OUTCOME_RETRIEVED_EVENTS=1
-          OUTCOME_TX_WRITES=1
-          TOOL_OBSERVATIONS_ENABLED=1
-          TOOL_OBSERVATION_CONTENT=1
           # ── Fovea optics + serving integrity ──
           FOVEA_FOCUS_CAPTURE=1
           FOVEA_ADAPTIVE_L3=1

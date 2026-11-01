@@ -55,8 +55,8 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
   });
 
   afterAll(async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
-    delete process.env.OUTCOME_RETRIEVED_EVENTS;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
+    process.env.OUTCOME_RETRIEVED_EVENTS = '0';
     delete process.env.SEARCH_USAGE_RECORDING_ENABLED;
     if (f) await f.close();
   });
@@ -236,7 +236,7 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
       expect(usage!.readCount).toBeGreaterThanOrEqual(1);
     } finally {
       delete process.env.SEARCH_USAGE_RECORDING_ENABLED;
-      delete process.env.OUTCOME_RETRIEVED_EVENTS;
+      process.env.OUTCOME_RETRIEVED_EVENTS = '0';
     }
   });
 
@@ -430,7 +430,7 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
         contradictedCount: 0,
       });
     } finally {
-      delete process.env.OUTCOME_TX_WRITES;
+      process.env.OUTCOME_TX_WRITES = '0';
     }
   });
 
@@ -458,12 +458,12 @@ describe('memory_outcome — outcome telemetry recording and cascade', () => {
       expect(await rawRows(factId)).toHaveLength(0);
       expect(await statFor(factId)).toBeNull();
     } finally {
-      delete process.env.OUTCOME_TX_WRITES;
+      process.env.OUTCOME_TX_WRITES = '0';
     }
   });
 
   it('(e) master off ⇒ zero rows written (byte-identical)', async () => {
-    delete process.env.OUTCOME_TELEMETRY_ENABLED;
+    process.env.OUTCOME_TELEMETRY_ENABLED = '0';
     try {
       const { factId } = await ingestFact('outcome_off_subj', 'name', 'Outcome Off Subject');
       await vote(factId, 'helpful');
