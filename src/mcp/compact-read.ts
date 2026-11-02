@@ -315,6 +315,13 @@ export function renderFocus(p: {
   /** Beliefs the query reaches, with the cross-encoder's relevance — ranked with the facts. */
   beliefs?: FocusBelief[];
   opts?: FocusOptions;
+  /**
+   * How the reader gets what was left out, in the calling tool's own
+   * arguments. search_knowledge answers to `detail: "compact"`; synthesize
+   * and search_multi_hop do not — the hint they printed sent an agent to a
+   * value their schema refuses (found on a harness HaluMem run).
+   */
+  more?: string | undefined;
 }): string {
   const { kept, beliefs, order, omitted } = focusSelect(p.out, p.opts, p.beliefs);
   const degraded = degradedNote(p.out.degraded);
@@ -341,7 +348,7 @@ export function renderFocus(p: {
   const links = connectingLinks(kept, p.opts?.topRelations ?? true);
   if (links.length > 0) lines.push(`links: ${links.join('; ')}`);
   lines.push(...linked);
-  if (omitted > 0) lines.push(`(+${omitted} more: detail "compact")`);
+  if (omitted > 0) lines.push(`(+${omitted} more: ${p.more ?? 'detail "compact"'})`);
   if (degraded) lines.push(degraded);
   return lines.join('\n');
 }
