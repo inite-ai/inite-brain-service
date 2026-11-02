@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import type OpenAI from 'openai';
+import { TenantBudgetExceeded } from '../src/ai/tenant-llm-budget';
 import { SynthesizeService, SynthesizeResult } from '../src/synthesize/synthesize.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SynthesizeDto } from '../src/synthesize/dto/synthesize.dto';
@@ -103,6 +104,24 @@ describe('SynthesizeService', () => {
       citations: [],
       results: [],
     });
+  });
+
+  it('a tenant past its daily model budget gets no answer and the evidence to answer from', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
+    ]);
+    const { svc, stub } = makeSvc(search, {}, []);
+    stub.client.chat.completions.create = async () => {
+      throw new TenantBudgetExceeded();
+    };
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
+    expect(out.answer).toBeNull();
+    expect(out.reason).toBe('model_budget');
+    expect(out.results.length).toBeGreaterThan(0);
   });
 
   it('counts a served cache hit as a terminal `ok` so the MRI denominator includes it (R3 P1)', async () => {

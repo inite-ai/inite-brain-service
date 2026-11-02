@@ -127,6 +127,7 @@ export type SynthesisReason =
   | 'verifier_partial'
   | 'generator_error'
   | 'harness_mode'
+  | 'model_budget'
   | 'verifier_error';
 
 /** A claim's reference to the fact it rests on — `CitationSchema`. */

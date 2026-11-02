@@ -5,6 +5,7 @@ import { JobWorkerPool } from './job-worker-pool.service';
 import { MetricsService } from '../metrics/metrics.service';
 import type { RegisteredHandler } from './worker-loop.types';
 import { batchOutcomeOf, describeBatchOutcome } from '../common/batch-outcome';
+import { runWithTenant } from '../common/tenant-context';
 
 /**
  * JobDispatcherService — runs a single claimed job to completion. Owns
@@ -134,7 +135,8 @@ export class JobDispatcherService {
               attempts: ctx.attempts,
               workerId: ctx.workerId,
             })
-          : await reg.handler(ctx);
+          : // A model call the handler makes is charged to the job's tenant.
+            await runWithTenant(ctx.companyId, () => reg.handler(ctx));
       clearInterval(renewTimer);
       if (cancelRequested) {
         consumerSpan.setAttribute('job.outcome', 'cancelled');

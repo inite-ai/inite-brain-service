@@ -205,9 +205,10 @@ export class ApiKeyGuard implements CanActivate {
  * outside the correlation middleware.
  */
 function stampIdentity(record: ApiKeyRecord): void {
-  if (!record.userId && !record.actorId && !record.circle) return;
   const store = getRequestContext();
   if (!store) return;
+  // The model budget charges a call made outside a tenant connection to it.
+  store.companyId = record.companyId;
   if (record.userId) store.authUserId = record.userId;
   if (record.actorId) store.authActorId = record.actorId;
   // Trust circles: writes are scoped to it, reads bound to it (circle-scope.ts).
