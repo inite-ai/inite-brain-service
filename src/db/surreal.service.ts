@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { runWithTenant } from '../common/tenant-context';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
 import { SchemaMigrator } from './migrator.service';
@@ -445,7 +446,10 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // returned reference.
       conn = await this.ensureSession(conn, 'root');
       await conn.use({ namespace: this.namespace, database });
-      return await fn(conn);
+      // The work inside runs for this tenant (tenant-context.ts): a model
+      // call it makes is charged to it.
+      const live = conn;
+      return await runWithTenant(companyId, () => fn(live));
     } finally {
       this.releaseRoot(conn);
     }
@@ -540,7 +544,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
         scopes: [...scopes],
         policyDeny,
       });
-      return await fn(conn);
+      return await runWithTenant(companyId, () => fn(conn));
     } finally {
       this.releaseScoped(conn);
     }

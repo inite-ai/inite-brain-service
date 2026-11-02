@@ -16,30 +16,44 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SchemaMigrator } from '../src/db/migrator.service';
 import { migrationLeaseName, type MigrationLock } from '../src/db/migration-lock';
+import { migrationChecksum, migrationDriftSnapshot } from '../src/db/migration-checksum';
 
 interface QueryCall {
   sql: string;
   params?: Record<string, unknown> | undefined;
 }
 
-function makeFakeConn(initiallyApplied: string[] = []) {
+function makeFakeConn(
+  initiallyApplied: string[] = [],
+  checksums: Record<string, string | undefined> = {},
+) {
   const calls: QueryCall[] = [];
-  const applied: Array<{ migrationId: string; name: string }> = initiallyApplied.map((id) => ({
-    migrationId: id,
-    name: `${id}_seeded.surql`,
-  }));
+  const applied: Array<{ id: string; migrationId: string; name: string; checksum?: string }> =
+    initiallyApplied.map((id) => ({
+      id: `schema_migrations:${id}`,
+      migrationId: id,
+      name: `${id}_seeded.surql`,
+      ...(checksums[id] !== undefined ? { checksum: checksums[id] } : {}),
+    }));
   const conn = {
     async query<T>(sql: string, params?: Record<string, unknown>): Promise<T> {
       calls.push({ sql, params });
-      if (sql.includes('SELECT migrationId FROM schema_migrations')) {
-        return [applied.map((a) => ({ migrationId: a.migrationId }))] as unknown as T;
+      if (sql.startsWith('SELECT') && sql.includes('FROM schema_migrations')) {
+        return [applied.map((a) => ({ ...a }))] as unknown as T;
+      }
+      if (sql.startsWith('UPDATE $row SET checksum')) {
+        const row = applied.find((a) => a.id === params!.row);
+        if (row) row.checksum = params!.sum as string;
+        return [[]] as unknown as T;
       }
       // One apply = one BEGIN/COMMIT batch carrying the file's DDL and
       // its ledger row, so the row appears exactly when the batch commits.
       if (sql.includes('CREATE schema_migrations CONTENT')) {
         applied.push({
+          id: `schema_migrations:${params!.mig_id as string}`,
           migrationId: params!.mig_id as string,
           name: params!.mig_name as string,
+          checksum: params!.mig_sum as string,
         });
         return [[applied[applied.length - 1]]] as unknown as T;
       }
@@ -218,7 +232,11 @@ describe('SchemaMigrator', () => {
     const rawQuery = conn.query.bind(conn);
     conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
       if (sql.includes('CREATE schema_migrations CONTENT')) {
-        applied.push({ migrationId: '0001', name: '0001_baseline.surql' });
+        applied.push({
+          id: 'schema_migrations:0001',
+          migrationId: '0001',
+          name: '0001_baseline.surql',
+        });
         throw new Error('The query was not executed due to a failed transaction');
       }
       return rawQuery<T>(sql, params);
@@ -322,7 +340,7 @@ describe('SchemaMigrator', () => {
         apply(target, thisArg, args: [string, number]) {
           // Read first, arbitrate second — but nothing may be APPLIED
           // before the lease is held.
-          expect(calls.some((c) => c.sql.includes('SELECT migrationId'))).toBe(true);
+          expect(calls.some((c) => c.sql.includes('FROM schema_migrations'))).toBe(true);
           expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(false);
           return Reflect.apply(target, thisArg, args) as Promise<boolean>;
         },
@@ -340,7 +358,11 @@ describe('SchemaMigrator', () => {
       lock.tryAcquire = async (name, ttl) => {
         const refused = await busy(name, ttl);
         // The holder commits the last pending file while we back off.
-        applied.push({ migrationId: '0001', name: '0001_baseline.surql' });
+        applied.push({
+          id: 'schema_migrations:0001',
+          migrationId: '0001',
+          name: '0001_baseline.surql',
+        });
         return refused;
       };
 
@@ -361,7 +383,11 @@ describe('SchemaMigrator', () => {
       const lock = makeFakeLock({ failAcquires: Number.MAX_SAFE_INTEGER });
       const failing = lock.tryAcquire.bind(lock);
       lock.tryAcquire = async (name, ttl) => {
-        applied.push({ migrationId: '0001', name: '0001_baseline.surql' });
+        applied.push({
+          id: 'schema_migrations:0001',
+          migrationId: '0001',
+          name: '0001_baseline.surql',
+        });
         return failing(name, ttl);
       };
 
@@ -498,5 +524,52 @@ describe('migrationLeaseName', () => {
     // Folding alone maps both of these to the same slug; the appended
     // digest is what stops two tenants sharing one migration lease.
     expect(migrationLeaseName('brain', 'co_a-b')).not.toBe(migrationLeaseName('brain', 'co_a_b'));
+  });
+});
+
+describe('SchemaMigrator — checksums', () => {
+  let dir: string | null = null;
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  it('records the checksum of every file it applies', async () => {
+    dir = await makeMigrationsDir({ '0001_a.surql': 'DEFINE TABLE a;' });
+    const { conn, applied } = makeFakeConn();
+    await new SchemaMigrator(dir).migrate(conn as never);
+    expect(applied[0]!.checksum).toBe(migrationChecksum('DEFINE TABLE a;'));
+  });
+
+  it('stamps a row applied before checksums with the current file, once', async () => {
+    dir = await makeMigrationsDir({ '0001_a.surql': 'DEFINE TABLE a;' });
+    const { conn, applied, calls } = makeFakeConn(['0001']);
+    const migrator = new SchemaMigrator(dir);
+    await migrator.migrate(conn as never);
+    await migrator.migrate(conn as never);
+    expect(applied[0]!.checksum).toBe(migrationChecksum('DEFINE TABLE a;'));
+    expect(calls.filter((c) => c.sql.startsWith('UPDATE $row SET checksum'))).toHaveLength(1);
+  });
+
+  it('reports an edited shipped migration as drift — never re-applies it, never fails', async () => {
+    dir = await makeMigrationsDir({ '0007_edited.surql': 'DEFINE TABLE b;' });
+    const { conn, calls } = makeFakeConn(['0007'], {
+      '0007': migrationChecksum('DEFINE TABLE a;'),
+    });
+    const before = migrationDriftSnapshot().get('0007') ?? 0;
+    const result = await new SchemaMigrator(dir).migrate(conn as never);
+    expect(result.applied).toEqual([]);
+    expect(migrationDriftSnapshot().get('0007')).toBe(before + 1);
+    expect(calls.some((c) => c.sql.includes('DEFINE TABLE b'))).toBe(false);
+  });
+
+  it('a matching checksum is neither drift nor rewritten', async () => {
+    dir = await makeMigrationsDir({ '0009_same.surql': 'DEFINE TABLE c;' });
+    const { conn, calls } = makeFakeConn(['0009'], {
+      '0009': migrationChecksum('DEFINE TABLE c;'),
+    });
+    await new SchemaMigrator(dir).migrate(conn as never);
+    expect(migrationDriftSnapshot().get('0009')).toBeUndefined();
+    expect(calls.some((c) => c.sql.startsWith('UPDATE $row'))).toBe(false);
   });
 });

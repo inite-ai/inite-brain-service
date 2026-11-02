@@ -14,6 +14,14 @@
  * and `/metrics` reads it through a collect-time gauge.
  */
 import { HarnessModeRefusal, serverModelsRefused } from '../common/extraction-source';
+import { currentTenant } from '../common/tenant-context';
+import {
+  TenantBudgetExceeded,
+  chargeTenant,
+  noteBudgetRefusal,
+  tenantDailyTokenBudget,
+  tenantOverBudget,
+} from './tenant-llm-budget';
 
 export interface LlmUsageRow {
   model: string;
@@ -106,6 +114,12 @@ export function resetLlmUsage(): void {
   rows.clear();
 }
 
+/** Input plus output tokens of a chat response — what a budget counts. */
+function chatTokens(usage: unknown): number {
+  const u = (usage ?? {}) as UsageLike;
+  return num(u.prompt_tokens) + num(u.completion_tokens);
+}
+
 function num(x: unknown): number {
   return typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0;
 }
@@ -118,12 +132,17 @@ type Create = (body: { model?: unknown }, opts?: unknown) => Promise<unknown>;
  * router, so a call the fallback served is counted under the model asked.
  * A stream has no usage on its return value and is counted as a call only.
  * Harness mode refuses every chat call here, before the network — the one
- * place all clients pass through (serverModelsRefused).
+ * place all clients pass through (serverModelsRefused). So does a tenant
+ * past its daily model budget (tenant-llm-budget.ts), and a chat call's
+ * tokens are charged to the tenant of the work that made it.
  */
-export function withUsageLedger(target: {
-  chat: { completions: unknown };
-  embeddings: unknown;
-}): void {
+export function withUsageLedger(
+  target: {
+    chat: { completions: unknown };
+    embeddings: unknown;
+  },
+  dailyBudget: () => number = () => tenantDailyTokenBudget(),
+): void {
   const patch = (holder: unknown, kind: 'chat' | 'embed') => {
     const h = holder as { create: Create };
     const inner = h.create.bind(holder);
@@ -134,9 +153,17 @@ export function withUsageLedger(target: {
         recordLlmError({ kind, model, site });
         throw new HarnessModeRefusal();
       }
+      const tenant = kind === 'chat' ? currentTenant() : undefined;
+      if (tenant && tenantOverBudget(tenant, dailyBudget())) {
+        recordLlmError({ kind, model, site });
+        noteBudgetRefusal();
+        throw new TenantBudgetExceeded();
+      }
       try {
         const res = await inner(body, opts);
-        recordLlmUsage({ kind, model, site }, (res as { usage?: unknown } | undefined)?.usage);
+        const usage = (res as { usage?: unknown } | undefined)?.usage;
+        recordLlmUsage({ kind, model, site }, usage);
+        if (tenant) chargeTenant(tenant, chatTokens(usage));
         return res;
       } catch (err) {
         recordLlmError({ kind, model, site });

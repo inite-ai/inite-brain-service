@@ -26,8 +26,11 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
 
 1. **Never edit a shipped migration.** Schema changes are a NEW file
    `src/db/migrations/NNNN_description.surql` (next free number, idempotent,
-   `IF NOT EXISTS`). The migrator records applied ids per tenant and silently
-   skips edited files, so an edit is invisible in production.
+   `IF NOT EXISTS`). The migrator records applied ids per tenant and skips
+   a file it has seen, so an edit never reaches production: every file's
+   checksum is pinned in `test/golden/migration-checksums.json`
+   (`test/migration-checksums.unit-spec.ts` fails on an edit), and a tenant
+   whose applied file differs logs the id and shows in `brain_migration_drift`.
 2. **Never weaken tenancy or per-user scope.** Every tenant is its own
    database (`NS=brain`, `DB=co_<companyId>`, reached only through
    `SurrealService.withCompany`). Omitting `userId` must keep returning
@@ -203,7 +206,9 @@ if integrator-facing, add the path in `scripts/build-openapi.ts` and run
 document in [docs/api.md](docs/api.md).
 
 **Add a migration (red zone):** `src/db/migrations/<next NNNN>_<what>.surql`,
-header comment explaining semantics and backfill, idempotent statements.
+header comment explaining semantics and backfill, idempotent statements; add
+the line `test/migration-checksums.unit-spec.ts` prints to
+`test/golden/migration-checksums.json`.
 `src/db/schema.surql` is reference-only and not applied. Known SurrealDB
 traps live in existing migration headers — read the last few first.
 

@@ -9777,6 +9777,7 @@
           "verifier_partial",
           "generator_error",
           "harness_mode",
+          "model_budget",
           "verifier_error"
         ],
         "type": "string"
