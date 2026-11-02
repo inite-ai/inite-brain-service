@@ -528,18 +528,17 @@ describe('lane registry completeness', () => {
 });
 
 describe('T7 instruction lane', () => {
-  it('joins the default profile lane set only via the boot env keys', () => {
-    const off = resolveRetrievalProfile({} as NodeJS.ProcessEnv);
+  it('joins the default profile lane set unless the boot env keys switch it off', () => {
+    const off = resolveRetrievalProfile({
+      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '0',
+    } as NodeJS.ProcessEnv);
     expect(off.lanes.size).toBe(0);
     const routerOnly = resolveRetrievalProfile({
-      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+      SYNTHESIZE_INSTRUCTION_LANE: '0',
     } as NodeJS.ProcessEnv);
     expect(routerOnly.lanes.has('temporal')).toBe(true);
     expect(routerOnly.lanes.has('instruction')).toBe(false);
-    const withInstruction = resolveRetrievalProfile({
-      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
-      SYNTHESIZE_INSTRUCTION_LANE: '1',
-    } as NodeJS.ProcessEnv);
+    const withInstruction = resolveRetrievalProfile({} as NodeJS.ProcessEnv);
     expect(withInstruction.lanes.has('instruction')).toBe(true);
   });
 
@@ -692,9 +691,11 @@ describe('G4 strategy lane — profile membership gating', () => {
   it('joins the lane set only under router + STRATEGY_MEMORY_ENABLED', () => {
     const routerOnly = resolveRetrievalProfile({
       SYNTHESIZE_ANSWER_ROUTER_ENABLED: '1',
+      STRATEGY_MEMORY_ENABLED: '0',
     } as NodeJS.ProcessEnv);
     expect(routerOnly.lanes.has('strategy')).toBe(false);
     const flagOnly = resolveRetrievalProfile({
+      SYNTHESIZE_ANSWER_ROUTER_ENABLED: '0',
       STRATEGY_MEMORY_ENABLED: '1',
     } as NodeJS.ProcessEnv);
     expect(flagOnly.lanes.size).toBe(0);

@@ -423,7 +423,7 @@ export class PromotionRunnerService {
   }
 
   /**
-   * Typed support graph (PROVENANCE_SUPPORT_EDGES, default off): mirror
+   * Typed support graph (PROVENANCE_SUPPORT_EDGES, default on): mirror
    * the EXACT derivedFrom array just written as
    * summary-derived_from->member edges. Best-effort — the summary
    * already landed and the members must still be compacted, so a mirror

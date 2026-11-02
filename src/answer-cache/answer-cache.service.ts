@@ -6,7 +6,7 @@ import { StringRecordId, type Surreal } from 'surrealdb';
 import { GENERAL_INDEXER_ID } from '../indexers/candidate.types';
 import { SurrealService } from '../db/surreal.service';
 import { traceArtifact } from '../common/debug-trace';
-import { envFlagEnabled } from '../common/env-validation';
+import { envFlagNotDisabled } from '../common/env-validation';
 import { pinUserScope } from '../auth/user-scope';
 import { makeRowPolicyFilter, type RowPolicyFilter } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
@@ -385,7 +385,7 @@ export class AnswerCacheService {
   }): Promise<AnswerCacheBeginResult | undefined> {
     // Read per-request (never captured at boot) so a live env flip
     // lands on the next request — runtimeMutable, catalog-verified.
-    if (!envFlagEnabled(this.configService.get<string>('SYNTHESIZE_ANSWER_CACHE'))) {
+    if (!envFlagNotDisabled(this.configService.get<string>('SYNTHESIZE_ANSWER_CACHE'))) {
       return undefined;
     }
     // explain=true asks for a per-fact DecisionLog a stored answer

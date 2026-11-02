@@ -4,6 +4,7 @@ import {
   enrichTransactionError,
   retryOnReadConflict,
   retryOnUniqueViolation,
+  retryingQueries,
 } from '../src/db/surreal-retry';
 
 const noSleep = (): Promise<void> => Promise.resolve();
@@ -189,6 +190,39 @@ describe('retryOnReadConflict', () => {
         noSleep,
       ),
     ).rejects.toThrow('already contains');
+    expect(calls).toBe(1);
+  });
+});
+
+describe('retryingQueries', () => {
+  it('reruns only the statement that hit a conflict, then hands back its result', async () => {
+    const seen: string[] = [];
+    let busy = 1;
+    const db = {
+      query: async (sql: string) => {
+        seen.push(sql);
+        if (sql === 'DELETE b' && busy-- > 0) {
+          throw new Error('Transaction conflict: Resource busy. This transaction can be retried');
+        }
+        return [[sql]];
+      },
+    };
+    const q = retryingQueries(db);
+    await q.query('DELETE a');
+    const out = await q.query('DELETE b');
+    expect(out).toEqual([['DELETE b']]);
+    expect(seen).toEqual(['DELETE a', 'DELETE b', 'DELETE b']);
+  });
+
+  it('passes any other failure through on the first attempt', async () => {
+    let calls = 0;
+    const db = {
+      query: async () => {
+        calls++;
+        throw new Error('Parse error');
+      },
+    };
+    await expect(retryingQueries(db).query()).rejects.toThrow('Parse error');
     expect(calls).toBe(1);
   });
 });

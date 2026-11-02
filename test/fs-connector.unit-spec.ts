@@ -279,7 +279,7 @@ describe('FsConnector', () => {
   it('the kind switch makes the connector "not installed" by name', () => {
     const c = new FsConnector();
     expect(findConnector([c], 'fs')).toBe(c);
-    delete process.env.SOURCE_KIND_FS;
+    process.env.SOURCE_KIND_FS = '0';
     expect(findConnector([c], 'fs')).toBeNull();
     expect(connectorState([c], 'fs')).toBe('disabled');
     expect(connectorUnavailableMessage('fs', 'disabled')).toContain('SOURCE_KIND_FS');

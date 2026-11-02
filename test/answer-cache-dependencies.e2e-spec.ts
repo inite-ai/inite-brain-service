@@ -26,7 +26,11 @@ const QUERY = 'which database does the inventory service use, and what was decid
 /** Own key: the scene case must not share a cache entry with QUERY. */
 const SCENE_QUERY = 'when did the switch to SurrealDB happen?';
 const BELIEF_QUERY = 'what database is the inventory service on right now?';
-const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+const VERIFY_SUPPORTED = JSON.stringify({
+  verdict: 'supported',
+  unsupportedClaims: [],
+  questionAnswered: true,
+});
 const FLAG_KEYS = [
   'SYNTHESIZE_ANSWER_CACHE',
   'BELIEFS_SERVING_LANE',
@@ -261,7 +265,11 @@ describe('0136 answer-cache dependencies e2e (a belief revision invalidates a mi
     // the invalidated row survives with its cause for inspection.
     mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'I do not know.', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'unsupported', unsupportedClaims: ['all'] }),
+      JSON.stringify({
+        verdict: 'unsupported',
+        unsupportedClaims: ['all'],
+        questionAnswered: true,
+      }),
     ]);
     const res = await synth();
     expect(res.status).toBe(201);

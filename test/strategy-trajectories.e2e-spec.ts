@@ -80,7 +80,7 @@ const ingestFact = async (f: AppFixture, id: string): Promise<void> => {
 
 // ── 1. Trajectories OFF (default): capture 404s, serving byte-identical ───
 
-describe('strategy trajectories — flag OFF (default), master ON', () => {
+describe('strategy trajectories — flag OFF, master ON', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
   const STRATEGY_TEXT = 'Check the profile record first for onboarding-status questions.';
@@ -90,7 +90,7 @@ describe('strategy trajectories — flag OFF (default), master ON', () => {
     process.env.STRATEGY_MEMORY_ENABLED = '1';
     process.env.STRATEGY_RETRIEVAL_ENABLED = '1';
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
-    // STRATEGY_TRAJECTORIES_ENABLED deliberately unset → off.
+    process.env.STRATEGY_TRAJECTORIES_ENABLED = '0';
     f = await createApp();
     await ingestFact(f, 'traj_off_tenant');
     // Even if a trajectory is passed, the flag-off create MUST NOT write
@@ -126,7 +126,7 @@ describe('strategy trajectories — flag OFF (default), master ON', () => {
   it('serving is BYTE-IDENTICAL: the advisory note carries no trajectory', async () => {
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);
@@ -289,7 +289,7 @@ describe('strategy trajectories — all flags ON', () => {
 
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);

@@ -29,6 +29,12 @@ import type { SourceItemEffectsService } from '../src/source-plane/source-item-e
 import type { SourceItemRow, SourceItemService } from '../src/source-plane/source-item.service';
 import { SourceSyncService } from '../src/source-plane/source-sync.service';
 
+// Production turns this switch on; this suite covers the path with it
+// off, and the tests that need it on set it.
+beforeEach(() => {
+  process.env.SOURCE_PLANE_ENABLED ??= '0';
+});
+
 /** A source with a mutable set of items and an explicit-gone queue. */
 class MemorySource implements Connector {
   readonly kind = 'memory';
@@ -263,7 +269,7 @@ describe('SourceSyncService', () => {
     process.env.SOURCE_PLANE_ENABLED = '1';
   });
   afterEach(() => {
-    if (saved === undefined) delete process.env.SOURCE_PLANE_ENABLED;
+    if (saved === undefined) process.env.SOURCE_PLANE_ENABLED = '0';
     else process.env.SOURCE_PLANE_ENABLED = saved;
   });
 
@@ -380,7 +386,7 @@ describe('SourceSyncService', () => {
   });
 
   const skips: Array<[string, Partial<SourceConnectionRow>, () => void]> = [
-    ['flag_off', {}, () => void delete process.env.SOURCE_PLANE_ENABLED],
+    ['flag_off', {}, () => void (process.env.SOURCE_PLANE_ENABLED = '0')],
     ['status_paused', { status: 'paused' }, () => undefined],
     ['agent_host', { host: 'agent:laptop' }, () => undefined],
   ];

@@ -109,18 +109,18 @@ describe('flag plumbing', () => {
   });
 
   it('RETRIEVAL_SALIENCE_SCORING resolves + overlays per tenant', () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).salienceScoring).toBe(false);
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).salienceScoring).toBe(true);
     expect(
       resolveRetrievalProfile({
-        RETRIEVAL_SALIENCE_SCORING: '1',
+        RETRIEVAL_SALIENCE_SCORING: '0',
       } as NodeJS.ProcessEnv).salienceScoring,
-    ).toBe(true);
+    ).toBe(false);
     const env = {
       RETRIEVAL_PROFILE_OVERRIDES: JSON.stringify({
-        salco: { salienceScoring: true },
+        salco: { salienceScoring: false },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('salco', env).salienceScoring).toBe(true);
-    expect(resolveRetrievalProfileFor('other', env).salienceScoring).toBe(false);
+    expect(resolveRetrievalProfileFor('salco', env).salienceScoring).toBe(false);
+    expect(resolveRetrievalProfileFor('other', env).salienceScoring).toBe(true);
   });
 });

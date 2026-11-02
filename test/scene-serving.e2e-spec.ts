@@ -32,11 +32,26 @@ import { createApp } from './app-fixture';
 import { mockSynthesizeOpenAi } from './test-doubles';
 import { SurrealService } from '../src/db/surreal.service';
 
+// Each test reads what the generator and verifier were given for a query
+// the suite repeats; a cached answer skips both, so the cache is off here.
+const savedAnswerCache = process.env.SYNTHESIZE_ANSWER_CACHE;
+beforeAll(() => {
+  process.env.SYNTHESIZE_ANSWER_CACHE = '0';
+});
+afterAll(() => {
+  if (savedAnswerCache === undefined) delete process.env.SYNTHESIZE_ANSWER_CACHE;
+  else process.env.SYNTHESIZE_ANSWER_CACHE = savedAnswerCache;
+});
+
 const CONV = 'proj:scene-serving';
 const USER = 'scene_serving_u1';
 const OTHER_USER = 'scene_serving_u2';
 const QUERY = 'what happened with the lease scan?';
-const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+const VERIFY_SUPPORTED = JSON.stringify({
+  verdict: 'supported',
+  unsupportedClaims: [],
+  questionAnswered: true,
+});
 
 const FLAG_KEYS = ['RETRIEVAL_SCENE_LANE'] as const;
 

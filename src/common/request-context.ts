@@ -80,6 +80,12 @@ export interface RequestContext {
    * instead of re-reading env. Undefined outside a guarded request.
    */
   retrievalProfile?: import('../search/retrieval-profile').RetrievalProfile;
+  /**
+   * The tenant the credential belongs to, stamped by ApiKeyGuard. The model
+   * budget (tenant-context.ts) attributes a call made outside a tenant
+   * connection — a generator call after retrieval — to it.
+   */
+  companyId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

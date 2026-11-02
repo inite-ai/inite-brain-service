@@ -37,6 +37,17 @@ import {
   type DomainPackManifest,
 } from '../src/ai/domain-packs';
 
+// Each test reads what the generator and verifier were given for a query
+// the suite repeats; a cached answer skips both, so the cache is off here.
+const savedAnswerCache = process.env.SYNTHESIZE_ANSWER_CACHE;
+beforeAll(() => {
+  process.env.SYNTHESIZE_ANSWER_CACHE = '0';
+});
+afterAll(() => {
+  if (savedAnswerCache === undefined) delete process.env.SYNTHESIZE_ANSWER_CACHE;
+  else process.env.SYNTHESIZE_ANSWER_CACHE = savedAnswerCache;
+});
+
 const FLAG_KEYS = [
   'RETRIEVAL_FRAGMENT_LANE',
   'EVIDENCE_FRAGMENT_CITATIONS',
@@ -57,7 +68,11 @@ describe('Fragment lane + fragment citations e2e', () => {
   const OTHERUSER_CAPTION = 'private photo: evacuation plan pinned at home';
   const QUERY = 'evacuation plan pinned';
   const ANSWER = 'On the ops-room whiteboard.';
-  const VERIFY_SUPPORTED = JSON.stringify({ verdict: 'supported', unsupportedClaims: [] });
+  const VERIFY_SUPPORTED = JSON.stringify({
+    verdict: 'supported',
+    unsupportedClaims: [],
+    questionAnswered: true,
+  });
 
   const MANIFEST = {
     memoryModel: { modalities: ['text', 'image'] },

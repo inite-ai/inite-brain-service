@@ -22,7 +22,7 @@ describe('AdminInfraController.retrievalProfile() — wire contract', () => {
 
   afterEach(() => {
     if (savedRouter === undefined) {
-      delete process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED;
+      process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '0';
     } else {
       process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = savedRouter;
     }

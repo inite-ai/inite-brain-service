@@ -15,6 +15,12 @@ import type { PackMcpHttpSourceSpec } from '../src/ai/domain-packs/manifest';
 import type { ConnectorCtx, ItemDelta } from '../src/source-plane/connector';
 import { McpConnector, admitResource } from '../src/source-plane/connectors/mcp.connector';
 
+// Production turns these switches on; this suite covers the paths with
+// them off, and the tests that need one on set it.
+beforeEach(() => {
+  for (const k of ['SOURCE_KIND_MCP', 'SOURCE_MCP_OAUTH']) process.env[k] ??= '0';
+});
+
 let server: Server;
 let base = '';
 const seenAuth: string[] = [];
@@ -286,7 +292,7 @@ describe('McpConnector', () => {
   it('the kind switch makes the connector "not installed" by name', () => {
     const c = new McpConnector();
     expect(c.enabled()).toBe(true);
-    delete process.env.SOURCE_KIND_MCP;
+    process.env.SOURCE_KIND_MCP = '0';
     expect(c.enabled()).toBe(false);
     process.env.SOURCE_KIND_MCP = '1';
   });

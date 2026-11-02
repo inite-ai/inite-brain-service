@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Surreal } from 'surrealdb';
+import { StringRecordId, Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import { EntityJudgeService } from '../ai/entity-judge.service';
 import { traceArtifact } from '../common/debug-trace';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { nameKey } from '../common/name-key';
+import { singleValuedPredicates } from '../ai/predicate-semantics';
+import { conflictsOnSingleValuedSlot } from './same-name-conflict';
 
 /**
  * EntityResolverService — inline entity resolution at ingest time
@@ -229,10 +231,17 @@ export class EntityResolverService {
    * The name stays the strong signal it is: the judge is asked only
    * whether the facts CONTRADICT it (the `same-name` hint), and only when
    * there is something to contradict — the mention brings facts AND the
-   * candidate holds some. A mention with no facts, a candidate with none,
-   * the resolver off or the judge unavailable all reuse the first
-   * candidate exactly as before; so does `unsure`. Only a `different`
-   * verdict on every candidate mints a new entity.
+   * candidate holds some. A mention with no facts or a candidate with none
+   * reuses the first candidate exactly as before; so does `unsure`. Only a
+   * `different` verdict on every candidate mints a new entity.
+   *
+   * Without a judge (no model key, harness mode, the resolver off) the
+   * same question is answered on the slots themselves: a candidate whose
+   * single-valued facts the mention disagrees with is not reused
+   * (same-name-conflict.ts — a wrong merge is invisible forever, a wrong
+   * split is a pair the dedup pass judges later). Measured by
+   * eval:entity-resolution: three same-name different people of three were
+   * fused through `exact` with the judge off.
    *
    * Never throws: a failing fact read counts as "nothing to contradict".
    */
@@ -244,9 +253,8 @@ export class EntityResolverService {
   }: ConfirmSameNameOptions): Promise<SameNameOutcome> {
     const first = candidates[0];
     if (!first) return { kind: 'distinct' };
-    if (!this.isEnabled() || incomingFacts.length === 0) {
-      return { kind: 'reuse', entityId: first.entityId };
-    }
+    if (incomingFacts.length === 0) return { kind: 'reuse', entityId: first.entityId };
+    if (!this.isEnabled()) return this.sameNameBySlots(db, candidates, incomingFacts);
     const incoming = incomingFacts.map((f) => `- ${f}`).join('\n');
     // The first candidate nothing contradicted, kept while a later one
     // might still be judged outright "same".
@@ -279,6 +287,43 @@ export class EntityResolverService {
       `[ingest.inline_resolution] same-name candidates ` +
         `${candidates.map((c) => c.entityId).join(', ')} contradicted by the mention's facts — ` +
         `creating new`,
+    );
+    return { kind: 'distinct' };
+  }
+
+  /**
+   * The judge-less same-name decision: the first candidate the mention's
+   * facts do not disagree with on a single-valued slot, else a new entity.
+   * A failing read counts as nothing to disagree with.
+   */
+  private async sameNameBySlots(
+    db: Surreal,
+    candidates: ConfirmSameNameOptions['candidates'],
+    incomingFacts: string[],
+  ): Promise<SameNameOutcome> {
+    try {
+      const [registry] = await db.query<[Array<{ predicateId: string; semantics: string }>]>(
+        `SELECT predicateId, semantics FROM knowledge_predicate;`,
+      );
+      const singleValued = singleValuedPredicates(registry ?? []);
+      for (const c of candidates) {
+        const [facts] = await db.query<[Array<{ predicate: string; object: string }>]>(
+          `SELECT predicate, object FROM knowledge_fact
+            WHERE entityId = $eid AND status = 'active' AND retractedAt IS NONE`,
+          { eid: new StringRecordId(c.entityId) },
+        );
+        if (!conflictsOnSingleValuedSlot(incomingFacts, facts ?? [], singleValued)) {
+          return { kind: 'reuse', entityId: c.entityId };
+        }
+      }
+    } catch {
+      return { kind: 'reuse', entityId: candidates[0]!.entityId };
+    }
+    // Ids only: the name is memory content.
+    this.logger.log(
+      `[ingest.inline_resolution] same-name candidates ` +
+        `${candidates.map((c) => c.entityId).join(', ')} disagree with the mention on a ` +
+        `single-valued slot and no judge is available — creating new`,
     );
     return { kind: 'distinct' };
   }

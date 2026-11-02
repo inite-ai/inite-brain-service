@@ -230,6 +230,33 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
     isBooleanFlag: false,
   },
   {
+    key: 'LLM_TENANT_DAILY_TOKEN_BUDGET',
+    category: 'auth',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Daily model budget per tenant, in chat tokens (input + output, UTC day). A tenant past it gets no model call until the next day: background reading waits, synthesis answers from retrieval (`reason: model_budget`). Counted per replica and shared through the system database once a minute (llm_tenant_spend, 0183). 0 (default) = no budget. Harness mode spends nothing, so it never fires there.',
+  },
+  {
+    key: 'LLM_BREAKER_FAILURES',
+    category: 'auth',
+    defaultValue: '5',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Consecutive provider-side failures (401/403/429/5xx after the SDK retries) of one (provider, model) route that open its circuit breaker: calls go straight to the fallback provider, or fail fast without one, until a probe succeeds.',
+  },
+  {
+    key: 'LLM_BREAKER_COOLDOWN_MS',
+    category: 'auth',
+    defaultValue: '30000',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'How long an open circuit breaker waits before letting one probe call through; the probe closes it on success and re-opens it on failure.',
+  },
+  {
     key: 'OPENAI_MAX_RETRIES',
     category: 'auth',
     defaultValue: '3',
@@ -345,7 +372,7 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
   {
     key: 'SOURCE_META_STRICT',
     category: 'pipeline',
-    defaultValue: '0',
+    defaultValue: '1',
     runtimeMutable: true,
     isBooleanFlag: true,
     description:

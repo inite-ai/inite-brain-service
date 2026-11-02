@@ -41,7 +41,7 @@ describe('brain-agent (e2e)', () => {
     process.env.WORKER_LOOP_ENABLED = '0';
     process.env.SOURCE_PLANE_ENABLED = '1';
     process.env.DOCUMENT_INGEST_ENABLED = '1';
-    delete process.env.SOURCE_KIND_FS;
+    process.env.SOURCE_KIND_FS = '0';
     f = await createApp({ companyId: COMPANY });
     const server = f.app.getHttpServer() as import('node:http').Server;
     if (!server.listening) await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

@@ -679,6 +679,8 @@ describe('one slot, one active row (run()-level, fake db)', () => {
       // so the merge writes nothing.
       if (sqlText.startsWith('SELECT id, baselineRef FROM memory_episode')) return [[]];
       if (sqlText.includes('UPDATE memory_episode') || sqlText.includes('UPDATE $scene')) return [];
+      // Support edges (provenance) are written and read by their own e2e.
+      if (sqlText.startsWith('INSERT RELATION IGNORE INTO memory_support')) return [];
       throw new Error(`FakeBeliefDb: unhandled SQL: ${sqlText}`);
     }
 

@@ -280,17 +280,17 @@ describe('user forget → memory_support cascade (0116)', () => {
     read: process.env.PROVENANCE_SUPPORT_GRAPH_READ,
   };
   afterEach(() => {
-    if (saved.edges === undefined) delete process.env.PROVENANCE_SUPPORT_EDGES;
+    if (saved.edges === undefined) process.env.PROVENANCE_SUPPORT_EDGES = '0';
     else process.env.PROVENANCE_SUPPORT_EDGES = saved.edges;
-    if (saved.read === undefined) delete process.env.PROVENANCE_SUPPORT_GRAPH_READ;
+    if (saved.read === undefined) process.env.PROVENANCE_SUPPORT_GRAPH_READ = '0';
     else process.env.PROVENANCE_SUPPORT_GRAPH_READ = saved.read;
   });
 
   it('erases support edges by pre-collected subject ids with BOTH flags OFF', async () => {
     // GDPR runs regardless of flags: rows written while
     // PROVENANCE_SUPPORT_EDGES was on must stay erasable after off.
-    delete process.env.PROVENANCE_SUPPORT_EDGES;
-    delete process.env.PROVENANCE_SUPPORT_GRAPH_READ;
+    process.env.PROVENANCE_SUPPORT_EDGES = '0';
+    process.env.PROVENANCE_SUPPORT_GRAPH_READ = '0';
     const { db, queries } = makeDb((sql) => {
       if (sql.includes('SELECT VALUE id FROM knowledge_fact')) return ['knowledge_fact:f1'];
       if (sql.includes('SELECT VALUE id FROM memory_episode WHERE userId'))

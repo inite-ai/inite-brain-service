@@ -39,7 +39,9 @@ pointer back to the container.
   UNIQUE — re-sending the same document dedupes at the door, and the hash
   doubles as the fact-level origin identity (`originKey = doc:<hash>`,
   see corroboration below).
-- **PII is redacted before hashing**, then the text is chunked to the
+- **PII and credentials are redacted before hashing** (emails, phones,
+  long digit runs; PEM private keys, JWTs, `Bearer` tokens and random-looking
+  tokens of 32+ characters become `[SECRET]`), then the text is chunked to the
   extractor's 16K clamp (paragraph-boundary cuts, small overlap;
   `DOC_CHUNK_TARGET_CHARS`).
 - **Storage is optional.** `storeContent: false` keeps only the header +
@@ -70,15 +72,15 @@ existing corpus, so the sweep doubles as the backfill. The documents
 module (`src/documents/evidence-document-bridge.service.ts`) re-reads
 the representation and ingests it here as an ordinary document:
 
-| field | value |
-|---|---|
-| `kind` | `evidence_text` |
-| `text` | the representation's content, split at paragraph boundaries into ≤512K parts (`originUri#part=n` for n > 1) |
-| `originUri` | the asset's own, else `evidence://asset/<id>` |
-| `occurredAt` / `contextRef` / `userId` | the asset's — facts stay attributed to whoever brought the bytes |
-| `meta` | `{ evidence_bridge: true }` — an ABAC rule can match `source.meta.evidence_bridge` |
-| `indexers` | the pack whose processor produced the text |
-| internal header | `evidenceAssetId`, `evidenceRepresentationId` (brain-owned keys, never caller-assertable) |
+| field                                  | value                                                                                                       |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `kind`                                 | `evidence_text`                                                                                             |
+| `text`                                 | the representation's content, split at paragraph boundaries into ≤512K parts (`originUri#part=n` for n > 1) |
+| `originUri`                            | the asset's own, else `evidence://asset/<id>`                                                               |
+| `occurredAt` / `contextRef` / `userId` | the asset's — facts stay attributed to whoever brought the bytes                                            |
+| `meta`                                 | `{ evidence_bridge: true }` — an ABAC rule can match `source.meta.evidence_bridge`                          |
+| `indexers`                             | the pack whose processor produced the text                                                                  |
+| internal header                        | `evidenceAssetId`, `evidenceRepresentationId` (brain-owned keys, never caller-assertable)                   |
 
 Every committed fact's `source.evidence[]` then carries
 `{ kind: 'asset', ref: <evidence_asset id>, note: 'text via <representation>' }`
@@ -125,11 +127,11 @@ An indexer is a domain-aware reader. Three execution modes, declared in
 the Domain Pack manifest (`indexer` descriptor — see
 [Domain Packs § Indexer descriptor](domain-packs.md#indexer-descriptor)):
 
-| Mode | What runs | Marginal cost |
-|---|---|---|
-| `virtual` (default) | Rides the single `'_general'` union extraction call; its facts are attributed by predicate namespace (`packId__*`). | zero LLM calls |
-| `dedicated` | Its OWN extraction run: pack-filtered vocabulary + profile, optional per-pack `model` / `scPasses`. | +1 call per chunk, router-gated |
-| `external` | A remote service reads the document and POSTs candidates (below). | zero brain-side calls |
+| Mode                | What runs                                                                                                           | Marginal cost                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `virtual` (default) | Rides the single `'_general'` union extraction call; its facts are attributed by predicate namespace (`packId__*`). | zero LLM calls                  |
+| `dedicated`         | Its OWN extraction run: pack-filtered vocabulary + profile, optional per-pack `model` / `scPasses`.                 | +1 call per chunk, router-gated |
+| `external`          | A remote service reads the document and POSTs candidates (below).                                                   | zero brain-side calls           |
 
 The **relevance router** gates dedicated runs per document, in cost
 layers: explicit request / vertical subscription / `alwaysRun` (free) →
@@ -258,7 +260,7 @@ to do:
   stages hypotheses, the Brain decides.
 
 After staging, the commit runs under the same settled-runs rule as the
-async queue. Trust for an external indexer is *earned*: it starts at the
+async queue. Trust for an external indexer is _earned_: it starts at the
 neutral 0.5 agreement rate and moves with the nightly source-trust refit.
 
 ### Work discovery (pull API)
@@ -297,21 +299,21 @@ only — polling remains the source of truth
 
 ## Flags and knobs
 
-| Env | Default | Meaning |
-|---|---|---|
-| `DOCUMENT_INGEST_ENABLED` | `1` | Master switch for the whole surface. |
-| `DOCUMENT_MULTI_INDEXER_ENABLED` | `0` | Dedicated runs + router + async mode. |
-| `REINDEX_ON_PACK_INSTALL` | `0` | Backfill hook on pack install/upgrade. |
-| `INGEST_MENTION_VIA_DOCUMENT` | `0` | Route mentions through the pipeline (response shape preserved; a user-scoped mention's `userId` rides the stored document into fact commit and scene projection — 0127). |
-| `DOC_MAX_CHARS` | `512000` | Document size cap (413 above). |
-| `DOC_CHUNK_TARGET_CHARS` | `12000` | Chunker target (hard max 16K). |
-| `CANDIDATE_MIN_CONFIDENCE` | `0` | Brain-side prefilter before the resolver. |
-| `CANDIDATE_RETENTION_DAYS` | `30` | Sweeper: delete decided candidates after. |
-| `CANDIDATE_PENDING_TTL_DAYS` | `7` | Sweeper: expire stuck pending candidates after. |
-| `REINDEX_MAX_DOCS_PER_RUN` | `500` | Backfill batch budget per job. |
-| `INDEXER_EXTERNAL_PENDING_TTL_DAYS` | `7` | Sweeper: expire unclaimed external work items after. |
-| `PACK_SEED_INGEST_ENABLED` | `1` | Ingest pack `seedDocuments` on install (also needs `DOCUMENT_INGEST_ENABLED`). |
-| `INDEXER_WEBHOOK_PUSH_ENABLED` | `1` | `work_available` push hints to packs with a `callbackUrl` (polling stays the source of truth). |
+| Env                                 | Default  | Meaning                                                                                                                                                                  |
+| ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DOCUMENT_INGEST_ENABLED`           | `1`      | Master switch for the whole surface.                                                                                                                                     |
+| `DOCUMENT_MULTI_INDEXER_ENABLED`    | `0`      | Dedicated runs + router + async mode.                                                                                                                                    |
+| `REINDEX_ON_PACK_INSTALL`           | `0`      | Backfill hook on pack install/upgrade.                                                                                                                                   |
+| `INGEST_MENTION_VIA_DOCUMENT`       | `0`      | Route mentions through the pipeline (response shape preserved; a user-scoped mention's `userId` rides the stored document into fact commit and scene projection — 0127). |
+| `DOC_MAX_CHARS`                     | `512000` | Document size cap (413 above).                                                                                                                                           |
+| `DOC_CHUNK_TARGET_CHARS`            | `12000`  | Chunker target (hard max 16K).                                                                                                                                           |
+| `CANDIDATE_MIN_CONFIDENCE`          | `0`      | Brain-side prefilter before the resolver.                                                                                                                                |
+| `CANDIDATE_RETENTION_DAYS`          | `30`     | Sweeper: delete decided candidates after.                                                                                                                                |
+| `CANDIDATE_PENDING_TTL_DAYS`        | `7`      | Sweeper: expire stuck pending candidates after.                                                                                                                          |
+| `REINDEX_MAX_DOCS_PER_RUN`          | `500`    | Backfill batch budget per job.                                                                                                                                           |
+| `INDEXER_EXTERNAL_PENDING_TTL_DAYS` | `7`      | Sweeper: expire unclaimed external work items after.                                                                                                                     |
+| `PACK_SEED_INGEST_ENABLED`          | `1`      | Ingest pack `seedDocuments` on install (also needs `DOCUMENT_INGEST_ENABLED`).                                                                                           |
+| `INDEXER_WEBHOOK_PUSH_ENABLED`      | `1`      | `work_available` push hints to packs with a `callbackUrl` (polling stays the source of truth).                                                                           |
 
 ## Observability
 

@@ -69,12 +69,14 @@ const DISTILLED = JSON.stringify({
   ],
 });
 
-describe('strategy lane — flags off (default)', () => {
+describe('strategy lane — flags off', () => {
   let f: AppFixture;
   const auth = () => ({ Authorization: `Bearer ${f.apiKey}` });
 
   beforeAll(async () => {
     clearStrategyEnv();
+    process.env.STRATEGY_MEMORY_ENABLED = '0';
+    process.env.STRATEGY_RETRIEVAL_ENABLED = '0';
     f = await createApp();
   });
   afterAll(async () => {
@@ -111,6 +113,7 @@ describe('strategy lane — master on, retrieval off', () => {
     clearStrategyEnv();
     process.env.STRATEGY_MEMORY_ENABLED = '1';
     process.env.SYNTHESIZE_ANSWER_ROUTER_ENABLED = '1';
+    process.env.STRATEGY_RETRIEVAL_ENABLED = '0';
     f = await createApp();
     await f.http
       .post('/v1/ingest/fact')
@@ -184,7 +187,7 @@ describe('strategy lane — master on, retrieval off', () => {
   it('serving stays OFF: no ADVISORY section reaches the generator', async () => {
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);
@@ -240,7 +243,7 @@ describe('strategy lane — both flags on (serving)', () => {
   it('the generator sees the fenced ADVISORY note; the verifier does NOT (parity exception)', async () => {
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'ok', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const res = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(res.status).toBe(201);
@@ -285,7 +288,7 @@ describe('strategy lane — both flags on (serving)', () => {
     // knowledge_fact rows — never at the strategy table.
     const state = mockSynthesizeOpenAi(f.app, [
       JSON.stringify({ answer: 'no evidence', citedFactIds: [] }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const synth = await f.http.post('/v1/synthesize').set(auth()).send({ query: 'engineer' });
     expect(synth.status).toBe(201);

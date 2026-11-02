@@ -301,19 +301,19 @@ describe('date-arbitrated conflict frame (V10 §2b)', () => {
 });
 
 describe('RETRIEVAL_UPDATE_STORY profile point', () => {
-  it('defaults off; env enables; overlays per tenant', () => {
-    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).updateStoryRendering).toBe(false);
+  it('defaults on; 0 switches it off; overlays per tenant', () => {
+    expect(resolveRetrievalProfile({} as NodeJS.ProcessEnv).updateStoryRendering).toBe(true);
     expect(
       resolveRetrievalProfile({
-        RETRIEVAL_UPDATE_STORY: '1',
+        RETRIEVAL_UPDATE_STORY: '0',
       } as NodeJS.ProcessEnv).updateStoryRendering,
-    ).toBe(true);
+    ).toBe(false);
     const env = {
       RETRIEVAL_PROFILE_OVERRIDES: JSON.stringify({
-        beamco: { updateStoryRendering: true },
+        beamco: { updateStoryRendering: false },
       }),
     } as NodeJS.ProcessEnv;
-    expect(resolveRetrievalProfileFor('beamco', env).updateStoryRendering).toBe(true);
-    expect(resolveRetrievalProfileFor('other', env).updateStoryRendering).toBe(false);
+    expect(resolveRetrievalProfileFor('beamco', env).updateStoryRendering).toBe(false);
+    expect(resolveRetrievalProfileFor('other', env).updateStoryRendering).toBe(true);
   });
 });

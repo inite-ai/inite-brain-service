@@ -664,6 +664,17 @@ function presetFlag(env: NodeJS.ProcessEnv, name: string, preset: boolean | unde
   return envFlagEnabled(env[name]);
 }
 
+/** presetFlag for a lever production runs on: env ?? preset ?? on, so
+ *  only an explicit '0' (or a preset saying false) turns it off. */
+function presetFlagNotDisabled(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  preset: boolean | undefined,
+): boolean {
+  if (env[name] === undefined) return preset ?? true;
+  return envFlagNotDisabled(env[name]);
+}
+
 /**
  * The boot-default profile, from env. The enum dimensions have
  * first-class keys (RETRIEVAL_GENRE / RETRIEVAL_VERBATIM_EVIDENCE /
@@ -681,18 +692,18 @@ export function resolveRetrievalProfile(env: NodeJS.ProcessEnv = process.env): R
 
 function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): RetrievalProfile {
   const preset = GENRE_PRESETS[genre];
-  const routerOn = envFlagEnabled(env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
+  const routerOn = envFlagNotDisabled(env.SYNTHESIZE_ANSWER_ROUTER_ENABLED);
   const lanes = new Set<LaneId>();
   if (routerOn) {
     for (const lane of ALL_LANES) {
       if (lane === 'instruction') {
-        if (envFlagEnabled(env.SYNTHESIZE_INSTRUCTION_LANE)) lanes.add(lane);
+        if (envFlagNotDisabled(env.SYNTHESIZE_INSTRUCTION_LANE)) lanes.add(lane);
       } else if (lane === 'strategy') {
         // G4 strategy-memory lane: own master flag (the instruction-
         // lane idiom); the read-side serving switch
         // (STRATEGY_RETRIEVAL_ENABLED) gates separately inside
         // StrategyMemoryService — lane membership alone serves nothing.
-        if (envFlagEnabled(env.STRATEGY_MEMORY_ENABLED)) lanes.add(lane);
+        if (envFlagNotDisabled(env.STRATEGY_MEMORY_ENABLED)) lanes.add(lane);
       } else {
         lanes.add(lane);
       }
@@ -741,18 +752,30 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     quotesPerPrompt: positiveIntEnv(env, 'SEARCH_EPISODIC_LANE_TOPK', 8),
     sourceExcerptsCap: positiveIntEnv(env, 'SYNTHESIZE_SOURCE_EXCERPTS_CAP', 16),
     segmentTopK: positiveIntEnv(env, 'SEARCH_SEGMENT_LANE_TOPK', 5),
-    segmentRerank: presetFlag(env, 'SEARCH_SEGMENT_LANE_RERANK', preset.segmentRerank),
-    factRerank: presetFlag(env, 'SEARCH_FACT_RERANK', preset.factRerank),
-    mentionDates: presetFlag(env, 'RETRIEVAL_MENTION_DATES', preset.mentionDates),
+    segmentRerank: presetFlagNotDisabled(env, 'SEARCH_SEGMENT_LANE_RERANK', preset.segmentRerank),
+    factRerank: presetFlagNotDisabled(env, 'SEARCH_FACT_RERANK', preset.factRerank),
+    mentionDates: presetFlagNotDisabled(env, 'RETRIEVAL_MENTION_DATES', preset.mentionDates),
     sceneTraces: presetFlag(env, 'RETRIEVAL_SCENE_TRACES', preset.sceneTraces),
-    enumStrict: presetFlag(env, 'RETRIEVAL_ENUM_STRICT', preset.enumStrict),
+    enumStrict: presetFlagNotDisabled(env, 'RETRIEVAL_ENUM_STRICT', preset.enumStrict),
     extraEvidenceCap: positiveIntEnv(env, 'SYNTHESIZE_EXTRA_EVIDENCE_CAP', 40),
-    wideProbe: presetFlag(env, 'SYNTHESIZE_LANE_WIDE_PROBE', preset.wideProbe),
+    wideProbe: presetFlagNotDisabled(env, 'SYNTHESIZE_LANE_WIDE_PROBE', preset.wideProbe),
     wideProbeLimit: positiveIntEnv(env, 'SYNTHESIZE_WIDE_PROBE_LIMIT', 12),
-    entityExpansion: presetFlag(env, 'RETRIEVAL_ENTITY_EXPANSION', preset.entityExpansion),
-    salienceScoring: presetFlag(env, 'RETRIEVAL_SALIENCE_SCORING', preset.salienceScoring),
-    updateStoryRendering: presetFlag(env, 'RETRIEVAL_UPDATE_STORY', preset.updateStoryRendering),
-    orderingFrame: presetFlag(env, 'RETRIEVAL_ORDERING_FRAME', preset.orderingFrame),
+    entityExpansion: presetFlagNotDisabled(
+      env,
+      'RETRIEVAL_ENTITY_EXPANSION',
+      preset.entityExpansion,
+    ),
+    salienceScoring: presetFlagNotDisabled(
+      env,
+      'RETRIEVAL_SALIENCE_SCORING',
+      preset.salienceScoring,
+    ),
+    updateStoryRendering: presetFlagNotDisabled(
+      env,
+      'RETRIEVAL_UPDATE_STORY',
+      preset.updateStoryRendering,
+    ),
+    orderingFrame: presetFlagNotDisabled(env, 'RETRIEVAL_ORDERING_FRAME', preset.orderingFrame),
     abstentionCalibration:
       enumEnv(env, 'RETRIEVAL_ABSTENTION_CALIBRATION', [
         'off',
@@ -762,7 +785,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
       ] as const) ??
       preset.abstentionCalibration ??
       'off',
-    verifierTopicCoverage: presetFlag(
+    verifierTopicCoverage: presetFlagNotDisabled(
       env,
       'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
       preset.verifierTopicCoverage,
@@ -776,25 +799,29 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     // newer model. RETRIEVAL_VERIFIER_MODEL still overrides.
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL', DEFAULT_VERIFIER_MODEL),
     verifierEffort: verifierEffortEnv(env),
-    digestEvidence: presetFlag(env, 'RETRIEVAL_DIGEST_EVIDENCE', preset.digestEvidence),
+    digestEvidence: presetFlagNotDisabled(env, 'RETRIEVAL_DIGEST_EVIDENCE', preset.digestEvidence),
     digestLanes:
       enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??
       preset.digestLanes ??
       'all',
-    rawWindow: presetFlag(env, 'RETRIEVAL_RAW_WINDOW', preset.rawWindow),
+    rawWindow: presetFlagNotDisabled(env, 'RETRIEVAL_RAW_WINDOW', preset.rawWindow),
     rawWindowSpan: positiveIntEnv(env, 'RETRIEVAL_RAW_WINDOW_SPAN', 2),
-    assistantLane: presetFlag(env, 'RETRIEVAL_ASSISTANT_LANE', preset.assistantLane),
+    assistantLane: presetFlagNotDisabled(env, 'RETRIEVAL_ASSISTANT_LANE', preset.assistantLane),
     assistantLaneTopK: positiveIntEnv(env, 'RETRIEVAL_ASSISTANT_LANE_TOPK', 6),
     assistantLaneMatch: speakerMatchEnv(env, 'RETRIEVAL_ASSISTANT_LANE_MATCH'),
-    factsAsKeys: presetFlag(env, 'RETRIEVAL_FACTS_AS_KEYS', preset.factsAsKeys),
+    factsAsKeys: presetFlagNotDisabled(env, 'RETRIEVAL_FACTS_AS_KEYS', preset.factsAsKeys),
     factsAsKeysCap: positiveIntEnv(env, 'RETRIEVAL_FACTS_AS_KEYS_CAP', 8),
-    fragmentLane: presetFlag(env, 'RETRIEVAL_FRAGMENT_LANE', preset.fragmentLane),
+    fragmentLane: presetFlagNotDisabled(env, 'RETRIEVAL_FRAGMENT_LANE', preset.fragmentLane),
     sceneLane: presetFlag(env, 'RETRIEVAL_SCENE_LANE', preset.sceneLane),
-    timeFilter: presetFlag(env, 'RETRIEVAL_TIME_FILTER', preset.timeFilter),
-    dateMath: presetFlag(env, 'RETRIEVAL_DATE_MATH', preset.dateMath),
-    answerConditioning: presetFlag(env, 'RETRIEVAL_ANSWER_CONDITIONING', preset.answerConditioning),
-    noiseFilter: presetFlag(env, 'RETRIEVAL_NOISE_FILTER', preset.noiseFilter),
-    searchLoop: presetFlag(env, 'RETRIEVAL_SEARCH_LOOP', preset.searchLoop),
+    timeFilter: presetFlagNotDisabled(env, 'RETRIEVAL_TIME_FILTER', preset.timeFilter),
+    dateMath: presetFlagNotDisabled(env, 'RETRIEVAL_DATE_MATH', preset.dateMath),
+    answerConditioning: presetFlagNotDisabled(
+      env,
+      'RETRIEVAL_ANSWER_CONDITIONING',
+      preset.answerConditioning,
+    ),
+    noiseFilter: presetFlagNotDisabled(env, 'RETRIEVAL_NOISE_FILTER', preset.noiseFilter),
+    searchLoop: presetFlagNotDisabled(env, 'RETRIEVAL_SEARCH_LOOP', preset.searchLoop),
     l3Escalation: presetFlag(env, 'RETRIEVAL_L3_ESCALATION', preset.l3Escalation),
     l3MaxSessions: positiveIntEnv(env, 'RETRIEVAL_L3_MAX_SESSIONS', 3),
     // 20k, not 60k: L3 fires on every abstention with an anchor, and the
@@ -1107,8 +1134,8 @@ export function resolveSearchTuning(env: NodeJS.ProcessEnv = process.env): Searc
     hnswOverfetch: tuningInt(env, 'SEARCH_HNSW_OVERFETCH', 4),
     highlightEnabled: envFlagNotDisabled(env.SEARCH_HIGHLIGHT_ENABLED),
     edgeExpansion: resolveExpansionConfig(env),
-    softLangFilter: envFlagEnabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
+    softLangFilter: envFlagNotDisabled(env.MULTILINGUAL_SOFT_LANG_FILTER),
     langAttribution: envFlagEnabled(env.MULTILINGUAL_LANG_ATTRIBUTION),
-    langFilterConfidenceGate: envFlagEnabled(env.MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE),
+    langFilterConfidenceGate: envFlagNotDisabled(env.MULTILINGUAL_LANG_FILTER_CONFIDENCE_GATE),
   };
 }

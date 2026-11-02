@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Surreal } from 'surrealdb';
 import type { MigrationLock } from './migration-lock';
 import { enrichTransactionError, isReadConflict, isUniqueViolation } from './surreal-retry';
+import { migrationChecksum, recordMigrationDrift } from './migration-checksum';
 
 /**
  * Schema migrator — versioned, append-only DDL applied per tenant DB.
@@ -40,6 +41,8 @@ export interface Migration {
   id: string; // "0001"
   name: string; // "0001_baseline.surql"
   sql: string;
+  /** migration-checksum.ts — recorded on apply, validated on every later run. */
+  checksum: string;
 }
 
 export interface MigrationResult {
@@ -88,14 +91,23 @@ DEFINE TABLE IF NOT EXISTS schema_migrations SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS migrationId ON schema_migrations TYPE string;
 DEFINE FIELD IF NOT EXISTS name        ON schema_migrations TYPE string;
 DEFINE FIELD IF NOT EXISTS appliedAt   ON schema_migrations TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS checksum    ON schema_migrations TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS schema_migrations_id_idx ON schema_migrations FIELDS migrationId UNIQUE;
 `;
 
 const FILE_NAME = /^(\d{4})_.+\.surql$/;
 
+interface LedgerRow {
+  id: unknown;
+  migrationId: string;
+  checksum?: string | null;
+}
+
 export class SchemaMigrator {
   private readonly logger = new Logger(SchemaMigrator.name);
   private cached: Migration[] | null = null;
+  /** Connections whose ledger checksums were validated — once per connection, not per request. */
+  private readonly validated = new WeakSet<Surreal>();
   private readonly lockTtlSeconds: number;
   private readonly lockWaitMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -205,7 +217,12 @@ export class SchemaMigrator {
         await this.sleep(20 * Math.pow(2, attempts - 1));
       }
     }
-    const applied = new Set(await this.fetchAppliedIds(conn));
+    const rows = await this.fetchLedger(conn);
+    const applied = new Set(rows.map((r) => r.migrationId));
+    if (!this.validated.has(conn)) {
+      this.validated.add(conn);
+      await this.validateChecksums(conn, manifest, rows);
+    }
     const pending = manifest.filter((m) => !applied.has(m.id));
     return {
       pending,
@@ -258,13 +275,13 @@ export class SchemaMigrator {
     this.logger.log(`Applying ${m.name}`);
     const batch =
       `BEGIN TRANSACTION;\n${m.sql}\n` +
-      `CREATE schema_migrations CONTENT { migrationId: $mig_id, name: $mig_name };\n` +
+      `CREATE schema_migrations CONTENT { migrationId: $mig_id, name: $mig_name, checksum: $mig_sum };\n` +
       `COMMIT TRANSACTION;`;
     let attempts = 0;
     const maxAttempts = 5;
     for (;;) {
       try {
-        await conn.query(batch, { mig_id: m.id, mig_name: m.name });
+        await conn.query(batch, { mig_id: m.id, mig_name: m.name, mig_sum: m.checksum });
         return;
       } catch (err) {
         // An aborted batch surfaces as one bare "failed transaction"
@@ -323,11 +340,8 @@ export class SchemaMigrator {
           // Unreachable: `eligible` was filtered by FILE_NAME.test above.
           throw new Error(`Migration file ${name} lacks an NNNN id prefix`);
         }
-        return {
-          id,
-          name,
-          sql: await readFile(join(this.migrationsDir, name), 'utf-8'),
-        };
+        const sql = await readFile(join(this.migrationsDir, name), 'utf-8');
+        return { id, name, sql, checksum: migrationChecksum(sql) };
       }),
     );
     // Reject duplicate IDs early — easier to debug than mid-apply.
@@ -343,9 +357,45 @@ export class SchemaMigrator {
   }
 
   private async fetchAppliedIds(conn: Surreal): Promise<string[]> {
-    const [rows] = await conn.query<[Array<{ migrationId: string }>]>(
-      `SELECT migrationId FROM schema_migrations`,
+    return (await this.fetchLedger(conn)).map((r) => r.migrationId);
+  }
+
+  private async fetchLedger(conn: Surreal): Promise<LedgerRow[]> {
+    const [rows] = await conn.query<[LedgerRow[]]>(
+      `SELECT id, migrationId, checksum FROM schema_migrations`,
     );
-    return ((rows ?? []) as Array<{ migrationId: string }>).map((r) => r.migrationId);
+    return rows ?? [];
+  }
+
+  /**
+   * Applied migrations against the files: a row without a checksum (applied
+   * before checksums were recorded) takes the current file's, once — trust
+   * on first use; a row whose checksum differs is drift, logged by id and
+   * counted, never applied and never fatal. A failure here is only logged:
+   * validation must not turn a healthy boot into an outage.
+   */
+  private async validateChecksums(
+    conn: Surreal,
+    manifest: Migration[],
+    rows: LedgerRow[],
+  ): Promise<void> {
+    const byId = new Map(manifest.map((m) => [m.id, m]));
+    try {
+      for (const row of rows) {
+        const file = byId.get(row.migrationId);
+        if (!file) continue;
+        if (row.checksum === undefined || row.checksum === null) {
+          await conn.query(`UPDATE $row SET checksum = $sum`, { row: row.id, sum: file.checksum });
+        } else if (row.checksum !== file.checksum) {
+          recordMigrationDrift(row.migrationId);
+          this.logger.error(
+            `Migration ${file.name} differs from the one this database applied — an edited ` +
+              `shipped migration never runs again; ship the change as a new migration`,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Migration checksum validation skipped: ${(err as Error).message}`);
+    }
   }
 }

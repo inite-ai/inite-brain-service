@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import type OpenAI from 'openai';
+import { TenantBudgetExceeded } from '../src/ai/tenant-llm-budget';
 import { SynthesizeService, SynthesizeResult } from '../src/synthesize/synthesize.service';
 import type { SearchService, SearchHit } from '../src/search/search.service';
 import type { SynthesizeDto } from '../src/synthesize/dto/synthesize.dto';
@@ -103,6 +104,24 @@ describe('SynthesizeService', () => {
       citations: [],
       results: [],
     });
+  });
+
+  it('a tenant past its daily model budget gets no answer and the evidence to answer from', async () => {
+    const search = makeSearch([
+      makeHit('cust_a', [{ factId: 'f1', predicate: 'name', object: 'Maya' }]),
+    ]);
+    const { svc, stub } = makeSvc(search, {}, []);
+    stub.client.chat.completions.create = async () => {
+      throw new TenantBudgetExceeded();
+    };
+    const out = await svc.synthesize({
+      companyId: 'co_x',
+      dto: baseDto,
+      callerScopes: ['brain:read'],
+    });
+    expect(out.answer).toBeNull();
+    expect(out.reason).toBe('model_budget');
+    expect(out.results.length).toBeGreaterThan(0);
   });
 
   it('counts a served cache hit as a terminal `ok` so the MRI denominator includes it (R3 P1)', async () => {
@@ -231,7 +250,7 @@ describe('SynthesizeService', () => {
         answer: 'Maya complained about a broken washing machine [f1].',
         citedFactIds: ['f1'],
       }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const out = await svc.synthesize({
       companyId: 'co_x',
@@ -248,7 +267,7 @@ describe('SynthesizeService', () => {
       process.env.RETRIEVAL_SEARCH_LOOP = '1';
     });
     afterEach(() => {
-      delete process.env.RETRIEVAL_SEARCH_LOOP;
+      process.env.RETRIEVAL_SEARCH_LOOP = '0';
     });
 
     it('a refine round that abstains never replaces the answer round 1 gave', async () => {
@@ -387,6 +406,7 @@ describe('SynthesizeService', () => {
       JSON.stringify({
         verdict: 'unsupported',
         unsupportedClaims: ['Maya bought a new fridge yesterday'],
+        questionAnswered: true,
       }),
     ]);
     const out = await svc.synthesize({
@@ -419,6 +439,7 @@ describe('SynthesizeService', () => {
         JSON.stringify({
           verdict: 'unsupported',
           unsupportedClaims: ['Maya bought a new fridge'],
+          questionAnswered: true,
         }),
       ]);
       const out = await svc.synthesize({
@@ -481,7 +502,7 @@ describe('SynthesizeService', () => {
         answer: 'Maya is a customer [f1] [f_nope].',
         citedFactIds: ['f1', 'f_nope'],
       }),
-      JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+      JSON.stringify({ verdict: 'supported', unsupportedClaims: [], questionAnswered: true }),
     ]);
     const out = await svc.synthesize({
       companyId: 'co_x',
@@ -733,7 +754,11 @@ describe('buildVerifierUserMessage — beliefLines (BELIEFS_SERVING_LANE seam)',
               choices: [
                 {
                   message: {
-                    content: JSON.stringify({ verdict: 'supported', unsupportedClaims: [] }),
+                    content: JSON.stringify({
+                      verdict: 'supported',
+                      unsupportedClaims: [],
+                      questionAnswered: true,
+                    }),
                   },
                 },
               ],

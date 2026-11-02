@@ -99,6 +99,9 @@ describe('G2 L3 escalation e2e', () => {
   });
 
   beforeAll(async () => {
+    // The suite re-asks one question under different gates; a cached answer
+    // would replay the first verdict. The cache is not what it measures.
+    process.env.SYNTHESIZE_ANSWER_CACHE = '0';
     delete process.env.RETRIEVAL_L3_ESCALATION;
     delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
     delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;
@@ -244,6 +247,7 @@ describe('G2 L3 escalation e2e', () => {
   });
 
   afterAll(async () => {
+    delete process.env.SYNTHESIZE_ANSWER_CACHE;
     delete process.env.RETRIEVAL_L3_ESCALATION;
     delete process.env.RETRIEVAL_L3_DIRECT_ANCHOR;
     delete process.env.RETRIEVAL_L3_SEGMENT_ANCHOR;

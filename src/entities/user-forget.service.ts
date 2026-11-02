@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
+import { retryingQueries } from '../db/surreal-retry';
 import { EvidenceStoreService } from '../evidence/evidence-store.service';
 import {
   deleteDocumentIdentityRows,
@@ -93,7 +94,11 @@ export class UserForgetService {
   ) {}
 
   async forgetUser(companyId: string, userId: string): Promise<UserForgetResult> {
-    return this.surreal.withCompany(companyId, async (db) => {
+    return this.surreal.withCompany(companyId, async (conn) => {
+      // Every statement below is idempotent and runs alongside the
+      // background passes: retry each one on a read conflict, so erasure
+      // completes instead of failing halfway.
+      const db = retryingQueries(conn);
       // Record ids first — the audit purge needs them AFTER the rows die.
       const [factIdRows] = await db.query<[unknown[]]>(
         `SELECT VALUE id FROM knowledge_fact WHERE userId = $u`,

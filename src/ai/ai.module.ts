@@ -29,6 +29,7 @@ import { EmbeddingSpaceService } from './embedder/embedding-space.service';
 import { EntityJudgeService } from './entity-judge.service';
 import { MemoryModelReaderService } from './memory-model-reader.service';
 import { IntentClassifierService } from '../admin/intent-classifier.service';
+import { TenantSpendFlushService } from './tenant-spend-flush.service';
 
 @Global()
 @Module({
@@ -92,6 +93,8 @@ import { IntentClassifierService } from '../admin/intent-classifier.service';
     // a second per-module instance would serve a stale cache the install
     // path cannot invalidate.
     MemoryModelReaderService,
+    // Shares per-tenant model spend between replicas (the #853 budget).
+    TenantSpendFlushService,
   ],
   exports: [
     EmbedderService,
