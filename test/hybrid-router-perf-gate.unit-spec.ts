@@ -23,12 +23,22 @@ const cfg = (): ConfigService =>
     get: (_: string, d?: string) => d,
   }) as unknown as ConfigService;
 
-function timeMicroseconds(fn: () => unknown, iters = 1000): number {
+/**
+ * Best of several batches, as `timeit` and pyperf recommend: a GC pause or a
+ * descheduled worker only ever adds time, so one mean over a single batch
+ * measured the runner (it flaked twice on 2026-11-02 at 6943/6944), while the
+ * minimum measures the code. A real regression slows every batch.
+ */
+function timeMicroseconds(fn: () => unknown, iters = 1000, batches = 7): number {
   for (let i = 0; i < 100; i++) fn(); // warmup
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < iters; i++) fn();
-  const t1 = process.hrtime.bigint();
-  return Number(t1 - t0) / 1000 / iters; // µs per call
+  let best = Number.POSITIVE_INFINITY;
+  for (let b = 0; b < batches; b++) {
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < iters; i++) fn();
+    const t1 = process.hrtime.bigint();
+    best = Math.min(best, Number(t1 - t0) / 1000 / iters); // µs per call
+  }
+  return best;
 }
 
 const span = { text: 'q', start: 0, end: 1 };
