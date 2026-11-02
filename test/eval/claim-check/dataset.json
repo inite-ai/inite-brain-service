@@ -1,0 +1,218 @@
+{
+  "_doc": "Answers with per-sentence gold labels against the facts they cite. supported = the cited facts say it; neutral = not said but not contradicted (inference, paraphrase beyond the fact); contradicted = the cited facts say otherwise. Decision rule fixed before measuring: a sentence is removed iff the NLI label of (cited facts, sentence) is contradiction.",
+  "items": [
+    {
+      "cat": "paraphrase",
+      "lang": "en",
+      "facts": { "f1": "Maya lives in Porto." },
+      "answer": "Maya is based in Porto [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "paraphrase",
+      "lang": "en",
+      "facts": { "f1": "The invoice for Acme was paid on 2026-03-02." },
+      "answer": "Acme settled its invoice on March 2, 2026 [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "number",
+      "lang": "en",
+      "facts": { "f1": "The budget for the launch is 2500 euros." },
+      "answer": "The launch budget is 4000 euros [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "number",
+      "lang": "en",
+      "facts": { "f1": "The team has 7 engineers." },
+      "answer": "There are seven engineers on the team [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "date",
+      "lang": "en",
+      "facts": { "f1": "Ivan joined the company in 2019." },
+      "answer": "Ivan joined in 2021 [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "negation",
+      "lang": "en",
+      "facts": { "f1": "Sara does not eat meat." },
+      "answer": "Sara eats meat [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "negation",
+      "lang": "en",
+      "facts": { "f1": "The API is rate limited to 100 requests per minute." },
+      "answer": "The API has no rate limit [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "entity",
+      "lang": "en",
+      "facts": { "f1": "The database runs on SurrealDB." },
+      "answer": "The database runs on PostgreSQL [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "inference",
+      "lang": "en",
+      "facts": { "f1": "Maya moved to Porto in May.", "f2": "Porto is in Portugal." },
+      "answer": "Maya lives in Portugal now [f1][f2].",
+      "gold": ["neutral"]
+    },
+    {
+      "cat": "inference",
+      "lang": "en",
+      "facts": { "f1": "The deploy failed twice on Monday." },
+      "answer": "The deploy failed twice on Monday [f1]. The team was probably frustrated.",
+      "gold": ["supported", "uncited"]
+    },
+    {
+      "cat": "mixed",
+      "lang": "en",
+      "facts": { "f1": "Leo works at Globex.", "f2": "Leo's manager is Ana." },
+      "answer": "Leo works at Globex [f1]. His manager is Bruno [f2].",
+      "gold": ["supported", "contradicted"]
+    },
+    {
+      "cat": "mixed",
+      "lang": "en",
+      "facts": {
+        "f1": "The service listens on port 8080.",
+        "f2": "TLS is terminated at the load balancer."
+      },
+      "answer": "The service listens on port 8080 [f1]. TLS is terminated inside the service [f2].",
+      "gold": ["supported", "contradicted"]
+    },
+    {
+      "cat": "paraphrase",
+      "lang": "ru",
+      "facts": { "f1": "Мария живёт в Казани." },
+      "answer": "Мария проживает в Казани [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "number",
+      "lang": "ru",
+      "facts": { "f1": "Бюджет проекта составляет 2 миллиона рублей." },
+      "answer": "Бюджет проекта — 5 миллионов рублей [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "date",
+      "lang": "ru",
+      "facts": { "f1": "Договор подписан 14 марта 2026 года." },
+      "answer": "Договор подписан в апреле 2026 года [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "negation",
+      "lang": "ru",
+      "facts": { "f1": "Клиент не продлил подписку." },
+      "answer": "Клиент продлил подписку [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "entity",
+      "lang": "ru",
+      "facts": { "f1": "Сервер стоит в дата-центре во Франкфурте." },
+      "answer": "Сервер находится в Амстердаме [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "mixed",
+      "lang": "ru",
+      "facts": { "f1": "Артём руководит отделом продаж.", "f2": "В отделе 12 человек." },
+      "answer": "Артём руководит отделом продаж [f1]. В отделе 12 сотрудников [f2].",
+      "gold": ["supported", "supported"]
+    },
+    {
+      "cat": "inference",
+      "lang": "ru",
+      "facts": { "f1": "Ольга переехала в Лиссабон в 2025 году." },
+      "answer": "Ольга живёт в Португалии [f1].",
+      "gold": ["neutral"]
+    },
+    {
+      "cat": "paraphrase",
+      "lang": "pt",
+      "facts": { "f1": "João trabalha no Banco Inter." },
+      "answer": "João é funcionário do Banco Inter [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "number",
+      "lang": "pt",
+      "facts": { "f1": "O aluguel é de 3200 reais por mês." },
+      "answer": "O aluguel custa 4500 reais por mês [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "negation",
+      "lang": "pt",
+      "facts": { "f1": "O imóvel não aceita animais." },
+      "answer": "O imóvel aceita animais [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "date",
+      "lang": "pt",
+      "facts": { "f1": "A reunião foi marcada para sexta-feira." },
+      "answer": "A reunião está marcada para segunda-feira [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "mixed",
+      "lang": "pt",
+      "facts": { "f1": "Ana mora em Pinheiros.", "f2": "Ana tem dois filhos." },
+      "answer": "Ana mora em Pinheiros [f1]. Ela tem três filhos [f2].",
+      "gold": ["supported", "contradicted"]
+    },
+    {
+      "cat": "crosslingual",
+      "lang": "ru",
+      "facts": { "f1": "Maya lives in Porto." },
+      "answer": "Майя живёт в Порту [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "crosslingual",
+      "lang": "ru",
+      "facts": { "f1": "The budget is 2500 euros." },
+      "answer": "Бюджет — 4000 евро [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "crosslingual",
+      "lang": "pt",
+      "facts": { "f1": "Leo works at Globex." },
+      "answer": "Leo trabalha na Globex [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "crosslingual",
+      "lang": "pt",
+      "facts": { "f1": "The office is closed on Sundays." },
+      "answer": "O escritório abre aos domingos [f1].",
+      "gold": ["contradicted"]
+    },
+    {
+      "cat": "paraphrase",
+      "lang": "en",
+      "facts": { "f1": "Bob prefers tea over coffee." },
+      "answer": "Bob would rather drink tea than coffee [f1].",
+      "gold": ["supported"]
+    },
+    {
+      "cat": "inference",
+      "lang": "en",
+      "facts": { "f1": "The contract with Initech ends on 2026-12-31." },
+      "answer": "The Initech contract is still active in November 2026 [f1].",
+      "gold": ["neutral"]
+    }
+  ]
+}

@@ -42,6 +42,7 @@
     "eval:state-transitions": "ts-node -T test/eval/state-transitions/runner.ts",
     "eval:truth-discovery": "ts-node -T test/eval/truth-discovery/runner.ts",
     "eval:value-grounding": "ts-node -T test/eval/value-grounding/runner.ts",
+    "eval:claim-check": "ts-node -T test/eval/claim-check/runner.ts",
     "eval:entity-resolution": "ts-node -T test/eval/entity-resolution/runner.ts",
     "eval:relationship": "ts-node -T test/eval/relationship/runner.ts",
     "eval:domain-packs": "ts-node -T test/eval/domain-packs/runner.ts",
