@@ -175,6 +175,15 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
       "V12 §2 read side (profile field digestEvidence): surface the rolling conversation digests (conversation_digest, written under DERIVER_DIGEST) into the prompt's insight slot — merged AHEAD of retrieved insight lines under the same budget, so the generator, the verifier and the NLI judge all see the dated narrative arc (evidence parity by construction). Newest 4 digests by lastEventAt, derived-world pin respected. Off = byte-identical; empty against worlds derived without DERIVER_DIGEST. Digests are tenant-global derived state — the per-user/PII policy story is the V11 brief item 10 prerequisite before any default-on.",
   },
   {
+    key: 'RETRIEVAL_COMMUNITY_EVIDENCE',
+    category: 'pipeline',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Community lane (profile field communityEvidence, #876): a question routed to the summary lane also reads the top 3 community summaries the dreams communities pass builds (community_node, 0036) — BM25 over the summary and cosine over its embedding, fused by RRF — into the insight slot after the conversation digests, same budget, so generator and verifier see them. A summary whose members gained a live edge after it was built is skipped; the rest carry their build date. Summaries are tenant-wide by construction (the builder folds only tenant-global, non-PII, untagged rows). Other lanes are untouched. Battery: pnpm eval:community-evidence.',
+  },
+  {
     key: 'DERIVER_DATE_RESOLVE',
     category: 'pipeline',
     defaultValue: '1',
@@ -492,6 +501,15 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
     isBooleanFlag: true,
     description:
       "V10 §5 verifier topic-coverage (profile field verifierTopicCoverage): the corrective-RAG auditor additionally (a) treats asserted CONNECTIONS between facts — causal/motivational/attributive links — as claims needing their own evidence, and (b) outputs a questionAnswered judgment: does the evidence actually answer the query, or merely share its topic. In lenient guardrails under abstentionCalibration='verifier', supported-but-not-answering declines like unsupported (the V9 residual: 13/40 abstention misses were fabrications assembled from real facts, each claim individually grounded, the causal link invented). Strict/answer guardrails keep pre-V10 semantics. Off = byte-identical verifier prompt and schema.",
+  },
+  {
+    key: 'RETRIEVAL_CLAIM_CHECK',
+    category: 'pipeline',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Claim-level check (profile field claimCheck, #877): each cited sentence of a synthesized answer is put to the local NLI model (mDeBERTa-xnli, already loaded) against exactly the facts it cites, plus a number check; a sentence the facts contradict is removed with the citations only it carried, and an answer left with nothing is unsupported. Neutral (paraphrase, inference) stands. Runs after the LLM verifier, and alone where none runs (harness, keyless). No model call. Measured on test/eval/claim-check: 11/17 contradictions caught, 0/17 supported or neutral sentences removed.',
   },
   {
     key: 'RETRIEVAL_PROFILE_OVERRIDES',
