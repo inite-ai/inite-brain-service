@@ -2,6 +2,9 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { withUsageLedger } from './llm-usage-ledger';
+import { tenantDailyTokenBudget } from './tenant-llm-budget';
+import { breakerFor, breakerSettings, type BreakerSettings } from './circuit-breaker';
+import { ProviderCircuitOpen } from './provider-circuit-open';
 
 /**
  * The chat model every LLM call runs on unless OPENAI_CHAT_MODEL says
@@ -64,12 +67,13 @@ function buildClient(config: ConfigService, apiKey: string): OpenAI {
         }
       : undefined;
   const modelPrefix = config.get<string>('OPENAI_MODEL_PREFIX', '');
-  if (modelPrefix || fallback) routeChat(primary, { client: primary, modelPrefix }, fallback);
+  const breakers = () => breakerSettings((key) => config.get<string>(key));
+  routeChat(primary, { primary: { client: primary, modelPrefix }, fallback }, breakers);
   withOfflineTimeout(
     primary,
     parseInt(config.get<string>('OPENAI_OFFLINE_TIMEOUT_MS', '180000'), 10),
   );
-  withUsageLedger(primary);
+  withUsageLedger(primary, () => tenantDailyTokenBudget((key) => config.get<string>(key)));
   return primary;
 }
 
@@ -136,8 +140,17 @@ const failoverLog = new Logger('LlmFailover');
  *
  * Patched onto the primary client's own `chat.completions.create`, so the
  * 13 services that call it see one client, exactly as before.
+ *
+ * Each route runs behind a circuit breaker per (provider, model)
+ * (circuit-breaker.ts): after consecutive provider-side failures the
+ * primary is not called at all — the fallback serves, or the call fails
+ * fast — until a probe after the cool-down succeeds.
  */
-function routeChat(target: OpenAI, primary: ChatRoute, fallback: ChatRoute | undefined): void {
+function routeChat(
+  target: OpenAI,
+  { primary, fallback }: { primary: ChatRoute; fallback: ChatRoute | undefined },
+  breakers: () => BreakerSettings,
+): void {
   // Bound BEFORE the patch below replaces it: the primary route calls the
   // SDK's own method, never the router.
   const sdkCreate = new Map<ChatRoute, ChatCreate>(
@@ -146,8 +159,25 @@ function routeChat(target: OpenAI, primary: ChatRoute, fallback: ChatRoute | und
       (r.client.chat.completions.create as unknown as ChatCreate).bind(r.client.chat.completions),
     ]),
   );
-  const call = (route: ChatRoute, body: ChatBody, opts: unknown) =>
+  const send = (route: ChatRoute, body: ChatBody, opts: unknown) =>
     sdkCreate.get(route)!(namespaced(body, route.modelPrefix, route !== primary), opts);
+  const call = async (route: ChatRoute, body: ChatBody, opts: unknown) => {
+    const key = routeKey(route, body.model);
+    const breaker = breakerFor(key, breakers);
+    if (!breaker.allow()) throw new ProviderCircuitOpen(key);
+    try {
+      const res = await send(route, body, opts);
+      breaker.onSuccess();
+      return res;
+    } catch (err) {
+      // Flex "no capacity" is not the provider failing: it must not open
+      // the circuit and push standard calls to the fallback's price.
+      const flexShortage = body.service_tier === 'flex' && statusOf(err) === 429;
+      if (providerSideFailure(err) && !flexShortage) breaker.onFailure();
+      else breaker.onNeutral();
+      throw err;
+    }
+  };
   const create: ChatCreate = async (body, opts) => {
     if (fallback && Date.now() < primaryDownUntil) return call(fallback, body, opts);
     try {
@@ -171,6 +201,17 @@ function routeChat(target: OpenAI, primary: ChatRoute, fallback: ChatRoute | und
 }
 
 type ChatBody = { model: string; service_tier?: unknown } & Record<string, unknown>;
+
+/** A breaker's key: the provider's host and the model asked of it (bounded labels). */
+function routeKey(route: ChatRoute, model: string): string {
+  let host = 'unknown';
+  try {
+    host = new URL(route.client.baseURL).host;
+  } catch {
+    /* an SDK client always has a base URL; 'unknown' keeps the key total */
+  }
+  return `${host}|${model}`;
+}
 type ChatCreate = (body: ChatBody, opts?: unknown) => Promise<unknown>;
 
 /** The body with the route's model namespace; the fallback drops the tier knob. */

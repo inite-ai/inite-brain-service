@@ -41,6 +41,8 @@ export type SynthesisReason =
   | 'generator_error'
   /** Harness mode: no server model call; the caller answers from `results`. */
   | 'harness_mode'
+  /** The tenant's daily model budget is spent; the caller answers from `results`. */
+  | 'model_budget'
   | 'verifier_error';
 
 /**

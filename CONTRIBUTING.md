@@ -82,8 +82,10 @@ pnpm test:e2e:real -- --testPathPattern=jobs.real
 `src/db/migrations/NNNN_description.surql`, numeric order, idempotent
 (`IF NOT EXISTS` everywhere). **Never edit a shipped migration** — the
 migrator tracks `migrationId` in each tenant's `schema_migrations` table;
-once applied, the file is silently skipped on re-deploy. Edits to applied
-migrations are invisible in prod. Add a new numbered file instead.
+once applied, the file is skipped on re-deploy, so an edit never reaches
+prod. Add a new numbered file instead, and its checksum line to
+`test/golden/migration-checksums.json` (the unit test prints it); an edit
+to a shipped file fails that test.
 
 If your migration changes a column type or drops a field, you also need:
 
