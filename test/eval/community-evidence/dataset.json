@@ -1,0 +1,172 @@
+{
+  "_doc": "Community-evidence battery (#876). A multi-topic tenant: each community is the summary the dreams communities pass would persist (written here by the harness agent, as harness mode does), with its member entities and the edges between them. Questions are thematic (gold = the communities whose summary answers them; '*' = any community serves, a whole-memory question) or factoid (gold = none: the lane must stay out). One community gains an edge after its build and must be skipped as stale. Scoring rule fixed before measuring: a thematic question is served when it routes to the summary lane AND a gold community is among the served lines; a factoid question costs tokens when it routes to the summary lane.",
+  "communities": [
+    {
+      "key": "payments",
+      "label": "Payments migration",
+      "members": ["Payments project", "Stripe", "Adyen", "Lena Fischer", "Billing service"],
+      "summary": "The payments project moves card processing from Stripe to Adyen to cut fees by roughly 0.4 percentage points. Lena Fischer leads it; the billing service is being rewritten to talk to Adyen's API. Cutover was planned for March and slipped to May after a settlement-report mismatch. Stripe stays as a fallback for Apple Pay until Adyen certifies it."
+    },
+    {
+      "key": "hiring",
+      "label": "Engineering hiring",
+      "members": [
+        "Hiring plan",
+        "Senior backend role",
+        "Recruiter Ana",
+        "Take-home task",
+        "Diego Ramos"
+      ],
+      "summary": "Engineering hiring targets three senior backend engineers this half. The recruiter Ana sources candidates; the take-home task was shortened to two hours after candidates dropped out. Diego Ramos accepted an offer and starts in June; two roles remain open, with interviews mostly on Thursdays."
+    },
+    {
+      "key": "office",
+      "label": "Office move to Lisbon",
+      "members": [
+        "Lisbon office",
+        "Avenida da Liberdade lease",
+        "Movers Lda",
+        "Office move",
+        "Facilities team"
+      ],
+      "summary": "The company is moving its office to Lisbon, into a lease on Avenida da Liberdade signed for five years. Movers Lda handles the move, booked for the last week of August. The facilities team is choosing furniture and wants a quiet room for calls; the old office closes on 31 August."
+    },
+    {
+      "key": "health",
+      "label": "Running and health",
+      "members": ["Half marathon", "Physio Marta", "Knee injury", "Training plan", "Running club"],
+      "summary": "Training for an autumn half marathon with the running club, three runs a week. A knee injury in spring paused training for a month; physio Marta prescribed strength work and a slower build-up. Long runs are back to 15 km and the goal time is under two hours."
+    },
+    {
+      "key": "garden",
+      "label": "Vegetable garden",
+      "members": ["Allotment", "Tomatoes", "Drip irrigation", "Compost bin", "Neighbour Paulo"],
+      "summary": "An allotment vegetable garden: tomatoes did well this year after switching to drip irrigation, courgettes less so. A compost bin was added in spring. Neighbour Paulo shares seeds and waters the plot during holidays."
+    },
+    {
+      "key": "relocation_ru",
+      "label": "Переезд семьи в Казань",
+      "members": [
+        "Переезд в Казань",
+        "Школа для сына",
+        "Квартира на Баумана",
+        "Риелтор Ирина",
+        "Контейнер вещей"
+      ],
+      "summary": "Семья переезжает в Казань к сентябрю. Риелтор Ирина нашла квартиру на улице Баумана, договор аренды на год. Сына записали в школу рядом с домом; вещи едут контейнером, который задержался на две недели."
+    },
+    {
+      "key": "launch_pt",
+      "label": "Lançamento do app",
+      "members": [
+        "App Conta Fácil",
+        "Lançamento",
+        "Equipe de marketing",
+        "App Store",
+        "Beta fechado"
+      ],
+      "summary": "O app Conta Fácil será lançado em outubro. O beta fechado teve 300 usuários e a principal reclamação foi o login lento, já corrigido. A equipe de marketing prepara a campanha; a revisão da App Store foi rejeitada uma vez por falta de política de privacidade."
+    },
+    {
+      "key": "kitchen",
+      "label": "Kitchen renovation",
+      "members": [
+        "Kitchen renovation",
+        "Builder Tomás",
+        "Oak worktop",
+        "Induction hob",
+        "Renovation budget"
+      ],
+      "summary": "The kitchen renovation with builder Tomás: oak worktop and induction hob chosen, budget 18,000 euros. Work was to start in July.",
+      "staleEdge": ["Builder Tomás", "Renovation budget"]
+    }
+  ],
+  "questions": [
+    {
+      "q": "Summarize what we know about the payments project.",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["payments"]
+    },
+    {
+      "q": "Give me an overview of the engineering hiring.",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["hiring"]
+    },
+    {
+      "q": "How has the office move progressed?",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["office"]
+    },
+    {
+      "q": "What are the main themes in my notes?",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["*"]
+    },
+    {
+      "q": "What do we know about the running and the knee?",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["health"]
+    },
+    {
+      "q": "Give me the big picture on the garden.",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["garden"]
+    },
+    {
+      "q": "What are the key topics around hiring and the take-home task?",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": ["hiring"]
+    },
+    {
+      "q": "Summarize the kitchen renovation.",
+      "lang": "en",
+      "kind": "thematic",
+      "gold": [],
+      "stale": "kitchen"
+    },
+    {
+      "q": "Подведи итог по переезду в Казань.",
+      "lang": "ru",
+      "kind": "thematic",
+      "gold": ["relocation_ru"]
+    },
+    {
+      "q": "Что в целом происходит с переездом семьи?",
+      "lang": "ru",
+      "kind": "thematic",
+      "gold": ["relocation_ru"]
+    },
+    {
+      "q": "Faça um resumo do lançamento do app.",
+      "lang": "pt",
+      "kind": "thematic",
+      "gold": ["launch_pt"]
+    },
+    {
+      "q": "Me dê uma visão geral do lançamento do Conta Fácil.",
+      "lang": "pt",
+      "kind": "thematic",
+      "gold": ["launch_pt"]
+    },
+    { "q": "When does Diego Ramos start?", "lang": "en", "kind": "factoid", "gold": [] },
+    { "q": "Who leads the payments project?", "lang": "en", "kind": "factoid", "gold": [] },
+    {
+      "q": "What is the goal time for the half marathon?",
+      "lang": "en",
+      "kind": "factoid",
+      "gold": []
+    },
+    { "q": "Which street is the Lisbon office on?", "lang": "en", "kind": "factoid", "gold": [] },
+    { "q": "What do I know about Paulo?", "lang": "en", "kind": "factoid", "gold": [] },
+    { "q": "Как зовут риелтора?", "lang": "ru", "kind": "factoid", "gold": [] },
+    { "q": "Quantos usuários teve o beta?", "lang": "pt", "kind": "factoid", "gold": [] },
+    { "q": "How much is the renovation budget?", "lang": "en", "kind": "factoid", "gold": [] }
+  ]
+}

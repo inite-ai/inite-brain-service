@@ -20,6 +20,7 @@ import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
+import { CommunityLaneService } from './community-lane.service';
 import { FragmentLaneService } from './fragment-lane.service';
 import { BeliefLaneService } from './belief-lane.service';
 import { SceneLaneService } from './scene-lane.service';
@@ -58,6 +59,7 @@ import { IngestCoreModule } from '../ingest/ingest-core.module';
     QueryArcService,
     UpdateStoryService,
     DigestLaneService,
+    CommunityLaneService,
     FragmentLaneService,
     BeliefLaneService,
     SceneLaneService,

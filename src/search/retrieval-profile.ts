@@ -406,6 +406,13 @@ export interface RetrievalProfile {
    */
   digestEvidence: boolean;
   /**
+   * Community lane (#876): summary-routed questions read the top
+   * community summaries the dreams pass builds (community_node, 0036) —
+   * BM25 + summary-embedding cosine fused by RRF, stale snapshots
+   * skipped — into the insight slot after the digests, same budget.
+   */
+  communityEvidence: boolean;
+  /**
    * V13 digest gate-shaping: which routed lanes the digest lines
    * render into. 'all' = the V12 behavior (every prompt). 'summary_ku'
    * = only summary- and recency/knowledge-update-shaped questions —
@@ -800,6 +807,11 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL', DEFAULT_VERIFIER_MODEL),
     verifierEffort: verifierEffortEnv(env),
     digestEvidence: presetFlagNotDisabled(env, 'RETRIEVAL_DIGEST_EVIDENCE', preset.digestEvidence),
+    communityEvidence: presetFlagNotDisabled(
+      env,
+      'RETRIEVAL_COMMUNITY_EVIDENCE',
+      preset.communityEvidence,
+    ),
     digestLanes:
       enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??
       preset.digestLanes ??
@@ -965,6 +977,7 @@ export function resolveRetrievalProfileFor(
     'orderingFrame',
     'verifierTopicCoverage',
     'digestEvidence',
+    'communityEvidence',
     'rawWindow',
     'timeFilter',
     'dateMath',

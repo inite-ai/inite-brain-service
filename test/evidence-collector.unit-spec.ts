@@ -335,6 +335,58 @@ describe('EvidenceCollectorService branches', () => {
     expect(calls).toEqual([{ companyId: 'c1', userId: 'user-b' }]);
   });
 
+  it('community summaries serve summary-routed questions only, after the digests', async () => {
+    const calls: Array<{ companyId: string; query: string }> = [];
+    const communityLane = {
+      communityLines: async (o: { companyId: string; query: string }) => {
+        calls.push(o);
+        return ['Topic overview — Payments (built 2026-11-01):\nThe payments project…'];
+      },
+    } as unknown as import('../src/synthesize/community-lane.service').CommunityLaneService;
+    const digestLane = {
+      digestLines: async () => ['digest line'],
+    } as unknown as import('../src/synthesize/digest-lane.service').DigestLaneService;
+    const none = undefined;
+    const svc = new EvidenceCollectorService(
+      noSearch,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      digestLane,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      none,
+      communityLane,
+    );
+    const on = profileWith({ communityEvidence: true, digestEvidence: true, digestLanes: 'all' });
+    const summary = await svc.collect({
+      ...collectorArgs(on),
+      lane: 'summary',
+      query: 'Summarise payments',
+    });
+    expect(summary.insightLines).toEqual([
+      'digest line',
+      'Topic overview — Payments (built 2026-11-01):\nThe payments project…',
+    ]);
+    expect(calls).toEqual([{ companyId: 'c1', query: 'Summarise payments' }]);
+
+    const factoid = await svc.collect({ ...collectorArgs(on), lane: null });
+    expect(factoid.insightLines).toEqual(['digest line']);
+    const off = await svc.collect({
+      ...collectorArgs(profileWith({ communityEvidence: false, digestEvidence: false })),
+      lane: 'summary',
+    });
+    expect(off.insightLines).toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
   it('strategy notes gate on lane membership AND the read-side flag', async () => {
     const calls: string[] = [];
     const makeStrategy = (retrievalOn: boolean) =>

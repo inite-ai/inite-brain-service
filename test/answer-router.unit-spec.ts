@@ -143,6 +143,8 @@ describe('detectLane (preference and summary lexicons)', () => {
     'How has my weather app project progressed over time?',
     'Give me an overview of my portfolio website work.',
     'Summarize my budget tracker journey.',
+    'What are the recurring themes in my journal?',
+    'Give me the big picture on the migration.',
   ])('routes to summary: %s', (q) => {
     expect(detectLane(q)).toBe('summary');
   });
