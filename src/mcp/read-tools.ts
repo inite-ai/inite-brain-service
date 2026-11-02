@@ -24,7 +24,13 @@ import {
   registerEntityTimelineTool,
   type EntityGistDeps,
 } from './entity-gist-tools';
-import { answerDetailArg, focusOf, multiHopView, synthesizeView } from './answer-views';
+import {
+  answerDetailArg,
+  focusOf,
+  multiHopView,
+  synthesizeView,
+  ANSWER_MORE,
+} from './answer-views';
 import { diffOf } from './diff-view';
 
 /**
@@ -263,6 +269,7 @@ function registerSearchTools({ server, companyId, scopes, deps }: RegisterReadTo
               await focusOf(
                 { deps, companyId, scopes, query: args.query, userId: args.userId },
                 { results: found.finalHits },
+                ANSWER_MORE,
               ),
             );
       return {
@@ -351,6 +358,7 @@ function registerSynthesizeTool({
                 ? await focusOf(
                     { deps, companyId, scopes, query: args.query, userId: args.userId },
                     found,
+                    ANSWER_MORE,
                   )
                 : undefined,
             );
