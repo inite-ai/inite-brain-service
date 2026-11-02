@@ -47,6 +47,7 @@ export const RetrievalProfileWireSchema = z.object({
   verifierModel: z.string(),
   verifierEffort: z.string(),
   digestEvidence: z.boolean(),
+  communityEvidence: z.boolean(),
   digestLanes: z.enum(['all', 'summary_ku']),
   rawWindow: z.boolean(),
   rawWindowSpan: z.number().int(),
