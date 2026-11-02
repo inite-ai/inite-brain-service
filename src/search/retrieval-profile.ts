@@ -388,6 +388,14 @@ export interface RetrievalProfile {
    */
   verifierTopicCoverage: boolean;
   /**
+   * Claim-level check (src/synthesize/claim-check.ts, #877): every cited
+   * sentence of the answer against the facts it cites with the local NLI
+   * model plus a number check; a contradicted sentence is removed with the
+   * citations only it carried. Runs after the verifier, and alone where
+   * no verifier runs (harness, keyless). No model call.
+   */
+  claimCheck: boolean;
+  /**
    * V11 §2 arm (a): model override for the verifier/auditor call ONLY
    * (the generator keeps the synthesis model). Empty = inherit the
    * synthesis model — byte-identical behavior. Targets the
@@ -405,6 +413,13 @@ export interface RetrievalProfile {
    * derived without the digest flag.
    */
   digestEvidence: boolean;
+  /**
+   * Community lane (#876): summary-routed questions read the top
+   * community summaries the dreams pass builds (community_node, 0036) —
+   * BM25 + summary-embedding cosine fused by RRF, stale snapshots
+   * skipped — into the insight slot after the digests, same budget.
+   */
+  communityEvidence: boolean;
   /**
    * V13 digest gate-shaping: which routed lanes the digest lines
    * render into. 'all' = the V12 behavior (every prompt). 'summary_ku'
@@ -800,6 +815,11 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     verifierModel: modelIdEnv(env, 'RETRIEVAL_VERIFIER_MODEL', DEFAULT_VERIFIER_MODEL),
     verifierEffort: verifierEffortEnv(env),
     digestEvidence: presetFlagNotDisabled(env, 'RETRIEVAL_DIGEST_EVIDENCE', preset.digestEvidence),
+    communityEvidence: presetFlagNotDisabled(
+      env,
+      'RETRIEVAL_COMMUNITY_EVIDENCE',
+      preset.communityEvidence,
+    ),
     digestLanes:
       enumEnv(env, 'RETRIEVAL_DIGEST_LANES', ['all', 'summary_ku'] as const) ??
       preset.digestLanes ??
@@ -841,6 +861,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     verifiedUseDecay: envFlagNotDisabled(env.RETRIEVAL_VERIFIED_USE_DECAY),
     verifiedUseRanking: envFlagNotDisabled(env.RETRIEVAL_VERIFIED_USE_RANKING),
     tenantDecayPolicy: envFlagNotDisabled(env.RETRIEVAL_TENANT_DECAY),
+    claimCheck: envFlagNotDisabled(env.RETRIEVAL_CLAIM_CHECK),
     lanes,
   };
 }
@@ -964,7 +985,9 @@ export function resolveRetrievalProfileFor(
     'updateStoryRendering',
     'orderingFrame',
     'verifierTopicCoverage',
+    'claimCheck',
     'digestEvidence',
+    'communityEvidence',
     'rawWindow',
     'timeFilter',
     'dateMath',

@@ -24,6 +24,7 @@ import { MentionScanService } from './mention-scan.service';
 import { QueryArcService } from './query-arc.service';
 import { UpdateStoryService } from './update-story.service';
 import { DigestLaneService } from './digest-lane.service';
+import { CommunityLaneService } from './community-lane.service';
 import { FragmentLaneService } from './fragment-lane.service';
 import { BeliefLaneService } from './belief-lane.service';
 import { SceneLaneService } from './scene-lane.service';
@@ -262,6 +263,7 @@ export class EvidenceCollectorService {
     @Optional() private readonly sceneLane?: SceneLaneService,
     @Optional() private readonly instructionLane?: InstructionLaneService,
     @Optional() private readonly users?: UserEntityService,
+    @Optional() private readonly communityLane?: CommunityLaneService,
   ) {}
 
   /**
@@ -308,6 +310,7 @@ export class EvidenceCollectorService {
       insightLines,
       updateStories,
       digestLines,
+      communityLines,
       groundingQuotes,
       strategyNotes,
       fragmentEvidence,
@@ -321,6 +324,7 @@ export class EvidenceCollectorService {
       this.collectInsightLines(opts),
       this.collectUpdateStories(opts),
       this.collectDigestLines(opts),
+      this.collectCommunityLines(opts),
       this.collectGroundingQuotes(opts),
       this.collectStrategyNotes(opts),
       this.collectFragmentEvidence(opts),
@@ -331,7 +335,8 @@ export class EvidenceCollectorService {
     // V12 §2: digests merge AHEAD of retrieved insight lines under
     // the same slot — generator, verifier and NLI judge all see them
     // (evidence parity by construction, the W5 #22 lesson).
-    const insightSlot = digestLines.length ? [...digestLines, ...insightLines] : insightLines;
+    // #876: community summaries follow the digests in the same slot.
+    const insightSlot = [...digestLines, ...communityLines, ...insightLines];
     // V13 noise filter (the unported LIGHT component): injected
     // context sections are relevance-gated by the local cross-encoder;
     // fact lines are NEVER filtered. The mention record is exempt —
@@ -576,6 +581,20 @@ export class EvidenceCollectorService {
     return this.digestLane
       .digestLines({ companyId: opts.companyId, userId: opts.userId })
       .then((v) => v ?? []);
+  }
+
+  /** #876 read side — the community summaries, for summary-routed questions only; degrades []. */
+  private async collectCommunityLines(opts: {
+    profile: RetrievalProfile;
+    lane: LaneId | null;
+    companyId: string;
+    query: string;
+  }): Promise<string[]> {
+    if (!opts.profile.communityEvidence || opts.lane !== 'summary' || !this.communityLane) {
+      return [];
+    }
+    if (getAbortSignal()?.aborted) return [];
+    return this.communityLane.communityLines({ companyId: opts.companyId, query: opts.query });
   }
 
   /**
