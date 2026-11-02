@@ -141,7 +141,7 @@ export class MemoryContextService {
       return await traceSpan('ingest.memory_context', async () => {
         const ctx = await this.surreal.withCompany(p.companyId, async (db) => {
           const recentTurns = await this.recentTurns(db, p);
-          const names = await this.candidateNames(p, recentTurns);
+          const names = await this.candidateNames(db, p, recentTurns);
           const ids = await this.lookupIds(db, {
             own: await this.ownEntity(db, p.userId),
             names,
@@ -153,7 +153,11 @@ export class MemoryContextService {
             this.predicates(db, p.companyId),
           ]);
           const saidBy = isoOf(p.saidBy ?? p.before);
-          const facts = await this.knownFacts(db, entities, { userId: p.userId, saidBy });
+          const facts = await this.knownFacts(db, entities, {
+            userId: p.userId,
+            saidBy,
+            text: p.text,
+          });
           const edges = await this.knownEdges(db, entities, {
             userId: p.userId,
             saidBy,
@@ -201,7 +205,7 @@ export class MemoryContextService {
   }): Promise<boolean> {
     try {
       return await this.surreal.withCompany(p.companyId, async (db) => {
-        const names = await this.candidateNames({ ...p, participants: [] }, []);
+        const names = await this.candidateNames(db, { ...p, participants: [] }, []);
         const ids = await this.lookupIds(db, {
           own: undefined,
           names,
@@ -268,8 +272,20 @@ export class MemoryContextService {
       .reverse();
   }
 
-  /** Proper names the turn and the conversation mention, most recent first. */
-  private async candidateNames(p: MemoryContextInput, turns: MemoryTurn[]): Promise<string[]> {
+  /**
+   * Proper names the turn and the conversation mention, most recent first:
+   * the participants, what the local NER finds, and the names of known
+   * entities the text spells out (namesInText). The NER is opt-in, and a
+   * document carries no participants, so before the gazetteer a document
+   * turn found no known entity at all: nothing to pin, no fact to
+   * supersede, the same friend minted twice ("Susan" beside "Susan
+   * Thomas") — found on the HaluMem slice, 2026-11-02.
+   */
+  private async candidateNames(
+    db: Surreal,
+    p: MemoryContextInput,
+    turns: MemoryTurn[],
+  ): Promise<string[]> {
     const texts = [p.text, ...turns.map((t) => t.text).reverse()];
     const names: string[] = [...(p.participants ?? [])];
     if (this.ner?.isReady()) {
@@ -279,6 +295,7 @@ export class MemoryContextService {
         if (names.length >= MAX_NAMES * 2) break;
       }
     }
+    names.push(...(await this.namesInText(db, p.text, p.userId)));
     const seen = new Set<string>();
     const out: string[] = [];
     for (const n of names) {
@@ -289,6 +306,54 @@ export class MemoryContextService {
       if (out.length >= MAX_NAMES) break;
     }
     return out;
+  }
+
+  /**
+   * Gazetteer linking: the known entities whose name the text spells out.
+   * One index read (the canonicalName BM25 index, OR over the text's
+   * tokens) finds the names sharing a word with the text; each is kept
+   * when the text holds the whole name as a phrase, or only the name's
+   * distinctive words when it does not (a first name after the full one —
+   * the part-name rung of lookupIds settles who it is, unique matches
+   * only). Scope is lookupIds' to fence: a name here only nominates.
+   */
+  private async namesInText(
+    db: Surreal,
+    text: string,
+    userId: string | undefined,
+  ): Promise<string[]> {
+    if (!text.trim()) return [];
+    try {
+      const [rows] = await db.query<[Array<{ canonicalName: string }>]>(
+        `SELECT canonicalName, search::score(1) AS score FROM knowledge_entity
+          WHERE canonicalName @1,OR@ $text AND mergedInto IS NONE
+            AND ${userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'}
+          ORDER BY score DESC LIMIT ${MAX_NAMES * 4}`,
+        { text, u: userId },
+      );
+      const haystack = ` ${wordsOf(text).join(' ')} `;
+      const out: string[] = [];
+      for (const { canonicalName } of rows ?? []) {
+        const words = wordsOf(canonicalName);
+        if (words.length === 0) continue;
+        if (haystack.includes(` ${words.join(' ')} `)) {
+          out.push(canonicalName);
+          continue;
+        }
+        for (const raw of canonicalName.split(/\s+/u)) {
+          // A part counts when it is a name word (capitalised in the name)
+          // the text holds whole: "Susan" for "Susan Thomas", never "of".
+          const part = wordsOf(raw).join(' ');
+          if (part && raw[0] !== raw[0]?.toLowerCase() && haystack.includes(` ${part} `)) {
+            out.push(raw);
+          }
+        }
+      }
+      return out;
+    } catch (e) {
+      this.logger.warn(`entity names in text unavailable: ${(e as Error).message}`);
+      return [];
+    }
   }
 
   private remembered(p: MemoryContextInput): string[] {
@@ -383,45 +448,63 @@ export class MemoryContextService {
     return out;
   }
 
+  /**
+   * The facts the extractor is shown for each known entity, capped per
+   * entity: half the cap by relevance to the turn — BM25 over the facts'
+   * haystack, OR over the turn's words — and the rest the newest. The
+   * newest alone was the whole rule, and on a user with a long memory the
+   * turn that changed a preference never saw it: twelve newer career facts
+   * filled the cap, so "now I prefer Golden Retrievers" had no Labrador
+   * fact to supersede (HaluMem slice, 2026-11-02). Mem0 shows the update
+   * step the memories most similar to the new fact for the same reason.
+   * Each entity is read on its own: one LIMIT over all of them let the
+   * busiest entity take every row.
+   */
   private async knownFacts(
     db: Surreal,
     entities: MemoryEntity[],
-    opts: { userId: string | undefined; saidBy: string | undefined },
+    opts: { userId: string | undefined; saidBy: string | undefined; text?: string | undefined },
   ): Promise<MemoryFact[]> {
     const { userId, saidBy } = opts;
     if (entities.length === 0) return [];
-    const ids = entities.map((e) => e.id);
     const handleOf = new Map(entities.map((e) => [e.id, e.handle]));
     const tags = scopeFenceSql(userId, 'memFactScopeTag');
     const userGate = `${userId ? '(userId IS NONE OR userId = $u)' : 'userId IS NONE'} ${tags.clause}`;
-    const [rows] = await db.query<
-      [
-        Array<{
-          id: unknown;
-          entityId: unknown;
-          predicate: string;
-          object: string;
-          validFrom: unknown;
-          validUntil?: unknown;
-          expectedUntil?: unknown;
-        }>,
-      ]
-    >(
-      `SELECT id, entityId, predicate, object, validFrom, validUntil, expectedUntil FROM knowledge_fact
-        WHERE entityId IN $ids AND status IN ['active', 'competing'] AND retractedAt IS NONE
-          AND ${userGate}${saidBy ? ` AND ${SAID_AT('recordedAt')} <= type::datetime($said)` : ''}
-        ORDER BY validFrom DESC, id ASC LIMIT $k`,
-      {
-        ids: ids.map(recordRef),
-        u: userId,
-        said: saidBy,
-        k: MEMORY_FACTS_PER_ENTITY * ids.length,
-        ...tags.params,
-      },
-    );
+    const where = `status IN ['active', 'competing'] AND retractedAt IS NONE
+          AND ${userGate}${saidBy ? ` AND ${SAID_AT('recordedAt')} <= type::datetime($said)` : ''}`;
+    const fields = 'id, entityId, predicate, object, validFrom, validUntil, expectedUntil';
+    const relevant = Math.floor(MEMORY_FACTS_PER_ENTITY / 2);
+    const withText = !!opts.text?.trim();
+    const statements = entities.flatMap((_, i) => [
+      ...(withText
+        ? [
+            `SELECT ${fields}, search::score(1) AS rel FROM knowledge_fact
+              WHERE entityId = $e${i} AND searchHaystack @1,OR@ $text AND ${where}
+              ORDER BY rel DESC LIMIT ${relevant}`,
+          ]
+        : []),
+      `SELECT ${fields} FROM knowledge_fact WHERE entityId = $e${i} AND ${where}
+        ORDER BY validFrom DESC, id ASC LIMIT ${MEMORY_FACTS_PER_ENTITY}`,
+    ]);
+    const results = await db.query<Array<Array<FactRow>>>(statements.join(';\n'), {
+      ...Object.fromEntries(entities.map((e, i) => [`e${i}`, recordRef(e.id)])),
+      u: userId,
+      said: saidBy,
+      text: opts.text,
+      ...tags.params,
+    });
+    // Relevant first, then the newest, deduplicated, per entity in order.
+    const seen = new Set<string>();
+    const rows: FactRow[] = [];
+    for (const r of results.flat()) {
+      const id = String(r.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      rows.push(r);
+    }
     const perEntity = new Map<string, number>();
     const out: MemoryFact[] = [];
-    for (const r of rows ?? []) {
+    for (const r of rows) {
       const entityId = String(r.entityId);
       const n = perEntity.get(entityId) ?? 0;
       if (n >= MEMORY_FACTS_PER_ENTITY) continue;
@@ -567,4 +650,22 @@ function toIso(v: unknown): string {
 function recordRef(id: string): StringRecordId {
   // Record ids arrive as "table:key" strings; the SDK needs the typed form.
   return new StringRecordId(id);
+}
+
+interface FactRow {
+  id: unknown;
+  entityId: unknown;
+  predicate: string;
+  object: string;
+  validFrom: unknown;
+  validUntil?: unknown;
+  expectedUntil?: unknown;
+}
+
+/** Lower-cased words of a text, punctuation dropped — what a name is matched on. */
+function wordsOf(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
 }

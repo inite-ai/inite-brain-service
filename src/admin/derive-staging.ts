@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { runTransaction } from '../db/surreal.service';
+import { retryOnReadConflict } from '../db/surreal-retry';
 import type { LeaderLeaseService } from '../jobs/leader-lease.service';
 
 /**
@@ -283,12 +284,16 @@ export async function promoteStaging(
   // Audit 2026-08-21: facts and digests flip in ONE transaction — the
   // old two-transaction shape could commit the fact-world and then fail
   // the digest flip, leaving a new fact-world narrated by old digests.
-  await runTransaction(db as unknown as Surreal, (tx) => {
-    tx.bind('final', ns.final).bind('staging', ns.staging);
-    if (conv) {
-      tx.bind('conv', conv)
-        .add(
-          `UPDATE knowledge_fact SET
+  // The flip races live writers on the same tables, and Surreal's OCC can
+  // abort the COMMIT ("Resource busy"); the transaction is all-or-nothing,
+  // so it is retried whole.
+  await retryOnReadConflict(() =>
+    runTransaction(db as unknown as Surreal, (tx) => {
+      tx.bind('final', ns.final).bind('staging', ns.staging);
+      if (conv) {
+        tx.bind('conv', conv)
+          .add(
+            `UPDATE knowledge_fact SET
               status = 'active',
               supersededBy = NONE,
               validUntil = priorValidUntil,
@@ -302,46 +307,47 @@ export async function promoteStaging(
                 SELECT VALUE id FROM knowledge_fact
                  WHERE derivedVersion = $final
                    AND source.conversationId = $conv)`,
-        )
-        .add(
-          `DELETE knowledge_fact
+          )
+          .add(
+            `DELETE knowledge_fact
             WHERE derivedVersion = $final AND source.conversationId = $conv`,
-        )
-        .add(
-          `UPDATE knowledge_fact SET derivedVersion = $final
+          )
+          .add(
+            `UPDATE knowledge_fact SET derivedVersion = $final
             WHERE derivedVersion = $staging AND source.conversationId = $conv`,
-        )
-        // Two-step (LET ids → DELETE $ids) DELIBERATELY: this WHERE pair
-        // is covered by the COMPOUND digest_conv_version_idx
-        // (conversationId, derivedVersion) UNIQUE index — on SurrealDB
-        // 3.2.4 a DELETE planned through a compound index can be a
-        // silent no-op (returns OK, deletes nothing) while the same
-        // WHERE in a SELECT matches fine — the bug class reproduced for
-        // preSweepOutcomeRows (PR #372). A no-op here would collide the
-        // staging→final UPDATE below into the UNIQUE pair and abort the
-        // whole flip.
-        .add(
-          `LET $digestIds = (SELECT VALUE id FROM conversation_digest
+          )
+          // Two-step (LET ids → DELETE $ids) DELIBERATELY: this WHERE pair
+          // is covered by the COMPOUND digest_conv_version_idx
+          // (conversationId, derivedVersion) UNIQUE index — on SurrealDB
+          // 3.2.4 a DELETE planned through a compound index can be a
+          // silent no-op (returns OK, deletes nothing) while the same
+          // WHERE in a SELECT matches fine — the bug class reproduced for
+          // preSweepOutcomeRows (PR #372). A no-op here would collide the
+          // staging→final UPDATE below into the UNIQUE pair and abort the
+          // whole flip.
+          .add(
+            `LET $digestIds = (SELECT VALUE id FROM conversation_digest
             WHERE derivedVersion = $final AND conversationId = $conv)`,
-        )
-        .add(`DELETE $digestIds`)
-        .add(
-          `UPDATE conversation_digest SET derivedVersion = $final
+          )
+          .add(`DELETE $digestIds`)
+          .add(
+            `UPDATE conversation_digest SET derivedVersion = $final
             WHERE derivedVersion = $staging AND conversationId = $conv`,
-        )
-        .add(`RETURN true`);
-    } else {
-      tx.add(`DELETE knowledge_fact WHERE derivedVersion = $final`)
-        .add(
-          `UPDATE knowledge_fact SET derivedVersion = $final
+          )
+          .add(`RETURN true`);
+      } else {
+        tx.add(`DELETE knowledge_fact WHERE derivedVersion = $final`)
+          .add(
+            `UPDATE knowledge_fact SET derivedVersion = $final
             WHERE derivedVersion = $staging`,
-        )
-        .add(`DELETE conversation_digest WHERE derivedVersion = $final`)
-        .add(
-          `UPDATE conversation_digest SET derivedVersion = $final
+          )
+          .add(`DELETE conversation_digest WHERE derivedVersion = $final`)
+          .add(
+            `UPDATE conversation_digest SET derivedVersion = $final
             WHERE derivedVersion = $staging`,
-        )
-        .add(`RETURN true`);
-    }
-  });
+          )
+          .add(`RETURN true`);
+      }
+    }),
+  );
 }

@@ -67,6 +67,8 @@ export async function focusOf(
     userId?: string | undefined;
   },
   found: Parameters<typeof renderFocus>[0]['out'],
+  /** How the calling tool shows what the view left out (renderFocus `more`). */
+  more?: string,
 ): Promise<string> {
   const beliefs = await scoredBeliefs(ctx);
   const { kept } = focusSelect(found, {}, beliefs);
@@ -79,7 +81,7 @@ export async function focusOf(
       })
     : new Map<string, FocusSourceTurn[]>();
   const entailed = await entailedBySource(kept, sources, ctx.deps.entails);
-  return renderFocus({ out: found, sources, tokens: countTokens, entailed, beliefs });
+  return renderFocus({ out: found, sources, tokens: countTokens, entailed, beliefs, more });
 }
 
 /**
@@ -134,6 +136,9 @@ async function entailedBySource(
   }
   return out;
 }
+
+/** What synthesize and search_multi_hop print for the facts their evidence view left out. */
+export const ANSWER_MORE = 'detail "full"';
 
 export const answerDetailArg = z
   .enum(['answer', 'full'])

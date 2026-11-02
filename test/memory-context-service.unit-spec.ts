@@ -276,6 +276,44 @@ describe('MemoryContextService.build', () => {
     expect(ctx?.entities.map((e) => e.id)).toContain('knowledge_entity:rk');
   });
 
+  it('without NER, the known names the text spells out are looked up — whole, or the name word it uses', async () => {
+    const { svc, lookups, queries } = make();
+    // The NER answers nothing for this text; a document carries no participants.
+    await svc.build({
+      companyId: 'co',
+      text: 'Rui says the ThinkPad X1 broke. Nothing of Old here.',
+    });
+    const gazetteer = queries.find((q) => q.sql.includes('@1,OR@'))!;
+    expect(gazetteer.sql).toContain('mergedInto IS NONE');
+    expect(gazetteer.sql).toContain('userId IS NONE');
+    // "ThinkPad X1" is spelled out whole; of "Rui Almeida" the text uses "Rui";
+    // "RK Imóveis" shares no word with the text.
+    expect(lookups).toEqual(expect.arrayContaining(['ThinkPad X1', 'Rui']));
+    expect(lookups).not.toContain('Rui Almeida');
+    expect(lookups).not.toContain('RK Imóveis');
+  });
+
+  it("a user-scoped turn reads tenant names and its own, never another user's", async () => {
+    const { svc, queries } = make();
+    await svc.build({ companyId: 'co', text: 'Rui called', userId: 'u1' });
+    const gazetteer = queries.find((q) => q.sql.includes('@1,OR@'))!;
+    expect(gazetteer.sql).toContain('(userId IS NONE OR userId = $u)');
+    expect(gazetteer.params?.u).toBe('u1');
+  });
+
+  it('each known entity shows the facts most relevant to the turn beside its newest, read per entity', async () => {
+    const { svc, queries } = make();
+    await svc.build({ companyId: 'co', text: 'turn two', conversationId: 'conv' });
+    const factReads = queries.filter((q) => q.sql.includes('FROM knowledge_fact'));
+    const sql = factReads.map((q) => q.sql).join('\n');
+    // Relevance (BM25, OR over the turn's words) and recency, per entity —
+    // never one LIMIT shared by all of them.
+    expect(sql).toContain('searchHaystack @1,OR@ $text');
+    expect(sql).toContain('entityId = $e0');
+    expect(sql).not.toContain('entityId IN $ids');
+    expect(factReads.some((q) => q.params?.text === 'turn two')).toBe(true);
+  });
+
   it('inUse: asks about the entities the text names — never the user — and reads either signal', async () => {
     const { svc, queries, users } = make({ own: 'knowledge_entity:me' });
     // 'current' names Rui (NER) → knowledge_entity:rui; the store answers
@@ -287,10 +325,12 @@ describe('MemoryContextService.build', () => {
     expect(q.sql).toContain('verifiedUseCount + confirmedCount > 0');
     expect((q.params?.ids as unknown[]).map(String)).toEqual(['knowledge_entity:rui']);
     expect(users.lookup).not.toHaveBeenCalled();
-    // A text naming nothing known asks nothing.
-    const before = queries.length;
+    // A text naming nothing known asks no in-use question (the gazetteer
+    // read that finds no name is the only query).
+    const inUseQueries = () => queries.filter((x) => x.sql.includes('FROM memory_outcome_stat'));
+    const before = inUseQueries().length;
     expect(await svc.inUse({ companyId: 'co', text: 'nothing named' })).toBe(false);
-    expect(queries.length).toBe(before);
+    expect(inUseQueries().length).toBe(before);
   });
 
   it("the user's own entity is known first on every turn of theirs, resolved by key", async () => {
