@@ -16,12 +16,18 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** The four judge prompts (eval/eval_tools.py). */
+/** The four judge prompts (eval/eval_tools.py), and the toolkit's answer prompt. */
 export interface HaluMemPrompts {
   memoryIntegrity: string;
   memoryAccuracy: string;
   updateMemory: string;
   question: string;
+  /**
+   * eval/prompts.py PROMPT_ZEP: the toolkit's answerer over one user's
+   * memories (`{context}`, `{question}`). Used only in harness mode, where
+   * the connected agent answers from the evidence synthesize returns.
+   */
+  answer: string;
 }
 
 /**
@@ -50,11 +56,15 @@ export function loadHaluMemPrompts(repoDir: string): HaluMemPrompts {
       'EVALUATION_PROMPT_FOR_QUESTION',
     ],
   );
+  const answer = pythonStringConstants(readFileSync(join(repoDir, 'eval', 'prompts.py'), 'utf8'), [
+    'PROMPT_ZEP',
+  ]);
   return {
     memoryIntegrity: tools.EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY!,
     memoryAccuracy: tools.EVALUATION_PROMPT_FOR_MEMORY_ACCURACY!,
     updateMemory: tools.EVALUATION_PROMPT_FOR_UPDATE_MEMORY!,
     question: tools.EVALUATION_PROMPT_FOR_QUESTION!,
+    answer: answer.PROMPT_ZEP!,
   };
 }
 
