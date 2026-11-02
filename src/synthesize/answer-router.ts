@@ -119,6 +119,9 @@ const PREFERENCE_PATTERNS: RegExp[] = [
 /** T6 progressive-summary questions: staged narrative over a topic. */
 const SUMMARY_PATTERNS: RegExp[] = [
   /\b(?:comprehensive |detailed )?summar(?:y|ize|ise)\b/i,
+  // #876 thematic questions: about a whole topic, not one fact.
+  /\b(?:main|key|recurring|common|major) (?:themes?|topics?)\b/i,
+  /\bbig picture\b/i,
   /how (?:has|have|did) .{0,60}(?:progress|develop|evolv|unfold)/i,
   /give me an overview of\b/i,
 ];

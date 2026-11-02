@@ -59,6 +59,7 @@ export type GenrePreset = Partial<
     | 'orderingFrame'
     | 'verifierTopicCoverage'
     | 'digestEvidence'
+    | 'communityEvidence'
     | 'rawWindow'
     | 'assistantLane'
     | 'factsAsKeys'

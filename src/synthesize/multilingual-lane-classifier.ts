@@ -128,6 +128,11 @@ export const LANE_EXEMPLARS: Record<ClassifierLane, readonly string[]> = {
     '내 경력이 어떻게 발전했는지 요약해줘',
     'لخّص لي تطوّر مسيرتي المهنية',
     'मेरी प्रगति का सारांश दो',
+    // #876 thematic questions about a whole topic.
+    'what topics keep coming up in my notes',
+    'какие темы чаще всего встречаются в моих заметках',
+    'quais assuntos aparecem mais nas minhas anotações',
+    'quels sujets reviennent le plus souvent',
   ],
 };
 
