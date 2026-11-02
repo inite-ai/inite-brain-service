@@ -1,0 +1,116 @@
+# Two SurrealDB nodes over TiKV — the local rehearsal of the second
+# production node (docs/operations.md § Second SurrealDB node).
+#
+# SurrealDB's own HA story: compute nodes are stateless and share a
+# distributed key-value store (TiKV); a RocksDB file cannot be shared by
+# two servers. PD places data, three TiKV stores hold every region three
+# times (Raft), two `surreal` servers serve queries, HAProxy gives Brain
+# one address. Lose a Surreal node: HAProxy drops it, Brain reconnects.
+# Lose a TiKV store: the other two keep quorum.
+#
+#   docker compose -f deploy/surreal-ha/docker-compose.yml -p surreal-ha up -d
+#   SURREALDB_URL=ws://127.0.0.1:8030 pnpm ha:verify
+#
+# Host ports: 8030 = the balanced address, 8031/8032 = each node directly
+# (the verification talks to both to prove they share state).
+x-surreal: &surreal
+  image: surrealdb/surrealdb:v3.2.4
+  command: [start, --user=root, --pass=root, --bind=0.0.0.0:8000, 'tikv://pd:2379']
+  depends_on:
+    tikv1: { condition: service_started }
+    tikv2: { condition: service_started }
+    tikv3: { condition: service_started }
+  healthcheck:
+    test: ['CMD', '/surreal', 'is-ready']
+    interval: 5s
+    timeout: 3s
+    retries: 30
+  restart: unless-stopped
+  mem_limit: 1g
+
+x-tikv: &tikv
+  image: pingcap/tikv:v8.5.1
+  depends_on: [pd]
+  volumes:
+    - ./tikv.toml:/tikv.toml:ro
+  restart: unless-stopped
+
+services:
+  pd:
+    image: pingcap/pd:v8.5.1
+    command:
+      - --name=pd
+      - --data-dir=/data/pd
+      - --client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pd:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-peer-urls=http://pd:2380
+      - --initial-cluster=pd=http://pd:2380
+    volumes:
+      - pd-data:/data
+    restart: unless-stopped
+    mem_limit: 512m
+
+  tikv1:
+    <<: *tikv
+    command:
+      [
+        --addr=0.0.0.0:20160,
+        --advertise-addr=tikv1:20160,
+        --status-addr=0.0.0.0:20180,
+        --advertise-status-addr=tikv1:20180,
+        --data-dir=/data/tikv,
+        --pd=pd:2379,
+        --config=/tikv.toml,
+      ]
+    volumes: [./tikv.toml:/tikv.toml:ro, tikv1-data:/data]
+  tikv2:
+    <<: *tikv
+    command:
+      [
+        --addr=0.0.0.0:20160,
+        --advertise-addr=tikv2:20160,
+        --status-addr=0.0.0.0:20180,
+        --advertise-status-addr=tikv2:20180,
+        --data-dir=/data/tikv,
+        --pd=pd:2379,
+        --config=/tikv.toml,
+      ]
+    volumes: [./tikv.toml:/tikv.toml:ro, tikv2-data:/data]
+  tikv3:
+    <<: *tikv
+    command:
+      [
+        --addr=0.0.0.0:20160,
+        --advertise-addr=tikv3:20160,
+        --status-addr=0.0.0.0:20180,
+        --advertise-status-addr=tikv3:20180,
+        --data-dir=/data/tikv,
+        --pd=pd:2379,
+        --config=/tikv.toml,
+      ]
+    volumes: [./tikv.toml:/tikv.toml:ro, tikv3-data:/data]
+
+  surreal-a:
+    <<: *surreal
+    ports: ['127.0.0.1:8031:8000']
+  surreal-b:
+    <<: *surreal
+    ports: ['127.0.0.1:8032:8000']
+
+  surreal:
+    image: haproxy:3.0-alpine
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      surreal-a: { condition: service_healthy }
+      surreal-b: { condition: service_healthy }
+    ports: ['127.0.0.1:8030:8000']
+    restart: unless-stopped
+    mem_limit: 128m
+
+volumes:
+  pd-data:
+  tikv1-data:
+  tikv2-data:
+  tikv3-data:
