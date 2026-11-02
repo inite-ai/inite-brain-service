@@ -1,0 +1,64 @@
+# TiKV for the two-node SurrealDB recipe (docs/operations.md § Second
+# SurrealDB node), sized for a small host. TiKV's defaults assume a
+# dedicated machine: the block cache takes 45% of memory and every
+# column family keeps up to five 128 MiB memtables, so an unconfigured
+# store sat at its 1.5 GiB container limit and was OOM-killed (exit 137)
+# within minutes on the rehearsal.
+memory-usage-limit = "768MiB"
+
+[storage]
+reserve-space = "0MiB"
+reserve-raft-space = "0MiB"
+scheduler-worker-pool-size = 2
+# Preallocated at boot: 5,120,000 entries by default, most of a gigabyte.
+txn-status-cache-capacity = 51200
+
+[storage.block-cache]
+capacity = "192MiB"
+
+[rocksdb]
+max-background-jobs = 2
+max-sub-compactions = 1
+
+[rocksdb.defaultcf]
+write-buffer-size = "32MiB"
+max-write-buffer-number = 2
+
+[rocksdb.writecf]
+write-buffer-size = "32MiB"
+max-write-buffer-number = 2
+
+[rocksdb.lockcf]
+write-buffer-size = "16MiB"
+max-write-buffer-number = 2
+
+[rocksdb.titan]
+enabled = false
+
+[raft-engine]
+memory-limit = "64MiB"
+
+[server]
+grpc-concurrency = 2
+grpc-memory-pool-quota = "64MiB"
+
+[readpool.unified]
+max-thread-count = 2
+
+# The SST importer (BR log restore) caches applied files in memory — the
+# measured bulk of an idle store (tikv_import_apply_cached_bytes 2.5 GB).
+# Brain restores through `surreal import`, not BR.
+[import]
+memory-use-ratio = 0.0
+
+[cdc]
+old-value-cache-memory-quota = "16MiB"
+sink-memory-quota = "16MiB"
+
+# One jemalloc arena per thread keeps each thread's pages resident; on a
+# small store that is most of the footprint.
+[memory]
+enable-thread-exclusive-arena = false
+
+[log-backup]
+enable = false

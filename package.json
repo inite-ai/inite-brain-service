@@ -43,6 +43,7 @@
     "eval:truth-discovery": "ts-node -T test/eval/truth-discovery/runner.ts",
     "eval:value-grounding": "ts-node -T test/eval/value-grounding/runner.ts",
     "eval:entity-resolution": "ts-node -T test/eval/entity-resolution/runner.ts",
+    "ha:verify": "ts-node -T scripts/surreal-ha-verify.ts",
     "eval:relationship": "ts-node -T test/eval/relationship/runner.ts",
     "eval:domain-packs": "ts-node -T test/eval/domain-packs/runner.ts",
     "eval:code-memory": "ts-node -T test/eval/code-memory/runner.ts",
