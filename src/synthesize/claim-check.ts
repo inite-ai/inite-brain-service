@@ -17,18 +17,27 @@
  * would strip correct answers. A sentence that cites nothing is not
  * checked here (the answer's own integrity gates own uncited text).
  *
- * Pure: no model, no IO. The caller resolves handles to fact text and runs
- * the pairs through the NLI model; this module only splits, pairs and
- * decides. Not wired into synthesis — the battery (test/eval/claim-check)
- * measures it first.
+ * The NLI model reads a swapped number or date as neutral, so a sentence
+ * whose numbers clash with the cited facts' is unsupported too — the
+ * deterministic check value grounding applies to extracted values (#851).
+ * Measured both ways on test/eval/claim-check before wiring: NLI alone
+ * caught 10/17 contradictions, NLI + numbers 12/17, neither removed a
+ * supported or neutral sentence.
+ *
+ * No model and no IO here: the caller passes the NLI port
+ * (IntentClassifierService.nli in serving, the ONNX pipeline in the
+ * battery), so both run this same code.
  */
 import type { NliLabel } from '../admin/nli-entailment';
-import { parseFactHandle } from './fact-index';
+import { numberClash } from '../ai/extractor-internals/value-entailment';
+import { parseFactHandle, type Citation } from './fact-index';
 
 /** One sentence of an answer, with the handles it cites. */
 export interface AnswerSentence {
   /** The sentence as written, citation markers included. */
   text: string;
+  /** The text with the whitespace that follows it — rebuilding an answer from spans keeps its layout. */
+  span: string;
   /** The sentence with citation markers removed — the NLI hypothesis. */
   claim: string;
   /** Fact/relation handles the sentence cites, in order, deduplicated. */
@@ -40,10 +49,21 @@ const CITATION_GROUP = /\[([^[\]]{1,80})\]/gu;
 
 const SENTENCES = new Intl.Segmenter(undefined, { granularity: 'sentence' });
 
+/**
+ * A record id as served answers carry it once handles are expanded
+ * (synthesize.helpers.ts, expandCitationHandles): `[knowledge_fact:<id>]`.
+ */
+const RECORD_ID = /^knowledge_(?:fact|edge):[A-Za-z0-9_]+$/u;
+
+/** A citation token: the short handle the generator writes, or the record id it expands to. */
+function citationToken(part: string): string | null {
+  return parseFactHandle(part) ?? (RECORD_ID.test(part) ? part : null);
+}
+
 /** The handles a bracket group names, or [] when it is not a citation group. */
 function handlesIn(group: string): string[] {
   const parts = group.split(/[,;\s]+/u).filter(Boolean);
-  const handles = parts.map((p) => parseFactHandle(p));
+  const handles = parts.map((p) => citationToken(p));
   return handles.every((h): h is string => h !== null) ? handles : [];
 }
 
@@ -53,7 +73,7 @@ function handlesIn(group: string): string[] {
  * group the segmenter leaves at the start of the next sentence ("… Lisbon.
  * [f1] She …") belongs to the sentence before it, as a reader takes it.
  */
-export function splitAnswer(answer: string): AnswerSentence[] {
+function splitAnswer(answer: string): AnswerSentence[] {
   // ICU breaks a sentence only before what can start one, so "Porto. [f1]
   // She…" stays one segment. A citation group after the final mark is the
   // previous sentence's; moved before the mark, the segmenter sees the break.
@@ -75,10 +95,11 @@ export function splitAnswer(answer: string): AnswerSentence[] {
     }
   }
   return merged
-    .map((text) => text.trim())
-    .filter(Boolean)
-    .map((text) => ({
+    .filter((span) => span.trim())
+    .map((span) => ({ span, text: span.trim() }))
+    .map(({ span, text }) => ({
       text,
+      span,
       claim: text
         .replace(CITATION_GROUP, (m, g: string) => (handlesIn(g).length > 0 ? '' : m))
         .replace(/\s+([.,;:!?])/gu, '$1')
@@ -109,7 +130,7 @@ export interface ClaimPair {
  * from the premise; a sentence left with none is not paired — the
  * citation gates already strip an id that is not in the evidence.
  */
-export function claimPairs(
+function claimPairs(
   sentences: AnswerSentence[],
   factText: (handle: string) => string | undefined,
 ): ClaimPair[] {
@@ -125,6 +146,84 @@ export function claimPairs(
 }
 
 /** The decision rule stated in the module note: only a contradiction is unsupported. */
-export function claimStands(label: NliLabel | undefined): boolean {
+function claimStands(label: NliLabel | undefined): boolean {
   return label !== 'contradiction';
+}
+
+/** The stored fact a citation names, as the check reads it. */
+export type CitedFact = Pick<Citation, 'canonicalName' | 'predicate' | 'object'>;
+
+/**
+ * A cited fact as one NLI premise: the line the generator was shown
+ * (fact-index.ts, `name — predicate: object`) with the predicate's
+ * underscores read as the words they join.
+ */
+function claimPremise(fact: CitedFact): string {
+  return `${fact.canonicalName} — ${fact.predicate.replace(/_/gu, ' ')}: ${fact.object}`;
+}
+
+/** The three-way NLI labels of hypotheses under one premise; undefined when no model can answer. */
+export type NliPort = (
+  premise: string,
+  hypotheses: string[],
+) => Promise<Array<NliLabel | undefined>>;
+
+export interface ClaimCheckResult {
+  /** Every sentence of the input answer, with the handles it cites. */
+  sentences: AnswerSentence[];
+  /** The answer without its unsupported sentences; the input itself when none was. */
+  answer: string;
+  /** The sentences removed, in answer order. */
+  removed: AnswerSentence[];
+  /** Citation tokens only removed sentences carried — their citations go with them. */
+  droppedTokens: string[];
+}
+
+/**
+ * Check every cited sentence of `answer` against what it cites and drop
+ * the ones the facts contradict (module note). Sentences citing the same
+ * facts share one NLI call. With no model available every label is
+ * undefined, and only the number check can remove — fail-open, as value
+ * grounding is.
+ */
+export async function checkClaims(
+  answer: string,
+  factOf: (token: string) => CitedFact | undefined,
+  nli: NliPort,
+): Promise<ClaimCheckResult> {
+  const sentences = splitAnswer(answer);
+  const pairs = claimPairs(sentences, (t) => {
+    const fact = factOf(t);
+    return fact ? claimPremise(fact) : undefined;
+  });
+  const byPremise = new Map<string, ClaimPair[]>();
+  for (const pair of pairs)
+    byPremise.set(pair.premise, [...(byPremise.get(pair.premise) ?? []), pair]);
+  const unsupported = new Set<AnswerSentence>();
+  for (const [premise, group] of byPremise) {
+    const labels = await nli(
+      premise,
+      group.map((p) => p.hypothesis),
+    );
+    for (const [i, pair] of group.entries()) {
+      if (!claimStands(labels[i]) || numberClash(premise, pair.hypothesis)) {
+        unsupported.add(pair.sentence);
+      }
+    }
+  }
+  if (unsupported.size === 0) return { sentences, answer, removed: [], droppedTokens: [] };
+  const kept = sentences.filter((s) => !unsupported.has(s));
+  const keptTokens = new Set(kept.flatMap((s) => s.handles));
+  const removed = sentences.filter((s) => unsupported.has(s));
+  return {
+    sentences,
+    answer: kept
+      .map((s) => s.span)
+      .join('')
+      .trim(),
+    removed,
+    droppedTokens: [...new Set(removed.flatMap((s) => s.handles))].filter(
+      (t) => !keptTokens.has(t),
+    ),
+  };
 }

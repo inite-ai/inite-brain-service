@@ -227,6 +227,7 @@ describe('genre presets — full effective profile per genre (snapshot)', () => 
     verifiedUseDecay: true,
     verifiedUseRanking: true,
     tenantDecayPolicy: true,
+    claimCheck: true,
     lanes: [
       'contradiction',
       'enumeration',

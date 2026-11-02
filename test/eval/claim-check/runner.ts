@@ -1,24 +1,16 @@
 /**
- * Claim-level check battery (#877): every cited sentence of an answer put to
- * the local NLI model against the facts it cites; a sentence is removed iff
- * the label is `contradiction` (rule fixed before measuring — see
- * dataset.json `_doc`). Local ONNX model, no paid call.
+ * Claim-level check battery (#877): every cited sentence of an answer put
+ * through checkClaims (src/synthesize/claim-check.ts) — the code synthesis
+ * serves with — against the facts it cites, rendered as synthesis renders
+ * them. Rule fixed before measuring (see the module note and dataset.json
+ * `_doc`). Local ONNX model, no paid call.
  *
  * Run: pnpm eval:claim-check
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nliLabels, type NliPipelineParts } from '../../../src/admin/nli-entailment';
-import { claimPairs, claimStands, splitAnswer } from '../../../src/synthesize/claim-check';
-import { valueCheck } from '../../../src/ai/extractor-internals/value-entailment';
-
-/**
- * Two rules, both fixed before measuring: `nli` removes on a contradiction
- * label alone; `nli+numbers` also removes a sentence whose numbers clash
- * with the cited facts' (the deterministic check #851 applies to extracted
- * values — NLI reads a swapped number or date as neutral).
- */
-const RULE = process.argv.includes('--rule=nli+numbers') ? 'nli+numbers' : 'nli';
+import { checkClaims, type CitedFact, type NliPort } from '../../../src/synthesize/claim-check';
 
 const MODEL = 'Xenova/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7';
 
@@ -26,11 +18,10 @@ type Gold = 'supported' | 'neutral' | 'contradicted' | 'uncited';
 interface Item {
   cat: string;
   lang: string;
-  facts: Record<string, string>;
+  facts: Record<string, { name: string; predicate: string; object: string }>;
   answer: string;
   gold: Gold[];
 }
-
 interface Tally {
   tp: number; // contradicted, removed
   fn: number; // contradicted, kept
@@ -58,31 +49,36 @@ async function main(): Promise<void> {
   const misses: string[] = [];
   let pairs = 0;
   let nliMs = 0;
+  const port: NliPort = async (premise, hypotheses) => {
+    const started = performance.now();
+    const labels = await nliLabels(nli, premise, hypotheses);
+    nliMs += performance.now() - started;
+    pairs += hypotheses.length;
+    return labels;
+  };
   for (const item of items) {
-    const sentences = splitAnswer(item.answer);
+    const factOf = (t: string): CitedFact | undefined => {
+      const f = item.facts[t];
+      return f && { canonicalName: f.name, predicate: f.predicate, object: f.object };
+    };
+    const { sentences, removed } = await checkClaims(item.answer, factOf, port);
     if (sentences.length !== item.gold.length) {
       throw new Error(
         `split gave ${sentences.length} sentences for ${item.gold.length} labels: ${item.answer}`,
       );
     }
-    const paired = new Map(claimPairs(sentences, (h) => item.facts[h]).map((p) => [p.sentence, p]));
+    const removedTexts = new Set(removed.map((s) => s.text));
     for (const [i, sentence] of sentences.entries()) {
       const gold = item.gold[i]!;
-      const pair = paired.get(sentence);
       if (gold === 'uncited') {
-        if (pair) throw new Error(`gold says uncited but the sentence cites: ${sentence.text}`);
+        if (sentence.handles.length > 0) {
+          throw new Error(`gold says uncited but the sentence cites: ${sentence.text}`);
+        }
         continue;
       }
-      if (!pair) throw new Error(`a cited sentence produced no pair: ${sentence.text}`);
-      const started = performance.now();
-      const [label] = await nliLabels(nli, pair.premise, [pair.hypothesis]);
-      nliMs += performance.now() - started;
-      pairs += 1;
-      const removed =
-        !claimStands(label) ||
-        (RULE === 'nli+numbers' && valueCheck(pair.premise, pair.hypothesis) === 'reject');
+      const isRemoved = removedTexts.has(sentence.text);
       const key: keyof Tally =
-        gold === 'contradicted' ? (removed ? 'tp' : 'fn') : removed ? 'fp' : 'tn';
+        gold === 'contradicted' ? (isRemoved ? 'tp' : 'fn') : isRemoved ? 'fp' : 'tn';
       for (const tally of [
         all,
         byCat.get(item.cat) ?? byCat.set(item.cat, empty()).get(item.cat)!,
@@ -91,14 +87,13 @@ async function main(): Promise<void> {
         tally[key] += 1;
       }
       if (key === 'fn' || key === 'fp')
-        misses.push(`${key} [${item.lang}/${item.cat}] ${label}: ${pair.hypothesis}`);
+        misses.push(`${key} [${item.lang}/${item.cat}]: ${sentence.claim}`);
     }
   }
 
   const line = (name: string, x: Tally) =>
     `${name.padEnd(14)} contradicted caught ${pct(x.tp, x.tp + x.fn)} (${x.tp}/${x.tp + x.fn})  ` +
     `precision ${pct(x.tp, x.tp + x.fp)}  false removals ${pct(x.fp, x.fp + x.tn)} (${x.fp}/${x.fp + x.tn})`;
-  console.log(`rule: ${RULE}`);
   console.log(line('all', all));
   for (const [k, v] of [...byLang].sort()) console.log(line(`lang ${k}`, v));
   for (const [k, v] of [...byCat].sort()) console.log(line(`cat ${k}`, v));
