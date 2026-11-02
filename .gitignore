@@ -36,3 +36,7 @@ docker-compose.override.yml
 .claude/settings.local.json
 .claude/*.lock
 .claude/worktrees/
+
+# Stryker mutation-test sandbox and reports (pnpm test:mutation)
+.stryker-tmp/
+reports/mutation/
