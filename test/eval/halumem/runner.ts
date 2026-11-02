@@ -239,7 +239,8 @@ class Brain {
   async mcpSynthesize(
     query: string,
     userId: string,
-  ): Promise<{ answer: string | null; evidence?: string }> {
+    detail?: 'full',
+  ): Promise<{ answer: string | null; evidence?: string; results?: SearchHit[] }> {
     const res = await fetch(`${this.cfg.baseUrl}/mcp/${encodeURIComponent(this.cfg.companyId)}`, {
       method: 'POST',
       headers: {
@@ -251,7 +252,7 @@ class Brain {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'synthesize', arguments: { query, userId } },
+        params: { name: 'synthesize', arguments: { query, userId, ...(detail ? { detail } : {}) } },
       }),
     });
     const raw = await res.text();
@@ -264,7 +265,7 @@ class Brain {
     if (!text || rpc.error || rpc.result?.isError) {
       throw new Error(`MCP synthesize: ${rpc.error?.message ?? text ?? raw.slice(0, 200)}`);
     }
-    return JSON.parse(text) as { answer: string | null; evidence?: string };
+    return JSON.parse(text) as { answer: string | null; evidence?: string; results?: SearchHit[] };
   }
 
   /** Search hits as memory lines: `YYYY-MM-DD: Entity — predicate: object`. */
@@ -322,6 +323,20 @@ class Brain {
     }
     return [...lines.values()];
   }
+}
+
+/** Search hits as memory lines, best first: `YYYY-MM-DD: Entity — predicate: object`. */
+function memoryLinesOf(hits: SearchHit[], limit = 60): string[] {
+  return hits
+    .flatMap((hit) =>
+      (hit.facts ?? []).map((f) => ({
+        line: `${String(f.validFrom ?? '').slice(0, 10)}: ${hit.canonicalName} — ${f.predicate}: ${f.object}`,
+        score: f.score ?? hit.score ?? 0,
+      })),
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((l) => l.line);
 }
 
 interface IngestOutcome {
@@ -483,10 +498,17 @@ async function runUser(
     for (const q of session.questions ?? []) {
       if (cfg.model === 'harness') {
         const r = await brain.mcpSynthesize(q.question, userId);
+        const full = r.answer === null ? await brain.mcpSynthesize(q.question, userId, 'full') : r;
         questions.push(
           r.answer !== null
             ? { ...q, system_response: r.answer }
-            : { ...q, system_response: '', context: r.evidence ?? '', pending: true },
+            : {
+                ...q,
+                system_response: '',
+                context: r.evidence ?? '',
+                context_full: memoryLinesOf(full.results ?? []).join('\n'),
+                pending: true,
+              },
         );
         continue;
       }
@@ -638,7 +660,16 @@ function fillAnswers(system: SystemUser[], prompts: HaluMemPrompts, agent: Agent
           `ans:${ui}:${si}:${qi}`,
           pyFormat(prompts.answer, { context: q.context ?? '', question: q.question }),
         );
-        if (reply !== undefined) q.system_response = reply.trim();
+        if (reply === undefined) continue;
+        // EXPAND: the agent followed the "(+N more …)" hint; it answers again
+        // from the full read taken at the same moment.
+        if (reply.trim() === 'EXPAND' && q.context_full) {
+          const again = agent.reply(
+            `ans2:${ui}:${si}:${qi}`,
+            pyFormat(prompts.answer, { context: q.context_full, question: q.question }),
+          );
+          if (again !== undefined) q.system_response = again.trim();
+        } else q.system_response = reply.trim();
       }
     }
   }
