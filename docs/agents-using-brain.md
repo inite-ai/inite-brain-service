@@ -146,7 +146,9 @@ one call usually covers a two-hop question), `get_entity_timeline` (what held
 before: superseded values with their dates) and `get_fact_provenance`. Then
 answer from that evidence yourself. In this mode `synthesize` makes no model
 call: it returns no answer, with `reason: harness_mode` and the evidence in
-`evidence` (search_knowledge's focus view).
+`evidence` (search_knowledge's focus view). A workspace that has spent its
+daily model budget (`LLM_TENANT_DAILY_TOKEN_BUDGET`) gets the same shape with
+`reason: model_budget` until the next UTC day.
 
 ## Memory semantics you must know
 
