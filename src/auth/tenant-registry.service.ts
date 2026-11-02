@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { SurrealService, queryRows, retryOnUniqueViolation } from '../db/surreal.service';
+import { retryOnReadConflict } from '../db/surreal-retry';
 
 /** Metadata attached when a tenant is (re)registered / provisioned. */
 export interface TenantRegistryMeta {
@@ -315,15 +316,21 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
     if (trimmed.length === 0 || trimmed.length > 80) {
       throw new Error('displayName must be 1-80 characters');
     }
-    await this.surreal.withAdminDb(async (db) => {
-      await db.query(
-        `UPSERT type::record('tenant_registry', $companyId) SET
-           companyId = $companyId,
-           displayName = $displayName,
-           updatedAt = time::now()`,
-        { companyId, displayName: trimmed },
-      );
-    });
+    // The registry row is written by every request's touch() and the status
+    // refresh; a rename that loses that OCC race aborted whole (one
+    // statement), so running it again is safe — and the user's rename must
+    // not fail on a busy row.
+    await this.surreal.withAdminDb((db) =>
+      retryOnReadConflict(() =>
+        db.query(
+          `UPSERT type::record('tenant_registry', $companyId) SET
+             companyId = $companyId,
+             displayName = $displayName,
+             updatedAt = time::now()`,
+          { companyId, displayName: trimmed },
+        ),
+      ),
+    );
   }
 
   private noteStatus(companyId: string, status: string): void {
