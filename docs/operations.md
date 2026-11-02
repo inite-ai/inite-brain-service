@@ -539,6 +539,81 @@ operator can expect.
 - **`DEBUG_TRACE_PERSIST=1`** if operators must see traces from every
   replica on the admin traces page.
 
+## Second SurrealDB node
+
+Production runs one SurrealDB server on RocksDB. A RocksDB directory
+belongs to one process, so a second node means changing the storage
+layer. SurrealDB's high-availability shape is stateless `surreal`
+servers over a shared distributed key-value store, TiKV. The recipe in
+[`deploy/surreal-ha/`](../deploy/surreal-ha/docker-compose.yml) runs that
+shape on one host for rehearsal:
+
+| Service                  | Role                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `pd`                     | TiKV placement driver: decides where each region lives.                                                        |
+| `tikv1..3`               | Three stores. Every region is kept three times (Raft), so one store can fail without losing a committed write. |
+| `surreal-a`, `surreal-b` | Two SurrealDB 3.2.4 servers on `tikv://pd:2379`. No state of their own.                                        |
+| `surreal`                | HAProxy (TCP, `/health` check). Brain's single `SURREALDB_URL`. A failed node leaves the pool.                 |
+
+```bash
+docker compose -f deploy/surreal-ha/docker-compose.yml -p surreal-ha up -d
+pnpm ha:verify                      # HA_URL=ws://127.0.0.1:8030 by default
+SRC=http://127.0.0.1:8000 DST=http://127.0.0.1:8030 SURREAL_PASS=… \
+  scripts/surreal-ha-migrate.sh     # RocksDB → cluster, with proof
+```
+
+### What `pnpm ha:verify` proved (local rehearsal, 2026-11-02)
+
+| Check                                                       | Result                                                                                                                 |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Brain migrates a fresh tenant through the balanced address  | all 183 migrations, 93 tables                                                                                          |
+| A row written on node A, read on node B                     | ✓                                                                                                                      |
+| A BM25 index fed on A answers on B                          | ✓                                                                                                                      |
+| An HNSW index fed on A answers a KNN on B, and the reverse  | ✓                                                                                                                      |
+| `SHOW CHANGES` on B lists a write made on A                 | ✓                                                                                                                      |
+| The same row incremented 20 times from both nodes at once   | 20/20, through `retryOnReadConflict`                                                                                   |
+| Brain's pool while node A is stopped and restarted          | 89 of 90 queries answered; the one in flight on the dying socket failed, and the next one was served by B 0.26 s later |
+| `LIVE SELECT` on B hears a write made on A                  | **no**. See below.                                                                                                     |
+| Brain's live subscription on B delivers a fact written on A | ✓ via the changefeed catch-up, after `LIVE_CATCHUP_INTERVAL_MS` (10 s by default)                                      |
+
+### Live queries across nodes
+
+SurrealDB 3.2 delivers a `LIVE SELECT` notification only on the node
+that ran the write. On one node it arrives in 2 ms; across nodes it does
+not arrive at all. Brain's `LiveSubscriptionManager` already replays
+anything LIVE did not deliver from the changefeed on its catch-up tick,
+so subscribers still get every fact. Across nodes that takes up to one
+tick. On a two-node deployment, set `LIVE_CATCHUP_INTERVAL_MS` to the
+latency subscribers can accept, for example `2000`.
+
+### Sizing
+
+TiKV assumes a dedicated machine. Out of the box each store sized itself
+to the host and was OOM-killed inside a 1.5 GiB container.
+`deploy/surreal-ha/tikv.toml` caps the block cache, the memtables and
+the importer cache (`[import] memory-use-ratio = 0`: Brain restores
+through `surreal import`, not BR). Even so, an idle store held about
+2 GiB resident on the rehearsal. Three stores, PD and two `surreal`
+servers come to about 7 GiB before any data. The current single droplet
+cannot host that next to Brain. Plan three hosts, each running one TiKV
+store, with PD and a `surreal` server on two of them.
+
+### Moving production
+
+1. Stand up the cluster on the new hosts and run `pnpm ha:verify`
+   against it (`HA_URL`, `HA_NODE_A`, `HA_NODE_B`).
+2. Stop Brain's writers (maintenance), then run
+   `scripts/surreal-ha-migrate.sh` with `SRC` set to the RocksDB server
+   and `DST` set to the cluster. It exports and imports every database
+   of the namespace and fails unless every database has identical
+   definitions and identical per-table row counts on both sides.
+3. Point `SURREALDB_URL` at the balanced address and start Brain. The
+   migrator records checksums of the files it finds already applied
+   (`brain_migration_drift` stays 0). `brain_caller` is re-provisioned on
+   the first tenant request.
+4. Keep the RocksDB server stopped but intact until the next day's
+   checks pass. It is the rollback.
+
 ## Retrieval profile (per-tenant configuration)
 
 The genre-dependent retrieval dimensions are NOT feature flags — they

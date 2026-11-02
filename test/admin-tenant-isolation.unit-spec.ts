@@ -446,3 +446,39 @@ describe('AdminJobsController — tenant isolation (P0)', () => {
     expect(seen.reindexHost).toBe(KNOWN[0]);
   });
 });
+
+describe('cross-tenant edges the default-deny must hold at', () => {
+  // The scope name is the Triad token contract (ground rule 3): a literal
+  // here, so a renamed constant cannot silently open or close the path.
+  const OPERATOR: BrainScope[] = ['brain:admin', 'brain:platform_admin' as BrainScope];
+
+  it('the platform capability is exactly the brain:platform_admin scope, behind its gate', () => {
+    gateOn();
+    expect(PLATFORM_TENANT_SCOPE).toBe('brain:platform_admin');
+    expect(platformTenantCapable(OPERATOR)).toBe(true);
+    expect(platformTenantCapable(['brain:admin'])).toBe(false);
+  });
+
+  it('an operator naming a tenant with no registry to check against gets a 400, not a crash or a pass', () => {
+    gateOn();
+    expect(() => resolvePlatformTenant(req(OPERATOR), 'tenant-z')).toThrow(BadRequestException);
+    expect(() => resolvePlatformTenant(req(OPERATOR), 'tenant-z')).toThrow(
+      /Unknown tenant 'tenant-z'/,
+    );
+  });
+
+  it('the 403 names the capability a foreign tenant needs', () => {
+    expect(() => resolvePlatformTenant(req(['brain:admin']), 'tenant-b')).toThrow(
+      /^Cross-tenant access denied: .*brain:platform_admin scope and BRAIN_TENANT_OVERRIDE_ENABLED$/,
+    );
+  });
+
+  it('a whitespace-only tenant on an aggregate read is "none named": the operator spans the fan-out', () => {
+    gateOn();
+    expect(
+      resolvePlatformTenantScope(req(OPERATOR), '   ', {
+        fanOutTenants: () => ['tenant-a', 'tenant-b'],
+      }),
+    ).toEqual(['tenant-a', 'tenant-b']);
+  });
+});

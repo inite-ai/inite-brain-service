@@ -17,9 +17,19 @@
  * Phase 1 checkpoints per user (HALUMEM_RUN_ID) and a finished system file
  * can be judged again alone (HALUMEM_SYSTEM_FILE). Never run in CI.
  *
+ * HALUMEM_MODEL=harness runs with no model key at all, against a stand in
+ * harness mode (EXTRACTION_SOURCE=harness): the connected agent does every
+ * model reading. Extraction reaches it through take_memory_work, as in
+ * production. The answers and the judge verdicts go through files: the run
+ * writes `…-answers-requests.jsonl` / `…-judge-requests.jsonl` (id +
+ * the exact prompt), stops, and is resumed with the agent's replies in
+ * `…-answers.jsonl` / `…-judge.jsonl` (id + reply). The answer is the
+ * toolkit's own answerer (PROMPT_ZEP) over the evidence brain's MCP
+ * synthesize hands back in harness mode.
+ *
  * Run: pnpm eval:halumem   (README.md lists the env)
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import OpenAI from 'openai';
 import { runPool } from '../harness/pool';
@@ -70,6 +80,8 @@ interface Config {
   ingest: 'async' | 'sync';
   /** Longest wait for one async document to be processed, ms. */
   settleTimeoutMs: number;
+  /** Who answers and judges: the OpenAI-compatible model, or the connected agent through files. */
+  model: 'openai' | 'harness';
 }
 
 const intEnv = (k: string, d: number) => {
@@ -104,6 +116,7 @@ function loadConfig(): Config {
     systemFile,
     ingest: process.env.HALUMEM_INGEST === 'sync' ? 'sync' : 'async',
     settleTimeoutMs: intEnv('HALUMEM_SETTLE_TIMEOUT_MS', 900_000),
+    model: process.env.HALUMEM_MODEL === 'harness' ? 'harness' : 'openai',
   };
 }
 
@@ -114,6 +127,14 @@ interface SystemQuestion extends HaluMemQuestion {
   arm?: string;
   system_response: string;
   context?: string;
+  /** Harness mode: brain returned evidence and no answer; the agent's answer is still to come. */
+  pending?: boolean;
+  /**
+   * Harness mode: the same question with `detail: "full"`, read at the
+   * same moment, rendered as memory lines — what the agent gets when it
+   * follows the evidence view's "(+N more …)" hint (it answers EXPAND).
+   */
+  context_full?: string;
 }
 
 interface SystemSession {
@@ -211,6 +232,42 @@ class Brain {
     return { entityIds: refs('entity'), factIds: refs('fact'), ackMs, settledMs };
   }
 
+  /**
+   * The MCP synthesize tool, as a connected agent calls it. In harness mode
+   * the answer is null and `evidence` is the focus view the agent reads.
+   */
+  async mcpSynthesize(
+    query: string,
+    userId: string,
+    detail?: 'full',
+  ): Promise<{ answer: string | null; evidence?: string; results?: SearchHit[] }> {
+    const res = await fetch(`${this.cfg.baseUrl}/mcp/${encodeURIComponent(this.cfg.companyId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        Authorization: `Bearer ${this.cfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'synthesize', arguments: { query, userId, ...(detail ? { detail } : {}) } },
+      }),
+    });
+    const raw = await res.text();
+    const line = raw.split('\n').find((l) => l.startsWith('data: '));
+    const rpc = JSON.parse(line ? line.slice(6) : raw) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+      error?: { message: string };
+    };
+    const text = rpc.result?.content?.[0]?.text;
+    if (!text || rpc.error || rpc.result?.isError) {
+      throw new Error(`MCP synthesize: ${rpc.error?.message ?? text ?? raw.slice(0, 200)}`);
+    }
+    return JSON.parse(text) as { answer: string | null; evidence?: string; results?: SearchHit[] };
+  }
+
   /** Search hits as memory lines: `YYYY-MM-DD: Entity — predicate: object`. */
   async memoryLines(query: string, userId: string, limit: number): Promise<string[]> {
     const r = await this.call<{ results: SearchHit[] }>('POST', '/v1/search', {
@@ -268,6 +325,20 @@ class Brain {
   }
 }
 
+/** Search hits as memory lines, best first: `YYYY-MM-DD: Entity — predicate: object`. */
+function memoryLinesOf(hits: SearchHit[], limit = 60): string[] {
+  return hits
+    .flatMap((hit) =>
+      (hit.facts ?? []).map((f) => ({
+        line: `${String(f.validFrom ?? '').slice(0, 10)}: ${hit.canonicalName} — ${f.predicate}: ${f.object}`,
+        score: f.score ?? hit.score ?? 0,
+      })),
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((l) => l.line);
+}
+
 interface IngestOutcome {
   entityIds: string[];
   factIds: string[];
@@ -289,15 +360,20 @@ interface SearchHit {
 
 // ── models ───────────────────────────────────────────────────────────
 
-const openai = new OpenAI({
-  ...(process.env.HALUMEM_OPENAI_BASE_URL ? { baseURL: process.env.HALUMEM_OPENAI_BASE_URL } : {}),
-});
+// Built on first use: a harness run has no key, and the client refuses to construct without one.
+let openai: OpenAI | undefined;
+const client = (): OpenAI =>
+  (openai ??= new OpenAI({
+    ...(process.env.HALUMEM_OPENAI_BASE_URL
+      ? { baseURL: process.env.HALUMEM_OPENAI_BASE_URL }
+      : {}),
+  }));
 
 /** One completion as the toolkit sends it: a single user message, temperature 0. */
 async function complete(model: string, prompt: string): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
-      const r = await openai.chat.completions.create({
+      const r = await client().chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0,
@@ -310,8 +386,66 @@ async function complete(model: string, prompt: string): Promise<string> {
   }
 }
 
+/**
+ * Harness mode: the prompts the connected agent has still to answer, and
+ * the replies it has given (one JSON object per line: `{ id, reply }`).
+ */
+class AgentExchange {
+  readonly missing: Array<{ id: string; prompt: string }> = [];
+  private readonly replies = new Map<string, string>();
+
+  constructor(
+    readonly requestsPath: string,
+    readonly repliesPath: string,
+  ) {
+    if (!existsSync(repliesPath)) return;
+    for (const line of readFileSync(repliesPath, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      const r = JSON.parse(line) as { id: string; reply: string };
+      this.replies.set(r.id, r.reply);
+    }
+  }
+
+  reply(id: string, prompt: string): string | undefined {
+    const r = this.replies.get(id);
+    if (r === undefined) this.missing.push({ id, prompt });
+    return r;
+  }
+
+  /** Write what is still unanswered; true when the run has to stop for the agent. */
+  flush(what: string): boolean {
+    if (this.missing.length === 0) return false;
+    writeFileSync(this.requestsPath, this.missing.map((m) => JSON.stringify(m)).join('\n') + '\n');
+    console.log(
+      `[halumem] ${this.missing.length} ${what} for the agent: ${this.requestsPath}\n` +
+        `          reply as {"id","reply"} lines in ${this.repliesPath}, then run again`,
+    );
+    return true;
+  }
+}
+
+function exchangeFor(cfg: Config, kind: 'answers' | 'judge'): AgentExchange | undefined {
+  if (cfg.model !== 'harness') return undefined;
+  const base = join(cfg.reportDir, `halumem-${cfg.runId}-${kind}`);
+  return new AgentExchange(`${base}-requests.jsonl`, `${base}.jsonl`);
+}
+
 /** A judge call; null when the model's output never parsed (the toolkit's `None`). */
-async function judge(cfg: Config, prompt: string): Promise<Record<string, unknown> | null> {
+async function judge(
+  cfg: Config,
+  prompt: string,
+  id: string,
+  agent?: AgentExchange,
+): Promise<Record<string, unknown> | null> {
+  if (agent) {
+    const reply = agent.reply(id, prompt);
+    if (reply === undefined) return null;
+    try {
+      return judgeJson(reply);
+    } catch {
+      return null;
+    }
+  }
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       return judgeJson(await complete(cfg.judgeModel, prompt));
@@ -362,6 +496,22 @@ async function runUser(
 
     const questions: SystemQuestion[] = [];
     for (const q of session.questions ?? []) {
+      if (cfg.model === 'harness') {
+        const r = await brain.mcpSynthesize(q.question, userId);
+        const full = r.answer === null ? await brain.mcpSynthesize(q.question, userId, 'full') : r;
+        questions.push(
+          r.answer !== null
+            ? { ...q, system_response: r.answer }
+            : {
+                ...q,
+                system_response: '',
+                context: r.evidence ?? '',
+                context_full: memoryLinesOf(full.results ?? []).join('\n'),
+                pending: true,
+              },
+        );
+        continue;
+      }
       const r = await brain.call<{ answer: string | null }>('POST', '/v1/synthesize', {
         query: q.question,
         userId,
@@ -396,6 +546,7 @@ async function judgeAll(
   cfg: Config,
   prompts: HaluMemPrompts,
   users: SystemUser[],
+  agent?: AgentExchange,
 ): Promise<Judged> {
   const out: Judged = {
     integrity: [],
@@ -404,14 +555,15 @@ async function judgeAll(
     qa: [],
   };
   const jobs: Array<() => Promise<void>> = [];
-  for (const u of users) {
-    for (const s of u.sessions) {
+  for (const [ui, u] of users.entries()) {
+    for (const [si, s] of u.sessions.entries()) {
+      const at = `${ui}:${si}`;
       const extractedStr = s.extracted_memories.join('\n');
       const golden = s.memory_points
         .filter((p) => p.memory_source !== 'interference')
         .map((p) => p.memory_content)
         .join('\n');
-      for (const p of s.memory_points) {
+      for (const [pi, p] of s.memory_points.entries()) {
         if (p.is_update === 'True' && p.memories_from_system?.length) {
           jobs.push(async () => {
             const r = await judge(
@@ -421,6 +573,8 @@ async function judgeAll(
                 updated_memory: p.memory_content,
                 original_memory: p.original_memories.join('\n'),
               }),
+              `upd:${at}:${pi}`,
+              agent,
             );
             out.updates.push({ memoryType: p.memory_type, verdict: str(r?.evaluation_result) });
           });
@@ -442,11 +596,13 @@ async function judgeAll(
               memories: extractedStr,
               expected_memory_point: p.memory_content,
             }),
+            `int:${at}:${pi}`,
+            agent,
           );
           out.integrity.push({ ...base, score: num(r?.score) });
         });
       }
-      for (const m of s.extracted_memories) {
+      for (const [mi, m] of s.extracted_memories.entries()) {
         jobs.push(async () => {
           const r = await judge(
             cfg,
@@ -455,6 +611,8 @@ async function judgeAll(
               golden_memories: golden,
               candidate_memory: m,
             }),
+            `acc:${at}:${mi}`,
+            agent,
           );
           out.accuracy.push({
             includedInGolden: ['true', 'True'].includes(String(r?.is_included_in_golden_memories)),
@@ -462,7 +620,8 @@ async function judgeAll(
           });
         });
       }
-      for (const q of s.questions.filter((x) => x.arm !== 'protocol')) {
+      for (const [qi, q] of s.questions.entries()) {
+        if (q.arm === 'protocol') continue;
         jobs.push(async () => {
           const r = await judge(
             cfg,
@@ -472,6 +631,8 @@ async function judgeAll(
               key_memory_points: q.evidence.map((e) => e.memory_content).join('\n'),
               response: q.system_response,
             }),
+            `qa:${at}:${qi}`,
+            agent,
           );
           out.qa.push({ questionType: q.question_type, verdict: str(r?.evaluation_result) });
         });
@@ -484,6 +645,34 @@ async function judgeAll(
     if (++done % 50 === 0) console.log(`[judge] ${done}/${jobs.length}`);
   });
   return out;
+}
+
+/**
+ * Harness mode: the agent's answers to the questions brain left
+ * unanswered, through the toolkit's answer prompt over brain's evidence.
+ */
+function fillAnswers(system: SystemUser[], prompts: HaluMemPrompts, agent: AgentExchange): void {
+  for (const [ui, u] of system.entries()) {
+    for (const [si, s] of u.sessions.entries()) {
+      for (const [qi, q] of s.questions.entries()) {
+        if (!q.pending) continue;
+        const reply = agent.reply(
+          `ans:${ui}:${si}:${qi}`,
+          pyFormat(prompts.answer, { context: q.context ?? '', question: q.question }),
+        );
+        if (reply === undefined) continue;
+        // EXPAND: the agent followed the "(+N more …)" hint; it answers again
+        // from the full read taken at the same moment.
+        if (reply.trim() === 'EXPAND' && q.context_full) {
+          const again = agent.reply(
+            `ans2:${ui}:${si}:${qi}`,
+            pyFormat(prompts.answer, { context: q.context_full, question: q.question }),
+          );
+          if (again !== undefined) q.system_response = again.trim();
+        } else q.system_response = reply.trim();
+      }
+    }
+  }
 }
 
 function median(xs: number[]): number | null {
@@ -524,12 +713,19 @@ async function main(): Promise<void> {
     .split('\n')
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l) as SystemUser);
-  const j = await judgeAll(cfg, prompts, system);
+  const answers = exchangeFor(cfg, 'answers');
+  if (answers) {
+    fillAnswers(system, prompts, answers);
+    if (answers.flush('answers')) process.exit(3);
+  }
+  const verdicts = exchangeFor(cfg, 'judge');
+  const j = await judgeAll(cfg, prompts, system, verdicts);
+  if (verdicts?.flush('judge verdicts')) process.exit(3);
   const integrity = scoreIntegrity(j.integrity);
   const accuracy = scoreAccuracy(j.accuracy);
   const report = {
     runId: cfg.runId,
-    judgeModel: cfg.judgeModel,
+    judgeModel: cfg.model === 'harness' ? 'harness (connected agent)' : cfg.judgeModel,
     slice: { users: system.length, sessions: system.reduce((n, u) => n + u.sessions.length, 0) },
     ingest: {
       mode: cfg.ingest,

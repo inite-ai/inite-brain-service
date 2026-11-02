@@ -6,8 +6,8 @@
     "customExportConditions": ["node", "node-addons"]
   },
   "testRegex": ".*\\.unit-spec\\.ts$",
-  "testPathIgnorePatterns": ["/node_modules/", "/.claude/worktrees/"],
-  "modulePathIgnorePatterns": ["/.claude/worktrees/"],
+  "testPathIgnorePatterns": ["/node_modules/", "/.claude/worktrees/", "/.stryker-tmp/"],
+  "modulePathIgnorePatterns": ["/.claude/worktrees/", "/.stryker-tmp/"],
   "transform": {
     "^.+\\.(t|j)s$": [
       "ts-jest",
