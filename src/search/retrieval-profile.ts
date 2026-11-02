@@ -388,6 +388,14 @@ export interface RetrievalProfile {
    */
   verifierTopicCoverage: boolean;
   /**
+   * Claim-level check (src/synthesize/claim-check.ts, #877): every cited
+   * sentence of the answer against the facts it cites with the local NLI
+   * model plus a number check; a contradicted sentence is removed with the
+   * citations only it carried. Runs after the verifier, and alone where
+   * no verifier runs (harness, keyless). No model call.
+   */
+  claimCheck: boolean;
+  /**
    * V11 §2 arm (a): model override for the verifier/auditor call ONLY
    * (the generator keeps the synthesis model). Empty = inherit the
    * synthesis model — byte-identical behavior. Targets the
@@ -841,6 +849,7 @@ function resolveForGenre(genre: RetrievalGenre, env: NodeJS.ProcessEnv): Retriev
     verifiedUseDecay: envFlagNotDisabled(env.RETRIEVAL_VERIFIED_USE_DECAY),
     verifiedUseRanking: envFlagNotDisabled(env.RETRIEVAL_VERIFIED_USE_RANKING),
     tenantDecayPolicy: envFlagNotDisabled(env.RETRIEVAL_TENANT_DECAY),
+    claimCheck: envFlagNotDisabled(env.RETRIEVAL_CLAIM_CHECK),
     lanes,
   };
 }
@@ -964,6 +973,7 @@ export function resolveRetrievalProfileFor(
     'updateStoryRendering',
     'orderingFrame',
     'verifierTopicCoverage',
+    'claimCheck',
     'digestEvidence',
     'rawWindow',
     'timeFilter',

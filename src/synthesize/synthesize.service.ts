@@ -5,6 +5,8 @@ import { chatModel, createOpenAiClientOrThrow } from '../ai/openai-client';
 import { SearchService, SearchHit } from '../search/search.service';
 import { Semaphore } from '../common/semaphore';
 import { withSpan } from '../common/tracing';
+import { IntentClassifierService } from '../admin/intent-classifier.service';
+import { checkClaims } from './claim-check';
 import { clampLlmInputText } from '../common/input-limits';
 import { pinUserScope } from '../auth/user-scope';
 import { MetricsService } from '../metrics/metrics.service';
@@ -28,7 +30,7 @@ import { applyEvidenceUnion } from './evidence-union';
 import type { LaneId } from './answer-router';
 import { runLaneProbe } from './lane-probe';
 import { getActiveRetrievalProfile, type RetrievalProfile } from '../search/retrieval-profile';
-import { buildFactIndex } from './fact-index';
+import { buildFactIndex, type Citation } from './fact-index';
 import { fragmentCitationsEnabled } from '../common/evidence-flags';
 import {
   beliefLaneForRequest,
@@ -187,6 +189,9 @@ export class SynthesizeService {
     @Optional() private readonly fragmentLane?: FragmentLaneService,
     // Relearn from raw: an L3 answer's raw turns are extracted again.
     @Optional() private readonly relearn?: RelearnFromRawService,
+    // Claim-level check (claim-check.ts): the local NLI model AiModule
+    // already loads. Absent ⇒ only the number check runs.
+    @Optional() private readonly nli?: IntentClassifierService,
   ) {
     this.openai = createOpenAiClientOrThrow(this.configService);
     this.defaultModel = this.configService.get<string>(
@@ -703,8 +708,8 @@ export class SynthesizeService {
    */
   private async finalizeAndAdmit(
     ctx: FinalizeContext,
-    verdict: VerifierOutput,
-    args: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
+    draftVerdict: VerifierOutput,
+    draftArgs: Omit<Parameters<typeof finalizeVerdict>[1], 'verdict' | 'questionAnswered'>,
   ): Promise<SynthesizeResult> {
     // The gate-resolution also folds in the evidence-capability flag
     // (FOVEA_EVIDENCE_CAPABILITY, 0113 — resolveEvidenceCapability): does the
@@ -712,6 +717,11 @@ export class SynthesizeService {
     // citation carries? Flag off / no registry ⇒ absent ⇒ byte-identical.
     const fetchGrounding = makeGroundingFetchPort(this.surreal);
     const registry = this.predicateRegistry;
+    const checked = await this.checkAnswerClaims(ctx, draftArgs);
+    const args = checked ? { ...draftArgs, ...checked } : draftArgs;
+    // Every cited sentence was contradicted by what it cites: nothing is left to serve.
+    const verdict: VerifierOutput =
+      checked && !checked.answer ? { ...draftVerdict, verdict: 'unsupported' } : draftVerdict;
     const gate = await resolveAnswerIntegrity(
       { openai: this.openai, metrics: this.metrics, logger: this.logger, limiter: this.limiter },
       { ctx, verdict, args, defaultModel: this.defaultModel, registry, fetchGrounding },
@@ -752,6 +762,37 @@ export class SynthesizeService {
       await this.answerCache?.admit(ctx.cache.ctx, final, verdict);
     }
     return final;
+  }
+
+  /**
+   * Claim-level check (claim-check.ts, profile.claimCheck): each cited
+   * sentence against the facts it cites, after the verifier — which
+   * judges the answer whole — and alone where none runs (harness,
+   * keyless). A contradicted sentence leaves the served answer with the
+   * citations only it carried. Undefined when nothing was removed.
+   */
+  private async checkAnswerClaims(
+    ctx: FinalizeContext,
+    args: { answer: string; citations: Citation[] },
+  ): Promise<{ answer: string; citations: Citation[] } | undefined> {
+    if (!ctx.profile?.claimCheck || !args.answer || args.citations.length === 0) return undefined;
+    const byId = new Map(args.citations.map((c) => [c.factId, c]));
+    const nli = this.nli;
+    const result = await withSpan('synthesize.claim_check', () =>
+      checkClaims(
+        args.answer,
+        (token) => byId.get(token),
+        (premise, hypotheses) =>
+          nli ? nli.nli(premise, hypotheses) : Promise.resolve(hypotheses.map(() => undefined)),
+      ),
+    );
+    if (result.removed.length === 0) return undefined;
+    this.logger.debug(`claim check removed ${result.removed.length} sentence(s)`);
+    const dropped = new Set(result.droppedTokens);
+    return {
+      answer: result.answer,
+      citations: args.citations.filter((c) => !dropped.has(c.factId)),
+    };
   }
 
   /**

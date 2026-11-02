@@ -116,6 +116,7 @@ export const KNOWN_BOOLEAN_FLAGS = [
   'RETRIEVAL_DIGEST_EVIDENCE',
   'RETRIEVAL_ORDERING_FRAME',
   'RETRIEVAL_VERIFIER_TOPIC_COVERAGE',
+  'RETRIEVAL_CLAIM_CHECK',
   // L0 episode substrate (memory-substrate-redesign P1): capture verbatim
   // turns before extraction — lossless, idempotent, LLM-free.
   'EPISODE_SUBSTRATE_ENABLED',
