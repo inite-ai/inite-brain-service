@@ -503,6 +503,15 @@ export const CATALOG_PART_06: ConfigCatalogSpec[] = [
       "V10 §5 verifier topic-coverage (profile field verifierTopicCoverage): the corrective-RAG auditor additionally (a) treats asserted CONNECTIONS between facts — causal/motivational/attributive links — as claims needing their own evidence, and (b) outputs a questionAnswered judgment: does the evidence actually answer the query, or merely share its topic. In lenient guardrails under abstentionCalibration='verifier', supported-but-not-answering declines like unsupported (the V9 residual: 13/40 abstention misses were fabrications assembled from real facts, each claim individually grounded, the causal link invented). Strict/answer guardrails keep pre-V10 semantics. Off = byte-identical verifier prompt and schema.",
   },
   {
+    key: 'RETRIEVAL_CLAIM_CHECK',
+    category: 'pipeline',
+    defaultValue: '1',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Claim-level check (profile field claimCheck, #877): each cited sentence of a synthesized answer is put to the local NLI model (mDeBERTa-xnli, already loaded) against exactly the facts it cites, plus a number check; a sentence the facts contradict is removed with the citations only it carried, and an answer left with nothing is unsupported. Neutral (paraphrase, inference) stands. Runs after the LLM verifier, and alone where none runs (harness, keyless). No model call. Measured on test/eval/claim-check: 11/17 contradictions caught, 0/17 supported or neutral sentences removed.',
+  },
+  {
     key: 'RETRIEVAL_PROFILE_OVERRIDES',
     category: 'pipeline',
     defaultValue: null,

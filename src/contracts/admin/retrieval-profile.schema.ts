@@ -43,6 +43,7 @@ export const RetrievalProfileWireSchema = z.object({
   updateStoryRendering: z.boolean(),
   orderingFrame: z.boolean(),
   verifierTopicCoverage: z.boolean(),
+  claimCheck: z.boolean(),
   verifierModel: z.string(),
   verifierEffort: z.string(),
   digestEvidence: z.boolean(),
