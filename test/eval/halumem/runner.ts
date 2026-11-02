@@ -129,6 +129,12 @@ interface SystemQuestion extends HaluMemQuestion {
   context?: string;
   /** Harness mode: brain returned evidence and no answer; the agent's answer is still to come. */
   pending?: boolean;
+  /**
+   * Harness mode: the same question with `detail: "full"`, read at the
+   * same moment, rendered as memory lines — what the agent gets when it
+   * follows the evidence view's "(+N more …)" hint (it answers EXPAND).
+   */
+  context_full?: string;
 }
 
 interface SystemSession {
