@@ -37,6 +37,13 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
     secrets: inherit
+    # A called workflow holds no more than this grants: release-image's
+    # signing job asks for OIDC + attestations (#855), and without them here
+    # GitHub refuses this whole run at startup (test/workflow-call-permissions).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
   # Same trap as `image` above: release-please pushes the tag with
   # GITHUB_TOKEN, which cannot trigger a `push: tags` workflow, so the
