@@ -19,29 +19,35 @@ describe('lexical leg — stemmed field', () => {
       stem: { field: 'haystackStem', lang: 'pt' },
     });
     expect(leg.where).toBe(
-      '(searchHaystack @1@ $t0 OR object @2@ $t0 OR haystackStem @3@ $s0 OR ' +
-        'searchHaystack @4@ $t1 OR object @5@ $t1 OR haystackStem @6@ $s1)',
+      '(searchHaystack @1@ $t0 OR object @2@ $t0 OR haystackStem @3,OR@ $s0 OR ' +
+        'searchHaystack @4@ $t1 OR object @5@ $t1 OR haystackStem @6,OR@ $s1)',
     );
     expect(leg.score).toBe(
       'math::sum([math::max([search::score(1), search::score(2), search::score(3)]), ' +
         'math::max([search::score(4), search::score(5), search::score(6)])])',
     );
     expect(leg.prelude).toBe(
-      'LET $s0 = fn::stem_query($stemLang, $t0);\nLET $s1 = fn::stem_query($stemLang, $t1);',
+      'LET $stemLang = $stemHint;\nLET $s0 = fn::stem_query($stemLang, $t0);\n' +
+        'LET $s1 = fn::stem_query($stemLang, $t1);',
     );
-    expect(leg.params).toEqual({ t0: 'contratos', t1: 'assinados', stemLang: 'pt' });
+    expect(leg.params).toEqual({ t0: 'contratos', t1: 'assinados', stemHint: 'pt' });
   });
 
-  it('no query language: the unstemmed leg, byte for byte', () => {
-    const plain = buildLexMatchLeg({ fields: ['text'], topic: 'parser project', mode: 'or_terms' });
-    const unplaced = buildLexMatchLeg({
+  it("no query language: the tenant's own language, computed in the database", () => {
+    const leg = buildLexMatchLeg({
       fields: ['text'],
       topic: 'parser project',
       mode: 'or_terms',
-      stem: { field: 'textStem', lang: undefined },
+      stem: { field: 'textStem' },
     });
-    expect(unplaced).toEqual(plain);
-    expect(plain.prelude).toBe('');
+    expect(leg.prelude.split('\n')[0]).toBe('LET $stemLang = fn::tenant_lang();');
+    expect(leg.params).not.toHaveProperty('stemHint');
+  });
+
+  it('no stem field: the unstemmed leg, no prelude', () => {
+    expect(
+      buildLexMatchLeg({ fields: ['text'], topic: 'parser project', mode: 'or_terms' }).prelude,
+    ).toBe('');
   });
 
   it('the SELECT is the last result of a query with a prelude', () => {

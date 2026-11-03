@@ -487,13 +487,15 @@ export class MemoryContextService {
     const withText = !!opts.text?.trim();
     // The turn's words also match the facts' stems in their own language
     // (0184): "Марией" finds the fact about "Мария".
-    const stemLang = withText ? stemLangOf(opts.text ?? '') : undefined;
-    const match = stemLang
+    // The turn's language when the detector is sure of it, else the
+    // tenant's own (fn::tenant_lang, 0184).
+    const stemHint = withText ? stemLangOf(opts.text ?? '') : undefined;
+    const match = withText
       ? {
           where: '(searchHaystack @1,OR@ $text OR haystackStem @2,OR@ $textStem)',
           score: 'math::max([search::score(1), search::score(2)])',
         }
-      : { where: 'searchHaystack @1,OR@ $text', score: 'search::score(1)' };
+      : { where: '', score: '' };
     const statements = entities.flatMap((_, i) => [
       ...(withText
         ? [
@@ -505,7 +507,12 @@ export class MemoryContextService {
       `SELECT ${fields} FROM knowledge_fact WHERE entityId = $e${i} AND ${where}
         ORDER BY validFrom DESC, id ASC LIMIT ${MEMORY_FACTS_PER_ENTITY}`,
     ]);
-    const prelude = stemLang ? ['LET $textStem = fn::stem_query($stemLang, $text)'] : [];
+    const prelude = withText
+      ? [
+          stemHint ? 'LET $stemLang = $stemHint' : 'LET $stemLang = fn::tenant_lang()',
+          'LET $textStem = fn::stem_query($stemLang, $text)',
+        ]
+      : [];
     const results = await db.query<Array<Array<FactRow> | null>>(
       [...prelude, ...statements].join(';\n'),
       {
@@ -513,7 +520,7 @@ export class MemoryContextService {
         u: userId,
         said: saidBy,
         text: withText ? [...new Set(wordsOf(opts.text ?? ''))].join(' ') : undefined,
-        stemLang,
+        stemHint,
         ...tags.params,
       },
     );

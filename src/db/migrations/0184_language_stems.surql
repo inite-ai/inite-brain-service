@@ -17,10 +17,14 @@
 -- the database computes itself (VALUE) — the row's text run through its
 -- language's analyzer, tokens joined by spaces — with a FULLTEXT index on
 -- it that only splits on blanks, because the field is already stemmed.
--- The query side stems its terms with `fn::stem_query` under the query's
--- language (search/internals/stem-terms.ts) and matches the shadow field
--- next to the unstemmed ones, which keep their indexes untouched: exact
--- tokens (codes, ids) match as before.
+-- The query side stems its terms with `fn::stem_query` and matches the
+-- shadow field next to the unstemmed ones, which keep their indexes
+-- untouched: exact tokens (codes, ids) match as before. The query's
+-- language is the detector's when it is confident (search/internals/
+-- stem-lang.ts), else `fn::tenant_lang()`, the most common language of
+-- the tenant's turns: the detector places a short Latin question in
+-- fewer than one case in eight (MIRACL es/fr/de/en), a full turn
+-- almost always.
 --
 -- A ROW WITH NO ANALYZER stores '' (not NONE), so the backfill cursor
 -- `… IS NONE` (POST /v1/admin/maintenance/backfill-stems) never returns
@@ -35,7 +39,7 @@
 -- ("no MATCHES clause found"), so query stems are computed in a prior
 -- statement; `search::analyze` takes the analyzer name as a value.
 --
--- ADDITIVE: analyzers, two functions, two option fields, two indexes; no
+-- ADDITIVE: analyzers, four functions, two option fields, two indexes; no
 -- data mutation here (the backfill is an operator call, chunked).
 
 DEFINE ANALYZER IF NOT EXISTS stem_ar TOKENIZERS class FILTERS lowercase, snowball(arabic);
@@ -80,6 +84,16 @@ DEFINE FUNCTION OVERWRITE fn::stem_text($lang: option<string>, $text: option<str
 DEFINE FUNCTION OVERWRITE fn::stem_query($lang: option<string>, $text: string) {
   LET $an = fn::stem_analyzer($lang);
   RETURN IF $an = NONE THEN string::lowercase($text) ELSE array::join(search::analyze($an, $text), ' ') END;
+};
+
+-- The tenant's language: the most common `lang` over up to 500 turns (or
+-- facts, for a tenant with no turns); NONE when nothing carries one. A
+-- bounded scan, no index needed, computed per query so it is never stale.
+DEFINE FUNCTION OVERWRITE fn::tenant_lang() {
+  LET $turns = SELECT VALUE lang FROM episode WHERE lang != NONE LIMIT 500;
+  LET $langs = IF array::len($turns) > 0 THEN $turns
+    ELSE (SELECT VALUE lang FROM knowledge_fact WHERE lang != NONE LIMIT 500) END;
+  RETURN (SELECT v, count() AS n FROM $langs.map(|$l| { v: $l }) GROUP BY v ORDER BY n DESC LIMIT 1)[0].v;
 };
 
 -- Facts: the same surface searchHaystack indexes (0007), computed from its

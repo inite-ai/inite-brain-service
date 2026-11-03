@@ -1,11 +1,11 @@
 """Build the lexical-stems battery's corpus from MIRACL (Apache 2.0) as
 published for MTEB reranking (huggingface.co/datasets/mteb/MIRACLReranking).
 
-Per language: 200 dev queries that have a relevant passage (seeded sample),
+Per language: N dev queries (default 50, the README run) that have a relevant passage (seeded sample),
 their human relevance judgements, and every candidate passage MTEB lists
 for them, pooled. Needs pyarrow. Usage:
 
-    python prepare.py <dir with {lang}-{corpus,queries,qrels,top_ranked}.parquet> <out dir>
+    python prepare.py <dir with {lang}-{corpus,queries,qrels,top_ranked}.parquet> <out dir> [queries=50]
 """
 import ast
 import json
@@ -15,7 +15,7 @@ import sys
 import pyarrow.parquet as pq
 
 LANGS = 'ru es fr de en zh ja ko ar hi'.split()
-QUERIES = 200
+QUERIES = int(sys.argv[3]) if len(sys.argv) > 3 else 50
 
 src, out = sys.argv[1:3]
 for lang in LANGS:

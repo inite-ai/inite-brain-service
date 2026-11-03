@@ -71,8 +71,9 @@ describe('language stems (0184)', () => {
     expect(ids(await lexical('合同', 'zh'))).toContain('knowledge_fact:zh');
   });
 
-  it('without a query language the leg is the unstemmed one: the inflection misses', async () => {
-    expect(ids(await lexical('контрактами'))).not.toContain('knowledge_fact:ru');
+  it("without a query language the tenant's own language stems the query", async () => {
+    // The tenant's only turn is Russian (fn::tenant_lang).
+    expect(ids(await lexical('контрактами'))).toContain('knowledge_fact:ru');
   });
 
   it('a turn is found by the nominative of a name it inflects', async () => {

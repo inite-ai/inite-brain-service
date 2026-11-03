@@ -10,12 +10,12 @@
  * corpus's. A passage's language is stamped by the production detector
  * (language-detector.ts), not taken from MIRACL, so detector misses count.
  *
- * Corpus: per language, 200 sampled dev queries that have a relevant
- * passage, and every candidate MTEB lists for them (~20k passages) as one
+ * Corpus: per language, 50 sampled dev queries that have a relevant
+ * passage, and every candidate MTEB lists for them (~5k passages) as one
  * pool; each query retrieves from the whole pool. Prepare it with
  * prepare.py (README). No model, no key.
  *
- * Run: SURREALDB_URL=ws://… MIRACL_SAMPLE_DIR=… pnpm exec ts-node -T test/eval/lexical-stems/runner.ts [--langs=ru,es]
+ * Run: SURREALDB_URL=ws://… MIRACL_SAMPLE_DIR=… pnpm eval:lexical-stems [--langs=ru,es]
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

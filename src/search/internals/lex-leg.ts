@@ -50,12 +50,13 @@ export interface LexMatchLeg {
 
 /**
  * The shadow field holding the row's text stemmed in the row's language
- * (0184), and the language to stem the query's terms in. No language:
- * no stem matchers, the leg is the unstemmed one.
+ * (0184), and the language to stem the query's terms in when the caller
+ * knows it (stem-lang.ts). Without one the database uses the tenant's own
+ * language (`fn::tenant_lang`).
  */
 export interface LexStem {
   field: string;
-  lang: string | undefined;
+  lang?: string | undefined;
 }
 
 /** The SELECT's rows of a query composed with a leg's prelude. */
@@ -76,7 +77,7 @@ export function buildLexMatchLeg(opts: {
   stem?: LexStem;
 }): LexMatchLeg {
   const { fields, topic, mode } = opts;
-  const stem = opts.stem?.lang ? { field: opts.stem.field, lang: opts.stem.lang } : undefined;
+  const { stem } = opts;
   const terms = mode === 'or_terms' ? topicTerms(topic).slice(0, LEX_TERM_CAP) : [];
   if (terms.length === 0) {
     const matchers = fields.map((f, j) => `${f} @${j + 1}@ $topic`);
@@ -91,7 +92,9 @@ export function buildLexMatchLeg(opts: {
   const matchers: string[] = [];
   const perTerm: string[] = [];
   const params: Record<string, string> = {};
-  const lets: string[] = [];
+  const lets: string[] = stem
+    ? [stem.lang ? 'LET $stemLang = $stemHint;' : 'LET $stemLang = fn::tenant_lang();']
+    : [];
   const width = fields.length + (stem ? 1 : 0);
   terms.forEach((term, i) => {
     params[`t${i}`] = term;
@@ -103,7 +106,9 @@ export function buildLexMatchLeg(opts: {
     if (stem) {
       const ref = i * width + fields.length + 1;
       lets.push(`LET $s${i} = fn::stem_query($stemLang, $t${i});`);
-      matchers.push(`${stem.field} @${ref}@ $s${i}`);
+      // OR over the term's stems: one for a Snowball language, every
+      // bigram for an unspaced script (a whole CJK run is one term).
+      matchers.push(`${stem.field} @${ref},OR@ $s${i}`);
       scores.push(`search::score(${ref})`);
     }
     perTerm.push(scores.length === 1 ? scores[0]! : `math::max([${scores.join(', ')}])`);
@@ -111,7 +116,7 @@ export function buildLexMatchLeg(opts: {
   return {
     where: `(${matchers.join(' OR ')})`,
     score: `math::sum([${perTerm.join(', ')}])`,
-    params: stem ? { ...params, stemLang: stem.lang } : params,
+    params: stem?.lang ? { ...params, stemHint: stem.lang } : params,
     prelude: lets.join('\n'),
   };
 }
