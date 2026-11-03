@@ -1,0 +1,103 @@
+---
+title: "MCP memory: what a memory MCP server stores and how to choose one"
+seoTitle: "MCP memory servers: what they store, how agents use them, how to choose"
+description: "A memory MCP server gives any MCP client a place to write facts and read them back in a later session. What the reference server stores, how agents call it, which transport and auth to run it on, and how to pick between the open-source options."
+date: "2026-11-03"
+author: "INITE Brain Team"
+category: "Engineering"
+tags: ["MCP", "agent memory", "memory MCP server", "knowledge graph", "AI agents"]
+directAnswer: "MCP memory is persistent memory exposed to an agent as Model Context Protocol tools: the agent calls a write tool to record what it learned and a search tool to read it back in a later session. The reference Memory server keeps a local knowledge graph of entities, relations and observations in a JSONL file. Other servers back the same idea with Mem0, a temporal graph (Graphiti) or Markdown files. Choose by what the store records (plain notes, a graph, facts with validity times), how it is reached (stdio on one machine or Streamable HTTP with OAuth for a team), and whether two agents can write to it safely."
+definitionSentence: "A memory MCP server is a Model Context Protocol server whose tools let an agent store information and retrieve it across sessions, so the memory outlives any single conversation and any single client."
+faqs:
+  - question: "What is MCP memory?"
+    answer: "Persistent memory offered to an AI agent through Model Context Protocol tools. The agent writes facts with one tool and searches them with another, and because the store sits behind the MCP server rather than inside one chat, the facts are still there in the next session and in any other MCP client pointed at the same server."
+  - question: "What does the official Memory MCP server store?"
+    answer: "A local knowledge graph. Entities are the nodes, relations are directed connections between them, and observations are single pieces of information attached to an entity. It writes them to a JSONL file, memory.jsonl by default, whose path you can change with the MEMORY_FILE_PATH environment variable."
+  - question: "Is a memory MCP server the same as RAG?"
+    answer: "No. RAG retrieves passages from documents you indexed ahead of time. A memory server is written by the agent while it works, so it holds what the agent learned about a user, a project or a decision. Many memory servers use embeddings to search, but what they store and who writes it differ from a document index."
+  - question: "Can several agents share one memory MCP server?"
+    answer: "Yes, if the server runs over Streamable HTTP, which the MCP spec defines as a single HTTP endpoint that clients send messages to. A stdio server is launched as a subprocess of one client, so it serves that client only. Sharing also needs authentication and a store that handles concurrent writes; a single JSONL file was not built for that."
+  - question: "How do I secure a remote memory MCP server?"
+    answer: "Follow the MCP authorization spec for HTTP transports: the server acts as an OAuth 2.1 resource server and publishes Protected Resource Metadata (RFC 9728) so clients can find the authorization server. For stdio, the spec says to take credentials from the environment instead. Memory holds personal data, so scope tokens per user or tenant."
+---
+
+MCP memory is what you get when an agent's long-term memory sits behind a Model Context Protocol server instead of inside one app. The agent calls a tool to write down what it learned and another tool to search it later, and any MCP client that connects to the same server reads the same memory. Developers looking for a memory MCP server tend to want one of three things: memory that survives a closed chat, memory shared between Claude Code, Cursor and their own agent, or memory a whole team can use.
+
+## What MCP gives a memory store
+
+The [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28) defines how an application talks to an external server over JSON-RPC 2.0. A server can offer three kinds of features: resources ("context and data, for the user or the AI model to use"), prompts ("templated messages and workflows for users") and tools ("functions for the AI model to execute"). The current revision is dated 2026-07-28, according to the spec's [versioning page](https://modelcontextprotocol.io/specification/versioning).
+
+Memory servers lean almost entirely on tools. The [server features page](https://modelcontextprotocol.io/specification/2026-07-28/server) marks tools as model-controlled, which is what memory needs: the model decides when something is worth remembering and when to look something up, without the user clicking anything. Resources and prompts are controlled by the application and the user, so they fit read-only views of memory better than the write path.
+
+MCP itself has no memory. The protocol carries the calls, and the server decides what a "memory" is, where it lives and how search works. Two servers can both call their write tool `add_memory` while one appends a line to a file and the other extracts entities with a model and merges them into a graph.
+
+## What the reference Memory server stores
+
+The MCP project ships a [reference Memory server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory), described in its README as "a basic implementation of persistent memory using a local knowledge graph." It is the quickest way to see how a memory server works.
+
+Its data model has three pieces:
+
+- **Entities**, "the primary nodes in the knowledge graph", each with a name and a type.
+- **Relations**, which "define directed connections between entities", written in the active voice (`Maria works_at Acme`).
+- **Observations**, "discrete pieces of information about an entity", one fact per observation.
+
+The server exposes nine tools: `create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_observations`, `delete_relations`, `read_graph`, `search_nodes` and `open_nodes`. It runs with `npx -y @modelcontextprotocol/server-memory` and keeps everything in a JSONL file, `memory.jsonl` by default, which the `MEMORY_FILE_PATH` environment variable moves elsewhere.
+
+The design has limits. The whole graph is one local file. An observation is a string with no date, no source and no record of what it replaced, so when a user moves from Berlin to Lisbon the agent has to delete the old observation itself or keep both. Search matches names and text, so the agent has to guess the words it used last time. For a single developer's assistant that is often enough, and the file is easy to read and back up.
+
+## How agents use a memory server
+
+A working loop has four steps. The agent runs all of them, and the server only answers its reads and writes.
+
+1. **Read at the start.** Before it answers, the agent searches memory for the user, project or entity in front of it. Most failures start here, because a client that never calls the search tool behaves as if it had no memory at all. Put the instruction in the system prompt or use client hooks that fetch memory automatically.
+2. **Decide what is worth keeping.** A preference, a decision and the reason for it, a correction from the user. A greeting or a restated question is not worth keeping. The model makes this call, which is why a memory server's tool descriptions carry so much weight.
+3. **Write in small, specific units.** "Prefers morning appointments" as one observation on the entity `Maria` is easier to find and to retract later than a paragraph summarising the whole chat.
+4. **Fix what changed.** When a fact stops being true, the agent should delete or supersede the old one rather than add a contradicting line next to it.
+
+The LangGraph [memory guide](https://docs.langchain.com/oss/python/langgraph/memory) separates two places to do the writing. In the "hot path" the agent writes memories while it answers, so they are available at once at the cost of extra latency and complexity. A background task records them after the turn instead, which keeps the reply fast, though another thread may not see the new memory for a while. A memory MCP server works for both. In the hot path the model calls the tool mid-conversation; in the background your own job sends the same requests to the server once the turn ends.
+
+## Transport and auth: local or shared
+
+The spec defines [two standard transports](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports). With stdio, the client launches the server as a subprocess and exchanges "newline-delimited messages over the standard streams". With Streamable HTTP, "each message is an HTTP POST to a single MCP endpoint", and replies come back as JSON or a request-scoped event stream.
+
+The choice of transport decides who can share the memory. A stdio server belongs to the client that launched it, so Claude Desktop and Cursor on the same laptop each start their own copy, and they share memory only if both point at the same file. A Streamable HTTP server is one process at one URL, so every client and every teammate with a credential reaches the same store.
+
+Remote memory needs authentication. The [authorization spec](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization) makes authorization optional overall, but for HTTP transports it describes a flow where "a protected MCP server acts as an OAuth 2.1 resource server" and must publish OAuth 2.0 Protected Resource Metadata (RFC 9728) so the client can discover where to get a token. For stdio it says implementations "SHOULD NOT follow this specification, and instead retrieve credentials from the environment." A memory server holds what users told an agent about themselves, so a shared one without auth is a data leak.
+
+## The open-source options
+
+All of the servers below speak MCP. They differ in what they store.
+
+| Server | What it stores | How it runs |
+| --- | --- | --- |
+| [Reference Memory server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) | Entities, relations and observations in a local JSONL file | `npx`, stdio |
+| [Basic Memory](https://github.com/basicmachines-co/basic-memory) | Markdown files on your disk plus a local SQLite index | Local, MCP-native |
+| [mcp-mem0](https://github.com/coleam00/mcp-mem0) | Memories in Mem0, through `save_memory`, `get_all_memories` and `search_memories` | Python MCP server |
+| [OpenMemory](https://mem0.ai/blog/introducing-openmemory-mcp) | A local memory layer powered by Mem0, with a built-in UI | Runs on your machine |
+| [Graphiti MCP server](https://github.com/getzep/graphiti/tree/main/mcp_server) | A temporal graph whose facts carry validity windows | HTTP by default or stdio; marked experimental |
+
+Basic Memory keeps the store human-editable: its README says your knowledge "lives as Markdown files that both you and your AI can read, write, and search." Mem0 describes itself as ["the memory layer for AI agents"](https://github.com/mem0ai/mem0), and its [paper](https://arxiv.org/abs/2504.19413) reports a 26% relative improvement in an LLM-as-a-judge score over the OpenAI baseline on the LOCOMO benchmark, with 91% lower p95 latency and more than 90% lower token cost than putting the full conversation in context. Those are the authors' own results on their own setup. Graphiti records when each fact "became true, and when (if ever) it was superseded" and invalidates old facts instead of deleting them, per its [README](https://github.com/getzep/graphiti). The README also says its reference MCP server is not a production deployment and has no authentication.
+
+## How to choose a memory MCP server
+
+Ask five questions of any candidate.
+
+**Who writes, and how many at once?** One agent on one machine works with a file. Several agents or several people writing to the same store need a server process with a real database behind it, because appending to one JSONL file from two processes has no conflict handling.
+
+**What happens when a fact changes?** Most of what an agent learns about a user changes eventually: an address, a plan tier, a preference. A store that only adds rows will hold both versions and leave the model to guess. Look for supersession, or for validity times on each fact, so a read returns what is true now and you can still ask what was true last month.
+
+**Can you trace a memory to its source?** When an agent acts on a wrong fact, you need to see which conversation or document it came from. Plain notes rarely keep that link.
+
+**How does search work?** Name matching, embeddings, graph traversal, or a mix of them. Test with a question that uses different words from the stored fact, since that is how users ask.
+
+**How is it reached and secured?** A remote server should implement the OAuth flow from the MCP spec or at least require a per-tenant key, and it should keep one user's memories out of another user's results.
+
+We build [INITE Brain](/en/docs/mcp/setup) around the last three questions: it serves its MCP endpoint over Streamable HTTP, refuses anonymous traffic, and stores every fact with both the time it was true and the time the system learned it ([bitemporal model](/en/docs/concepts/bitemporal)).
+
+## Running one in practice
+
+Start with the reference server to learn how your agent behaves with memory before you pick a backend. Watch three things in the transcripts: whether the agent searches before it answers, what it decides to write, and what it does when the user corrects it. Most problems show up there, whatever the store.
+
+Then give the agent explicit instructions. A short rule in the system prompt ("search memory for the user before answering; record preferences and decisions as single observations; delete an observation the user corrects") is often the cheapest improvement to recall, and it costs nothing to try before switching databases.
+
+When you move to a shared server, put the URL and the credential in the client's config file and read the secret from the environment, so the config can be committed without the key. Give each person their own credential or user ID, so that deleting one user's memories is a single scoped call rather than a hunt through a shared file.

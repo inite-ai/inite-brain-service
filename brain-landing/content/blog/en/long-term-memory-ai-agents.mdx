@@ -1,0 +1,111 @@
+---
+title: "Long-term memory for AI agents: how to build it so it stays correct"
+seoTitle: "Long term memory AI: how to build long-term memory for agents"
+description: "Long-term memory lets an AI agent use what it learned in earlier sessions. How it differs from the context window, the designs teams use (memory blocks, vector stores, temporal graphs), how to write, retrieve and update memories, and how to test that recall holds up."
+date: "2026-11-03"
+author: "INITE Brain Team"
+category: "Architecture"
+tags: ["long-term memory", "agent memory", "LLM", "knowledge graph", "temporal graph", "AI agents"]
+directAnswer: "Long-term memory in AI is the store an agent keeps outside the model so that facts, past events and learned instructions survive the end of a session. A working design has a write path that extracts small, specific memories, a read path that finds the relevant ones and puts them into the context window, an update rule for facts that change, and per-user isolation. The common designs are memory blocks kept in context, a searchable archive or vector store, and a temporal knowledge graph that records when each fact was true."
+definitionSentence: "Long-term memory for an AI agent is persistent storage outside the model, written and read through the agent's own tools, that holds what the agent learned across sessions and returns the relevant part when a new task starts."
+faqs:
+  - question: "What is long-term memory in AI?"
+    answer: "Storage that keeps information across sessions, outside the model. IBM describes long-term memory as what allows AI agents to store and recall information across different sessions, while short-term memory covers recent inputs for immediate decisions. The model's weights do not change when an agent remembers something; the memory is written to a store and loaded back into context later."
+  - question: "How do you add long-term memory to an LLM agent?"
+    answer: "Give it a store and two tools: one to write a memory and one to search memories. Instruct the agent to search before it answers and to write preferences, decisions and corrections as small separate items. Then add an update rule so a changed fact replaces or supersedes the old one, and scope every read and write to a user."
+  - question: "Is a vector database enough for long-term memory?"
+    answer: "It covers search by meaning, which is one part. It does not know which of two similar memories is newer or which one replaced the other, and it does not record where a memory came from. Teams usually add timestamps, supersession or a graph on top, or use a store built for agent memory."
+  - question: "How is long-term memory different from a long context window?"
+    answer: "A context window holds text for one request and is gone afterwards. Long-term memory persists between requests and decides what to load. Anthropic's documentation notes that recall degrades as the token count grows, so loading less, but the right part, usually beats loading everything."
+  - question: "How do you test long-term memory for AI agents?"
+    answer: "Use multi-session test conversations. The LoCoMo benchmark uses conversations averaging 300 turns over up to 35 sessions, and LongMemEval tests extraction, multi-session reasoning, temporal reasoning, knowledge updates and abstention. A small set built from your own users' facts, with some facts changed halfway through, shows most problems."
+---
+
+Long-term memory is what lets an AI agent use something it learned last week. The model forgets everything between requests, so a long-term memory system keeps facts, past events and learned instructions in a store outside the model and load the relevant ones back when a task starts. This guide is for developers adding long-term memory to an agent: the designs in use, how to write and retrieve memories, how to handle facts that change, and how to test the result.
+
+## Short-term and long-term memory
+
+IBM's [overview of agent memory](https://www.ibm.com/think/topics/ai-agent-memory) draws the line simply. Short-term memory "enables an AI agent to remember recent inputs for immediate decision-making"; long-term memory "allows AI agents to store and recall information across different sessions".
+
+In code, short-term memory is the conversation thread. LangGraph's [memory guide](https://docs.langchain.com/oss/python/langgraph/memory) persists it with a checkpointer "so the thread can be resumed at any time". Long-term memory is a separate store that every thread can read: LangGraph "stores long-term memories as JSON documents in a store", grouped under namespaces such as a user ID.
+
+The two work together. Long-term memory decides what goes into the context window; the window is where the model uses it. Anthropic's [context window documentation](https://platform.claude.com/docs/en/build-with-claude/context-windows) explains why loading the whole history into the window does not replace memory: "As token count grows, accuracy and recall degrade, a phenomenon known as context rot."
+
+## What to keep: three kinds of long-term memory
+
+The [CoALA paper](https://arxiv.org/html/2309.02427) gives the standard split of long-term memory, and it works as a checklist for what your agent should write:
+
+- **Semantic memory**, "an agent's knowledge about the world and itself". User preferences, account facts, project decisions.
+- **Episodic memory**, "experience from earlier decision cycles". What the agent tried last time and whether it worked.
+- **Procedural memory**, the know-how. CoALA counts the model's weights and the agent's code; in practice teams also store learned instructions, and LangGraph's guide lists the agent's system prompt as its example of procedural memory.
+
+Most production agents start with semantic memory, because a user repeating their name, stack or constraints in every session is the first complaint memory fixes. Episodic memory pays off for agents that run long tasks and keep failing the same way.
+
+## Three designs for long-term memory
+
+### Memory blocks in context
+
+Some memory is small and needed on every turn: who the user is, what the agent is for, the current goal. Letta keeps this in [memory blocks](https://docs.letta.com/guides/agents/memory-blocks), "structured sections of the agent's context window that persist across all interactions", each with a label, a value and a character limit. The design traces back to the [MemGPT paper](https://arxiv.org/abs/2310.08560), which proposed "virtual context management" modelled on how operating systems page data between fast and slow memory.
+
+Blocks are always visible, so the model never has to search for them. Their cost is space in every request, so they suit a few hundred words of core facts, not a user's full history.
+
+### A searchable archive
+
+Everything else goes into a store the agent queries. Letta's [archival memory](https://docs.letta.com/guides/agents/archival-memory) is "a semantically searchable database", reached through tools to insert and search, and it "cannot be pinned to the context window". Anthropic's [memory tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool) takes a file-shaped approach: Claude can "create, read, update, and delete files that persist between sessions" under `/memories`, and your application decides where those files really live.
+
+Search by meaning finds memories written in different words from the question, which plain file names do not. Its weak spot is time. Two memories that say the user is on the free plan and on the annual plan look equally relevant to a similarity score.
+
+### A temporal knowledge graph
+
+The third design stores facts as entities and relationships, each with a period during which it held. Graphiti, the engine behind Zep, records when each fact "became true, and when (if ever) it was superseded" and invalidates old facts instead of deleting them, per its [README](https://github.com/getzep/graphiti). The [Zep paper](https://arxiv.org/abs/2501.13956) reports 94.8% on the Deep Memory Retrieval benchmark against 93.4% for MemGPT, and accuracy gains of up to 18.5% on LongMemEval. As with any vendor's paper, these are the authors' own measurements.
+
+A graph answers questions a list of notes cannot: what was true on a given date, which facts connect two entities, what changed since last month. It costs more to write, because something has to extract entities and relations from text.
+
+## Writing memories
+
+Most memory bugs start on the write path. Four rules help regardless of store.
+
+**Write small units.** One preference, one decision, one correction per memory. A memory that says "Maria prefers morning appointments" can be found, updated and deleted. A summary of a whole chat can only be replaced.
+
+**Choose when to write.** LangGraph's guide describes two options. In the hot path the agent writes while it answers, so the memory is available immediately, at the cost of latency. In the background a separate job writes after the turn ends, which keeps the reply fast but delays the memory. Many teams write explicit user statements in the hot path and leave extraction from long transcripts to the background.
+
+**Extract, don't copy.** Storing raw transcripts makes the store grow without making it more useful. The [Mem0 paper](https://arxiv.org/abs/2504.19413) builds its whole approach on extracting and consolidating key facts from conversations; against putting the full conversation in context, it reports 91% lower p95 latency and more than 90% lower token cost. Those numbers come from the authors' benchmark setup, and the mechanism is general, since fewer memories cost less to search and to load.
+
+**Record where each memory came from.** Store the conversation, message or document a memory was extracted from, and whether the user said it or the agent inferred it. When the agent acts on a wrong fact, that link is the only quick way to find out why, and it lets you remove every memory taken from a source that turned out to be bad.
+
+## Retrieving memories
+
+An agent that never searches has no memory. Make retrieval a fixed step: before answering, search for the user and the entities in the request, and load the results into the context window above the conversation.
+
+Then rank by more than similarity. A useful order is relevance first, then recency, then how confident you are in the source. A fact the user stated outright should beat one the agent inferred, and last week's statement should beat last year's when they disagree.
+
+Scope every query to the person the agent is serving. LangGraph's store groups memories under namespaces for this reason, and a user ID is the usual first level. A memory written for one user should never be a candidate for another user's search, even when the text matches perfectly. The same goes for teams: if an agent works for a company, decide which memories belong to the whole company and which belong to one employee, and enforce the two scopes in the store itself, because a prompt instruction does not isolate anything.
+
+Keep the loaded set small and put it where the model reads best. The [Lost in the Middle](https://arxiv.org/abs/2307.03172) study found that models use information best when it sits "at the beginning or end of the input context", and a short list keeps every item close to an edge.
+
+## When facts change
+
+Changing facts are a known weak spot. The [LongMemEval](https://arxiv.org/abs/2410.10813) benchmark tests five abilities, and two of them, temporal reasoning and knowledge updates, are about time. Its authors report that commercial chat assistants and long-context models show a 30% accuracy drop when they have to remember information across sustained interactions.
+
+Three update strategies, from simplest to most complete:
+
+1. **Overwrite.** Replace the old memory with the new one. Simple, but the history is gone, and so is any way to answer "what did the user have before".
+2. **Supersede.** Keep the old memory, mark it replaced, and return only current memories by default.
+3. **Record validity.** Store when each fact started and stopped being true, and separately when the system learned it. Reads default to "true now", and audits can ask what the agent believed on a given date.
+
+[INITE Brain](/en/docs/concepts/bitemporal) takes the third route: every fact carries a valid-time pair and a transaction-time pair, so a search without a date returns only facts that hold now and that the system still believes.
+
+## Testing long-term memory
+
+Build the test before you choose the store. The [LoCoMo](https://arxiv.org/abs/2402.17753) benchmark shows the shape: conversations of about "300 turns and 9K tokens on avg., over up to 35 sessions", with questions that need facts from early sessions. Its authors found that even with long context and retrieval, models "substantially lag behind human performance".
+
+An in-house version takes an afternoon. Script a month of sessions for three fictional users, plant facts early, change some of them later, and add a few questions about things that were never said. Score each run on three counts: found the fact, gave the current version, and declined when there was nothing to find. Run it after every change to prompts, extraction or ranking, because those changes can move recall as much as a new database.
+
+## A checklist before shipping
+
+- Every read and write is scoped to a user or tenant.
+- The agent searches memory before every answer as a fixed step.
+- Memories are small, and each records where it came from.
+- A changed fact supersedes the old one instead of sitting next to it.
+- Deleting a user removes their memories, including any summaries built from them.
+- A multi-session test set runs on every change.
