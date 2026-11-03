@@ -116,7 +116,16 @@ export class DocumentAsyncService implements OnModuleInit {
     // Remembered before it is understood: the raw turns land now, the
     // extraction reads them later (commit-writer captureDocumentTurns).
     await this.writer?.captureDocumentTurns(companyId, doc);
-    const runs = await this.fanOut({ companyId, doc, chunks, indexers: dto.indexers });
+    // A replay of a document already committed queues nothing — the
+    // background sync path's rule (document-ingest.service.ts). Without it
+    // the replay set the committed document back to `indexing` and asked
+    // for another generalist batch pass, which has no dedup key: the same
+    // content was extracted twice, and a caller polling for `committed`
+    // waited on a pass that was never needed (eval:halumem, 2026-11-02).
+    const runs =
+      deduplicated && doc.status === 'committed'
+        ? []
+        : await this.fanOut({ companyId, doc, chunks, indexers: dto.indexers });
     return {
       documentId: doc.id,
       deduplicated,

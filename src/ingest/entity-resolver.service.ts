@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
-import { EntityJudgeService } from '../ai/entity-judge.service';
+import { EntityJudgeService, type JudgeContext } from '../ai/entity-judge.service';
 import { traceArtifact } from '../common/debug-trace';
 import { envFlagNotDisabled } from '../common/env-validation';
-import { nameKey } from '../common/name-key';
+import { nameKey, nameKeyInitials, nameKeyWords } from '../common/name-key';
 import { singleValuedPredicates } from '../ai/predicate-semantics';
 import { conflictsOnSingleValuedSlot } from './same-name-conflict';
 
@@ -45,8 +45,20 @@ interface NameCandidate {
   canonicalName?: string | undefined;
   /** Similarity on the scan's own scale — see findKeyNeighbour on why. */
   cosine: number;
-  matchKind: 'translit' | 'embedding' | 'name-part';
+  matchKind: 'translit' | 'embedding' | 'name-part' | 'shared-word' | 'initials';
 }
+
+/** How the judge's prompt names each scan's similarity. */
+const JUDGE_SIMILARITY: Record<
+  NameCandidate['matchKind'],
+  NonNullable<JudgeContext['similarity']>
+> = {
+  translit: 'transliteration',
+  embedding: 'embedding',
+  'name-part': 'name-part',
+  'shared-word': 'shared-word',
+  initials: 'initials',
+};
 
 export interface ResolveByNameOptions {
   db: Surreal;
@@ -154,60 +166,25 @@ export class EntityResolverService {
   }: ResolveByNameOptions): Promise<string | null> {
     if (!this.isEnabled()) return null;
     try {
-      const candidate = await this.findBestNameCandidate(db, name, type);
-      if (!candidate) {
-        this.logger.debug(`[ingest.inline_resolution] no candidate for "${name}" (${type})`);
-        return null;
-      }
-
-      const existingFacts = await this.judge.fetchTopFacts(db, candidate.entityId);
       const incoming =
         incomingFacts.length > 0 ? incomingFacts.map((f) => `- ${f}`).join('\n') : '(no facts)';
-      // The judge gets both NAMES and is told which scan found the
-      // candidate. Two spellings of one person in two scripts carry the
-      // same facts in two languages, and without the names that reads as
-      // no shared evidence at all — measured: "Фёдор Волков" was judged
-      // different from "Fyodor Volkov" with the same employer and role.
-      const verdict = await this.judge.judge(existingFacts, incoming, {
-        cosine: candidate.cosine,
-        similarity:
-          candidate.matchKind === 'translit'
-            ? 'transliteration'
-            : candidate.matchKind === 'name-part'
-              ? 'name-part'
-              : 'embedding',
-        names: { a: candidate.canonicalName, b: name },
-      });
-      // The whole question and the whole answer, on the trace: which
-      // candidate, found how, what each side's evidence was, and what the
-      // judge said. The span around the LLM call carries none of this.
-      traceArtifact('ingest.entity.judge', {
-        name,
-        type,
-        candidate: {
-          entityId: candidate.entityId,
-          canonicalName: candidate.canonicalName,
-          matchKind: candidate.matchKind,
-          cosine: candidate.cosine,
-        },
-        existingFacts,
-        incoming,
-        verdict,
-        decision: verdict !== 'same' ? 'create' : 'reuse',
-      });
-      if (verdict === 'same') {
-        this.logger.log(
-          `[ingest.inline_resolution] reused ${candidate.entityId} for "${name}" ` +
-            `(cos=${candidate.cosine.toFixed(3)})`,
-        );
-        return candidate.entityId;
+      // Each blocking key proposes at most one entity, so a "different" on
+      // the nearest spelling (a sibling, a namesake) no longer ends the
+      // search before the entity that shares the surname is even asked. A
+      // scan runs only when every candidate before it was refused — a hit
+      // on the key scan spends no embedding.
+      const asked = new Set<string>();
+      for (const scan of this.nameCandidateScans(db, name, type)) {
+        for (const candidate of await scan()) {
+          if (asked.has(candidate.entityId)) continue;
+          asked.add(candidate.entityId);
+          const reused = await this.judgeCandidate(db, { name, type, incoming, candidate });
+          if (reused) return reused;
+        }
       }
-      // Logged, because a silent null here is indistinguishable from "no
-      // candidate" and that is the question every linking miss asks first.
-      this.logger.log(
-        `[ingest.inline_resolution] judge said ${verdict} for "${name}" vs ` +
-          `${candidate.entityId} (${candidate.matchKind}=${candidate.cosine.toFixed(3)}) — creating new`,
-      );
+      if (asked.size === 0) {
+        this.logger.debug(`[ingest.inline_resolution] no candidate for "${name}" (${type})`);
+      }
       return null;
     } catch (err) {
       // Never block ingest — fall back to "create new".
@@ -216,6 +193,60 @@ export class EntityResolverService {
       );
       return null;
     }
+  }
+
+  /** One candidate before the judge: its id when the verdict is `same`, else null. */
+  private async judgeCandidate(
+    db: Surreal,
+    {
+      name,
+      type,
+      incoming,
+      candidate,
+    }: { name: string; type: string; incoming: string; candidate: NameCandidate },
+  ): Promise<string | null> {
+    const existingFacts = await this.judge.fetchTopFacts(db, candidate.entityId);
+    // The judge gets both NAMES and is told which scan found the
+    // candidate. Two spellings of one person in two scripts carry the
+    // same facts in two languages, and without the names that reads as
+    // no shared evidence at all — measured: "Фёдор Волков" was judged
+    // different from "Fyodor Volkov" with the same employer and role.
+    const verdict = await this.judge.judge(existingFacts, incoming, {
+      cosine: candidate.cosine,
+      similarity: JUDGE_SIMILARITY[candidate.matchKind],
+      names: { a: candidate.canonicalName, b: name },
+    });
+    // The whole question and the whole answer, on the trace: which
+    // candidate, found how, what each side's evidence was, and what the
+    // judge said. The span around the LLM call carries none of this.
+    traceArtifact('ingest.entity.judge', {
+      name,
+      type,
+      candidate: {
+        entityId: candidate.entityId,
+        canonicalName: candidate.canonicalName,
+        matchKind: candidate.matchKind,
+        cosine: candidate.cosine,
+      },
+      existingFacts,
+      incoming,
+      verdict,
+      decision: verdict === 'same' ? 'reuse' : 'reject',
+    });
+    if (verdict === 'same') {
+      this.logger.log(
+        `[ingest.inline_resolution] reused ${candidate.entityId} for "${name}" ` +
+          `(cos=${candidate.cosine.toFixed(3)})`,
+      );
+      return candidate.entityId;
+    }
+    // Logged, because a silent null here is indistinguishable from "no
+    // candidate" and that is the question every linking miss asks first.
+    this.logger.log(
+      `[ingest.inline_resolution] judge said ${verdict} for "${name}" vs ` +
+        `${candidate.entityId} (${candidate.matchKind}=${candidate.cosine.toFixed(3)})`,
+    );
+    return null;
   }
 
   /**
@@ -329,8 +360,19 @@ export class EntityResolverService {
   }
 
   /**
-   * The best candidate for the judge: first by transliterated-key edit
-   * distance, then by cosine over the entities' own name embeddings.
+   * The scans that propose candidates to the judge, one blocking key
+   * each, in the order they run: transliterated-key edit distance, a name that is a
+   * part of the other, initials, a shared word no other entity carries,
+   * then cosine over the entities' own name embeddings.
+   *
+   * MULTI-PASS BLOCKING, not a best-first chain. Each key is a different
+   * kind of evidence that two names may be one (Papadakis et al., "Blocking
+   * and Filtering Techniques for Entity Resolution", 2020): the chain
+   * stopped at the first key that found anything, so the nearest spelling
+   * — a sibling, a namesake — was the only thing the judge ever saw, and
+   * "Bob King" never met "Robert King" at all (eval:entity-resolution).
+   * Every key proposes at most ONE entity, the ambiguity rule the ladder
+   * keeps everywhere, so judge calls stay bounded by the number of keys.
    *
    * THE EMBEDDING SCAN IS OVER `knowledge_entity.embedding`,
    * NOT over `name` facts. It used to be the latter — a cosine k-NN over
@@ -355,46 +397,66 @@ export class EntityResolverService {
    * the fence that was meant: a private entity never matches, a global
    * one is reachable through whoever named it.
    */
-  private async findBestNameCandidate(
+  private nameCandidateScans(
+    db: Surreal,
+    name: string,
+    type: string,
+  ): Array<() => Promise<NameCandidate[]>> {
+    const one = (c: NameCandidate | null): NameCandidate[] => (c ? [c] : []);
+    return [
+      // Cheapest, sharpest signal first: the nearest entity by edit distance
+      // over the TRANSLITERATED name keys (0148). An embedding cannot tell
+      // "Ivan Petrov" from "Иван Сидоров" (0.712, above most true pairs);
+      // the key distance can, and it ranks every spelling of one name
+      // correctly — measured on the Tier-0 corpus, "thomas brandt" against
+      // the whole tenant:
+      //
+      //   0  Thomas Brandt     1  Томас Брандт (tomas brandt)
+      //   3  थॉमस ब्रांट (thoms bramt)   4  توماس براندت (twms brndt)
+      //   6  托马斯·勃兰特 (tuomasi bolante)
+      //
+      // Only CANDIDATE GENERATION, exactly like every scan below — the judge
+      // still decides on facts, so no threshold here ever merges anything.
+      // `keyNeighbourCeiling` only bounds how far out we spend a judge call.
+      async () => one(await this.findKeyNeighbour(db, name, type)),
+
+      // A NAME THAT IS A PART OF A LONGER NAME. "Артём" three turns after
+      // "Артём Соколов" is an edit distance of eight — far outside the
+      // ceiling — and by meaning a first name alone sits nowhere near the
+      // full one; on the prod tenant the first name became its own node
+      // beside the person, every time. A key that is a whole token of an
+      // existing key (or the reverse) names a candidate the judge can
+      // decide on with facts; two such entities name an ambiguity nobody
+      // here can decide, and that is a create, not a guess.
+      async () => one(await this.findTokenSubsetCandidate(db, name, type)),
+
+      // An acronym and its expansion: "IBM" shares no letter run with
+      // "International Business Machines" that an edit distance or an
+      // embedding of a three-letter string would see.
+      async () => one(await this.findInitialsCandidate(db, name, type)),
+
+      // A word only one known entity carries — in practice the surname, or
+      // the distinctive word of a company name. "Bob King" / "Robert King",
+      // "Sasha Volkov" / "Alexander Volkov", "Жуан Силва" / "João Silva":
+      // the given names differ past any edit ceiling (a nickname, a sound
+      // rendering), the surname does not.
+      () => this.findSharedWordCandidates(db, name, type),
+
+      // What the key cannot reach: a name rendered by SOUND in another
+      // script sits far away by edits ("ivan petrov" vs "yfn bytrwf" is
+      // 0.64) and close by meaning (bge-m3 cosine 0.739).
+      async () => one(await this.findEmbeddingCandidate(db, name, type)),
+    ];
+  }
+
+  /** The nearest entity by name embedding, when it clears the cosine floor. */
+  private async findEmbeddingCandidate(
     db: Surreal,
     name: string,
     type: string,
   ): Promise<NameCandidate | null> {
-    // Cheapest, sharpest signal first: the nearest entity by edit distance
-    // over the TRANSLITERATED name keys (0148). An embedding cannot tell
-    // "Ivan Petrov" from "Иван Сидоров" (0.712, above most true pairs);
-    // the key distance can, and it ranks every spelling of one name
-    // correctly — measured on the Tier-0 corpus, "thomas brandt" against
-    // the whole tenant:
-    //
-    //   0  Thomas Brandt     1  Томас Брандт (tomas brandt)
-    //   3  थॉमस ब्रांट (thoms bramt)   4  توماس براندت (twms brndt)
-    //   6  托马斯·勃兰特 (tuomasi bolante)
-    //
-    // Only CANDIDATE GENERATION, exactly like the cosine scan it runs
-    // ahead of — the judge still decides on facts, so no threshold here
-    // ever merges anything. `keyNeighbourCeiling` only bounds how far out
-    // we are willing to spend a judge call.
-    const neighbour = await this.findKeyNeighbour(db, name, type);
-    if (neighbour) return neighbour;
-
-    // A NAME THAT IS A PART OF A LONGER NAME. "Артём" three turns after
-    // "Артём Соколов" is an edit distance of eight — far outside the
-    // ceiling — and by meaning a first name alone sits nowhere near the
-    // full one; on the prod tenant the first name became its own node
-    // beside the person, every time. A key that is a whole token of an
-    // existing key (or the reverse) names a candidate the judge can
-    // decide on with facts; two such entities name an ambiguity nobody
-    // here can decide, and that is a create, not a guess.
-    const part = await this.findTokenSubsetCandidate(db, name, type);
-    if (part) return part;
-
-    // What the key cannot reach: a name rendered by SOUND in another
-    // script sits far away by edits ("ivan petrov" vs "yfn bytrwf" is
-    // 0.64) and close by meaning (bge-m3 cosine 0.739).
     const q = await this.embedder.embed(`name: ${name}`);
-    const rows = await this.queryNameCandidates(db, q, type);
-    const best = rows[0];
+    const best = (await this.queryNameCandidates(db, q, type))[0];
     if (!best || best.sim < this.cosineFloor) return null;
     return {
       entityId: String(best.entityId),
@@ -402,6 +464,98 @@ export class EntityResolverService {
       cosine: best.sim,
       matchKind: 'embedding',
     };
+  }
+
+  /**
+   * The one entity of `type` whose name is the initials of the mention's,
+   * or whose initials are the mention's name: "ibm" against "international
+   * business machines", either way round. Unique matches only; never
+   * throws (the key-neighbour posture).
+   */
+  private async findInitialsCandidate(
+    db: Surreal,
+    name: string,
+    type: string,
+  ): Promise<NameCandidate | null> {
+    const key = nameKey(name);
+    if (key === '') return null;
+    const initials = nameKeyInitials(key);
+    try {
+      const [rows] = await db.query<[Array<{ entityId: unknown; canonicalName?: string }>]>(
+        `SELECT id AS entityId, canonicalName
+           FROM knowledge_entity
+          WHERE type = $type
+            AND userId IS NONE
+            AND mergedInto IS NONE
+            AND nameKeys != NONE
+            AND array::len(nameKeys.filter(|$k|
+                  ($initials != '' AND $k = $initials)
+                  OR (string::contains($k, ' ')
+                      AND array::join(string::split($k, ' ').map(|$w| string::slice($w, 0, 1)), '') = $key)
+                )) > 0
+          LIMIT 2`,
+        { key, initials, type },
+      );
+      const hit = rows?.length === 1 ? rows[0] : undefined;
+      if (!hit) return null;
+      return {
+        entityId: String(hit.entityId),
+        canonicalName: hit.canonicalName,
+        cosine: 1,
+        matchKind: 'initials',
+      };
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.inline_resolution] initials scan unavailable: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * For each word of the mention's key, the entity of `type` carrying it —
+   * when exactly one does. A word several entities share (a common given
+   * name, "bank", "studio") names a crowd, not a candidate, and is skipped:
+   * the same ambiguity rule as the token-subset scan. Never throws.
+   */
+  private async findSharedWordCandidates(
+    db: Surreal,
+    name: string,
+    type: string,
+  ): Promise<NameCandidate[]> {
+    const key = nameKey(name);
+    const words = nameKeyWords(key);
+    if (words.length < 2) return [];
+    const out: NameCandidate[] = [];
+    try {
+      for (const word of words) {
+        const [rows] = await db.query<[Array<{ entityId: unknown; canonicalName?: string }>]>(
+          `SELECT id AS entityId, canonicalName
+             FROM knowledge_entity
+            WHERE type = $type
+              AND userId IS NONE
+              AND mergedInto IS NONE
+              AND nameKeys != NONE
+              AND array::len(nameKeys.filter(|$k| string::split($k, ' ') CONTAINS $word)) > 0
+            LIMIT 2`,
+          { word, type },
+        );
+        const hit = rows?.length === 1 ? rows[0] : undefined;
+        if (!hit) continue;
+        out.push({
+          entityId: String(hit.entityId),
+          canonicalName: hit.canonicalName,
+          // The share of the mention's key the shared word covers.
+          cosine: word.length / key.length,
+          matchKind: 'shared-word',
+        });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[ingest.inline_resolution] shared-word scan unavailable: ${(err as Error).message}`,
+      );
+    }
+    return out;
   }
 
   /**
