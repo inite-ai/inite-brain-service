@@ -136,7 +136,7 @@ export class EvidenceProcessorBrokerService {
         'EVIDENCE_PROCESSOR_BROKER (with EVIDENCE_SUBSTRATE_ENABLED) is off',
       );
     }
-    const { asset, pack } = await this.loadRows(companyId, req);
+    const { asset, pack, tenantLang } = await this.loadRows(companyId, req);
     const modality = asset.modality as EvidenceModality;
     const capabilities = this.declaredCapabilities(pack.manifest, modality);
     const result: DispatchResult = {
@@ -173,7 +173,7 @@ export class EvidenceProcessorBrokerService {
         assetRecordId: asset.id,
         packId: req.packId,
         adapter,
-        input: this.buildInput(asset, adapter),
+        input: { ...this.buildInput(asset, adapter), tenantLang },
       });
       result.runs.push(run);
     }
@@ -315,8 +315,8 @@ export class EvidenceProcessorBrokerService {
   private async loadRows(
     companyId: string,
     req: { packId: string; assetId: string },
-  ): Promise<{ asset: AssetRow; pack: PackRow }> {
-    const { asset, pack } = await this.surreal.withCompany(companyId, async (db) => {
+  ): Promise<{ asset: AssetRow; pack: PackRow; tenantLang: string | undefined }> {
+    const { asset, pack, tenantLang } = await this.surreal.withCompany(companyId, async (db) => {
       const assetRow = await queryFirst<AssetRow>(
         db,
         `SELECT * FROM type::record('evidence_asset', $tail) LIMIT 1`,
@@ -332,11 +332,19 @@ export class EvidenceProcessorBrokerService {
            FROM domain_pack WHERE packId = $p AND status = 'active' LIMIT 1`,
         { p: req.packId },
       );
-      return { asset: assetRow, pack: packRow };
+      // The tenant's most common language over up to 500 turns: the
+      // language a reader that picks models (OCR) reads in. A bounded
+      // scan; NONE for a tenant whose turns carry no language.
+      const langRow = await queryFirst<{ lang?: string }>(
+        db,
+        `SELECT lang, count() AS n FROM (SELECT lang FROM episode WHERE lang != NONE LIMIT 500)
+           GROUP BY lang ORDER BY n DESC LIMIT 1`,
+      );
+      return { asset: assetRow, pack: packRow, tenantLang: langRow?.lang };
     });
     if (!asset) throw new NotFoundException(`asset ${req.assetId} not found`);
     if (!pack) throw new NotFoundException(`pack ${req.packId} is not installed`);
-    return { asset, pack };
+    return { asset, pack, tenantLang };
   }
 
   /** The pack's declared representation needs for this modality, deduped

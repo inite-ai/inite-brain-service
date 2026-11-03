@@ -34,6 +34,12 @@ export interface ProcessorInput {
   /** Present only when availability==='hot' and the storageRef scheme has
    *  a registered storage adapter; null otherwise. */
   openStream: (() => Promise<Readable>) | null;
+  /**
+   * The most common language (ISO 639-1) of the tenant's memory, when it
+   * has one: what a reader that must pick its models (OCR) reads in, next
+   * to the operator's configured set.
+   */
+  tenantLang?: string | undefined;
 }
 
 /** One derived output; written as a derived_representation row with
@@ -72,8 +78,10 @@ export interface ProcessorAdapter {
    *  (e.g. 'text-extraction-passthrough-v1'). */
   readonly version: string;
   /** Extra fingerprint parts beyond cap|ver — ONLY knobs that can affect
-   *  output (the #386 fingerprint discipline); [] for knobless adapters. */
-  configParts(): string[];
+   *  output (the #386 fingerprint discipline); [] for knobless adapters.
+   *  Given the run's input, for a knob that depends on it (OCR languages
+   *  follow the tenant's language). */
+  configParts(input?: ProcessorInput): string[];
   /** Whether this adapter can process the given modality + media type. */
   accepts(modality: EvidenceModality, mediaType: string): boolean;
   process(input: ProcessorInput): Promise<ProcessorOutput[]>;

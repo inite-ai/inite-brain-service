@@ -770,8 +770,14 @@ consent, quarantine, tombstone): recognition is CPU-heavy where the other
 two adapters are header reads, so it is an operator opt-in. Everything it
 uses — the WASM core and the `.traineddata` models — is a lockfile-pinned
 npm dependency read off local disk; nothing is ever downloaded at runtime.
-Languages shipped: `eng` (default) and `rus`, selected with
-`EVIDENCE_OCR_LANGS`. Words scoring below `EVIDENCE_OCR_MIN_CONFIDENCE`
+Languages shipped: `eng` (default), `rus`, `por`, `spa`, `fra` and `deu`.
+Each run reads with the configured set (`EVIDENCE_OCR_LANGS`, priority
+order) plus the tenant's own language, its most common turn language, when
+that model ships. Shipped models are not all loaded at once: a model the
+text is not in still claims characters. With Russian loaded beside English,
+Portuguese came back partly Cyrillic. `pnpm eval:media` measures it: the
+Portuguese keys went from 69% to 100% once the tenant's language was
+added. Words scoring below `EVIDENCE_OCR_MIN_CONFIDENCE`
 (0..100, default 60) are dropped from the stored text and the drop is
 stated in it; an image with nothing above the floor fails the run rather
 than storing invented characters.

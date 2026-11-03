@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ProcessorAdapter } from './processor-adapter';
+import type { ProcessorAdapter, ProcessorInput } from './processor-adapter';
 
 /**
  * Pure fingerprint helpers for the processing lifecycle (0121) — the
@@ -11,8 +11,15 @@ import type { ProcessorAdapter } from './processor-adapter';
  */
 
 /** 8-hex config fingerprint of one adapter (part of the run key). */
-export function processorConfigFingerprint(adapter: ProcessorAdapter): string {
-  const parts = [`cap=${adapter.capability}`, `ver=${adapter.version}`, ...adapter.configParts()];
+export function processorConfigFingerprint(
+  adapter: ProcessorAdapter,
+  input?: ProcessorInput,
+): string {
+  const parts = [
+    `cap=${adapter.capability}`,
+    `ver=${adapter.version}`,
+    ...adapter.configParts(input),
+  ];
   return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 8);
 }
 
