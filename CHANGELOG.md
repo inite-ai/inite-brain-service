@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.7.0](https://github.com/inite-ai/inite-brain-service/compare/v2.6.0...v2.7.0) (2026-11-03)
+
+
+### Features
+
+* **ai:** a workspace has a daily model budget, and a failing provider stops being called ([#872](https://github.com/inite-ai/inite-brain-service/issues/872)) ([365730b](https://github.com/inite-ai/inite-brain-service/commit/365730bdf3302561bfd1680df4ca68f0337d9ba1))
+* **api:** a write retried with the same Idempotency-Key replays the first answer ([#839](https://github.com/inite-ai/inite-brain-service/issues/839)) ([60a693a](https://github.com/inite-ai/inite-brain-service/commit/60a693ab75e5b0295e20a99336319f286d34ed61))
+* **api:** errors are RFC 9457 problem details ([#838](https://github.com/inite-ai/inite-brain-service/issues/838)) ([695c646](https://github.com/inite-ai/inite-brain-service/commit/695c646e4115dc622dbd9e98515191c8a8cbc13b))
+* **api:** lists page by an opaque keyset cursor — `nextCursor` out, `cursor` in ([#856](https://github.com/inite-ai/inite-brain-service/issues/856)) ([798e147](https://github.com/inite-ai/inite-brain-service/commit/798e147a179e45e0b2e32bcc9e1f3c7bb06e5412))
+* **db:** an edited shipped migration fails CI, and a database that applied a different one says so ([#869](https://github.com/inite-ai/inite-brain-service/issues/869)) ([82dc00b](https://github.com/inite-ai/inite-brain-service/commit/82dc00b7f3109e6f522708fa4fb19f27f6a1ed4b))
+* **dreams:** the nightly dedup finds duplicates by name, not only by name-embedding cosine ([#890](https://github.com/inite-ai/inite-brain-service/issues/890)) ([b68e1e6](https://github.com/inite-ai/inite-brain-service/commit/b68e1e6acc875fe0c61713abb82d2f7629fd70a9))
+* **facts:** conflict resolution without hand-set weights; what a source stops saying stops being open ([#833](https://github.com/inite-ai/inite-brain-service/issues/833)) ([fb03f39](https://github.com/inite-ai/inite-brain-service/commit/fb03f3911763ba8d83f6eeafa213cd7d6d2a9adb))
+* **ingest:** a credential pasted into a conversation is masked before it becomes memory ([#864](https://github.com/inite-ai/inite-brain-service/issues/864)) ([cbba70d](https://github.com/inite-ai/inite-brain-service/commit/cbba70da5bc067968d6895c6d23de924f19a6c71))
+* **ingest:** the entity judge sees a candidate from every blocking key, not just the first that found one ([#889](https://github.com/inite-ai/inite-brain-service/issues/889)) ([e9996a5](https://github.com/inite-ai/inite-brain-service/commit/e9996a54fe22e10fdd6586afcba7af7dbef6e30a))
+* **mcp:** a call beyond the token's scopes is a 403 scope challenge, not an unknown tool ([#842](https://github.com/inite-ai/inite-brain-service/issues/842)) ([5630a81](https://github.com/inite-ai/inite-brain-service/commit/5630a81d3864964dac79659430f86f7b1ced4ccf))
+* memory answers cost a fraction of the raw — read path fixed, focus by Adaptive-k on cross-encoder relevance, facts resolved against memory ([#828](https://github.com/inite-ai/inite-brain-service/issues/828)) ([#826](https://github.com/inite-ai/inite-brain-service/issues/826)) ([60e41ae](https://github.com/inite-ai/inite-brain-service/commit/60e41aeedbd8427e2204256a6e8bf75381a7d869))
+* **observability:** request RED metrics, SLOs and burn-rate alerts ([#837](https://github.com/inite-ai/inite-brain-service/issues/837)) ([1c13c66](https://github.com/inite-ai/inite-brain-service/commit/1c13c66a8625d17e56327b81979105758a3ae408))
+* **ops:** a two-node SurrealDB cluster rehearsed locally — recipe, verification and a proven copy from RocksDB ([#881](https://github.com/inite-ai/inite-brain-service/issues/881)) ([e65b338](https://github.com/inite-ai/inite-brain-service/commit/e65b33871d54ee766a9bf5c800957e68afecd094))
+* **resolution:** a replaced relation closes like a replaced fact — edges go through fact resolution ([#849](https://github.com/inite-ai/inite-brain-service/issues/849)) ([0b7ebe0](https://github.com/inite-ai/inite-brain-service/commit/0b7ebe04e566dd061a39e599089e7453346f4727))
+* **sdk:** retries with backoff and Retry-After, an Idempotency-Key on every write, RFC 9457 errors, contract types ([#845](https://github.com/inite-ai/inite-brain-service/issues/845)) ([045f21a](https://github.com/inite-ai/inite-brain-service/commit/045f21a5399d965d3224e58bcd35bf9716fe7033))
+* **sources:** the MCP client follows the 2026-07-28 authorization rules ([#840](https://github.com/inite-ai/inite-brain-service/issues/840)) ([1b07506](https://github.com/inite-ai/inite-brain-service/commit/1b0750682f17f6aa64ff02a74dd00461fb5aefe7))
+* **synthesize:** each cited sentence of an answer is checked against what it cites, and a contradicted one is removed ([#879](https://github.com/inite-ai/inite-brain-service/issues/879)) ([55d6a81](https://github.com/inite-ai/inite-brain-service/commit/55d6a81ada0d5b2a5ccbf51e970c1bc8f1b8400b))
+* **synthesize:** thematic questions read the community summaries the dreams pass already builds ([#882](https://github.com/inite-ai/inite-brain-service/issues/882)) ([330201a](https://github.com/inite-ai/inite-brain-service/commit/330201ab12def4f723d89993923b0727e16277ee))
+* **trust:** a contested value says how likely it is — truth discovery on the read side ([#852](https://github.com/inite-ai/inite-brain-service/issues/852)) ([a8ef990](https://github.com/inite-ai/inite-brain-service/commit/a8ef990d65b2b8fb80cc72e4efdcbb15b46d6db2))
+* **trust:** truth discovery learns which source is probably right, and how reliable each one is (Dawid–Skene) ([#848](https://github.com/inite-ai/inite-brain-service/issues/848)) ([907a115](https://github.com/inite-ai/inite-brain-service/commit/907a1151daed6258494d37307672543fa91d2949))
+
+
+### Bug Fixes
+
+* **ci:** release-please runs again — the image call grants the signing scopes release-image asks for ([#888](https://github.com/inite-ai/inite-brain-service/issues/888)) ([aa3e5d1](https://github.com/inite-ai/inite-brain-service/commit/aa3e5d1e91a6801d0410963415dd3cb679ded75c))
+* **clients:** a large sync waits out the rate limit, a directory is a directory, an abstention types as null ([#832](https://github.com/inite-ai/inite-brain-service/issues/832)) ([56be2a6](https://github.com/inite-ai/inite-brain-service/commit/56be2a6f2ef6f9342c98a98953ecc1f6e00ec471))
+* **compaction:** a commit-time conflict retries instead of aborting the pass ([#844](https://github.com/inite-ai/inite-brain-service/issues/844)) ([f8c8bae](https://github.com/inite-ai/inite-brain-service/commit/f8c8bae5a7b25d291b520069be361e0455330e89))
+* **deploy:** remove only this repo's own images, never host-wide ([a5b44c4](https://github.com/inite-ai/inite-brain-service/commit/a5b44c49ec81d945e39c512ec47ef339f2d30087))
+* **deploy:** remove only this repo's own images, never host-wide ([6b4de30](https://github.com/inite-ai/inite-brain-service/commit/6b4de307251113cc8338696b6657af66c89e6e15))
+* **derive:** the staging flip retries whole when a concurrent write aborts its commit ([#880](https://github.com/inite-ai/inite-brain-service/issues/880)) ([eefb37e](https://github.com/inite-ai/inite-brain-service/commit/eefb37ea7ce921c9966c5ffc8c47e802916a0624))
+* **documents:** replaying a committed document with mode: async queues nothing ([#891](https://github.com/inite-ai/inite-brain-service/issues/891)) ([7e252ad](https://github.com/inite-ai/inite-brain-service/commit/7e252ade25bd640e56571b2a458c7a4dfa74eedb))
+* **eval:** HaluMem reads happen at the session's own time, so sessions dated past the wall clock are not invisible ([#887](https://github.com/inite-ai/inite-brain-service/issues/887)) ([c1b5eb7](https://github.com/inite-ai/inite-brain-service/commit/c1b5eb701847bd43f00e17faca513ad1d3837f2d))
+* **extraction:** a date the turn names, written as ISO inside a value, no longer reads as a misread number ([#893](https://github.com/inite-ai/inite-brain-service/issues/893)) ([a49d831](https://github.com/inite-ai/inite-brain-service/commit/a49d83108219999292f0a3c57962b74437ba7e1c))
+* **extraction:** an open-vocabulary value is kept only when what was read supports it ([#851](https://github.com/inite-ai/inite-brain-service/issues/851)) ([5fe1b85](https://github.com/inite-ai/inite-brain-service/commit/5fe1b85ce9a1ab725021540bce53ed06a0127e38))
+* **ingest:** the extractor sees the known entities a document names and the known facts its turn is about ([#883](https://github.com/inite-ai/inite-brain-service/issues/883)) ([6bc2c1a](https://github.com/inite-ai/inite-brain-service/commit/6bc2c1aeea8ca2a1442e7e89140be25484b12efd))
+* **ingest:** the extractor's relevant known facts are found by the turn's distinct words ([#894](https://github.com/inite-ai/inite-brain-service/issues/894)) ([cd7612b](https://github.com/inite-ai/inite-brain-service/commit/cd7612bac3a15ea7c985e5f8610e7ae9f8e13bc4))
+* **ingest:** two people who share a name stay two when no judge is there to tell them apart ([#867](https://github.com/inite-ai/inite-brain-service/issues/867)) ([187bc53](https://github.com/inite-ai/inite-brain-service/commit/187bc537be183e1140370652bf64c9aa2cc12625))
+* **mcp:** synthesize and multi-hop evidence tells the agent how to see the rest with an argument they accept ([#885](https://github.com/inite-ai/inite-brain-service/issues/885)) ([b28d9b9](https://github.com/inite-ai/inite-brain-service/commit/b28d9b991be09b2da9a5db3c86cc168ef9c8ed2c))
+* **plugin:** a session starts at once — recall answers from the last kept result and refreshes in the background ([#865](https://github.com/inite-ai/inite-brain-service/issues/865)) ([bb7f6fc](https://github.com/inite-ai/inite-brain-service/commit/bb7f6fce4e8fad50234e15ff327302483b72a3ea))
+* **registry:** a paid pack is not free to read and paste back ([8fc353d](https://github.com/inite-ai/inite-brain-service/commit/8fc353d68d4af5529e395ca99062e597d04c8e35))
+* **registry:** a paid pack is not free to read and paste back ([55275ec](https://github.com/inite-ai/inite-brain-service/commit/55275eca453bbbe9091cc172db9a74f6fbda5317))
+* **registry:** naming the workspace survives a busy registry row ([#874](https://github.com/inite-ai/inite-brain-service/issues/874)) ([0176432](https://github.com/inite-ai/inite-brain-service/commit/0176432bf21e1800bcaa2ee16b05a1f9bcf8caa1))
+* **retrieval:** the retired per-lane keys no longer flip an assistant-chat tenant into the dialogue verbatim mode ([#861](https://github.com/inite-ai/inite-brain-service/issues/861)) ([bfb88d1](https://github.com/inite-ai/inite-brain-service/commit/bfb88d13c4dd69cd6fbe4c07087df5817233f6a7))
+* **scope:** seven read paths apply the per-user and per-team fences ([#831](https://github.com/inite-ai/inite-brain-service/issues/831)) ([cab4b51](https://github.com/inite-ai/inite-brain-service/commit/cab4b519a4de2cbca0b2d2abe6bce758483b4ebb))
+* **security:** hardening from the 2026-10-31 audit — rate limits, egress, OAuth discovery, forget coverage ([#835](https://github.com/inite-ai/inite-brain-service/issues/835)) ([faf633a](https://github.com/inite-ai/inite-brain-service/commit/faf633a395c2929b85b1824a77d1f682db1d23d7))
+
 ## [2.6.0](https://github.com/inite-ai/inite-brain-service/compare/v2.5.1...v2.6.0) (2026-10-29)
 
 
