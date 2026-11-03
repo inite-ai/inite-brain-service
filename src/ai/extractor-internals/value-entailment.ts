@@ -24,6 +24,7 @@
  * "not seeing anyone"); the turn itself stays in the raw episode layer.
  * With no NLI model available the value is kept, as before this check.
  */
+import * as chrono from 'chrono-node';
 import type { NliLabel } from '../../admin/nli-entailment';
 import type { ConversationContext } from './prompts';
 
@@ -118,8 +119,55 @@ export function valueCheck(premise: string, value: string): ValueCheck {
   // A resolved date is computed from the text ("next Tuesday"), so its
   // digits need not be the text's.
   if (RESOLVED_DATE.test(value.trim())) return 'not_contradicted';
-  if (numberClash(premise, value)) return 'reject';
-  return isValueWordGrounded(premise, value) ? 'not_contradicted' : 'entailed';
+  const rest = withoutStatedDates(premise, value);
+  if (numberClash(premise, rest)) return 'reject';
+  return isValueWordGrounded(premise, rest) ? 'not_contradicted' : 'entailed';
+}
+
+/** An ISO calendar day or month inside a longer value ("…, introduced 2026-04-10"). */
+const EMBEDDED_DATE = /\b(\d{4})-(\d{2})(?:-(\d{2}))?\b/g;
+
+/** Every locale parser chrono ships — the library's list, not one of ours. */
+const DATE_PARSERS = (Object.values(chrono) as unknown[]).filter(
+  (p): p is { parse: (text: string) => chrono.ParsedResult[] } =>
+    typeof (p as { parse?: unknown } | null)?.parse === 'function',
+);
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * The calendar days and months the text names outright — year and month
+ * stated, and the day when there is one — as ISO strings. A relative
+ * expression ("next Tuesday") names none: what it resolves to depends on
+ * when it was said, which the value check does not know.
+ */
+export function statedDates(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const parser of DATE_PARSERS) {
+    for (const { start } of parser.parse(text)) {
+      if (!start.isCertain('year') || !start.isCertain('month')) continue;
+      const month = `${start.get('year')}-${pad(start.get('month') ?? 0)}`;
+      out.add(start.isCertain('day') ? `${month}-${pad(start.get('day') ?? 0)}` : month);
+    }
+  }
+  return out;
+}
+
+/**
+ * The value with every embedded ISO date the text itself names taken out.
+ * The extractor writes "April 10, 2026" as 2026-04-10, and split into
+ * digits that is a "04" nobody said: the number check dropped the fact as
+ * a misreading and the word check sent it to an NLI model that does not
+ * read dates (eval:halumem, 2026-11-03). Compared as a DATE it is the
+ * text's own. A date the text does not name stays in, digits and all, so
+ * a misread one ("2026-05-10" for April 10) is still a number clash.
+ */
+export function withoutStatedDates(premise: string, value: string): string {
+  if (!EMBEDDED_DATE.test(value)) return value;
+  const stated = statedDates(premise);
+  return value.replace(EMBEDDED_DATE, (iso: string, y: string, m: string) =>
+    stated.has(iso) || (iso.length === 7 && stated.has(`${y}-${m}`)) ? ' ' : iso,
+  );
 }
 
 /** Whether a value stands given its check and the model's label (undefined: no model). */
