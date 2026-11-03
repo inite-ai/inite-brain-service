@@ -228,7 +228,7 @@ export class EvidenceDocumentBridgeService {
     return this.surreal.withCompany(companyId, async (db) => {
       const [rows] = await db.query<
         [Array<{ kind?: string; content?: unknown; supersededBy?: unknown }>]
-      >(`SELECT kind, content, supersededBy FROM (SELECT VALUE outputs FROM ONLY $run)`, { run });
+      >(`SELECT VALUE outputs.{kind, content, supersededBy} FROM ONLY $run`, { run });
       return (rows ?? [])
         .filter((r) => carriesWords(r.kind ?? '') && r.supersededBy == null)
         .map((r) => (typeof r.content === 'string' ? r.content.trim() : ''))

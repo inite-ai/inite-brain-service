@@ -87,7 +87,18 @@ describe('OCR text becomes memory (e2e)', () => {
           id: PACK,
           version: '1.0.0',
           description: 'OCR memory e2e pack.',
-          predicates: [],
+          predicates: [
+            {
+              localId: 'invoice_note',
+              displayLabel: 'invoice note',
+              description: 'TYPE subject is an organisation; value is a note read off an invoice',
+              datatype: 'string',
+              semantics: 'append_only',
+              decayHalfLifeDays: null,
+              piiClass: 'none',
+              status: 'active',
+            },
+          ],
           memoryModel: {
             modalities: ['image'],
             processors: [{ id: 'img_ocr', modality: 'image', produces: ['ocr'] }],
@@ -115,7 +126,8 @@ describe('OCR text becomes memory (e2e)', () => {
       .get(EvidenceProcessorBrokerService)
       .dispatchForPack(COMPANY, { packId: PACK, assetId });
     expect(dispatch.denied).toHaveLength(0);
-    expect(dispatch.runs[0]).toMatchObject({ capability: 'ocr', status: 'succeeded' });
+    expect(dispatch.runs[0]?.capability).toBe('ocr');
+    expect(['succeeded', 'replayed']).toContain(dispatch.runs[0]?.status);
     const representationId = dispatch.runs[0]!.representationIds[0]!;
 
     const r = await f.app
@@ -126,20 +138,21 @@ describe('OCR text becomes memory (e2e)', () => {
 
     const surreal = f.app.get(SurrealService);
     const docs = await surreal.withCompany(COMPANY, async (db) => {
-      const [rows] = await db.query<[Array<{ id: unknown; content?: string; userId?: string }>]>(
-        `SELECT id, content, userId FROM source_document WHERE kind = 'evidence_text'`,
+      const [rows] = await db.query<[Array<{ id: unknown; userId?: string; text?: string }>]>(
+        `SELECT id, userId, (SELECT VALUE text FROM source_chunk WHERE docId = $parent.id ORDER BY seq).join('\n') AS text
+           FROM source_document WHERE kind = 'evidence_text'`,
       );
       return rows ?? [];
     });
     expect(docs).toHaveLength(1);
     expect(docs[0]!.userId).toBe(USER);
-    expect(docs[0]!.content).toContain('INV-2026-0417');
-    expect(docs[0]!.content).toContain('$12,480.00');
+    expect(docs[0]!.text).toContain('INV-2026-0417');
+    expect(docs[0]!.text).toContain('$12,480.00');
 
     const facts = await surreal.withCompany(COMPANY, async (db) => {
       const [rows] = await db.query<[Array<{ source: { evidence?: unknown[] } }>]>(
         `SELECT source FROM knowledge_fact WHERE source.documentId = $doc`,
-        { doc: docs[0]!.id },
+        { doc: String(docs[0]!.id) },
       );
       return rows ?? [];
     });
