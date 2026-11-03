@@ -1,3 +1,4 @@
+import { MediaReadingWorkService } from './media-reading-work.service';
 import { Module } from '@nestjs/common';
 import { EvidenceBlobUploadInterceptor } from './blob-upload.interceptor';
 import { EvidenceAdminController } from './evidence-admin.controller';
@@ -105,6 +106,7 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
     EvidenceAdminController,
   ],
   providers: [
+    MediaReadingWorkService,
     EvidenceGrantsEnabledGuard,
     EvidenceGrantService,
     EvidenceStoreService,
@@ -145,6 +147,7 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
     EvidenceOrphanBlobGcService,
   ],
   exports: [
+    MediaReadingWorkService,
     EvidenceStoreService,
     EvidenceGrantService,
     ProcessingRunService,
