@@ -29,7 +29,7 @@
  *
  * Run: SURREALDB_URL=ws://… pnpm eval:entity-resolution [--judge=off|oracle|deferred] [--json]
  */
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
@@ -41,6 +41,7 @@ import { ExtractorService } from '../../../src/ai/extractor.service';
 import { LocalCrossEncoderProvider } from '../../../src/ai/cross-encoder/local-cross-encoder.provider';
 import {
   EntityJudgeService,
+  entityJudgeUserContent,
   type EntityVerdict,
   type JudgeContext,
 } from '../../../src/ai/entity-judge.service';
@@ -105,13 +106,26 @@ class BatteryJudge extends EntityJudgeService {
     return super.fetchTopFacts(db, entityId, fence);
   }
 
-  override judge(_left: string, _right: string, _ctx: JudgeContext = {}): Promise<EntityVerdict> {
+  override judge(left: string, right: string, ctx: JudgeContext = {}): Promise<EntityVerdict> {
     this.calls++;
     const holds = this.entityClusters.get(this.lastFetched);
-    if (!this.dreaming) return Promise.resolve(holds?.has(this.current) ? 'same' : 'different');
-    const other = this.entityClusters.get(this.fetchedBefore);
-    const shared = [...(holds ?? [])].some((c) => other?.has(c));
-    return Promise.resolve(shared ? 'same' : 'different');
+    let v: EntityVerdict;
+    if (!this.dreaming) v = holds?.has(this.current) ? 'same' : 'different';
+    else {
+      const other = this.entityClusters.get(this.fetchedBefore);
+      v = [...(holds ?? [])].some((c) => other?.has(c)) ? 'same' : 'different';
+    }
+    // ER_JUDGE_DUMP=<file>: every question the judge was asked, as the real
+    // judge would read it, with the gold verdict — so an agent can answer
+    // them blind and be scored (README § Judging for real).
+    if (process.env.ER_JUDGE_DUMP) {
+      const prompt = entityJudgeUserContent(left, right, ctx);
+      appendFileSync(
+        process.env.ER_JUDGE_DUMP,
+        `${JSON.stringify({ mode: this.mode, prompt, gold: v })}\n`,
+      );
+    }
+    return Promise.resolve(v);
   }
 }
 

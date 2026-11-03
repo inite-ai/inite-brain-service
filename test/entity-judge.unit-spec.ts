@@ -90,6 +90,7 @@ describe('EntityJudgeService', () => {
       query: jest
         .fn()
         .mockResolvedValueOnce([
+          null, // LET $ids — the entity and what identity_of joins it to
           [
             { predicate: 'dob', object: '1990' },
             { predicate: 'city', object: 'NYC' },
@@ -98,7 +99,7 @@ describe('EntityJudgeService', () => {
           // and a fact in another; the judge has to see both shapes.
           [{ kind: 'works_at', other: 'Acme' }, { kind: 'knows' /* dangling: no other */ }],
         ])
-        .mockResolvedValueOnce([[], []]),
+        .mockResolvedValueOnce([null, [], []]),
     } as any;
     expect(await svc.fetchTopFacts(db, 'knowledge_entity:x')).toBe(
       '- dob: 1990\n- city: NYC\n- works_at: Acme',
@@ -112,10 +113,21 @@ describe('EntityJudgeService', () => {
     // "(no facts)" for every entity on such a tenant. The entity was
     // already fenced as tenant-global by the caller.
     const { svc } = make({ OPENAI_API_KEY: 'sk-test' });
-    const db = { query: jest.fn().mockResolvedValueOnce([[], []]) } as any;
+    const db = { query: jest.fn().mockResolvedValueOnce([null, [], []]) } as any;
     await svc.fetchTopFacts(db, 'knowledge_entity:x');
     const sql = String(db.query.mock.calls[0][0]);
     expect(sql).not.toContain('userId IS NONE');
     expect(sql).toContain('FROM knowledge_edge');
+  });
+
+  it('fetchTopFacts reads the facts of an entity identity_of joins it to', async () => {
+    // The nightly dedup links duplicates; a judge reading one half of an
+    // identity missed the CTO fact that sat on the other half.
+    const { svc } = make({ OPENAI_API_KEY: 'sk-test' });
+    const db = { query: jest.fn().mockResolvedValueOnce([null, [], []]) } as any;
+    await svc.fetchTopFacts(db, 'knowledge_entity:x');
+    const sql = String(db.query.mock.calls[0][0]);
+    expect(sql).toMatch(/LET \$ids[\s\S]*kind = 'identity_of'/);
+    expect(sql).toContain('WHERE entityId IN $ids');
   });
 });

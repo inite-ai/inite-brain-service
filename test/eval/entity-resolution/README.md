@@ -56,6 +56,24 @@ false merge fuses two people's memory with no judge involved); links settled by 
 ladder / by the judge / missed; judge calls (the price of candidate generation); per category and per rung (`score.ts`, unit-tested in
 `test/entity-resolution-score.unit-spec.ts`).
 
+## Judging for real
+
+The oracle measures candidate generation; whether a real judge, reading the prompts, answers
+as the gold does is a separate question. `ER_JUDGE_DUMP=<file>` writes every question the
+judge was asked (the exact user content the server model or the harness agent reads,
+`entityJudgeUserContent`) with the gold verdict, one JSON line each, so an agent can answer
+them without seeing the gold and be scored.
+
+2026-11-02, the agent (Claude, in harness) as the judge, oracle + deferred runs, 62
+questions: **no false `same`**; 6 of 45 true links answered `different`/`unsure`, each
+with one cause, all fixed in this change: a Russian case form (`Иваном Петровым`) read as
+a different spelling under the transliteration hint; `Жуан` / `João` (one name written by
+sound) held to the "relative with the same surname" bar by the shared-word hint; and an
+entity already joined by `identity_of` shown with its own facts only, while the
+identifying fact sat on its twin. After the fixes, 65 of 65 agreed with the gold. The
+second pass is not blind (the first pass's gold had been seen), so it shows the fixes
+address the misses, not an unbiased accuracy.
+
 ## Measured
 
 ### 2026-11-02 — the nightly dedup blocks on names too
@@ -74,7 +92,7 @@ next `Sasha Volkov`.
 | **deferred, this change**  | **100%**   | **97.8%**  | **98.9%**   | 99.1% | 25          | 3      |
 
 A keyless or harness install now reaches what a perfect judge reaches at ingest (oracle
-below: 97.8% recall, 39 calls), in three nights. The stub embedder makes the cosine-only
+below: 97.8% recall; 40 calls with this change, one more candidate counted as one identity), in three nights. The stub embedder makes the cosine-only
 row a floor: with bge-m3 the old pass would find some cross-script pairs by meaning, never
 nicknames, initials or a namesake-free surname.
 
