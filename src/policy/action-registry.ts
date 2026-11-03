@@ -71,6 +71,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // Harness extraction (#819): the connected agent reads pending documents.
   take_memory_work: { kind: 'write', family: 'mcp_write', title: 'Take memory work' },
   submit_memory_work: { kind: 'write', family: 'mcp_write', title: 'Submit memory work' },
+  // Media (#900): the evidence blob door and the raw-evidence read, over MCP.
+  upload_media: { kind: 'write', family: 'mcp_write', title: 'Upload media' },
+  read_media: { kind: 'read', family: 'mcp_read', title: 'Read media' },
 
   // Communities / graph neighbourhood
   list_communities: { kind: 'read', family: 'mcp_community', title: 'List communities' },
