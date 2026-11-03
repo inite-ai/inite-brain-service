@@ -1,0 +1,100 @@
+---
+title: "What is AI memory? How LLMs and agents remember across sessions"
+seoTitle: "What is AI memory? Context windows, memory types and stores for agents"
+description: "AI memory is what lets a model-based assistant or agent use information from earlier turns and earlier sessions. The difference between the context window and persistent memory, the memory types agent frameworks use, and what goes wrong when memory is built badly."
+date: "2026-11-03"
+author: "INITE Brain Team"
+category: "Concepts"
+tags: ["AI memory", "agent memory", "LLM", "context window", "AI agents"]
+directAnswer: "AI memory is an AI system's ability to keep information from earlier interactions and use it later. A language model has no memory of its own between calls: within one call it sees only its context window, and anything that must survive the next session has to be stored outside the model and fed back in. Agent frameworks split that outside store into short-term memory (the current thread) and long-term memory (facts, past experiences and instructions kept across sessions), and the engineering problem is deciding what to write, how to find it again, and what to do when it stops being true."
+definitionSentence: "AI memory is the set of mechanisms that let a model-based system retain information from past interactions and bring the relevant part back into the model's context when it is needed."
+faqs:
+  - question: "What is an AI's memory called?"
+    answer: "Inside a single request it is the context window, which Anthropic's documentation describes as all the text the model can reference when generating a response, a working memory for the model. Memory that lasts across sessions is usually called long-term or persistent memory, and agent frameworks divide it into semantic memory (facts), episodic memory (past experiences) and procedural memory (instructions), terms the CoALA paper borrowed from cognitive science."
+  - question: "What is the main problem with AI memory?"
+    answer: "Recall that stays correct over time. On the LongMemEval benchmark, the authors report that commercial chat assistants and long-context models show a 30% accuracy drop when they have to remember information across sustained interactions. Stored facts also go stale, and a store that only appends will keep the old and the new version side by side."
+  - question: "Does AI remember everything you say?"
+    answer: "No. The model forgets everything outside the current context window. What a product remembers depends on its memory feature: Claude, for example, saves memory as individual topics while you chat and lets you reset it. If memory is off, or the product has none, nothing from an earlier session carries over."
+  - question: "Is the AI memory shortage real?"
+    answer: "That question is about hardware: the memory chips AI data centres buy. It is a different subject from the software memory covered here, which is how assistants and agents store and recall information."
+  - question: "Is a bigger context window the same as memory?"
+    answer: "No. A larger window lets one request hold more text, but it is gone when the request ends, and Anthropic's documentation notes that accuracy and recall degrade as the token count grows. Memory decides what to keep between requests and what to load into the window for the next one."
+---
+
+In the sense developers mean when they build assistants and agents, AI memory is a system's ability to keep information from past interactions and use it later. IBM's [definition of agent memory](https://www.ibm.com/think/topics/ai-agent-memory) puts it as "an artificial intelligence (AI) system's ability to store and recall past experiences". The term also turns up in news about memory chips and chipmaker stocks, which is hardware. Here the subject is software: how a language model, which keeps nothing between calls, ends up remembering a user's name, a project's decisions or yesterday's mistake.
+
+## A model by itself does not remember
+
+A large language model is a fixed set of weights. Each request goes in, a response comes out, and the model keeps nothing from it. Whatever it seems to remember in a chat is there because the application sent it again.
+
+The place it sends it to is the context window. Anthropic's [documentation](https://platform.claude.com/docs/en/build-with-claude/context-windows) defines the context window as "all the text a language model can reference when generating a response, including the response itself" and calls it "a 'working memory' for the model". Everything in a request counts: the system prompt, every earlier message, tool results and tool definitions.
+
+So the simplest form of AI memory is the transcript. The app resends the conversation so far with every turn, and the model appears to remember. That works until the conversation is closed, or until it grows past what the window holds.
+
+## Why a bigger context window does not solve it
+
+Windows have grown. The same Anthropic page lists a 1M-token context window for its current models. It also warns that more context "isn't automatically better": as the token count grows, "accuracy and recall degrade, a phenomenon known as context rot."
+
+Research found the same pattern earlier. The [Lost in the Middle](https://arxiv.org/abs/2307.03172) study reports that "performance is often highest when relevant information occurs at the beginning or end of the input context" and drops when the model has to use information from the middle of a long input. A fact buried in turn 400 of a long transcript is in the window and still easy to miss.
+
+A context window also lasts for only one request. Close the chat, start a new session or switch from the chat app to the IDE, and the transcript is gone unless something stored it. Memory proper keeps what matters outside the model and puts the relevant part back into the window when it is needed.
+
+## The types of AI memory
+
+Most agent frameworks borrow their vocabulary from cognitive science, usually by way of the [CoALA paper](https://arxiv.org/abs/2309.02427) (Cognitive Architectures for Language Agents), which "describes a language agent with modular memory components". Its [section 4.1](https://arxiv.org/html/2309.02427) names four:
+
+- **Working memory** "maintains active and readily available information as symbolic variables for the current decision cycle". In practice, this is what is in the context window right now.
+- **Episodic memory** "stores experience from earlier decision cycles": what happened in past sessions, past actions and their outcomes.
+- **Semantic memory** "stores an agent's knowledge about the world and itself": facts such as "the user's company is on the annual plan".
+- **Procedural memory** covers how to act. CoALA notes that language agents have two forms of it: the model's weights and the agent's own code.
+
+LangGraph's [memory guide](https://docs.langchain.com/oss/python/langgraph/memory) maps the same split onto what developers build. Short-term memory "lets your application remember previous interactions within a single thread or conversation" and is persisted by a checkpointer so a thread can be resumed. Long-term memory lives in a store, organised into namespaces and shared across threads, and holds three kinds of things: facts (semantic), experiences (episodic) and instructions (procedural), where an agent's system prompt is the guide's example of procedural memory.
+
+## How AI memory works in products and agents
+
+Consumer assistants now ship memory as a feature. Claude's help centre [describes](https://support.claude.com/en/articles/11817273-using-claude-s-chat-search-and-memory-to-build-on-previous-context) searching past conversations on request and says Claude "saves memory as a set of individual topics as you chat, rather than summarizing conversations after they end", with a reset that permanently deletes all memories.
+
+For developers, the building blocks look like this:
+
+1. **A store** outside the model: files, a vector index, a database or a knowledge graph.
+2. **A write path** that decides what to keep. The model can call a tool during the conversation, or a background job can extract memories after the turn ends.
+3. **A read path** that finds the relevant memories for the current task and puts them in the context window.
+4. **An update rule** for facts that change.
+
+Anthropic's API, for example, offers a [memory tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool) that lets Claude "create, read, update, and delete files that persist between sessions" under a `/memories` directory, with the files stored by your own application. Letta, which grew out of the [MemGPT paper](https://arxiv.org/abs/2310.08560) and its OS-style "virtual context management", keeps [memory blocks](https://docs.letta.com/guides/agents/memory-blocks), "structured sections of the agent's context window that persist across all interactions". It also has an [archival memory](https://docs.letta.com/guides/agents/archival-memory) the agent searches on demand. Memory servers that speak the Model Context Protocol expose the same read and write tools to any compatible client; we covered those in [MCP memory](/en/blog/mcp-memory-servers).
+
+## Where the memories are kept
+
+The store decides what the memory can answer, and three kinds are common.
+
+Files are the simplest store. A directory of notes, like Anthropic's memory tool or the Markdown files that [Basic Memory](https://github.com/basicmachines-co/basic-memory) keeps on your disk next to a SQLite index, is easy to read and to back up. A person can open it and fix a wrong line. It struggles once the notes pile up and the agent has to choose among hundreds of files by name.
+
+A vector index stores each memory with an embedding and finds memories by meaning, so "where does Maria live" can match a note that says she moved to Berlin. It has no idea which of two similar notes is newer.
+
+A knowledge graph stores entities and the relations between them. The [reference Memory server](https://github.com/modelcontextprotocol/servers/tree/main/src/memory) from the MCP project keeps entities, relations and observations in a local file. [Graphiti](https://github.com/getzep/graphiti) goes further and gives each fact a validity window, recording when it "became true, and when (if ever) it was superseded". A graph can follow a chain of facts from one entity to the next, which a flat list of notes cannot.
+
+Many production systems combine them: a graph or table for facts, embeddings to search the text, and a few always-loaded notes for what the agent needs on every turn.
+
+## What goes wrong with AI memory
+
+Three failure modes cover most bad memory.
+
+**It does not recall.** The fact was stored, but the read path never finds it, because the search used different words or the agent never searched. The [LongMemEval](https://arxiv.org/abs/2410.10813) benchmark, 500 questions built into long chat histories, tests five abilities: information extraction, multi-session reasoning, temporal reasoning, knowledge updates and abstention. Its authors report that commercial chat assistants and long-context models show "a 30% accuracy drop on memorizing information across sustained interactions".
+
+**It recalls the wrong version.** A user said they were on the free plan in March and upgraded in June. A store that only appends now holds both statements, and similarity search treats them as equally good answers. Two of LongMemEval's five abilities, temporal reasoning and knowledge updates, exist because of this.
+
+**It recalls something it should not.** Memory holds personal data. If one user's facts can surface in another user's session, or a deleted fact survives in a summary, memory becomes a privacy problem. Isolation per user and real deletion have to be designed into the store.
+
+## How to evaluate an AI memory system
+
+The [LoCoMo](https://arxiv.org/abs/2402.17753) dataset was built for this: conversations that each run "300 turns and 9K tokens on avg., over up to 35 sessions." Its authors found that long-context models and retrieval help, but the models still "substantially lag behind human performance".
+
+Vendors publish their own numbers on these benchmarks. The [Mem0 paper](https://arxiv.org/abs/2504.19413) reports a 26% relative improvement over an OpenAI baseline on LOCOMO with an LLM-as-a-judge metric; the [Zep paper](https://arxiv.org/abs/2501.13956) gives accuracy gains of up to 18.5% on LongMemEval. Each was measured by the authors on their own setup, so treat them as claims to reproduce on your own data.
+
+For your own system, a small test set beats a leaderboard. Write down twenty facts a real user would tell your agent over a month, change five of them halfway through, and ask questions that use different words from the originals. Score three things: did the agent find the fact, did it give the current version, and did it say "I don't know" when the fact was never stated.
+
+## Where to start
+
+If your agent serves one user on one machine, a few memory files read at the start of each session are a reasonable first version. Once there are several users, facts that change, or several agents writing at once, memory needs the care of any other user data: it needs per-user isolation, an update rule and a record of where each fact came from. [INITE Brain](/en/docs/getting-started) is our take on that layer: text goes in through an ingest call, the entities and claims are extracted and run through a conflict resolver, and a search call returns ranked facts for a given user.
+
+For the longer engineering view, see [long-term memory for AI agents](/en/blog/long-term-memory-ai-agents).

@@ -20,6 +20,9 @@ importers:
       '@dagrejs/dagre':
         specifier: ^3.1.2
         version: 3.1.2
+      '@inite/landing':
+        specifier: file:vendor/inite-landing-0.1.0-5e470ad.tgz
+        version: file:vendor/inite-landing-0.1.0-5e470ad.tgz(react@19.3.1)
       '@mdx-js/loader':
         specifier: ^3.1.1
         version: 3.1.1
@@ -454,6 +457,12 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
+
+  '@inite/landing@file:vendor/inite-landing-0.1.0-5e470ad.tgz':
+    resolution: {integrity: sha512-k2ggcdc+paEPd5RuHzprhVWROtQLdmTR15QpjzPuZZlXMsO3QS1x1UOwgYK/k/FkuJ9p/mDcdASKAXhwxTwH0Q==, tarball: file:vendor/inite-landing-0.1.0-5e470ad.tgz}
+    version: 0.1.0
+    peerDependencies:
+      react: ^19.0.0
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -3844,6 +3853,10 @@ snapshots:
 
   '@img/sharp-win32-x64@0.35.5':
     optional: true
+
+  '@inite/landing@file:vendor/inite-landing-0.1.0-5e470ad.tgz(react@19.3.1)':
+    dependencies:
+      react: 19.3.1
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

@@ -16,6 +16,9 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 # Deps first for cache hits. pnpm-workspace.yaml makes this folder its own
 # workspace root, so the local pnpm-lock.yaml is the single source of truth.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# @inite/landing (the family research block under blog posts) is a vendored
+# tarball the lockfile points at, so it has to be in place before install.
+COPY vendor ./vendor
 RUN pnpm install --frozen-lockfile
 
 # Then sources.
@@ -42,6 +45,7 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 
 # Only what's needed at runtime.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY vendor ./vendor
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/.next ./.next
