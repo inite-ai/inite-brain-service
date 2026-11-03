@@ -314,6 +314,17 @@ describe('MemoryContextService.build', () => {
     expect(factReads.some((q) => q.params?.text === 'turn two')).toBe(true);
   });
 
+  it("the relevance query is the turn's distinct words, so a word the batch repeats does not outweigh a rare one", async () => {
+    const { svc, queries } = make();
+    await svc.build({
+      companyId: 'co',
+      text: 'Guests, guests, GUESTS! I am no longer afraid of snakes. Guests love it.',
+      conversationId: 'conv',
+    });
+    const factRead = queries.find((q) => q.sql.includes('searchHaystack @1,OR@ $text'));
+    expect(factRead?.params?.text).toBe('guests i am no longer afraid of snakes love it');
+  });
+
   it('inUse: asks about the entities the text names — never the user — and reads either signal', async () => {
     const { svc, queries, users } = make({ own: 'knowledge_entity:me' });
     // 'current' names Rui (NER) → knowledge_entity:rui; the store answers

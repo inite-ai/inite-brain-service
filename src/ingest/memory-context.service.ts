@@ -459,6 +459,15 @@ export class MemoryContextService {
    * step the memories most similar to the new fact for the same reason.
    * Each entity is read on its own: one LIMIT over all of them let the
    * busiest entity take every row.
+   *
+   * The query is the turn's DISTINCT words. SurrealDB's BM25 weighs a word
+   * by how often the query repeats it, and a document batch is a whole
+   * session: the assistant's name for the user, the business, "guests"
+   * came back dozens of times and lifted every generic fact over the one
+   * the session was about — "dislikes_pet: snakes" ranked out of the six
+   * relevant slots while the user said "snakes" throughout (HaluMem harness
+   * run, user 2, 2026-11-03), so the update had nothing to supersede.
+   * Classic BM25 caps query-term frequency (k3) for the same reason.
    */
   private async knownFacts(
     db: Surreal,
@@ -490,7 +499,7 @@ export class MemoryContextService {
       ...Object.fromEntries(entities.map((e, i) => [`e${i}`, recordRef(e.id)])),
       u: userId,
       said: saidBy,
-      text: opts.text,
+      text: withText ? [...new Set(wordsOf(opts.text ?? ''))].join(' ') : undefined,
       ...tags.params,
     });
     // Relevant first, then the newest, deduplicated, per entity in order.
