@@ -14,7 +14,14 @@
  *  7. The SQL fence a search leg appends keeps exactly the rows
  *     `visibleUnderScope` keeps, for a user-bound principal.
  */
-import { TENANT_WIDE, scopeFenceSql, visibleUnderScope } from '../src/auth/scope-visibility';
+import {
+  TENANT_WIDE,
+  principalScopeTags,
+  scopeFenceSql,
+  visibleUnderScope,
+} from '../src/auth/scope-visibility';
+import { circleTag } from '../src/auth/circle-scope';
+import { runWithRequestContext } from '../src/common/request-context';
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -142,5 +149,58 @@ describe('scope fence — the SQL a search leg appends agrees with the semantics
 
   it('a tenant-wide caller gets no clause: the tenant boundary is the database', () => {
     expect(scopeFenceSql(undefined)).toEqual({ clause: '', params: {} });
+  });
+});
+
+describe('scope fence — a credential acting in a trust circle', () => {
+  const saved = process.env.SCOPE_TAGS_ENABLED;
+  beforeAll(() => {
+    process.env.SCOPE_TAGS_ENABLED = '1';
+  });
+  afterAll(() => {
+    if (saved === undefined) delete process.env.SCOPE_TAGS_ENABLED;
+    else process.env.SCOPE_TAGS_ENABLED = saved;
+  });
+  const CIRCLES = ['c1', 'c2'];
+  const POOL = [...VALID, ...CIRCLES.map(circleTag), ...MALFORMED];
+
+  function keeps(clause: string, params: Record<string, unknown>, scope: string[]): boolean {
+    const eq = /^AND \(scope = \[\] OR scope = \[\$(\w+)\]\)$/.exec(clause);
+    if (eq) return scope.length === 0 || (scope.length === 1 && scope[0] === params[eq[1]!]);
+    const inside = /^AND \(scope = \[\] OR scope ALLINSIDE \$(\w+)\)$/.exec(clause);
+    if (inside) {
+      const held = params[inside[1]!] as string[];
+      return scope.length === 0 || scope.every((t) => held.includes(t));
+    }
+    throw new Error(`unexpected fence shape: ${JSON.stringify(clause)}`);
+  }
+
+  it('8. asking about no one, it reads only tenant-global rows and its own circle', () => {
+    for (let i = 0; i < RUNS; i++) {
+      const circle = pick(CIRCLES);
+      const record = tags(Math.floor(rnd() * 3), POOL);
+      runWithRequestContext({ correlationId: `c${i}`, actingCircle: circle }, () => {
+        const { clause, params } = scopeFenceSql(undefined);
+        const expected = record.length === 0 || record.every((t) => t === circleTag(circle));
+        expect(keeps(clause, params, record)).toBe(expected);
+      });
+    }
+  });
+
+  it('9. a user acting in a circle: the clause keeps exactly what that principal may see', () => {
+    for (let i = 0; i < RUNS; i++) {
+      const user = pick(USERS);
+      const circle = pick(CIRCLES);
+      const record = tags(Math.floor(rnd() * 3), POOL);
+      runWithRequestContext(
+        { correlationId: `u${i}`, authUserId: user, actingCircle: circle },
+        () => {
+          const { clause, params } = scopeFenceSql(user);
+          expect(keeps(clause, params, record)).toBe(
+            visibleUnderScope(record, principalScopeTags()),
+          );
+        },
+      );
+    }
   });
 });
