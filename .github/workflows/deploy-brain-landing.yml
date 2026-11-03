@@ -5,16 +5,12 @@ name: Deploy brain.inite.ai landing
 # (brain.inite.ai). Backend's Traefik router is restricted to
 # /v1, /mcp, /health, /metrics — see deploy-brain.yml.
 
+# Production moves on a release, like the service: release-please.yml calls
+# this workflow in the run that cut the release (a workflow_call, since the
+# release it creates with GITHUB_TOKEN triggers no other workflow), or by hand.
+# A push to main deploys nothing (family rule deploy-on-release).
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'brain-landing/**'
-      - 'skills/**'
-      - 'scripts/build-skill-versions.ts'
-      - 'scripts/bump-skill-versions.ts'
-      - 'scripts/package-skills.ts'
-      - '.github/workflows/deploy-brain-landing.yml'
+  workflow_call:
   workflow_dispatch:
     inputs:
       action:
@@ -38,7 +34,7 @@ permissions:
 
 jobs:
   build-and-push:
-    if: github.event_name == 'push' || (github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs')
+    if: github.event_name != 'workflow_dispatch' || (github.event.inputs.action != 'restart' && github.event.inputs.action != 'logs')
     runs-on: [self-hosted, sfo]
 
     steps:
@@ -95,7 +91,7 @@ jobs:
     needs: build-and-push
     if: |
       always() && (
-        (github.event_name == 'push' && needs.build-and-push.result == 'success') ||
+        (github.event_name != 'workflow_dispatch' && needs.build-and-push.result == 'success') ||
         (github.event_name == 'workflow_dispatch' && (needs.build-and-push.result == 'success' || github.event.inputs.action == 'restart' || github.event.inputs.action == 'logs'))
       )
     runs-on: [self-hosted, sfo]
