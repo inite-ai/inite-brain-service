@@ -45,6 +45,8 @@
     "eval:value-grounding": "ts-node -T test/eval/value-grounding/runner.ts",
     "eval:claim-check": "ts-node -T test/eval/claim-check/runner.ts",
     "eval:entity-resolution": "ts-node -T test/eval/entity-resolution/runner.ts",
+    "eval:media": "ts-node -T test/eval/media/runner.ts",
+    "eval:lexical-stems": "ts-node -T test/eval/lexical-stems/runner.ts",
     "eval:community-evidence": "ts-node -T test/eval/community-evidence/runner.ts",
     "ha:verify": "ts-node -T scripts/surreal-ha-verify.ts",
     "eval:relationship": "ts-node -T test/eval/relationship/runner.ts",
