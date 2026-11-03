@@ -30,6 +30,8 @@ import { credentialKeys } from './secret-cipher';
  */
 export const HARNESS_WORK_KINDS = [
   'predicate_semantics',
+  // Before extraction: an image's reading becomes a document to extract.
+  'media_reading',
   'extraction',
   'fact_resolution',
   'entity_match',
@@ -99,13 +101,20 @@ export interface ResolutionTokenPayload extends TokenBase {
   f: Array<[string, string[], string]>;
 }
 
+export interface MediaTokenPayload extends TokenBase {
+  t: 'media_reading';
+  /** [asset id, byte hash the agent was shown, consenting pack] per image (i1, i2, …). */
+  a: Array<[string, string, string]>;
+}
+
 export type WorkTokenPayload =
   | ExtractionTokenPayload
   | ResolutionTokenPayload
   | PairsTokenPayload
   | ScenesTokenPayload
   | PredicatesTokenPayload
-  | BeliefsTokenPayload;
+  | BeliefsTokenPayload
+  | MediaTokenPayload;
 
 /** Longest token accepted: 64 documents and every memory handle fit well inside. */
 export const WORK_TOKEN_MAX_CHARS = 32_768;
@@ -206,6 +215,8 @@ function wellFormed(p: WorkTokenPayload): boolean {
       return Array.isArray(p.q) && p.q.length > 0 && p.q.every((x) => typeof x === 'string');
     case 'belief_statement':
       return tuples(p.b, 2);
+    case 'media_reading':
+      return tuples(p.a, 3);
   }
 }
 
