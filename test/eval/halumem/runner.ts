@@ -239,7 +239,6 @@ class Brain {
   async mcpSynthesize(
     query: string,
     userId: string,
-    asOf: string,
     detail?: 'full',
   ): Promise<{ answer: string | null; evidence?: string; results?: SearchHit[] }> {
     const res = await fetch(`${this.cfg.baseUrl}/mcp/${encodeURIComponent(this.cfg.companyId)}`, {
@@ -253,10 +252,7 @@ class Brain {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: {
-          name: 'synthesize',
-          arguments: { query, userId, asOf, ...(detail ? { detail } : {}) },
-        },
+        params: { name: 'synthesize', arguments: { query, userId, ...(detail ? { detail } : {}) } },
       }),
     });
     const raw = await res.text();
@@ -273,12 +269,11 @@ class Brain {
   }
 
   /** Search hits as memory lines: `YYYY-MM-DD: Entity — predicate: object`. */
-  async memoryLines(query: string, userId: string, limit: number, asOf: string): Promise<string[]> {
+  async memoryLines(query: string, userId: string, limit: number): Promise<string[]> {
     const r = await this.call<{ results: SearchHit[] }>('POST', '/v1/search', {
       query,
       userId,
       limit,
-      asOf,
     });
     const lines: Array<{ line: string; score: number }> = [];
     for (const hit of r.results ?? []) {
@@ -482,10 +477,6 @@ async function runUser(
       contextRef: { vertical: 'halumem', conversationId: `${cfg.runId}-${user.uuid}-s${i}` },
     });
     const add_duration_ms = doc.settledMs;
-    // Every read happens "now" in the dataset's clock — right after the
-    // session's last turn. Without it a session dated after the wall clock
-    // (HaluMem runs into 2027) reads as not yet valid and its facts vanish.
-    const asOf = haluMemTime(session.dialogue.at(-1)?.timestamp ?? session.start_time);
     const tag = `[${userName} ${i + 1}/${user.sessions.length}]`;
     if (session.is_generated_qa_session) {
       console.log(`${tag} qa-only session written (${add_duration_ms} ms)`);
@@ -498,7 +489,7 @@ async function runUser(
       if (p.is_update === 'True' && p.original_memories.length > 0) {
         points.push({
           ...p,
-          memories_from_system: await brain.memoryLines(p.memory_content, userId, 10, asOf),
+          memories_from_system: await brain.memoryLines(p.memory_content, userId, 10),
         });
       } else points.push(p);
     }
@@ -506,9 +497,8 @@ async function runUser(
     const questions: SystemQuestion[] = [];
     for (const q of session.questions ?? []) {
       if (cfg.model === 'harness') {
-        const r = await brain.mcpSynthesize(q.question, userId, asOf);
-        const full =
-          r.answer === null ? await brain.mcpSynthesize(q.question, userId, asOf, 'full') : r;
+        const r = await brain.mcpSynthesize(q.question, userId);
+        const full = r.answer === null ? await brain.mcpSynthesize(q.question, userId, 'full') : r;
         questions.push(
           r.answer !== null
             ? { ...q, system_response: r.answer }
@@ -525,7 +515,6 @@ async function runUser(
       const r = await brain.call<{ answer: string | null }>('POST', '/v1/synthesize', {
         query: q.question,
         userId,
-        asOf,
       });
       questions.push({ ...q, system_response: r.answer ?? "I don't know." });
     }

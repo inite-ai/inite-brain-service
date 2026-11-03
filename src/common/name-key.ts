@@ -98,6 +98,28 @@ export function nameKey(surface: string): string {
 }
 
 /**
+ * The words of a key that can stand as a key on their own — the same
+ * `MIN_KEY_LENGTH` floor, so a Portuguese article or an initial ("o", "j")
+ * never ties two names together.
+ */
+export function nameKeyWords(key: string): string[] {
+  return [...new Set(key.split(' ').filter((w) => w.length >= MIN_KEY_LENGTH))];
+}
+
+/**
+ * The initials of a key of two or more words ("international business
+ * machines" → "ibm"), or '' when that would not be a key itself — a
+ * one-word name has no initials to speak of, and two letters carry the
+ * evidence `MIN_KEY_LENGTH` refuses.
+ */
+export function nameKeyInitials(key: string): string {
+  const words = key.split(' ').filter((w) => w !== '');
+  if (words.length < 2) return '';
+  const initials = words.map((w) => w[0]).join('');
+  return initials.length >= MIN_KEY_LENGTH ? initials : '';
+}
+
+/**
  * The distinct, non-empty keys for an entity's canonical name and every
  * alias it carries — what gets stored on the row and searched against.
  */

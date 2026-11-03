@@ -1,4 +1,4 @@
-import { nameKey, nameKeysFor } from '../src/common/name-key';
+import { nameKey, nameKeyInitials, nameKeysFor, nameKeyWords } from '../src/common/name-key';
 
 /**
  * The script-independent name key.
@@ -108,6 +108,29 @@ describe('nameKey', () => {
     it('is empty when nothing yields a key', () => {
       expect(nameKeysFor([])).toEqual([]);
       expect(nameKeysFor(['🙂', '', 'BP'])).toEqual([]);
+    });
+  });
+
+  describe('nameKeyWords — the blocking words of a key', () => {
+    it('keeps the words that could be a key alone, once each', () => {
+      expect(nameKeyWords(nameKey('Жуан Силва'))).toEqual(['zhuan', 'silva']);
+      expect(nameKeyWords('van van halen')).toEqual(['van', 'halen']);
+    });
+
+    it('drops articles and initials, which would tie unrelated names together', () => {
+      expect(nameKeyWords(nameKey('o Banco Inter'))).toEqual(['banco', 'inter']);
+      expect(nameKeyWords(nameKey('J. R. Tolkien'))).toEqual(['tolkien']);
+    });
+  });
+
+  describe('nameKeyInitials — the acronym a key spells', () => {
+    it('spells the first letters of a name of several words', () => {
+      expect(nameKeyInitials(nameKey('International Business Machines'))).toBe('ibm');
+    });
+
+    it('is empty for one word, and for two letters, which carry too little to block on', () => {
+      expect(nameKeyInitials('ibm')).toBe('');
+      expect(nameKeyInitials(nameKey('Acme Corp'))).toBe('');
     });
   });
 });
