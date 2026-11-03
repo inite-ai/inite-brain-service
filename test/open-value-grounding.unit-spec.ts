@@ -9,6 +9,8 @@ import {
   isValueWordGrounded,
   numberClash,
   valueCheck,
+  statedDates,
+  withoutStatedDates,
   valueHypothesis,
   valuePremise,
   valueStands,
@@ -38,6 +40,19 @@ describe('value check — rules', () => {
 
   it('a resolved date is computed, never a number clash', () => {
     expect(valueCheck('Let us meet next Tuesday at 3pm.', '2026-11-10')).toBe('not_contradicted');
+  });
+
+  it("a date the text names, written as ISO inside a value, is the text's own", () => {
+    const said = 'We introduced personalized tours on April 10, 2026, and guests love them.';
+    expect(valueCheck(said, 'personalized tours, introduced 2026-04-10')).toBe('not_contradicted');
+    expect(withoutStatedDates(said, 'tours, introduced 2026-04-10')).not.toContain('2026');
+    // A date the text does not name keeps its digits: a misread day is a clash.
+    expect(valueCheck(said, 'personalized tours, introduced 2026-05-10')).toBe('reject');
+    // Other languages are read by the parser's own locales.
+    expect(statedDates('Мы открылись 10 апреля 2026 года.')).toContain('2026-04-10');
+    expect(statedDates('Abrimos em 10 de abril de 2026.')).toContain('2026-04-10');
+    // A relative expression names no date.
+    expect(statedDates('Let us meet next Tuesday.').size).toBe(0);
   });
 
   it('words present: stands unless contradicted; otherwise only if entailed; no model: kept', () => {
