@@ -68,7 +68,8 @@ fact. Which representation kinds carry words is `KIND_CARRIES_WORDS` in
 which today is format, geometry and EXIF).
 
 With the flag on, the broker enqueues one `evidence_document_bridge`
-job per run after every successful **or replayed** word-bearing run — a replay is what the operator dispatch sweep
+job per run after every successful **or replayed** word-bearing run —
+a replay is what the operator dispatch sweep
 (`POST /v1/admin/maintenance/evidence/dispatch`) produces over the
 existing corpus, so the sweep doubles as the backfill. The documents
 module (`src/documents/evidence-document-bridge.service.ts`) re-reads
