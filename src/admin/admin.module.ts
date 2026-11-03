@@ -50,6 +50,7 @@ import { AdminNameKeysController } from './admin-name-keys.controller';
 import { SegmentComposerService } from './segment-composer.service';
 import { SegmentBackfillService } from './segment-backfill.service';
 import { NameKeyBackfillService } from './name-key-backfill.service';
+import { StemBackfillService } from './stem-backfill.service';
 import { AdminScenesController } from './admin-scenes.controller';
 import { SceneComposerService } from './scene-composer.service';
 import { SceneMaintenanceService } from './scene-maintenance.service';
@@ -152,6 +153,7 @@ import { PlatformSettingsService } from './platform-settings.service';
     SegmentComposerService,
     SegmentBackfillService,
     NameKeyBackfillService,
+    StemBackfillService,
     SceneComposerService,
     SceneMaintenanceService,
     SceneEnricherService,

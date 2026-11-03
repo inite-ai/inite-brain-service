@@ -17,6 +17,7 @@ import { traceArtifact, traceSpan } from '../common/debug-trace';
 import { EntityUpsertService } from './entity-upsert.service';
 import { UserEntityService } from './user-entity.service';
 import { UNKNOWN_START } from './event-time';
+import { stemLangOf } from '../search/internals/stem-lang';
 
 /** Names looked up per turn — the turn's own plus the conversation's. */
 const MAX_NAMES = 16;
@@ -484,28 +485,42 @@ export class MemoryContextService {
     const fields = 'id, entityId, predicate, object, validFrom, validUntil, expectedUntil';
     const relevant = Math.floor(MEMORY_FACTS_PER_ENTITY / 2);
     const withText = !!opts.text?.trim();
+    // The turn's words also match the facts' stems in their own language
+    // (0184): "Марией" finds the fact about "Мария".
+    const stemLang = withText ? stemLangOf(opts.text ?? '') : undefined;
+    const match = stemLang
+      ? {
+          where: '(searchHaystack @1,OR@ $text OR haystackStem @2,OR@ $textStem)',
+          score: 'math::max([search::score(1), search::score(2)])',
+        }
+      : { where: 'searchHaystack @1,OR@ $text', score: 'search::score(1)' };
     const statements = entities.flatMap((_, i) => [
       ...(withText
         ? [
-            `SELECT ${fields}, search::score(1) AS rel FROM knowledge_fact
-              WHERE entityId = $e${i} AND searchHaystack @1,OR@ $text AND ${where}
+            `SELECT ${fields}, ${match.score} AS rel FROM knowledge_fact
+              WHERE entityId = $e${i} AND ${match.where} AND ${where}
               ORDER BY rel DESC LIMIT ${relevant}`,
           ]
         : []),
       `SELECT ${fields} FROM knowledge_fact WHERE entityId = $e${i} AND ${where}
         ORDER BY validFrom DESC, id ASC LIMIT ${MEMORY_FACTS_PER_ENTITY}`,
     ]);
-    const results = await db.query<Array<Array<FactRow>>>(statements.join(';\n'), {
-      ...Object.fromEntries(entities.map((e, i) => [`e${i}`, recordRef(e.id)])),
-      u: userId,
-      said: saidBy,
-      text: withText ? [...new Set(wordsOf(opts.text ?? ''))].join(' ') : undefined,
-      ...tags.params,
-    });
+    const prelude = stemLang ? ['LET $textStem = fn::stem_query($stemLang, $text)'] : [];
+    const results = await db.query<Array<Array<FactRow> | null>>(
+      [...prelude, ...statements].join(';\n'),
+      {
+        ...Object.fromEntries(entities.map((e, i) => [`e${i}`, recordRef(e.id)])),
+        u: userId,
+        said: saidBy,
+        text: withText ? [...new Set(wordsOf(opts.text ?? ''))].join(' ') : undefined,
+        stemLang,
+        ...tags.params,
+      },
+    );
     // Relevant first, then the newest, deduplicated, per entity in order.
     const seen = new Set<string>();
     const rows: FactRow[] = [];
-    for (const r of results.flat()) {
+    for (const r of results.flatMap((rs) => rs ?? [])) {
       const id = String(r.id);
       if (seen.has(id)) continue;
       seen.add(id);

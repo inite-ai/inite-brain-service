@@ -25,11 +25,12 @@ import { topicTerms } from './topic-terms';
  *    scoring to the last matcher and zeroes the others;
  *  - search::score(N) is 0.0 (not NONE) on rows that matched only
  *    other refs, so math::sum needs no NONE-guard;
- *  - 16 refs in one WHERE plan and score fine.
+ *  - 16 refs in one WHERE plan and score fine (24 on 3.2.4, #892).
  */
 
 /** Per-term bound: topics strip to 2-5 tokens; 8 keeps the ref count
- *  at ≤16 even on the two-field fact leg (the probed ceiling). */
+ *  at ≤24 on the two-field fact leg with its stem field (24 refs probed
+ *  on 3.2.4). */
 const LEX_TERM_CAP = 8;
 
 export interface LexMatchLeg {
@@ -39,6 +40,27 @@ export interface LexMatchLeg {
   score: string;
   /** Bind params the fragment references ($topic or $t0…$tN). */
   params: Record<string, string>;
+  /**
+   * Statements to run before the SELECT: the stemmed terms, one LET each,
+   * when a `stem` field was asked for. '' otherwise. The SELECT's rows are
+   * then the LAST result of the query (`lexRows`).
+   */
+  prelude: string;
+}
+
+/**
+ * The shadow field holding the row's text stemmed in the row's language
+ * (0184), and the language to stem the query's terms in. No language:
+ * no stem matchers, the leg is the unstemmed one.
+ */
+export interface LexStem {
+  field: string;
+  lang: string | undefined;
+}
+
+/** The SELECT's rows of a query composed with a leg's prelude. */
+export function lexRows<T>(results: unknown[]): T[] {
+  return ((results.at(-1) as T[] | undefined) ?? []) as T[];
 }
 
 /**
@@ -51,8 +73,10 @@ export function buildLexMatchLeg(opts: {
   fields: readonly string[];
   topic: string;
   mode: CoverageLexMode;
+  stem?: LexStem;
 }): LexMatchLeg {
   const { fields, topic, mode } = opts;
+  const stem = opts.stem?.lang ? { field: opts.stem.field, lang: opts.stem.lang } : undefined;
   const terms = mode === 'or_terms' ? topicTerms(topic).slice(0, LEX_TERM_CAP) : [];
   if (terms.length === 0) {
     const matchers = fields.map((f, j) => `${f} @${j + 1}@ $topic`);
@@ -61,23 +85,33 @@ export function buildLexMatchLeg(opts: {
       where: `(${matchers.join(' OR ')})`,
       score: scores.length === 1 ? scores[0]! : `math::max([${scores.join(', ')}])`,
       params: { topic },
+      prelude: '',
     };
   }
   const matchers: string[] = [];
   const perTerm: string[] = [];
   const params: Record<string, string> = {};
+  const lets: string[] = [];
+  const width = fields.length + (stem ? 1 : 0);
   terms.forEach((term, i) => {
     params[`t${i}`] = term;
     const scores = fields.map((f, j) => {
-      const ref = i * fields.length + j + 1;
+      const ref = i * width + j + 1;
       matchers.push(`${f} @${ref}@ $t${i}`);
       return `search::score(${ref})`;
     });
+    if (stem) {
+      const ref = i * width + fields.length + 1;
+      lets.push(`LET $s${i} = fn::stem_query($stemLang, $t${i});`);
+      matchers.push(`${stem.field} @${ref}@ $s${i}`);
+      scores.push(`search::score(${ref})`);
+    }
     perTerm.push(scores.length === 1 ? scores[0]! : `math::max([${scores.join(', ')}])`);
   });
   return {
     where: `(${matchers.join(' OR ')})`,
     score: `math::sum([${perTerm.join(', ')}])`,
-    params,
+    params: stem ? { ...params, stemLang: stem.lang } : params,
+    prelude: lets.join('\n'),
   };
 }
