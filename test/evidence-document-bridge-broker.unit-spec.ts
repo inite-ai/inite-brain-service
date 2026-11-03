@@ -32,6 +32,7 @@ const PACK = manifest({
   processors: [
     { id: 'doc_text', modality: 'document', produces: ['text'] },
     { id: 'img_cap', modality: 'image', produces: ['caption'] },
+    { id: 'img_ocr', modality: 'image', produces: ['ocr'] },
   ],
 });
 const CHECKSUM = modalitiesChecksum(declaredModalitySection(PACK));
@@ -50,6 +51,18 @@ const captionAdapter = (): ProcessorAdapter => ({
   configParts: () => [],
   accepts: (modality) => modality === 'image',
   process: () => Promise.resolve([{ kind: 'caption', content: 'a cat' }]),
+});
+
+const ocrAdapter = (): ProcessorAdapter => ({
+  capability: 'ocr',
+  version: 'stub-v1',
+  configParts: () => [],
+  accepts: (modality) => modality === 'image',
+  process: () =>
+    Promise.resolve([
+      { kind: 'ocr', content: 'INVOICE #42' },
+      { kind: 'ocr', content: 'Total due: $10' },
+    ]),
 });
 
 function fixture(opts: {
@@ -181,6 +194,16 @@ describe('EvidenceProcessorBrokerService — evidence → document bridge enqueu
     });
     expect(r.runs.map((x) => x.status)).toEqual(['succeeded']);
     expect(f.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("an image's OCR run bridges once, however many regions it read", async () => {
+    const f = fixture({ adapters: [ocrAdapter()], modality: 'image' });
+    const r = await f.broker.dispatchForPack('co_x', {
+      packId: 'doc_pack',
+      assetId: 'evidence_asset:a1',
+    });
+    expect(r.runs.map((x) => x.status)).toEqual(['succeeded']);
+    expect(f.enqueue).toHaveBeenCalledTimes(1);
   });
 
   it('a failed run never bridges', async () => {

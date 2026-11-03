@@ -1,0 +1,77 @@
+{
+  "about": "Hand-written texts of the kinds a memory receives as images: screenshots of chat and dashboards, receipts, slides, notes. `keys` are the strings memory must keep exactly (numbers, codes, names, dates). Rendered in-process by sharp (runner.ts); no binary fixtures.",
+  "items": [
+    {
+      "id": "en-invoice",
+      "lang": "en",
+      "text": "INVOICE #INV-2026-0417\nBilled to: Northwind Traders\nDue date: 15 March 2026\nTotal due: $12,480.00",
+      "keys": ["INV-2026-0417", "Northwind Traders", "15 March 2026", "$12,480.00"]
+    },
+    {
+      "id": "en-dashboard",
+      "lang": "en",
+      "text": "ledger-sync  prod-eu-west-1\nError rate 4.7%  p95 latency 830 ms\nLast deploy: v3.12.1 by Priya Raman",
+      "keys": ["ledger-sync", "prod-eu-west-1", "4.7%", "830 ms", "v3.12.1", "Priya Raman"]
+    },
+    {
+      "id": "en-chat",
+      "lang": "en",
+      "text": "Marta: the client call moved to Thursday 2pm\nDiego: ok, I will send the contract draft tonight\nMarta: budget is capped at 48k this quarter",
+      "keys": ["Thursday 2pm", "contract draft", "48k"]
+    },
+    {
+      "id": "en-slide",
+      "lang": "en",
+      "text": "Q3 roadmap\n1. Ship offline mode by 30 September\n2. Migrate billing to Stripe\n3. Hire two backend engineers",
+      "keys": ["Q3 roadmap", "30 September", "Stripe", "two backend engineers"]
+    },
+    {
+      "id": "en-boarding",
+      "lang": "en",
+      "text": "Flight TP1347  Lisbon to Berlin\nGate B22  Boarding 07:45\nSeat 14C  Passenger ANA SOUSA",
+      "keys": ["TP1347", "Lisbon", "Berlin", "B22", "07:45", "14C", "ANA SOUSA"]
+    },
+    {
+      "id": "ru-invoice",
+      "lang": "ru",
+      "text": "СЧЁТ № 2026-118\nПлательщик: ООО Ромашка\nСрок оплаты: 20 апреля 2026\nИтого к оплате: 87 450,00 руб.",
+      "keys": ["2026-118", "Ромашка", "20 апреля 2026", "87 450,00"]
+    },
+    {
+      "id": "ru-chat",
+      "lang": "ru",
+      "text": "Мария: созвон с клиентом перенесли на среду\nИван: договор отправлю вечером\nМария: бюджет на квартал 300 тысяч",
+      "keys": ["среду", "договор", "300 тысяч"]
+    },
+    {
+      "id": "ru-note",
+      "lang": "ru",
+      "text": "Пароль от Wi-Fi в офисе сменили\nНовая сеть: Office-5G\nОтветственный: Пётр Сидоров, доб. 214",
+      "keys": ["Office-5G", "Пётр Сидоров", "214"]
+    },
+    {
+      "id": "ru-slide",
+      "lang": "ru",
+      "text": "План на квартал\n1. Запуск мобильного приложения до 1 декабря\n2. Переезд в новый офис на Тверской\n3. Найм трёх аналитиков",
+      "keys": ["1 декабря", "Тверской", "трёх аналитиков"]
+    },
+    {
+      "id": "ru-ticket",
+      "lang": "ru",
+      "text": "Поезд 752А Москва — Санкт-Петербург\nВагон 7  Место 33\nОтправление 06:50  Пассажир Анна Котова",
+      "keys": ["752А", "Москва", "Санкт-Петербург", "06:50", "Анна Котова"]
+    },
+    {
+      "id": "pt-receipt",
+      "lang": "pt",
+      "text": "Recibo nº 4471\nCliente: João Conceição\nServiço: manutenção do ar condicionado\nValor: R$ 1.250,00",
+      "keys": ["4471", "João Conceição", "manutenção", "R$ 1.250,00"]
+    },
+    {
+      "id": "pt-chat",
+      "lang": "pt",
+      "text": "Ana: a reunião com o fornecedor ficou para sexta\nBeto: vou levar a proposta revisada\nAna: orçamento máximo de 60 mil",
+      "keys": ["sexta", "proposta revisada", "60 mil"]
+    }
+  ]
+}

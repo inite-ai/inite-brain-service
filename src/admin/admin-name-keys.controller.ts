@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from '../auth/api-key.types';
 import { ApiKeyService } from '../auth/api-key.service';
 import { resolvePlatformTenant } from '../auth/tenant-scope';
 import { NameKeyBackfillService, NameKeyBackfillResult } from './name-key-backfill.service';
+import { StemBackfillService, StemBackfillResult } from './stem-backfill.service';
 
 /**
  * Migration 0148 backfill trigger: stamp `nameKeys` onto entities written
@@ -20,6 +21,7 @@ export class AdminNameKeysController {
   constructor(
     private readonly backfill: NameKeyBackfillService,
     private readonly apiKeys: ApiKeyService,
+    private readonly stems: StemBackfillService,
   ) {}
 
   @Post('maintenance/entities/backfill-name-keys')
@@ -32,5 +34,18 @@ export class AdminNameKeysController {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
     });
     return this.backfill.run(tenant, body.maxRows);
+  }
+
+  /** Migration 0184 backfill: stem rows written before the stemmed fields existed. */
+  @Post('maintenance/backfill-stems')
+  @RequireScopes('brain:admin')
+  async backfillStems(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { tenant?: string; maxRows?: number } = {},
+  ): Promise<StemBackfillResult> {
+    const tenant = resolvePlatformTenant(req, body.tenant, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
+    return this.stems.run(tenant, body.maxRows);
   }
 }
