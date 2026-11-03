@@ -625,6 +625,12 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // int, not booleans (validateEvidenceOcrEnv). EVIDENCE_ family sits off
   // the ENGINE flag budget by design (see above).
   'EVIDENCE_OCR_ENABLED',
+  // Local speech-to-text (#900): AsrAdapter offers 'asr' for audio and the
+  // sound of video (ffmpeg-static decode, Whisper via transformers.js, no
+  // network once the model is cached). Default off for the same reason as
+  // OCR: a resident model and CPU per minute of audio. The model id
+  // (EVIDENCE_ASR_MODEL) is a string, not a boolean.
+  'EVIDENCE_ASR_ENABLED',
   // Representation embeddings: the write-side producer for
   // derived_representation.embedding (WRITE-DEAD since 0109), which is
   // what the fragment lane's dense leg reads. Off (default) = the
