@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { MDXRemote } from 'next-mdx-remote/rsc'
 import remarkGfm from 'remark-gfm'
+import { FamilyResearch } from '@inite/landing/family-research'
 import { JsonLd } from '../../../../components/StructuredData'
 import { mdxComponents } from '../../../../mdx-components'
 import { getMessages, normalizeLang, LANGS } from '../../../../lib/i18n'
@@ -158,6 +159,14 @@ export default async function BlogPostPage({ params }: Props) {
           </div>
         </section>
       ) : null}
+
+      {/* The inite.ai study this post is about, or nothing (@inite/landing/family-research). */}
+      <FamilyResearch
+        post={{ title: post.title, tags: post.tags, category: post.category }}
+        locale={lang}
+        site="brain"
+        className="mt-12 pt-8 border-t border-[var(--border)] [&_.family-research-label]:font-[family-name:var(--mono)] [&_.family-research-label]:text-[10px] [&_.family-research-label]:uppercase [&_.family-research-label]:tracking-[0.14em] [&_.family-research-label]:text-[var(--data)] [&_.family-research-title]:mt-1.5 [&_.family-research-title]:text-[15px] [&_.family-research-title]:font-semibold [&_.family-research-title_a]:text-[var(--text)] [&_.family-research-title_a:hover]:text-[var(--signal)] [&_.family-research-title_a]:underline [&_.family-research-title_a]:underline-offset-4 [&_.family-research-title_a]:decoration-[var(--border-strong)] [&_.family-research-lead]:mt-1 [&_.family-research-lead]:text-[14px] [&_.family-research-lead]:leading-relaxed [&_.family-research-lead]:text-[var(--text-muted)]"
+      />
 
       {related.length > 0 && (
         <section className="mt-12 pt-8 border-t border-[var(--border)]">
