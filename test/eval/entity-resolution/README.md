@@ -48,10 +48,34 @@ string-based and runs as in production.
 Pairwise P/R/F1 over mention pairs; B³ P/R/F1; **auto-merge precision** (mentions a
 deterministic rung attached to an existing entity that landed on their own cluster — a
 false merge fuses two people's memory with no judge involved); links settled by the
-ladder / by the judge / missed; per category and per rung (`score.ts`, unit-tested in
+ladder / by the judge / missed; judge calls (the price of candidate generation); per category and per rung (`score.ts`, unit-tested in
 `test/entity-resolution-score.unit-spec.ts`).
 
-## Measured (2026-11-01, main @ code defaults, SurrealDB 3.2.4 stand)
+## Measured
+
+### 2026-11-02 — multi-pass candidate generation (main + this change)
+
+The judge used to be shown ONE candidate: the first blocking scan that found anything
+(key distance → name part → embedding) ended the search. Now every scan proposes at most
+one entity and the judge is asked about each in turn until it says `same`; two scans were
+added — initials (`IBM` ↔ `International Business Machines`) and a shared word no other
+entity carries (the surname: `Bob King` ↔ `Robert King`, `Sasha Volkov` ↔ `Alexander
+Volkov`, `Жуан Силва` ↔ `João Silva`). A scan runs only when every candidate before it was
+refused.
+
+|                   | pairwise P | pairwise R | pairwise F1 | B³ F1 | auto-merge P | links: ladder / judge / missed | judge calls |
+| ----------------- | ---------- | ---------- | ----------- | ----- | ------------ | ------------------------------ | ----------- |
+| judge off         | 100%       | 41.3%      | 58.5%       | 80.7% | 100% (15/15) | 15 / 0 / 16                    | 0           |
+| oracle, before    | 100%       | 84.8%      | 91.8%       | 94.7% | 100% (15/15) | 15 / 11 / 5                    | 33          |
+| **oracle, after** | **100%**   | **97.8%**  | **98.9%**   | 99.1% | 100% (15/15) | 15 / 15 / 1                    | 39          |
+
+The ceiling a judge can reach rose by 13 points of recall for 6 more verdicts (+18%) over
+56 mentions. The one link left is the code path ↔ symbol pair, which needs
+`INGEST_CODE_ALIAS_RESOLUTION` (off by default). With the judge off nothing changes: the
+same-name contradiction check (`same-name-conflict.ts`) already keeps the three namesake
+pairs apart, and no candidate is merged without a verdict.
+
+### 2026-11-01 — main @ code defaults, SurrealDB 3.2.4 stand
 
 |              | pairwise P | pairwise R | pairwise F1 | B³ F1 | auto-merge P      | links: ladder / judge / missed |
 | ------------ | ---------- | ---------- | ----------- | ----- | ----------------- | ------------------------------ |

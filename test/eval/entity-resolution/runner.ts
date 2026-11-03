@@ -66,6 +66,8 @@ type JudgeMode = 'off' | 'oracle';
  */
 class BatteryJudge extends EntityJudgeService {
   current = '';
+  /** Every verdict asked for — the judge's cost, the price of candidate generation. */
+  calls = 0;
   readonly entityClusters = new Map<string, Set<string>>();
   private lastFetched = '';
 
@@ -90,6 +92,7 @@ class BatteryJudge extends EntityJudgeService {
   }
 
   override judge(_left: string, _right: string, _ctx: JudgeContext = {}): Promise<EntityVerdict> {
+    this.calls++;
     const holds = this.entityClusters.get(this.lastFetched);
     return Promise.resolve(holds?.has(this.current) ? 'same' : 'different');
   }
@@ -131,7 +134,7 @@ async function runMode(
   mode: JudgeMode,
   mentions: DatasetMention[],
   cardinality: CardinalityReading,
-): Promise<Score> {
+): Promise<Score & { judgeCalls: number }> {
   const companyId = `co_er_battery_${mode}_${randomUUID().slice(0, 8)}`;
   let judge: BatteryJudge | undefined;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -198,7 +201,7 @@ async function runMode(
         } as Parameters<FactIngestService['ingestFact']>[1]);
       }
     }
-    return score(mentions, assignments);
+    return { ...score(mentions, assignments), judgeCalls: judge?.calls ?? 0 };
   } finally {
     await app.close();
     await dropTenant(companyId);
@@ -207,7 +210,7 @@ async function runMode(
 
 const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
 
-function render(mode: JudgeMode, s: Score): string {
+function render(mode: JudgeMode, s: Score & { judgeCalls: number }): string {
   const lines = [
     `judge=${mode}`,
     `  pairwise   P ${pct(s.pairwise.precision)}  R ${pct(s.pairwise.recall)}  F1 ${pct(s.pairwise.f1)}` +
@@ -218,6 +221,7 @@ function render(mode: JudgeMode, s: Score): string {
     `  rungs ${Object.entries(s.rungs)
       .map(([k, v]) => `${k}=${v}`)
       .join(' ')}`,
+    `  judge calls ${s.judgeCalls}`,
     '  category              links joined falseMerges',
     ...s.categories.map(
       (c) =>
@@ -241,7 +245,7 @@ async function main(): Promise<void> {
   const { _doc, ...cardinality } = data.cardinality;
   const arg = process.argv.find((a) => a.startsWith('--judge='))?.slice('--judge='.length);
   const modes: JudgeMode[] = arg === 'off' || arg === 'oracle' ? [arg] : ['off', 'oracle'];
-  const results: Record<string, Score> = {};
+  const results: Record<string, Score & { judgeCalls: number }> = {};
   for (const mode of modes) results[mode] = await runMode(mode, data.mentions, cardinality);
   if (process.argv.includes('--json')) console.log(JSON.stringify(results, null, 2));
   else for (const mode of modes) console.log(render(mode, results[mode]!));

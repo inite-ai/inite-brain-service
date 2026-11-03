@@ -31,22 +31,36 @@ const dto = (extra: Partial<IngestDocumentDto> = {}): IngestDocumentDto =>
 function makeAsync(opts: {
   enabled?: boolean;
   verified?: { tool: string; createdAt: string } | null;
+  /** The store already held this content, in this status. */
+  replayOf?: string;
 }) {
   const created: Array<{ dto: IngestDocumentDto; origin: DocumentWriteOrigin }> = [];
+  const statuses: string[] = [];
+  const enqueued: unknown[] = [];
   const store = {
     createOrGet: async (_co: string, d: IngestDocumentDto, origin: DocumentWriteOrigin) => {
       created.push({ dto: d, origin });
       return {
-        doc: { id: 'source_document:d1', contentHash: 'a'.repeat(64), chunkCount: 1 },
+        doc: {
+          id: 'source_document:d1',
+          contentHash: 'a'.repeat(64),
+          chunkCount: 1,
+          status: opts.replayOf ?? 'received',
+        },
         chunks: [{ index: 0, text: d.text }],
-        deduplicated: false,
+        deduplicated: opts.replayOf !== undefined,
       };
     },
-    setStatus: async () => undefined,
+    setStatus: async (p: { status: string }) => void statuses.push(p.status),
   };
   const dispatch = { selectDedicated: async () => [], planExternal: async () => [] };
   const candidates = { ensureRunPending: async () => undefined };
-  const claim = { enqueue: async () => ({ created: true }) };
+  const claim = {
+    enqueue: async (job: unknown) => {
+      enqueued.push(job);
+      return { created: true };
+    },
+  };
   const toolObservations = {
     enabled: () => opts.enabled ?? true,
     verifyRef: async () => opts.verified ?? null,
@@ -60,7 +74,7 @@ function makeAsync(opts: {
     claim as never,
     toolObservations as never,
   );
-  return { svc, created };
+  return { svc, created, statuses, enqueued };
 }
 
 describe('DocumentAsyncService threads the tool-observation hop onto the header', () => {
@@ -112,6 +126,24 @@ describe('DocumentAsyncService threads the tool-observation hop onto the header'
       svc.ingestAsync('co_x', dto(), { channel: 'api' }),
     );
     expect(created[0]!.origin.internal).toBeUndefined();
+  });
+});
+
+describe('a replayed document (mode: async)', () => {
+  it('already committed: queues nothing and leaves its status alone', async () => {
+    const { svc, statuses, enqueued } = makeAsync({ replayOf: 'committed' });
+    const res = await svc.ingestAsync('co_x', dto(), { channel: 'api' });
+    expect(res).toMatchObject({ deduplicated: true, runs: [] });
+    expect(statuses).toEqual([]);
+    expect(enqueued).toEqual([]);
+  });
+
+  it('not yet committed (a retry after a crash): still fans its reads out', async () => {
+    const { svc, statuses, enqueued } = makeAsync({ replayOf: 'received' });
+    const res = await svc.ingestAsync('co_x', dto(), { channel: 'api' });
+    expect(res.deduplicated).toBe(true);
+    expect(statuses).toEqual(['indexing']);
+    expect(enqueued).toHaveLength(1);
   });
 });
 
