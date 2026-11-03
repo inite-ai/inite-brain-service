@@ -6,6 +6,7 @@
  * to the shared EntityJudgeService → reuse on "same", else create new.
  * The judge itself is mocked here and unit-tested separately.
  */
+import { EntityCandidateService } from '../src/ingest/entity-candidates.service';
 import { EntityResolverService } from '../src/ingest/entity-resolver.service';
 
 type Cfg = Record<string, string>;
@@ -17,17 +18,19 @@ type Cfg = Record<string, string>;
  * Queue a result (or an Error) per scan; `ran(db)` lists the scans in the
  * order they ran.
  */
-type Scan = 'key' | 'part' | 'initials' | 'word' | 'embedding';
+type Scan = 'key' | 'part' | 'initials' | 'word' | 'embedding' | 'identity';
 const scanOf = (sql: string): Scan =>
-  sql.includes('levenshtein')
-    ? 'key'
-    : sql.includes('array::join')
-      ? 'initials'
-      : sql.includes('CONTAINS $word')
-        ? 'word'
-        : sql.includes('vector::similarity')
-          ? 'embedding'
-          : 'part';
+  sql.includes('identity_of')
+    ? 'identity'
+    : sql.includes('levenshtein')
+      ? 'key'
+      : sql.includes('array::join')
+        ? 'initials'
+        : sql.includes('CONTAINS $word')
+          ? 'word'
+          : sql.includes('vector::similarity')
+            ? 'embedding'
+            : 'part';
 const ran = (db: { query: jest.Mock }): Scan[] =>
   db.query.mock.calls.map((c) => scanOf(String(c[0])));
 const sqlFor = (db: { query: jest.Mock }, scan: Scan, nth = 0): string =>
@@ -57,13 +60,18 @@ function makeService(
     fetchTopFacts: judgeOverrides.fetchTopFacts ?? jest.fn().mockResolvedValue('- dob: 1990-01-01'),
     judge: judgeOverrides.judge ?? jest.fn().mockResolvedValue('same'),
   };
-  const svc = new EntityResolverService(config, embedder, judge as any);
+  const svc = new EntityResolverService(
+    config,
+    judge as any,
+    new EntityCandidateService(config, embedder),
+  );
   const scans: Record<Scan, unknown[]> = {
     key: [],
     part: [],
     initials: [],
     word: [],
     embedding: [],
+    identity: [],
   };
   const db = {
     query: jest.fn((sql: string) => {
@@ -594,6 +602,29 @@ describe('EntityResolverService name-candidate scan', () => {
         }),
       ).toBeNull();
       expect(judge.judge).not.toHaveBeenCalled();
+    });
+
+    it('two carriers already linked as one identity are one candidate', async () => {
+      // The nightly dedup links "Alexander Volkov" and "Александр Волков";
+      // the surname they share then names one identity, not a crowd.
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.word.push([[]]); // "sasha"
+      scans.word.push(
+        hit([
+          { id: 'knowledge_entity:av', name: 'Alexander Volkov' },
+          { id: 'knowledge_entity:av2', name: 'Александр Волков' },
+        ]),
+      );
+      scans.identity.push([[{ id: 'knowledge_edge:1' }]]);
+      expect(
+        await svc.resolveByName({
+          db: db as any,
+          name: 'Sasha Volkov',
+          type: 'person',
+          incomingFacts: [],
+        }),
+      ).toBe('knowledge_entity:av');
+      expect(judge.judge).toHaveBeenCalledTimes(1);
     });
 
     it('a word too short to be a key never blocks ("o Banco Inter")', async () => {

@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Surreal, StringRecordId } from 'surrealdb';
-import { EntityJudgeService } from '../ai/entity-judge.service';
+import { EntityJudgeService, type JudgeContext } from '../ai/entity-judge.service';
 import { withSpan } from '../common/tracing';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { sameWidthGate } from '../db/vector-width';
+import { EntityCandidateService, judgeSimilarity } from '../ingest/entity-candidates.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 
 /** The index the entity-dedup seed KNN rides — for the diagnostic. */
@@ -35,7 +36,12 @@ import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from '.
 export interface DedupCandidate {
   aId: string;
   bId: string;
+  /** Similarity on the finding scan's own scale (`similarity` names it). */
   cosine: number;
+  /** Which scan proposed the pair — the judge's prompt says what it means. */
+  similarity?: NonNullable<JudgeContext['similarity']>;
+  /** The two canonical names, for the judge (a cross-script pair is the same name). */
+  names?: { a?: string | undefined; b?: string | undefined };
 }
 
 export interface DedupIdentityLink {
@@ -69,6 +75,7 @@ export class DreamsDedupService {
   constructor(
     private readonly configService: ConfigService,
     private readonly judge: EntityJudgeService,
+    private readonly candidates: EntityCandidateService,
   ) {
     this.enabled = envFlagNotDisabled(this.configService.get<string>('DREAMS_DEDUP_ENABLED'));
     this.cosineThreshold = parseFloat(
@@ -135,7 +142,12 @@ export class DreamsDedupService {
         continue;
       }
       const verdict = await withSpan('dreams.dedup.judge', () =>
-        this.judge.judge(factsA, factsB, { cosine: cand.cosine, offline: true }),
+        this.judge.judge(factsA, factsB, {
+          cosine: cand.cosine,
+          offline: true,
+          ...(cand.similarity ? { similarity: cand.similarity } : {}),
+          ...(cand.names ? { names: cand.names } : {}),
+        }),
       );
       result.llmJudgements++;
       if (verdict !== 'same') {
@@ -185,10 +197,17 @@ export class DreamsDedupService {
    * (`fetchTopFacts`) was never world-fenced either.
    */
   async findCandidates(db: Surreal, _derivedVersion: string | null): Promise<DedupCandidate[]> {
-    type SeedRow = { id: unknown; type: string; recordedAt: unknown };
+    type SeedRow = {
+      id: unknown;
+      type: string;
+      canonicalName?: string;
+      hasVector?: boolean;
+      recordedAt: unknown;
+    };
     const [seedRows] = await db.query<[SeedRow[]]>(
-      `SELECT id, type, recordedAt FROM knowledge_entity
-       WHERE embedding != NONE
+      `SELECT id, type, canonicalName, embedding != NONE AS hasVector, recordedAt
+         FROM knowledge_entity
+       WHERE (embedding != NONE OR nameKeys != NONE)
          AND userId IS NONE
          AND mergedInto IS NONE
        ORDER BY recordedAt DESC
@@ -200,23 +219,60 @@ export class DreamsDedupService {
 
     const out: DedupCandidate[] = [];
     const seen = new Set<string>();
+    const cap = this.maxPairs * CANDIDATE_OVERFETCH;
+    const push = (seed: SeedRow, c: Omit<DedupCandidate, 'aId' | 'bId'> & { id: string }) => {
+      const aId = String(seed.id);
+      const bId = c.id;
+      if (bId === aId) return;
+      const pairKey = aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
+      if (seen.has(pairKey)) return;
+      seen.add(pairKey);
+      const [a, b] = aId < bId ? [aId, bId] : [bId, aId];
+      const [na, nb] =
+        aId < bId ? [seed.canonicalName, c.names?.b] : [c.names?.b, seed.canonicalName];
+      out.push({
+        aId: a,
+        bId: b,
+        cosine: c.cosine,
+        ...(c.similarity ? { similarity: c.similarity } : {}),
+        names: { a: na, b: nb },
+      });
+    };
     for (const seed of seeds) {
       const aId = String(seed.id);
-      const neighbours = await this.nearestNames(db, aId, seed.type);
-      for (const n of neighbours) {
-        const bId = String(n.entityId);
-        if (bId === aId) continue;
-        if (n.sim < this.cosineThreshold) continue;
-        const pairKey = aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
-        if (seen.has(pairKey)) continue;
-        seen.add(pairKey);
-        out.push({
-          aId: aId < bId ? aId : bId,
-          bId: aId < bId ? bId : aId,
-          cosine: n.sim,
-        });
-        if (out.length >= this.maxPairs * CANDIDATE_OVERFETCH) return out;
+      // The NAME first: the same blocking the inline resolver runs
+      // (entity-candidates.service.ts) — a transliteration, a first name,
+      // initials, a surname no one else carries. This pass used to see
+      // only pairs whose name embeddings cleared 0.92, and a name
+      // embedding is the signal measured unable to separate "Ivan Petrov"
+      // from "Иван Сидоров" (common/name-key.ts); a keyless or harness
+      // install, which judges nothing at ingest, depends on this pass for
+      // every link the deterministic rungs did not make.
+      if (seed.canonicalName) {
+        const q = { name: seed.canonicalName, type: seed.type, excludeId: aId };
+        for (const scan of this.candidates.nameScans(db, q)) {
+          for (const c of await scan()) {
+            push(seed, {
+              id: c.entityId,
+              cosine: c.cosine,
+              similarity: judgeSimilarity(c.matchKind),
+              names: { b: c.canonicalName },
+            });
+          }
+        }
       }
+      if (seed.hasVector !== false) {
+        for (const n of await this.nearestNames(db, aId, seed.type)) {
+          if (n.sim < this.cosineThreshold) continue;
+          push(seed, {
+            id: String(n.entityId),
+            cosine: n.sim,
+            similarity: 'embedding',
+            names: { b: n.canonicalName },
+          });
+        }
+      }
+      if (out.length >= cap) return out.slice(0, cap);
     }
     return out;
   }
@@ -230,11 +286,11 @@ export class DreamsDedupService {
     db: Surreal,
     seedEntityId: string,
     type: string,
-  ): Promise<Array<{ entityId: unknown; sim: number }>> {
-    type Row = { entityId: unknown; sim: number };
+  ): Promise<Array<{ entityId: unknown; canonicalName?: string; sim: number }>> {
+    type Row = { entityId: unknown; canonicalName?: string; sim: number };
     const res = await db.query<[unknown, Row[]]>(
       `LET $q = (SELECT VALUE embedding FROM ONLY type::record($eid));
-       SELECT id AS entityId, vector::similarity::cosine(embedding, $q) AS sim
+       SELECT id AS entityId, canonicalName, vector::similarity::cosine(embedding, $q) AS sim
          FROM knowledge_entity
         WHERE ${sameWidthGate('embedding')}
           AND type = $type

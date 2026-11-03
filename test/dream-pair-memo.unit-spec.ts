@@ -76,7 +76,7 @@ describe('dreams dedup with the memo', () => {
         return 'different';
       },
     } as unknown as EntityJudgeService;
-    const svc = new DreamsDedupService(config(), judge);
+    const svc = new DreamsDedupService(config(), judge, {} as never);
     const internals = svc as unknown as {
       findCandidates: () => Promise<unknown>;
       identityEdgeExists: () => Promise<boolean>;

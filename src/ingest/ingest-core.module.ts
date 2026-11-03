@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { OutcomesModule } from '../outcomes/outcomes.module';
+import { EntityCandidateService } from './entity-candidates.service';
 import { EntityResolverService } from './entity-resolver.service';
 import { EntityUpsertService } from './entity-upsert.service';
 import { FactEmbeddingService } from './fact-embedding.service';
@@ -21,6 +22,9 @@ import { UserEntityService } from './user-entity.service';
   // fact resolver emits from its post-call tail (@Optional injection).
   imports: [OutcomesModule],
   providers: [
+    // Which existing entities a name might be — the inline resolver's
+    // candidates and the nightly dedup's (entity-candidates.service.ts).
+    EntityCandidateService,
     EntityResolverService,
     EntityUpsertService,
     FactEmbeddingService,
@@ -38,6 +42,7 @@ import { UserEntityService } from './user-entity.service';
     UserEntityService,
   ],
   exports: [
+    EntityCandidateService,
     EntityResolverService,
     EntityUpsertService,
     FactEmbeddingService,

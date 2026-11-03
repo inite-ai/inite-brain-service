@@ -142,7 +142,8 @@ export function score(mentions: Mention[], assignments: Assignment[]): Score {
       r.links++;
       if (joinedOwn) {
         r.joined++;
-        if (a.rung === 'judge') byJudge++;
+        // `dream`: the nightly dedup's judge linked it after ingest.
+        if (a.rung === 'judge' || a.rung === 'dream') byJudge++;
         else settledByLadder++;
       } else {
         missed++;

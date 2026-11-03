@@ -6,7 +6,7 @@ keeps one entity per real thing and two for two things. Mechanical and free: the
 real ladder and the real fact write path against a real SurrealDB, no paid model.
 
 ```bash
-SURREALDB_URL=ws://127.0.0.1:8000 pnpm eval:entity-resolution            # both modes
+SURREALDB_URL=ws://127.0.0.1:8000 pnpm eval:entity-resolution            # all three modes
 SURREALDB_URL=… pnpm eval:entity-resolution --judge=off --json          # one mode, JSON
 ```
 
@@ -38,6 +38,11 @@ judged against them.
 - `oracle` — the judge answers from the gold labels, for whichever candidate the ladder
   hands it: the ceiling a perfect judge reaches. It never sees a pair the ladder did not
   surface, so this measures candidate generation.
+- `deferred` — no judge at ingest (as `off`), then the nightly dedup pass
+  (`DreamsDedupService`) with the gold-label judge, night after night until one links
+  nothing new. That is where a keyless or harness install ends up: there the connected
+  agent judges the nightly pairs and nothing at ingest. A mention whose entity the pass
+  linked to another is scored on the linked identity (rung `dream`, counted as judged).
 
 Embeddings are the e2e `StubEmbedder`, so the embedding scan finds nothing real and the
 oracle ceiling is a lower bound for a bge-m3 deployment; the transliterated-key scan is
@@ -51,7 +56,45 @@ false merge fuses two people's memory with no judge involved); links settled by 
 ladder / by the judge / missed; judge calls (the price of candidate generation); per category and per rung (`score.ts`, unit-tested in
 `test/entity-resolution-score.unit-spec.ts`).
 
+## Judging for real
+
+The oracle measures candidate generation; whether a real judge, reading the prompts, answers
+as the gold does is a separate question. `ER_JUDGE_DUMP=<file>` writes every question the
+judge was asked (the exact user content the server model or the harness agent reads,
+`entityJudgeUserContent`) with the gold verdict, one JSON line each, so an agent can answer
+them without seeing the gold and be scored.
+
+2026-11-02, the agent (Claude, in harness) as the judge, oracle + deferred runs, 62
+questions: **no false `same`**; 6 of 45 true links answered `different`/`unsure`, each
+with one cause, all fixed in this change: a Russian case form (`Иваном Петровым`) read as
+a different spelling under the transliteration hint; `Жуан` / `João` (one name written by
+sound) held to the "relative with the same surname" bar by the shared-word hint; and an
+entity already joined by `identity_of` shown with its own facts only, while the
+identifying fact sat on its twin. After the fixes, 65 of 65 agreed with the gold. The
+second pass is not blind (the first pass's gold had been seen), so it shows the fixes
+address the misses, not an unbiased accuracy.
+
 ## Measured
+
+### 2026-11-02 — the nightly dedup blocks on names too
+
+The nightly dedup pass proposed a pair only when the two entities' name embeddings cleared
+cosine 0.92, the signal `common/name-key.ts` measures unable to separate a namesake from a
+transliteration. It now runs the same string scans as the inline resolver
+(`entity-candidates.service.ts`) for every seed, ahead of the cosine. And a word or name
+part carried by two entities already joined by `identity_of` counts as one identity, so a
+surname the pass has unified (`Alexander Volkov` = `Александр Волков`) still blocks the
+next `Sasha Volkov`.
+
+|                            | pairwise P | pairwise R | pairwise F1 | B³ F1 | judge calls | nights |
+| -------------------------- | ---------- | ---------- | ----------- | ----- | ----------- | ------ |
+| deferred, cosine-only pass | 100%       | 41.3%      | 58.5%       | 80.7% | 3           | 1      |
+| **deferred, this change**  | **100%**   | **97.8%**  | **98.9%**   | 99.1% | 25          | 3      |
+
+A keyless or harness install now reaches what a perfect judge reaches at ingest (oracle
+below: 97.8% recall; 40 calls with this change, one more candidate counted as one identity), in three nights. The stub embedder makes the cosine-only
+row a floor: with bge-m3 the old pass would find some cross-script pairs by meaning, never
+nicknames, initials or a namesake-free surname.
 
 ### 2026-11-02 — multi-pass candidate generation (main + this change)
 

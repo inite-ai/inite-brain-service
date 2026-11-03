@@ -71,7 +71,9 @@ function similarityLine(ctx: JudgeContext): string {
       `is "different". And a residual spelling difference can itself mark a different ` +
       `person — a surname that differs by an ending is often a relative or the other ` +
       `gender — so when the names are NOT identical after transliteration, require at ` +
-      `least one fact in common beyond the employer before answering "same".`
+      `least one fact in common beyond the employer before answering "same". A grammatical ` +
+      `case form of a name ("Иваном Петровым", "Марией Петровой" for "Иван Петров", "Мария ` +
+      `Петрова") is the same name, not a residual difference.`
     );
   }
   if (ctx.similarity === 'same-name') {
@@ -117,12 +119,15 @@ function similarityLine(ctx: JudgeContext): string {
     // here and the facts decide everything.
     return (
       `\n\nThe two names share a word (once written in one script) that no other known ` +
-      `entity carries; their other words differ. That is how a nickname or short form of a ` +
-      `given name looks ("Bob" / "Robert", "Sasha" / "Alexander") — and also how a relative ` +
-      `or another person with the same surname looks. Answer "same" only when the facts ` +
-      `agree on something that identifies the person or organisation (the same role at the ` +
-      `same employer, the same city and occupation, the same date of birth or email) and ` +
-      `nothing contradicts; otherwise "different".`
+      `entity carries; their other words differ. First decide whether the differing words ` +
+      `are themselves one name: a nickname or short form ("Bob" / "Robert", "Sasha" / ` +
+      `"Alexander"), or the same given name written by sound in another script ("Жуан" / ` +
+      `"João"). If they are, the names are one name — answer "same" when the facts are ` +
+      `consistent and at least one agrees. If they are not (two different given names), ` +
+      `this is how a relative or another person with the same surname looks: answer "same" ` +
+      `only when the facts agree on something that identifies the person or organisation ` +
+      `(the same role at the same employer, the same city and occupation, the same date of ` +
+      `birth or email). Anything contradicting is "different".`
     );
   }
   if (ctx.similarity === 'initials') {
@@ -255,11 +260,24 @@ export class EntityJudgeService {
         : fence.userId
           ? 'AND (userId IS NONE OR userId = $fenceUser)'
           : 'AND userId IS NONE';
-    const [rows, edges] = await db.query<[R[], E[]]>(
-      // confidence must be in the projection — SurrealDB 3.x requires the
-      // ORDER BY idiom to appear in the SELECT (else "Missing order idiom").
-      `SELECT predicate, object, confidence FROM knowledge_fact
-         WHERE entityId = $eid
+    // An entity already joined to another by `identity_of` (the nightly
+    // dedup links duplicates, it does not delete them) is judged on the
+    // facts of both: "Александр Волков" holding only `lives_in: Warsaw` was
+    // compared with "Sasha Volkov, CTO at Northwind Bank" while the CTO
+    // fact sat on the "Alexander Volkov" it is identical to — and the
+    // judge, reading half the evidence, found nothing in common
+    // (eval:entity-resolution, judged blind, 2026-11-02). One hop: the
+    // pass links pairs, and the pair in front of the judge is one hop.
+    const [, rows, edges] = await db.query<[unknown, R[], E[]]>(
+      `LET $ids = array::union([$eid], array::union(
+         (SELECT VALUE out FROM knowledge_edge WHERE in = $eid AND kind = 'identity_of'),
+         (SELECT VALUE in FROM knowledge_edge WHERE out = $eid AND kind = 'identity_of')
+       ));
+       ` +
+        // confidence must be in the projection — SurrealDB 3.x requires the
+        // ORDER BY idiom to appear in the SELECT (else "Missing order idiom").
+        `SELECT predicate, object, confidence FROM knowledge_fact
+         WHERE entityId IN $ids
            AND status = 'active'
            AND retractedAt IS NONE
            ${gate}
@@ -270,10 +288,11 @@ export class EntityJudgeService {
          LIMIT 5;`,
       { eid, ...(fence?.userId ? { fenceUser: fence.userId } : {}) },
     );
-    const lines = ((rows as R[]) ?? []).map((f) => `- ${f.predicate}: ${f.object}`);
-    for (const e of (edges as E[]) ?? []) if (e.other) lines.push(`- ${e.kind}: ${e.other}`);
-    if (lines.length === 0) return '(no facts)';
-    return lines.join('\n');
+    // A Set: the two halves of one identity often hold the same fact.
+    const lines = new Set(((rows as R[]) ?? []).map((f) => `- ${f.predicate}: ${f.object}`));
+    for (const e of (edges as E[]) ?? []) if (e.other) lines.add(`- ${e.kind}: ${e.other}`);
+    if (lines.size === 0) return '(no facts)';
+    return [...lines].join('\n');
   }
 
   /**

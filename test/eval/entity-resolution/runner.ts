@@ -15,14 +15,21 @@
  *             candidate the ladder hands it: the ceiling a perfect judge
  *             reaches, i.e. how far candidate generation lets it go. It
  *             never sees a pair the ladder did not surface.
+ *   - deferred no judge at ingest (as `off`), then the nightly dedup pass
+ *             (DreamsDedupService) with the gold-label judge, run until it
+ *             links nothing new: where a keyless or harness install ends
+ *             up, since there the connected agent judges the nightly pairs
+ *             and nothing at ingest. A mention whose entity the pass
+ *             linked to another is scored on the linked identity, rung
+ *             `dream`.
  *
  * Embeddings are the e2e StubEmbedder (deterministic, meaningless as
  * similarity), so the embedding scan finds nothing real; the transliterated
  * key scan, which is string-based, runs as in production.
  *
- * Run: SURREALDB_URL=ws://… pnpm eval:entity-resolution [--judge=off|oracle] [--json]
+ * Run: SURREALDB_URL=ws://… pnpm eval:entity-resolution [--judge=off|oracle|deferred] [--json]
  */
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
@@ -34,10 +41,12 @@ import { ExtractorService } from '../../../src/ai/extractor.service';
 import { LocalCrossEncoderProvider } from '../../../src/ai/cross-encoder/local-cross-encoder.provider';
 import {
   EntityJudgeService,
+  entityJudgeUserContent,
   type EntityVerdict,
   type JudgeContext,
 } from '../../../src/ai/entity-judge.service';
 import { SurrealService } from '../../../src/db/surreal.service';
+import { DreamsDedupService } from '../../../src/dreams/dedup.service';
 import { TenantRegistryService } from '../../../src/auth/tenant-registry.service';
 import { EntityUpsertService } from '../../../src/ingest/entity-upsert.service';
 import { FactIngestService } from '../../../src/ingest/fact-ingest.service';
@@ -56,20 +65,25 @@ interface DatasetMention {
   facts: string[];
 }
 
-type JudgeMode = 'off' | 'oracle';
+type JudgeMode = 'off' | 'oracle' | 'deferred';
+const MODES: JudgeMode[] = ['off', 'oracle', 'deferred'];
 
 /**
  * The judge for the battery: unavailable (`off`), or answering from the gold
- * labels (`oracle`). The ladder calls fetchTopFacts for a candidate and then
- * judge() for it, in that order, so the candidate in question is the last
- * one fetched.
+ * labels (`oracle`; `deferred` once `dreaming`). The ladder calls
+ * fetchTopFacts for a candidate and then judge() for it, in that order, so
+ * the candidate in question is the last one fetched; the dedup pass fetches
+ * both entities of a pair, so the pair is the last two.
  */
 class BatteryJudge extends EntityJudgeService {
   current = '';
   /** Every verdict asked for — the judge's cost, the price of candidate generation. */
   calls = 0;
+  /** `deferred`: ingest is over and the nightly pass is judging. */
+  dreaming = false;
   readonly entityClusters = new Map<string, Set<string>>();
   private lastFetched = '';
+  private fetchedBefore = '';
 
   constructor(
     config: ConfigService,
@@ -79,7 +93,7 @@ class BatteryJudge extends EntityJudgeService {
   }
 
   override isAvailable(): boolean {
-    return this.mode === 'oracle';
+    return this.mode === 'oracle' || (this.mode === 'deferred' && this.dreaming);
   }
 
   override async fetchTopFacts(
@@ -87,14 +101,31 @@ class BatteryJudge extends EntityJudgeService {
     entityId: string,
     fence?: { userId: string | undefined },
   ): Promise<string> {
+    this.fetchedBefore = this.lastFetched;
     this.lastFetched = entityId;
     return super.fetchTopFacts(db, entityId, fence);
   }
 
-  override judge(_left: string, _right: string, _ctx: JudgeContext = {}): Promise<EntityVerdict> {
+  override judge(left: string, right: string, ctx: JudgeContext = {}): Promise<EntityVerdict> {
     this.calls++;
     const holds = this.entityClusters.get(this.lastFetched);
-    return Promise.resolve(holds?.has(this.current) ? 'same' : 'different');
+    let v: EntityVerdict;
+    if (!this.dreaming) v = holds?.has(this.current) ? 'same' : 'different';
+    else {
+      const other = this.entityClusters.get(this.fetchedBefore);
+      v = [...(holds ?? [])].some((c) => other?.has(c)) ? 'same' : 'different';
+    }
+    // ER_JUDGE_DUMP=<file>: every question the judge was asked, as the real
+    // judge would read it, with the gold verdict — so an agent can answer
+    // them blind and be scored (README § Judging for real).
+    if (process.env.ER_JUDGE_DUMP) {
+      const prompt = entityJudgeUserContent(left, right, ctx);
+      appendFileSync(
+        process.env.ER_JUDGE_DUMP,
+        `${JSON.stringify({ mode: this.mode, prompt, gold: v })}\n`,
+      );
+    }
+    return Promise.resolve(v);
   }
 }
 
@@ -201,10 +232,46 @@ async function runMode(
         } as Parameters<FactIngestService['ingestFact']>[1]);
       }
     }
+    if (mode === 'deferred' && judge) {
+      judge.dreaming = true;
+      await dream(app.get(DreamsDedupService), surreal, { companyId, assignments });
+    }
     return { ...score(mentions, assignments), judgeCalls: judge?.calls ?? 0 };
   } finally {
     await app.close();
     await dropTenant(companyId);
+  }
+}
+
+/**
+ * The nightly dedup pass, night after night until one links nothing new
+ * (its own memo keeps a refused pair from being asked again), and each
+ * mention re-pointed at the identity its entity was linked into.
+ */
+async function dream(
+  dedup: DreamsDedupService,
+  surreal: SurrealService,
+  { companyId, assignments }: { companyId: string; assignments: Assignment[] },
+): Promise<void> {
+  const parent = new Map<string, string>();
+  const root = (id: string): string => {
+    const p = parent.get(id);
+    return p === undefined || p === id ? id : root(p);
+  };
+  for (let night = 0; night < 10; night++) {
+    const run = await surreal.withCompany(companyId, (db) => dedup.run(db));
+    process.stderr.write(
+      `[er] deferred night ${night + 1}: ${run.llmJudgements} judged, ${run.identityLinksCreated} linked\n`,
+    );
+    for (const l of run.identityLinks) {
+      const [a, b] = [root(l.survivorId), root(l.loserId)];
+      if (a !== b) parent.set(b, a);
+    }
+    if (run.identityLinksCreated === 0) break;
+  }
+  for (const a of assignments) {
+    const linked = root(a.entityId);
+    if (linked !== a.entityId) Object.assign(a, { entityId: linked, rung: 'dream' });
   }
 }
 
@@ -244,7 +311,7 @@ async function main(): Promise<void> {
   };
   const { _doc, ...cardinality } = data.cardinality;
   const arg = process.argv.find((a) => a.startsWith('--judge='))?.slice('--judge='.length);
-  const modes: JudgeMode[] = arg === 'off' || arg === 'oracle' ? [arg] : ['off', 'oracle'];
+  const modes: JudgeMode[] = MODES.includes(arg as JudgeMode) ? [arg as JudgeMode] : MODES;
   const results: Record<string, Score & { judgeCalls: number }> = {};
   for (const mode of modes) results[mode] = await runMode(mode, data.mentions, cardinality);
   if (process.argv.includes('--json')) console.log(JSON.stringify(results, null, 2));

@@ -103,6 +103,7 @@ export class DreamsWorkService {
           `Pair p${pairs.length}:\n` +
             entityJudgeUserContent(evidence.a, evidence.b, {
               cosine: cand.cosine,
+              ...(cand.similarity ? { similarity: cand.similarity } : {}),
               names: { a: names.get(cand.aId), b: names.get(cand.bId) },
             }),
         );

@@ -17,6 +17,7 @@
  */
 import { EntityJudgeService } from '../src/ai/entity-judge.service';
 import { nameKey } from '../src/common/name-key';
+import { EntityCandidateService } from '../src/ingest/entity-candidates.service';
 import { EntityResolverService } from '../src/ingest/entity-resolver.service';
 import { EntityUpsertService } from '../src/ingest/entity-upsert.service';
 
@@ -104,7 +105,11 @@ function makeLadder(rows: Row[], cfg: Record<string, string> = {}) {
   } as never;
   const embedder = { embed: jest.fn().mockResolvedValue([0.1, 0.2, 0.3]) } as never;
   const judge = stubJudge(rows);
-  const resolver = new EntityResolverService(config, embedder, judge);
+  const resolver = new EntityResolverService(
+    config,
+    judge,
+    new EntityCandidateService(config, embedder),
+  );
   const upsert = new EntityUpsertService(resolver);
   const db = fakeDb(rows);
   const steps: string[] = [];
@@ -277,7 +282,11 @@ describe('EntityResolverService.confirmSameName', () => {
       judge: jest.fn(),
     };
     for (const v of verdicts) judge.judge.mockResolvedValueOnce(v);
-    const svc = new EntityResolverService(config, { embed: jest.fn() } as never, judge as never);
+    const svc = new EntityResolverService(
+      config,
+      judge as never,
+      new EntityCandidateService(config, { embed: jest.fn() } as never),
+    );
     return { svc, judge };
   }
   const C = [{ entityId: 'knowledge_entity:a' }, { entityId: 'knowledge_entity:b' }];

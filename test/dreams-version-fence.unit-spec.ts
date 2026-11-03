@@ -67,6 +67,7 @@ describe('dreams legs stay inside the tenant live world (W2)', () => {
     const svc = new DreamsDedupService(
       config({ DREAMS_DEDUP_ENABLED: '1', OPENAI_API_KEY: 'sk' }),
       { isAvailable: () => true } as unknown as EntityJudgeService,
+      { nameScans: () => [] } as never,
     );
     await svc.run(db, 'wd-v3');
     const seed = queries.find((q) => q.sql.includes('FROM knowledge_entity'));
