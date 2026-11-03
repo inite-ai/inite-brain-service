@@ -13,6 +13,7 @@ import {
   processorBrokerEnabled,
 } from '../common/evidence-flags';
 import type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
+import { carriesWords } from '../common/evidence-taxonomy';
 import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { JobClaimService } from '../jobs/job-claim.service';
@@ -189,38 +190,39 @@ export class EvidenceProcessorBrokerService {
   }
 
   /**
-   * Evidence → document bridge (EVIDENCE_DOCUMENT_BRIDGE): every
-   * asset-level `text` representation a `document` asset just gained —
-   * or already had (`replayed`: the operator sweep IS the backfill) —
-   * gets one `evidence_document_bridge` job, deduped per (asset,
-   * representation). The documents module owns the handler; this module
-   * cannot import it, so the queue is the seam. Never fails a dispatch:
-   * a queue hiccup is logged, the runs already happened.
+   * Evidence → document bridge (EVIDENCE_DOCUMENT_BRIDGE): every run that
+   * read words off an asset — a PDF's text layer, an image's OCR — whether
+   * it just succeeded or was `replayed` (the operator sweep IS the
+   * backfill), gets one `evidence_document_bridge` job, keyed on the run's
+   * first representation; the bridge reads the run's whole output, so an
+   * OCR page of many regions becomes one document. The documents module
+   * owns the handler; this module cannot import it, so the queue is the
+   * seam. Never fails a dispatch: a queue hiccup is logged, the runs
+   * already happened.
    */
   private async enqueueDocumentBridge(
     companyId: string,
     p: { asset: AssetRow; packId: string; runs: ExecuteRunResult[] },
   ): Promise<void> {
     if (!this.claim || !evidenceDocumentBridgeEnabled()) return;
-    if (p.asset.modality !== 'document') return;
     const assetId = String(p.asset.id);
     for (const run of p.runs) {
-      if (run.capability !== 'text') continue;
+      if (!carriesWords(run.capability)) continue;
       if (run.status !== 'succeeded' && run.status !== 'replayed') continue;
-      for (const representationId of run.representationIds) {
-        try {
-          await this.claim.enqueue({
-            jobType: 'evidence_document_bridge',
-            companyId,
-            triggeredBy: 'manual',
-            dedupKey: `evbridge_${idTailOf(assetId)}_${idTailOf(representationId)}`,
-            payload: { assetId, representationId, packId: p.packId },
-          });
-        } catch (err) {
-          this.logger.warn(
-            `evidence bridge enqueue failed asset=${assetId} rep=${representationId}: ${errorMessage(err)}`,
-          );
-        }
+      const representationId = run.representationIds[0];
+      if (representationId === undefined) continue;
+      try {
+        await this.claim.enqueue({
+          jobType: 'evidence_document_bridge',
+          companyId,
+          triggeredBy: 'manual',
+          dedupKey: `evbridge_${idTailOf(assetId)}_${idTailOf(representationId)}`,
+          payload: { assetId, representationId, packId: p.packId },
+        });
+      } catch (err) {
+        this.logger.warn(
+          `evidence bridge enqueue failed asset=${assetId} rep=${representationId}: ${errorMessage(err)}`,
+        );
       }
     }
   }

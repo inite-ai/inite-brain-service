@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { evidenceDocumentBridgeEnabled } from '../common/evidence-flags';
+import { carriesWords } from '../common/evidence-taxonomy';
 import { SurrealService, queryFirst } from '../db/surreal.service';
 import { EvidenceStoreService } from '../evidence/evidence-store.service';
 import { idTailOf } from '../ingest/ingest-utils';
@@ -25,6 +26,8 @@ interface RepresentationRow {
   subjectKind: string;
   content?: string | null;
   supersededBy?: unknown;
+  /** The run that produced it (0121); NONE on rows written before runs existed. */
+  producedByRun?: unknown;
 }
 
 interface AssetRow {
@@ -152,16 +155,23 @@ export class EvidenceDocumentBridgeService {
 
     const rep = await this.loadRepresentation(companyId, p.representationId);
     if (!rep) return { ...zero, skipped: 'representation_missing' };
-    if (rep.kind !== 'text' || rep.subjectKind !== 'asset') {
-      return { ...zero, skipped: 'not_asset_text' };
-    }
+    if (!carriesWords(rep.kind)) return { ...zero, skipped: 'not_words' };
     if (rep.supersededBy != null) return { ...zero, skipped: 'superseded' };
-    const text = typeof rep.content === 'string' ? rep.content.trim() : '';
+    // One document per run: an OCR run writes one representation per text
+    // region, in reading order (processing_run.outputs), and the page is
+    // their sequence; a PDF's text run writes one. A row older than runs
+    // stands alone.
+    const text = (
+      rep.producedByRun != null
+        ? await this.runText(companyId, rep.producedByRun)
+        : typeof rep.content === 'string'
+          ? rep.content
+          : ''
+    ).trim();
     if (text.length === 0) return { ...zero, skipped: 'empty_text' };
 
     const asset = (await this.store.getAsset(companyId, p.assetId)) as AssetRow | null;
     if (!asset) return { ...zero, skipped: 'asset_missing' };
-    if (asset.modality !== 'document') return { ...zero, skipped: 'not_document_modality' };
     if (asset.availability === 'gone') return { ...zero, skipped: 'asset_gone' };
 
     const parts = splitForDocuments(text, DOC_TEXT_HARD_CAP);
@@ -210,6 +220,23 @@ export class EvidenceDocumentBridgeService {
     return result;
   }
 
+  /**
+   * The words of one processing run: its word-bearing, current outputs in
+   * the order the run wrote them, one paragraph each.
+   */
+  private async runText(companyId: string, run: unknown): Promise<string> {
+    return this.surreal.withCompany(companyId, async (db) => {
+      const [rows] = await db.query<
+        [Array<{ kind?: string; content?: unknown; supersededBy?: unknown }>]
+      >(`SELECT VALUE outputs.{kind, content, supersededBy} FROM ONLY $run`, { run });
+      return (rows ?? [])
+        .filter((r) => carriesWords(r.kind ?? '') && r.supersededBy == null)
+        .map((r) => (typeof r.content === 'string' ? r.content.trim() : ''))
+        .filter((t) => t.length > 0)
+        .join('\n\n');
+    });
+  }
+
   private async loadRepresentation(
     companyId: string,
     representationId: string,
@@ -217,7 +244,7 @@ export class EvidenceDocumentBridgeService {
     return this.surreal.withCompany(companyId, async (db) => {
       const row = await queryFirst<RepresentationRow>(
         db,
-        `SELECT kind, subjectKind, content, supersededBy FROM type::record('derived_representation', $tail) LIMIT 1`,
+        `SELECT kind, subjectKind, content, supersededBy, producedByRun FROM type::record('derived_representation', $tail) LIMIT 1`,
         { tail: idTailOf(representationId) },
       );
       return row ?? null;
