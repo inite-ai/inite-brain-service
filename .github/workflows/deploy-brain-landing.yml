@@ -204,8 +204,8 @@ jobs:
           else
             echo "[deploy] pulling image..."
             docker-compose pull ${{ env.PROJECT_NAME }}
-            echo "[deploy] up -d"
-            docker-compose up -d --remove-orphans
+            echo "[deploy] up -d (no --remove-orphans: on the shared host it removes every container of a colliding project; this file defines one service)"
+            docker-compose up -d
           fi
 
           sleep 20
