@@ -4,6 +4,7 @@ import { CompactionModule } from '../compaction/compaction.module';
 import { CommunityModule } from '../communities/community.module';
 import { AuthModule } from '../auth/auth.module';
 import { EpisodesModule } from '../episodes/episodes.module';
+import { IngestCoreModule } from '../ingest/ingest-core.module';
 import { DreamsService } from './dreams.service';
 import { DreamsController } from './dreams.controller';
 import { DreamsDedupService } from './dedup.service';
@@ -26,7 +27,15 @@ import { FactResolutionService } from './fact-resolution.service';
  * none of the justification).
  */
 @Module({
-  imports: [ConfigModule, CompactionModule, CommunityModule, AuthModule, EpisodesModule],
+  imports: [
+    ConfigModule,
+    CompactionModule,
+    CommunityModule,
+    AuthModule,
+    EpisodesModule,
+    // The name blocking the nightly dedup shares with the inline resolver.
+    IngestCoreModule,
+  ],
   controllers: [DreamsController],
   providers: [
     DreamsService,

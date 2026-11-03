@@ -6,7 +6,7 @@ keeps one entity per real thing and two for two things. Mechanical and free: the
 real ladder and the real fact write path against a real SurrealDB, no paid model.
 
 ```bash
-SURREALDB_URL=ws://127.0.0.1:8000 pnpm eval:entity-resolution            # both modes
+SURREALDB_URL=ws://127.0.0.1:8000 pnpm eval:entity-resolution            # all three modes
 SURREALDB_URL=… pnpm eval:entity-resolution --judge=off --json          # one mode, JSON
 ```
 
@@ -38,6 +38,11 @@ judged against them.
 - `oracle` — the judge answers from the gold labels, for whichever candidate the ladder
   hands it: the ceiling a perfect judge reaches. It never sees a pair the ladder did not
   surface, so this measures candidate generation.
+- `deferred` — no judge at ingest (as `off`), then the nightly dedup pass
+  (`DreamsDedupService`) with the gold-label judge, night after night until one links
+  nothing new. That is where a keyless or harness install ends up: there the connected
+  agent judges the nightly pairs and nothing at ingest. A mention whose entity the pass
+  linked to another is scored on the linked identity (rung `dream`, counted as judged).
 
 Embeddings are the e2e `StubEmbedder`, so the embedding scan finds nothing real and the
 oracle ceiling is a lower bound for a bge-m3 deployment; the transliterated-key scan is
@@ -52,6 +57,26 @@ ladder / by the judge / missed; judge calls (the price of candidate generation);
 `test/entity-resolution-score.unit-spec.ts`).
 
 ## Measured
+
+### 2026-11-02 — the nightly dedup blocks on names too
+
+The nightly dedup pass proposed a pair only when the two entities' name embeddings cleared
+cosine 0.92, the signal `common/name-key.ts` measures unable to separate a namesake from a
+transliteration. It now runs the same string scans as the inline resolver
+(`entity-candidates.service.ts`) for every seed, ahead of the cosine. And a word or name
+part carried by two entities already joined by `identity_of` counts as one identity, so a
+surname the pass has unified (`Alexander Volkov` = `Александр Волков`) still blocks the
+next `Sasha Volkov`.
+
+|                            | pairwise P | pairwise R | pairwise F1 | B³ F1 | judge calls | nights |
+| -------------------------- | ---------- | ---------- | ----------- | ----- | ----------- | ------ |
+| deferred, cosine-only pass | 100%       | 41.3%      | 58.5%       | 80.7% | 3           | 1      |
+| **deferred, this change**  | **100%**   | **97.8%**  | **98.9%**   | 99.1% | 25          | 3      |
+
+A keyless or harness install now reaches what a perfect judge reaches at ingest (oracle
+below: 97.8% recall, 39 calls), in three nights. The stub embedder makes the cosine-only
+row a floor: with bge-m3 the old pass would find some cross-script pairs by meaning, never
+nicknames, initials or a namesake-free surname.
 
 ### 2026-11-02 — multi-pass candidate generation (main + this change)
 
