@@ -53,6 +53,7 @@ import {
   type PerClassCalibration,
 } from './focus-signal';
 import { buildLexMatchLeg } from '../search/internals/lex-leg';
+import { stemLangOf } from '../search/internals/stem-lang';
 import { resolveDateContext } from './evidence-union';
 
 /**
@@ -736,7 +737,13 @@ export class L3EscalationService {
       query: input.dto.query,
       limit: L3_DIRECT_ANCHOR_TOPK,
       // Recall-first: a turn holding ANY of the question's words anchors.
-      lex: buildLexMatchLeg({ fields: ['text'], topic: input.dto.query, mode: 'or_terms' }),
+      lex: buildLexMatchLeg({
+        fields: ['text'],
+        topic: input.dto.query,
+        mode: 'or_terms',
+        // The turn's words stemmed in its own language (0184).
+        stem: { field: 'textStem', lang: stemLangOf(input.dto.query, input.dto.queryLang) },
+      }),
       includePii: fences.includePii,
       ...(fences.userId !== undefined ? { userId: fences.userId } : {}),
     });

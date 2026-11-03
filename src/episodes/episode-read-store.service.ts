@@ -214,7 +214,7 @@ export class EpisodeReadStoreService {
      * caller that must FIND the turn (an L3 anchor) passes the
      * recall-first disjunction.
      */
-    lex?: { where: string; score: string; params: Record<string, string> };
+    lex?: { where: string; score: string; params: Record<string, string>; prelude?: string };
     db?: EpisodeDb;
   }): Promise<Array<EpisodeQuoteRow & { score?: number }>> {
     const speakerGate = opts.speakerSuffix
@@ -230,8 +230,10 @@ export class EpisodeReadStoreService {
     };
     return this.run(opts.companyId, opts.db, async (db) => {
       const scope = this.scopeGate(opts.userId);
-      const [rows] = await db.query<[Array<EpisodeQuoteRow & { score?: number }>]>(
-        `SELECT id, conversationId, speaker, text, occurredAt, piiClass, userId,
+      // A stemmed leg runs its LETs first; the SELECT is the last result.
+      const results = await db.query<unknown[]>(
+        `${lex.prelude ?? ''}
+         SELECT id, conversationId, speaker, text, occurredAt, piiClass, userId,
                 ${lex.score} AS score
            FROM episode
           WHERE ${lex.where} ${this.piiGate(opts.includePii)} ${this.userGate(opts.userId)} ${scope.clause} ${speakerGate}
@@ -245,7 +247,7 @@ export class EpisodeReadStoreService {
           ...speakerParams,
         },
       );
-      return rows ?? [];
+      return (results.at(-1) as Array<EpisodeQuoteRow & { score?: number }> | undefined) ?? [];
     });
   }
 
