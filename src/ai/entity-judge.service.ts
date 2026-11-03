@@ -35,7 +35,8 @@ export interface JudgeContext {
    * similarity. Named so the prompt does not call a string distance a
    * cosine.
    */
-  similarity?: 'embedding' | 'transliteration' | 'name-part' | 'same-name';
+  similarity?:
+    'embedding' | 'transliteration' | 'name-part' | 'same-name' | 'shared-word' | 'initials';
   /** The two surface names, when the caller has them. */
   names?: { a?: string | undefined; b?: string | undefined };
   /**
@@ -105,6 +106,31 @@ function similarityLine(ctx: JudgeContext): string {
       `short name, so answer "same" unless a fact CONTRADICTS it — a different employer, ` +
       `role at the same time, date of birth or email is "different". Few or unrelated ` +
       `facts are not a contradiction.`
+    );
+  }
+  if (ctx.similarity === 'shared-word') {
+    // The names share a word — once written in one script — that no other
+    // known entity carries, usually the surname; the other words differ.
+    // A nickname ("Bob" for "Robert", "Sasha" for "Alexander"), a short or
+    // sound-rendered given name explains that; so does a relative or a
+    // stranger with the same surname, which is why the name decides nothing
+    // here and the facts decide everything.
+    return (
+      `\n\nThe two names share a word (once written in one script) that no other known ` +
+      `entity carries; their other words differ. That is how a nickname or short form of a ` +
+      `given name looks ("Bob" / "Robert", "Sasha" / "Alexander") — and also how a relative ` +
+      `or another person with the same surname looks. Answer "same" only when the facts ` +
+      `agree on something that identifies the person or organisation (the same role at the ` +
+      `same employer, the same city and occupation, the same date of birth or email) and ` +
+      `nothing contradicts; otherwise "different".`
+    );
+  }
+  if (ctx.similarity === 'initials') {
+    return (
+      `\n\nOne name is the initials of the other (an acronym and its expansion). Answer ` +
+      `"same" when the facts are consistent with one organisation or person; an acronym is ` +
+      `also shared by unrelated names, so a contradicting fact (a different industry, ` +
+      `headquarters or founder) is "different".`
     );
   }
   return `\n\nCosine name-similarity: ${ctx.cosine.toFixed(3)}.`;

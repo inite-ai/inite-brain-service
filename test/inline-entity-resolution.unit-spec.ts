@@ -10,6 +10,31 @@ import { EntityResolverService } from '../src/ingest/entity-resolver.service';
 
 type Cfg = Record<string, string>;
 
+/**
+ * The candidate scans, told apart by their SQL: the key, token-subset,
+ * initials and shared-word scans run first and miss unless a test queues a
+ * result, so every case still reaches the scan it was written to exercise.
+ * Queue a result (or an Error) per scan; `ran(db)` lists the scans in the
+ * order they ran.
+ */
+type Scan = 'key' | 'part' | 'initials' | 'word' | 'embedding';
+const scanOf = (sql: string): Scan =>
+  sql.includes('levenshtein')
+    ? 'key'
+    : sql.includes('array::join')
+      ? 'initials'
+      : sql.includes('CONTAINS $word')
+        ? 'word'
+        : sql.includes('vector::similarity')
+          ? 'embedding'
+          : 'part';
+const ran = (db: { query: jest.Mock }): Scan[] =>
+  db.query.mock.calls.map((c) => scanOf(String(c[0])));
+const sqlFor = (db: { query: jest.Mock }, scan: Scan, nth = 0): string =>
+  String(db.query.mock.calls.filter((c) => scanOf(String(c[0])) === scan)[nth]![0]);
+const paramsFor = (db: { query: jest.Mock }, scan: Scan, nth = 0): Record<string, unknown> =>
+  db.query.mock.calls.filter((c) => scanOf(String(c[0])) === scan)[nth]![1];
+
 function makeService(
   cfg: Cfg,
   judgeOverrides: Partial<{
@@ -20,6 +45,7 @@ function makeService(
 ): {
   svc: EntityResolverService;
   db: { query: jest.Mock };
+  scans: Record<Scan, unknown[]>;
   judge: { isAvailable: jest.Mock; fetchTopFacts: jest.Mock; judge: jest.Mock };
 } {
   const config = {
@@ -32,15 +58,20 @@ function makeService(
     judge: judgeOverrides.judge ?? jest.fn().mockResolvedValue('same'),
   };
   const svc = new EntityResolverService(config, embedder, judge as any);
-  const db = { query: jest.fn() };
-  // The transliterated-key neighbour scan and the token-subset scan run
-  // FIRST and are misses unless a test says otherwise, so every case below
-  // still reaches the embedding scan it was written to exercise.
-  // `sqlOf(db, 0)` is the key scan, `sqlOf(db, 1)` the token scan; `EMB`
-  // names the embedding call after them.
-  db.query.mockResolvedValueOnce([[]]);
-  db.query.mockResolvedValueOnce([[]]);
-  return { svc, db, judge };
+  const scans: Record<Scan, unknown[]> = {
+    key: [],
+    part: [],
+    initials: [],
+    word: [],
+    embedding: [],
+  };
+  const db = {
+    query: jest.fn((sql: string) => {
+      const next = scans[scanOf(String(sql))].shift() ?? [[]];
+      return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
+    }),
+  };
+  return { svc, db, scans, judge };
 }
 
 const ENABLED: Cfg = {
@@ -74,26 +105,32 @@ describe('EntityResolverService.resolveByName', () => {
   });
 
   it('returns null when no candidate clears the cosine floor', async () => {
-    const { svc, db, judge } = makeService(ENABLED);
-    db.query.mockResolvedValueOnce(candidate(0.7));
+    const { svc, db, scans, judge } = makeService(ENABLED);
+    scans.embedding.push(candidate(0.7));
     expect(
       await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] }),
     ).toBeNull();
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
-  it('asks the scan for the SAME type only — a different type is never a candidate', async () => {
-    const { svc, db } = makeService(ENABLED);
-    db.query.mockResolvedValueOnce(candidate(0.97));
-    await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] });
-    const [sql, params] = db.query.mock.calls[2]!;
-    expect(String(sql)).toContain('type = $type');
-    expect(params).toMatchObject({ type: 'customer' });
+  it('asks every scan for the SAME type only — a different type is never a candidate', async () => {
+    const { svc, db, scans } = makeService(ENABLED);
+    scans.embedding.push(candidate(0.97));
+    await svc.resolveByName({
+      db: db as any,
+      name: 'Acme Labs',
+      type: 'customer',
+      incomingFacts: [],
+    });
+    for (const call of db.query.mock.calls) {
+      expect(String(call[0])).toContain('type = $type');
+      expect(call[1]).toMatchObject({ type: 'customer' });
+    }
   });
 
   it('reuses the existing entity when the judge says "same"', async () => {
-    const { svc, db, judge } = makeService(ENABLED);
-    db.query.mockResolvedValueOnce(candidate(0.95));
+    const { svc, db, scans, judge } = makeService(ENABLED);
+    scans.embedding.push(candidate(0.95));
     judge.judge.mockResolvedValue('same');
     const out = await svc.resolveByName({
       db: db as any,
@@ -119,8 +156,8 @@ describe('EntityResolverService.resolveByName', () => {
   it.each(['different', 'unsure'])(
     'creates new (null) when the judge says "%s"',
     async (verdict) => {
-      const { svc, db, judge } = makeService(ENABLED);
-      db.query.mockResolvedValueOnce(candidate(0.95));
+      const { svc, db, scans, judge } = makeService(ENABLED);
+      scans.embedding.push(candidate(0.95));
       judge.judge.mockResolvedValue(verdict);
       expect(
         await svc.resolveByName({
@@ -143,10 +180,6 @@ describe('EntityResolverService.resolveByName', () => {
 });
 
 describe('EntityResolverService name-candidate scan', () => {
-  const EMB = 2; // the embedding scan sits after the key-neighbour and token-subset scans
-  const sqlOf = (db: { query: jest.Mock }, call = EMB): string =>
-    String(db.query.mock.calls[call][0]);
-
   /**
    * The scan is over the ENTITIES' own name embeddings, not over
    * `name` facts. Measured on a live tenant on 2026-09-16: 33 entities,
@@ -155,13 +188,12 @@ describe('EntityResolverService name-candidate scan', () => {
    * empty set. The KNN leg over the fact index went with it.
    */
   it('scans knowledge_entity.embedding, never a name fact', async () => {
-    const { svc, db } = makeService(ENABLED);
-    db.query.mockResolvedValueOnce(candidate(0.95));
+    const { svc, db, scans } = makeService(ENABLED);
+    scans.embedding.push(candidate(0.95));
     await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] });
-    expect(db.query).toHaveBeenCalledTimes(3);
-    expect(sqlOf(db, 0)).toContain('levenshtein'); // the key scan, a miss
-    expect(sqlOf(db, 1)).toContain('string::starts_with'); // the token scan, a miss
-    const sql = sqlOf(db);
+    // A one-word name has no words to share, so no shared-word scan runs.
+    expect(ran(db)).toEqual(['key', 'part', 'initials', 'embedding']);
+    const sql = sqlFor(db, 'embedding');
     expect(sql).toContain('FROM knowledge_entity');
     expect(sql).toContain('vector::similarity::cosine(embedding, $q)');
     expect(sql).not.toContain('knowledge_fact');
@@ -170,38 +202,41 @@ describe('EntityResolverService name-candidate scan', () => {
   });
 
   it('gates on width so a row from another space cannot raise for the whole query', async () => {
-    const { svc, db } = makeService(ENABLED);
-    db.query.mockResolvedValueOnce(candidate(0.95));
+    const { svc, db, scans } = makeService(ENABLED);
+    scans.embedding.push(candidate(0.95));
     await svc.resolveByName({ db: db as any, name: 'Acme', type: 'customer', incomingFacts: [] });
-    expect(sqlOf(db)).toContain('array::len(embedding) = array::len($q)');
+    expect(sqlFor(db, 'embedding')).toContain('array::len(embedding) = array::len($q)');
   });
 
-  describe('what the candidate scan is allowed to hide from the judge', () => {
-    it('fences PRIVACY on the entity — the scan is over entities, so the fence reads plainly', async () => {
-      const { svc, db } = makeService(ENABLED);
-      db.query.mockResolvedValueOnce(candidate(0.95));
-      await svc.resolveByName({
-        db: db as any,
-        name: 'Acme',
-        type: 'customer',
-        incomingFacts: [],
-      });
-      const sql = sqlOf(db, EMB);
-      // knowledge_entity.userId means "private to one user". The fact-scan
-      // this replaced fenced knowledge_fact.userId — the SPEAKER — and on a
-      // per-user tenant excluded everything.
+  it('fences PRIVACY and merged-away entities on every scan', async () => {
+    const { svc, db, scans } = makeService(ENABLED);
+    scans.embedding.push(candidate(0.95));
+    await svc.resolveByName({
+      db: db as any,
+      name: 'Acme Labs',
+      type: 'customer',
+      incomingFacts: [],
+    });
+    expect(ran(db)).toEqual(['key', 'part', 'initials', 'word', 'word', 'embedding']);
+    // knowledge_entity.userId means "private to one user". The fact-scan
+    // the embedding scan replaced fenced knowledge_fact.userId — the
+    // SPEAKER — and on a per-user tenant excluded everything.
+    for (const call of db.query.mock.calls) {
+      const sql = String(call[0]);
       expect(sql).toContain('FROM knowledge_entity');
       expect(sql).toContain('userId IS NONE');
       expect(sql).toContain('mergedInto IS NONE');
-    });
+    }
+  });
 
+  describe('what the candidate scan is allowed to hide from the judge', () => {
     it('the DEFAULT floor lets a cross-script name pair reach the judge', async () => {
       // Measured on bge-m3: the same person written in two scripts scores
       // 0.695-0.865. The old 0.85 default admitted only the Latin/Cyrillic
       // end of that range, so Arabic, CJK and Devanagari spellings were
       // refused by a number before anything looked at their facts.
-      const { svc, db, judge } = makeService({ INGEST_INLINE_RESOLUTION_ENABLED: '1' });
-      db.query.mockResolvedValueOnce(candidate(0.695));
+      const { svc, db, scans, judge } = makeService({ INGEST_INLINE_RESOLUTION_ENABLED: '1' });
+      scans.embedding.push(candidate(0.695));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -216,8 +251,8 @@ describe('EntityResolverService name-candidate scan', () => {
     it('an unrelated name still never reaches the judge', async () => {
       // Different people who share nothing sit at 0.42-0.48; the floor is
       // below the true band, not below everything.
-      const { svc, db, judge } = makeService({ INGEST_INLINE_RESOLUTION_ENABLED: '1' });
-      db.query.mockResolvedValueOnce(candidate(0.48));
+      const { svc, db, scans, judge } = makeService({ INGEST_INLINE_RESOLUTION_ENABLED: '1' });
+      scans.embedding.push(candidate(0.48));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -233,13 +268,13 @@ describe('EntityResolverService name-candidate scan', () => {
       // "Ivan Petrov" ~ "Иван Сидоров" = 0.712, ABOVE four of the six true
       // cross-script pairs. No threshold separates them, which is the
       // whole reason the verdict is the judge's.
-      const { svc, db, judge } = makeService(
+      const { svc, db, scans, judge } = makeService(
         { INGEST_INLINE_RESOLUTION_ENABLED: '1' },
         {
           judge: jest.fn().mockResolvedValue('different'),
         },
       );
-      db.query.mockResolvedValueOnce(candidate(0.712));
+      scans.embedding.push(candidate(0.712));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -251,6 +286,7 @@ describe('EntityResolverService name-candidate scan', () => {
       expect(judge.judge).toHaveBeenCalledTimes(1);
     });
   });
+
   /**
    * The transliterated-key neighbour scan — candidate generation that a
    * string comparison can actually do. Measured on the Tier-0 corpus,
@@ -264,15 +300,11 @@ describe('EntityResolverService name-candidate scan', () => {
     const neighbour = (dist: number, matched: string) => [
       [{ entityId: 'knowledge_entity:k', dist, matched }],
     ];
-    const keyFirst = (cfg: Cfg = { INGEST_INLINE_RESOLUTION_ENABLED: '1' }) => {
-      const made = makeService(cfg);
-      made.db.query.mockReset(); // drop the default "key scan misses"
-      return made;
-    };
+    const ENABLED_ONLY: Cfg = { INGEST_INLINE_RESOLUTION_ENABLED: '1' };
 
-    it('runs BEFORE the embedding scan and spends no embedding on a hit', async () => {
-      const { svc, db, judge } = keyFirst();
-      db.query.mockResolvedValueOnce(neighbour(1, 'tomas brandt'));
+    it('runs FIRST and spends no other scan, nor an embedding, on a hit', async () => {
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.key.push(neighbour(1, 'tomas brandt'));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -281,9 +313,8 @@ describe('EntityResolverService name-candidate scan', () => {
           incomingFacts: [],
         }),
       ).toBe('knowledge_entity:k');
-      expect(db.query).toHaveBeenCalledTimes(1);
-      expect(sqlOf(db, 0)).toContain('string::distance::levenshtein');
-      expect(sqlOf(db, 0)).toContain('FROM knowledge_entity');
+      expect(ran(db)).toEqual(['key']);
+      expect(sqlFor(db, 'key')).toContain('string::distance::levenshtein');
       expect(judge.judge).toHaveBeenCalledTimes(1); // the judge still decides
       expect(judge.judge).toHaveBeenCalledWith(
         expect.anything(),
@@ -295,31 +326,24 @@ describe('EntityResolverService name-candidate scan', () => {
       );
     });
 
-    it('fences the scan on type, privacy and merged-away entities', async () => {
-      const { svc, db } = keyFirst();
-      db.query.mockResolvedValueOnce([[]]);
-      db.query.mockResolvedValueOnce([[]]); // the token scan, a miss
-      db.query.mockResolvedValueOnce(candidate(0.99));
+    it('keys the scan on the transliterated name', async () => {
+      const { svc, db, scans } = makeService(ENABLED_ONLY);
+      scans.embedding.push(candidate(0.99));
       await svc.resolveByName({
         db: db as any,
         name: 'Thomas Brandt',
         type: 'customer',
         incomingFacts: [],
       });
-      const sql = sqlOf(db, 0);
-      expect(sql).toContain('type = $type');
-      expect(sql).toContain('userId IS NONE');
-      expect(sql).toContain('mergedInto IS NONE');
-      expect(db.query.mock.calls[0]![1]).toMatchObject({ key: 'thomas brandt' });
+      expect(paramsFor(db, 'key')).toMatchObject({ key: 'thomas brandt' });
     });
 
     it('a far neighbour is dropped and the embedding scan still runs', async () => {
       // "ivan petrov" ~ "yfn bytrwf" is 0.64 normalised — far by edits and
       // close by meaning, which is the case the embedding still earns.
-      const { svc, db } = keyFirst();
-      db.query.mockResolvedValueOnce(neighbour(7, 'yfn bytrwf'));
-      db.query.mockResolvedValueOnce([[]]); // the token scan, a miss
-      db.query.mockResolvedValueOnce(candidate(0.99));
+      const { svc, db, scans } = makeService(ENABLED_ONLY);
+      scans.key.push(neighbour(7, 'yfn bytrwf'));
+      scans.embedding.push(candidate(0.99));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -328,16 +352,13 @@ describe('EntityResolverService name-candidate scan', () => {
           incomingFacts: [],
         }),
       ).toBe('knowledge_entity:x'); // the EMBEDDING candidate, not the key one
-      expect(db.query).toHaveBeenCalledTimes(3);
     });
 
     it('a distance of ZERO is declined — the deterministic ladder owns that', async () => {
       // An exact key match was already tried in entity-upsert; reaching
       // here with one means it found TWO and refused to guess between them.
-      const { svc, db } = keyFirst();
-      db.query.mockResolvedValueOnce(neighbour(0, 'thomas brandt'));
-      db.query.mockResolvedValueOnce([[]]); // the token scan, a miss
-      db.query.mockResolvedValueOnce([[]]);
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.key.push(neighbour(0, 'thomas brandt'));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -346,17 +367,16 @@ describe('EntityResolverService name-candidate scan', () => {
           incomingFacts: [],
         }),
       ).toBeNull();
+      expect(judge.judge).not.toHaveBeenCalled();
     });
 
     it('hands a near-miss to the judge, which refuses it', async () => {
       // "ivan petrov" ~ "ivan sidorov" is 0.33 — inside the ceiling on
       // purpose, because edits cannot tell it from "aarav sharma" ~
       // "arv srma" at the same distance. Facts can.
-      const { svc, db, judge } = keyFirst();
-      (judge.judge as jest.Mock).mockResolvedValue('different');
-      db.query.mockResolvedValueOnce(neighbour(4, 'ivan sidorov'));
-      db.query.mockResolvedValueOnce([[]]); // the token scan, a miss
-      db.query.mockResolvedValueOnce([[]]);
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      judge.judge.mockResolvedValue('different');
+      scans.key.push(neighbour(4, 'ivan sidorov'));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -368,25 +388,24 @@ describe('EntityResolverService name-candidate scan', () => {
       expect(judge.judge).toHaveBeenCalledTimes(1);
     });
 
-    it('a name too short to key skips the scan entirely', async () => {
-      const { svc, db } = keyFirst();
-      db.query.mockResolvedValueOnce(candidate(0.99));
+    it('a name too short to key skips every key scan', async () => {
+      const { svc, db, scans } = makeService(ENABLED_ONLY);
+      scans.embedding.push(candidate(0.99));
       await svc.resolveByName({
         db: db as any,
         name: 'C++',
         type: 'customer',
         incomingFacts: [],
       });
-      expect(sqlOf(db, 0)).not.toContain('levenshtein');
+      expect(ran(db)).toEqual(['embedding']);
     });
 
-    it('a scan failure degrades to the embedding path rather than throwing', async () => {
+    it('a scan failure degrades to the next scan rather than throwing', async () => {
       // A tenant migrated before 0148, or a SurrealDB without the
       // string-distance function: behave exactly as before this existed.
-      const { svc, db } = keyFirst();
-      db.query.mockRejectedValueOnce(new Error('no such function'));
-      db.query.mockResolvedValueOnce([[]]); // the token scan, a miss
-      db.query.mockResolvedValueOnce(candidate(0.99));
+      const { svc, db, scans } = makeService(ENABLED_ONLY);
+      scans.key.push(new Error('no such function'));
+      scans.embedding.push(candidate(0.99));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -409,24 +428,19 @@ describe('EntityResolverService name-candidate scan', () => {
     const part = (rows: Array<{ id: string; keys: string[]; name?: string }>) => [
       rows.map((r) => ({ entityId: r.id, canonicalName: r.name, nameKeys: r.keys })),
     ];
-    const keyMiss = () => {
-      const made = makeService({ INGEST_INLINE_RESOLUTION_ENABLED: '1' });
-      made.db.query.mockReset();
-      made.db.query.mockResolvedValueOnce([[]]); // the key scan, a miss
-      return made;
-    };
+    const ENABLED_ONLY: Cfg = { INGEST_INLINE_RESOLUTION_ENABLED: '1' };
 
     it('hands the first name to the judge with the full name as the candidate', async () => {
-      const { svc, db, judge } = keyMiss();
-      db.query.mockResolvedValueOnce(
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.part.push(
         part([{ id: 'knowledge_entity:full', keys: ['artem sokolov'], name: 'Артём Соколов' }]),
       );
       expect(
         await svc.resolveByName({ db: db as any, name: 'Артём', type: 'staff', incomingFacts: [] }),
       ).toBe('knowledge_entity:full');
-      expect(db.query).toHaveBeenCalledTimes(2); // no embedding spent
-      expect(sqlOf(db, 1)).toContain('string::starts_with');
-      expect(db.query.mock.calls[1]![1]).toMatchObject({ key: 'artem', pre: 'artem ' });
+      expect(ran(db)).toEqual(['key', 'part']); // no embedding spent
+      expect(sqlFor(db, 'part')).toContain('string::starts_with');
+      expect(paramsFor(db, 'part')).toMatchObject({ key: 'artem', pre: 'artem ' });
       expect(judge.judge).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -435,8 +449,8 @@ describe('EntityResolverService name-candidate scan', () => {
     });
 
     it('the reverse direction: a full name arriving after the first name', async () => {
-      const { svc, db } = keyMiss();
-      db.query.mockResolvedValueOnce(part([{ id: 'knowledge_entity:first', keys: ['artem'] }]));
+      const { svc, db, scans } = makeService(ENABLED_ONLY);
+      scans.part.push(part([{ id: 'knowledge_entity:first', keys: ['artem'] }]));
       expect(
         await svc.resolveByName({
           db: db as any,
@@ -448,30 +462,186 @@ describe('EntityResolverService name-candidate scan', () => {
     });
 
     it('two entities sharing the token are an ambiguity — no candidate, embedding runs', async () => {
-      const { svc, db, judge } = keyMiss();
-      db.query.mockResolvedValueOnce(
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.part.push(
         part([
           { id: 'knowledge_entity:a', keys: ['artem sokolov'] },
           { id: 'knowledge_entity:b', keys: ['artem ivanov'] },
         ]),
       );
-      db.query.mockResolvedValueOnce([[]]); // the embedding scan
       expect(
         await svc.resolveByName({ db: db as any, name: 'Артём', type: 'staff', incomingFacts: [] }),
       ).toBeNull();
       expect(judge.judge).not.toHaveBeenCalled();
-      expect(db.query).toHaveBeenCalledTimes(3);
+      expect(ran(db)).toContain('embedding');
     });
 
     it('a key that merely shares a prefix is not a part', async () => {
       // "artem" inside "artemis" is a substring, not a token.
-      const { svc, db, judge } = keyMiss();
-      db.query.mockResolvedValueOnce(part([{ id: 'knowledge_entity:x', keys: ['artemis'] }]));
-      db.query.mockResolvedValueOnce([[]]);
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.part.push(part([{ id: 'knowledge_entity:x', keys: ['artemis'] }]));
       expect(
         await svc.resolveByName({ db: db as any, name: 'Артём', type: 'staff', incomingFacts: [] }),
       ).toBeNull();
       expect(judge.judge).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * An acronym and its expansion share nothing an edit distance or an
+   * embedding of three letters can see; the initials of the longer key
+   * are the blocking key (eval:entity-resolution: "IBM" was unreachable).
+   */
+  describe('the initials scan', () => {
+    const ENABLED_ONLY: Cfg = { INGEST_INLINE_RESOLUTION_ENABLED: '1' };
+    const hit = (rows: Array<{ id: string; name: string }>) => [
+      rows.map((r) => ({ entityId: r.id, canonicalName: r.name })),
+    ];
+
+    it('hands the expansion to the judge for an acronym', async () => {
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.initials.push(
+        hit([{ id: 'knowledge_entity:ibm', name: 'International Business Machines' }]),
+      );
+      expect(
+        await svc.resolveByName({ db: db as any, name: 'IBM', type: 'org', incomingFacts: [] }),
+      ).toBe('knowledge_entity:ibm');
+      expect(paramsFor(db, 'initials')).toMatchObject({ key: 'ibm', initials: '' });
+      expect(judge.judge).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ similarity: 'initials' }),
+      );
+    });
+
+    it('asks for the acronym the expansion spells, the other way round', async () => {
+      const { svc, db } = makeService(ENABLED_ONLY);
+      await svc.resolveByName({
+        db: db as any,
+        name: 'International Business Machines',
+        type: 'org',
+        incomingFacts: [],
+      });
+      expect(paramsFor(db, 'initials')).toMatchObject({ initials: 'ibm' });
+    });
+
+    it('two entities with those initials are an ambiguity — no candidate', async () => {
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.initials.push(
+        hit([
+          { id: 'knowledge_entity:a', name: 'International Business Machines' },
+          { id: 'knowledge_entity:b', name: 'Integrated Bio Materials' },
+        ]),
+      );
+      expect(
+        await svc.resolveByName({ db: db as any, name: 'IBM', type: 'org', incomingFacts: [] }),
+      ).toBeNull();
+      expect(judge.judge).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A word of the name only one known entity carries — the surname, as a
+   * rule. A nickname or a sound-rendered given name ("Bob" / "Robert",
+   * "Жуан" / "João") sits past every edit ceiling while the surname is
+   * identical; the judge decides on facts.
+   */
+  describe('the shared-word scan', () => {
+    const ENABLED_ONLY: Cfg = { INGEST_INLINE_RESOLUTION_ENABLED: '1' };
+    const hit = (rows: Array<{ id: string; name: string }>) => [
+      rows.map((r) => ({ entityId: r.id, canonicalName: r.name })),
+    ];
+
+    it('asks once per word and hands a unique carrier to the judge', async () => {
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.word.push([[]]); // "bob": nobody
+      scans.word.push(hit([{ id: 'knowledge_entity:rk', name: 'Robert King' }])); // "king"
+      expect(
+        await svc.resolveByName({
+          db: db as any,
+          name: 'Bob King',
+          type: 'person',
+          incomingFacts: [],
+        }),
+      ).toBe('knowledge_entity:rk');
+      expect(paramsFor(db, 'word', 0)).toMatchObject({ word: 'bob' });
+      expect(paramsFor(db, 'word', 1)).toMatchObject({ word: 'king' });
+      expect(judge.judge).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          similarity: 'shared-word',
+          names: { a: 'Robert King', b: 'Bob King' },
+        }),
+      );
+      expect(ran(db)).not.toContain('embedding');
+    });
+
+    it('a word several entities carry names a crowd, not a candidate', async () => {
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.word.push(
+        hit([
+          { id: 'knowledge_entity:a', name: 'Northwind Bank' },
+          { id: 'knowledge_entity:b', name: 'Banco Bank' },
+        ]),
+      );
+      expect(
+        await svc.resolveByName({
+          db: db as any,
+          name: 'Bank Acme',
+          type: 'org',
+          incomingFacts: [],
+        }),
+      ).toBeNull();
+      expect(judge.judge).not.toHaveBeenCalled();
+    });
+
+    it('a word too short to be a key never blocks ("o Banco Inter")', async () => {
+      const { svc, db } = makeService(ENABLED_ONLY);
+      await svc.resolveByName({
+        db: db as any,
+        name: 'o Banco Inter',
+        type: 'org',
+        incomingFacts: [],
+      });
+      const words = db.query.mock.calls
+        .filter((c) => scanOf(String(c[0])) === 'word')
+        .map((c) => (c[1] as { word: string }).word);
+      expect(words).toEqual(['banco', 'inter']);
+    });
+
+    it('a refusal on the nearest spelling moves on to the next scan', async () => {
+      // "Ivan Sidorov" is near "Ivan Petrov" by edits; the judge refuses,
+      // and the entity the surname names is still asked about.
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      scans.key.push([[{ entityId: 'knowledge_entity:petrov', dist: 4, matched: 'ivan petrov' }]]);
+      scans.word.push([[]]); // "ivan": the refused one is skipped below anyway
+      scans.word.push(hit([{ id: 'knowledge_entity:sidorov', name: 'Иван Сидоров' }]));
+      judge.judge.mockResolvedValueOnce('different').mockResolvedValueOnce('same');
+      expect(
+        await svc.resolveByName({
+          db: db as any,
+          name: 'Ivan Sidorov',
+          type: 'person',
+          incomingFacts: [],
+        }),
+      ).toBe('knowledge_entity:sidorov');
+      expect(judge.judge).toHaveBeenCalledTimes(2);
+    });
+
+    it('a candidate two scans propose is judged once', async () => {
+      const { svc, db, scans, judge } = makeService(ENABLED_ONLY);
+      judge.judge.mockResolvedValue('different');
+      scans.key.push([[{ entityId: 'knowledge_entity:k', dist: 3, matched: 'robert king' }]]);
+      scans.word.push([[]]);
+      scans.word.push(hit([{ id: 'knowledge_entity:k', name: 'Robert King' }]));
+      await svc.resolveByName({
+        db: db as any,
+        name: 'Bob King',
+        type: 'person',
+        incomingFacts: [],
+      });
+      expect(judge.judge).toHaveBeenCalledTimes(1);
     });
   });
 });
