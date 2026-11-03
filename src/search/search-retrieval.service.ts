@@ -8,6 +8,7 @@ import { traceArtifact } from '../common/debug-trace';
 import type { EntityBucket, FactRow } from './internals/types';
 import { runVectorLeg, runLexicalLeg } from './internals/legs';
 import { buildEdgeFence } from './internals/edge-fence';
+import { stemLangOf } from './internals/stem-lang';
 import { fuse } from './internals/fusion';
 import { scoreRows, bucketByEntity } from './internals/scoring';
 import type { QueryTimeRange } from './internals/scoring';
@@ -123,6 +124,7 @@ export class SearchRetrievalService {
                 k: ctx.candidateK,
                 baseWhere,
                 tuning: ctx.tuning,
+                stemLang: stemLangOf(ctx.dto.query, ctx.dto.queryLang),
               });
               span.setAttribute('candidates', rows.length);
               traceArtifact(

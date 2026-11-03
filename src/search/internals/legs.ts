@@ -1,4 +1,4 @@
-import { buildLexMatchLeg } from './lex-leg';
+import { buildLexMatchLeg, lexRows } from './lex-leg';
 import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
@@ -211,6 +211,8 @@ export interface RunLexicalLegOptions {
   baseWhere: { sql: string; params: Record<string, unknown> };
   /** Resolved by the retrieval-profile bootstrap (S5.2). */
   tuning?: LegTuning;
+  /** Language the query's terms are stemmed in (stem-lang.ts); none: unstemmed only. */
+  stemLang?: string | undefined;
 }
 
 export async function runLexicalLeg({
@@ -220,6 +222,7 @@ export async function runLexicalLeg({
   k,
   baseWhere,
   tuning = DEFAULT_LEG_TUNING,
+  stemLang,
 }: RunLexicalLegOptions): Promise<FactRow[]> {
   // Parens around the OR clause are LOAD-BEARING. SurrealQL
   // evaluates AND with higher precedence than OR (same as SQL),
@@ -242,8 +245,12 @@ export async function runLexicalLeg({
     fields: ['searchHaystack', 'object'],
     topic: query,
     mode: 'or_terms',
+    // The same surface stemmed in the fact's own language (0184): a
+    // Russian or Portuguese fact matches its word in any inflection.
+    stem: { field: 'haystackStem', lang: stemLang },
   });
   const sql = `
+      ${lex.prelude}
       SELECT
         id, entityId, predicate, predicateAlias, object, objectMeta, confidence,
         validFrom, validUntil, expectedUntil, recordedAt, retractedAt, status, truth, source,
@@ -258,12 +265,12 @@ export async function runLexicalLeg({
       LIMIT $k
     `;
   try {
-    const [rows] = await db.query<[FactRow[]]>(sql, {
+    const results = await db.query<unknown[]>(sql, {
       ...baseWhere.params,
       ...lex.params,
       k,
     });
-    return (rows as FactRow[]) ?? [];
+    return lexRows<FactRow>(results);
   } catch (err) {
     logger.warn(`Lexical leg fell back to empty: ${(err as Error).message}`);
     return [];

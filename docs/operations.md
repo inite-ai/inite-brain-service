@@ -672,6 +672,28 @@ change.
 | `COMPACTION_HOT_RETENTION_DAYS`     | `90`    | Days kept in the searchable hot tier before compaction strips embedding + indexes.                                                                                                                   | Storage cost vs historical-search depth.                                                                                                         |
 | `COMPACTION_SUMMARIES`              | `1`     | Roll up compacted facts into one summary per `(entityId, predicate)` cluster. The summary keeps a fresh embedding and is searchable.                                                                 | Long-history tenants where the warm tier needs to stay queryable.                                                                                |
 
+## Language stems (0184)
+
+The lexical (BM25) legs over facts and conversation turns also match a
+word by its stem **in the row's own language**: "Марией Петровой" finds a
+turn about "Мария Петрова", "contrato" finds "contratos". The database
+computes the stems itself (`haystackStem` on `knowledge_fact`,
+`textStem` on `episode`) through a Snowball analyzer per language
+(17 languages) or character bigrams for zh/ja/ko, keyed on the row's
+`lang`. The query is stemmed in its detected language (or the caller's
+`queryLang`); a query the detector cannot place confidently is matched
+unstemmed only. The original indexes are unchanged, so exact tokens
+(codes, ids) match as before. No flag.
+
+Rows written before 0184 have no stems until written again. Backfill
+once per tenant, repeating while `remaining` is non-zero:
+
+```
+POST /v1/admin/maintenance/backfill-stems   {"tenant": "<companyId>", "maxRows": 5000}
+```
+
+Measured by `test/eval/lexical-stems` (MIRACL, README).
+
 ## Enabling the document pipeline + external indexers
 
 The Source → Indexer → Candidates → Brain pipeline shipped complete but
