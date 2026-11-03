@@ -60,12 +60,22 @@ describe('media tools — registration', () => {
     registerMediaReadTools({
       server: on.server,
       companyId: 'c',
-      scopes: [],
+      scopes: ['brain:read_media'],
       actorKeyHash: '',
       deps: {},
     });
     registerMediaWriteTools({ server: on.server, companyId: 'c', deps: {} });
     expect([...on.handlers.keys()].sort()).toEqual(['read_media', 'upload_media']);
+    // A key without brain:read_media is not offered read_media.
+    const plain = serverOf();
+    registerMediaReadTools({
+      server: plain.server,
+      companyId: 'c',
+      scopes: ['brain:read'],
+      actorKeyHash: '',
+      deps: {},
+    });
+    expect([...plain.handlers.keys()]).toEqual([]);
     expect(ACTIONS.read_media?.kind).toBe('read');
     expect(ACTIONS.upload_media?.kind).toBe('write');
   });
@@ -92,7 +102,7 @@ describe('read_media', () => {
     registerMediaReadTools({
       server,
       companyId: 'co_a',
-      scopes: ['brain:read'],
+      scopes: ['brain:read', 'brain:read_media'],
       actorKeyHash: 'kh',
       deps: {
         reads: () => ({ runLadder }) as never,

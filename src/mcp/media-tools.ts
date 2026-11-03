@@ -59,7 +59,9 @@ export function modalityOf(mediaType: string): EvidenceModality | undefined {
  * (EvidenceReadService.runLadder): tenant, availability, grants, a pack's
  * raw-evidence consent, the media PII gate (brain:read_media for a
  * PII-classed asset) and blob presence, with an access-audit row written
- * before a byte leaves. Registered while EVIDENCE_RAW_READ_ENABLED is on (the default, as for the REST route).
+ * before a byte leaves. Registered while EVIDENCE_RAW_READ_ENABLED is on (the default, as for the REST route)
+ * and only for a key holding brain:read_media: a tool costs every session's
+ * tools/list, and most keys never read media.
  */
 export function registerMediaReadTools(p: {
   server: McpServer;
@@ -68,22 +70,19 @@ export function registerMediaReadTools(p: {
   actorKeyHash: string;
   deps: MediaToolDeps;
 }): void {
-  if (!evidenceRawReadEnabled()) return;
+  // Listed only to a key that may read media: the raw-evidence route is
+  // free to leave on, a tool in every tools/list is not.
+  if (!evidenceRawReadEnabled() || !p.scopes.includes('brain:read_media')) return;
   const { server, companyId, scopes, actorKeyHash, deps } = p;
   server.registerTool(
     'read_media',
     {
       title: 'Read media',
       description:
-        'Returns a stored image (as an image block, at most 1568 px on its longest edge) or audio recording (as an audio block, up to 10 MB) by its evidence asset or fragment id, the ids that facts and citations name. Other kinds of file (PDF, video, office documents) are refused; their text is in memory. The read is refused unless a pack holds consent to serve raw evidence, and an asset classed as personal data also needs the brain:read_media scope. Every read is audited.',
+        'A stored image (image block, ≤1568 px) or recording (audio block), by the evidence asset or fragment id a fact cites. Needs raw-evidence consent and the brain:read_media scope.',
       inputSchema: {
-        assetId: z.string().max(200).optional().describe('evidence_asset id'),
-        fragmentId: z.string().max(200).optional().describe('evidence_fragment id'),
-        userId: z
-          .string()
-          .max(200)
-          .optional()
-          .describe("Per-user memory scope: only this user's memory. Omit for tenant-global"),
+        assetId: z.string().max(200).optional(),
+        fragmentId: z.string().max(200).optional(),
       },
     },
     async (args) => {
@@ -97,7 +96,8 @@ export function registerMediaReadTools(p: {
         companyId,
         scopes,
         keyHash: actorKeyHash,
-        userId: pinUserScope(args.userId),
+        // The key's own user, as on the REST raw route; no caller-named scope.
+        userId: pinUserScope(undefined),
         assetId: args.assetId,
         fragmentId: args.fragmentId,
         verb: 'stream',
