@@ -112,6 +112,7 @@ is the reserved separator. A pack declaring `id: 'code_memory'` with a predicate
 `localId: 'decided'` becomes the registry predicate **`code_memory__decided`**.
 
 Why `__` and not `/` or `:`:
+
 - predicate ids must match `^[a-z][a-z0-9_]*$` (admin CRUD validation) and flow
   through REST path params — `/` breaks routing, `:` collides with record ids.
 - `__` stays inside the existing charset, so admin tooling and routing keep
@@ -306,7 +307,7 @@ signature verification, security model: [mcp-pack-tools.md](mcp-pack-tools.md).
 
 A pack MAY ship a `memoryModel` section — the **domain perception
 contract**: how this domain perceives and episodizes memory. It turns a
-pack from a vocabulary into a domain *projection*: the pack declares HOW
+pack from a vocabulary into a domain _projection_: the pack declares HOW
 to look, never WHAT is true. The contract is validated, stored, cached,
 exposed read-only on the admin surface, and read by five live core
 consumers (listed below). The builtin `code_memory` pack declares one as
@@ -321,16 +322,16 @@ The semantic plane has five optional arrays. The Evidence Plane adds
 three declarative capabilities. A present section must declare at least
 one non-empty field; present-but-empty is rejected:
 
-| Field | What it declares | Caps |
-| --- | --- | --- |
-| `sceneSchemas` | Recurring scene shapes (`id`, `description`, literal `cues`) | ≤ 8 schemas, ≤ 12 cues of 2..64 chars |
-| `stateModels` | Subject-typed lifecycles (`states`, optional `transitions`, optional belief-attribute `field`) | ≤ 8 models, 2..16 states, ≤ 64 transitions |
-| `attentionHints` | Literal `cue` → `prefer` (own predicates), `zoom` (own scenes ∪ `episodes`/`facts`/`scenes`), `weight` (0,1] | ≤ 16 hints, ≤ 8 prefer, ≤ 4 zoom |
-| `verificationRules` | Claim classes needing `human_confirmation` \| `corroboration` \| `recency_check` | ≤ 16 rules, `claimPattern` 2..128 chars |
-| `retentionHints` | ADVISORY `ephemeral`/`standard`/`durable` per own predicate/scene | ≤ 32 hints |
-| `modalities` | Evidence inputs the domain can perceive: `text`, `image`, `audio`, `video`, `document`, `sensor` | unique, ≤ 6 |
-| `processors` | Core-owned capability requests (`id`, input `modality`, derived `produces`) | ≤ 16; no code/model/prompt/endpoint |
-| `rawEvidence` | Explicit raw-serving capability (`{ "serve": true }`) | consent-, scope-, PII-, and per-call-gated |
+| Field               | What it declares                                                                                             | Caps                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| `sceneSchemas`      | Recurring scene shapes (`id`, `description`, literal `cues`)                                                 | ≤ 8 schemas, ≤ 12 cues of 2..64 chars      |
+| `stateModels`       | Subject-typed lifecycles (`states`, optional `transitions`, optional belief-attribute `field`)               | ≤ 8 models, 2..16 states, ≤ 64 transitions |
+| `attentionHints`    | Literal `cue` → `prefer` (own predicates), `zoom` (own scenes ∪ `episodes`/`facts`/`scenes`), `weight` (0,1] | ≤ 16 hints, ≤ 8 prefer, ≤ 4 zoom           |
+| `verificationRules` | Claim classes needing `human_confirmation` \| `corroboration` \| `recency_check`                             | ≤ 16 rules, `claimPattern` 2..128 chars    |
+| `retentionHints`    | ADVISORY `ephemeral`/`standard`/`durable` per own predicate/scene                                            | ≤ 32 hints                                 |
+| `modalities`        | Evidence inputs the domain can perceive: `text`, `image`, `audio`, `video`, `document`, `sensor`             | unique, ≤ 6                                |
+| `processors`        | Core-owned capability requests (`id`, input `modality`, derived `produces`)                                  | ≤ 16; no code/model/prompt/endpoint        |
+| `rawEvidence`       | Explicit raw-serving capability (`{ "serve": true }`)                                                        | consent-, scope-, PII-, and per-call-gated |
 
 Three laws, enforced by `validateMemoryModel`
 (`src/ai/domain-packs/validate-memory-model.ts`):
@@ -473,12 +474,12 @@ Surface:
 
 - **Discovery** (`brain:read`): `GET /v1/registry/packs[?q=&tag=&publisher=]`,
   `GET /v1/registry/packs/:id` (all versions + latest), `GET
-  /v1/registry/packs/:id/:version` (`:version` may be `latest`).
+/v1/registry/packs/:id/:version` (`:version` may be `latest`).
 - **Publish / yank** (`registry:publish` — a scope distinct from `brain:admin`,
   because it mutates the shared catalogue): `POST /v1/admin/registry/packs`,
   `POST /v1/admin/registry/packs/:id/:version/{yank,unyank}`.
 - **Install from registry** (`brain:admin`): `POST /v1/admin/packs/from-registry
-  {packId, version?}` — resolves latest-non-yanked (or a pin) and installs via
+{packId, version?}` — resolves latest-non-yanked (or a pin) and installs via
   the normal path, pinning the registry checksum.
 - **Browse** (public, no auth): `GET /registry/ui` (+
   `GET /registry/ui/publisher/:publisher`) — a server-rendered HTML
@@ -510,7 +511,7 @@ republishes missing versions locally through the normal publish path — so
 validation, builtin-id squatting protection, version immutability and the
 local trust store's `verified` recomputation all apply. Mirrored rows carry
 an `origin` marker (the upstream base URL, migration 0064; surfaced in the
-API and as *mirrored from `<host>`* in `/registry/ui`).
+API and as _mirrored from `<host>`_ in `/registry/ui`).
 
 Rules: **pull-only** (local publishes never push upstream); **local rows
 always win** (an id/version that exists locally is skipped); **yanks mirror
@@ -647,12 +648,12 @@ feeds each seed to `POST /v1/ingest/document` semantics with
 `kind: 'pack_seed'` and provenance meta stamped on every derived fact's
 `source.meta`:
 
-| key | value |
-|---|---|
-| `pack_seed` | `true` |
-| `pack_id` | the pack id |
-| `pack_version` | the installed version |
-| `pack_seed_doc` | the seed's `localId` |
+| key             | value                 |
+| --------------- | --------------------- |
+| `pack_seed`     | `true`                |
+| `pack_id`       | the pack id           |
+| `pack_version`  | the installed version |
+| `pack_seed_doc` | the seed's `localId`  |
 
 The install response reports what happened without ever failing the install:
 `seedDocuments: { count, status }` with status one of `enqueued`,
@@ -733,14 +734,14 @@ industry packs (installed per-tenant, published to the registry via
 `extractionProfile` + `evalFixtures` + `memoryModel` (as of 0.2.0) + a
 media contract (as of 0.3.0), not a stub:
 
-| pack | domain | predicates (namespaced `<id>__*`) | memoryModel lifecycles |
-|---|---|---|---|
-| `real_estate` | property | zoned_as, valued_at, listed_at, encumbered_by, tenure_type, built_in | listing, tenancy, permit |
-| `fintech` | financial-services regulation | regulated_by, licensed_as, complies_with, capital_requirement, settlement_period | license, certification, enforcement |
-| `medical` | clinical pharmacology (drugs, not patients) | treats, dosed_at, administered_via, interacts_with, contraindicated_with | prescription, approval |
-| `legal` | contracts | governed_by, party_to, obligation, effective_from, terminates_on | matter, agreement, obligation |
-| `insurance` | insurance policies | covers, coverage_limit, premium, deductible, excludes | policy, claim |
-| `hr` | HR / recruiting (roles, not PII) | requires_skill, seniority, compensation, employment_type, work_location | position, employee |
+| pack          | domain                                      | predicates (namespaced `<id>__*`)                                                | memoryModel lifecycles              |
+| ------------- | ------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------- |
+| `real_estate` | property                                    | zoned_as, valued_at, listed_at, encumbered_by, tenure_type, built_in             | listing, tenancy, permit            |
+| `fintech`     | financial-services regulation               | regulated_by, licensed_as, complies_with, capital_requirement, settlement_period | license, certification, enforcement |
+| `medical`     | clinical pharmacology (drugs, not patients) | treats, dosed_at, administered_via, interacts_with, contraindicated_with         | prescription, approval              |
+| `legal`       | contracts                                   | governed_by, party_to, obligation, effective_from, terminates_on                 | matter, agreement, obligation       |
+| `insurance`   | insurance policies                          | covers, coverage_limit, premium, deductible, excludes                            | policy, claim                       |
+| `hr`          | HR / recruiting (roles, not PII)            | requires_skill, seniority, compensation, employment_type, work_location          | position, employee                  |
 
 ### Media contracts (`modalities` / `processors` / `rawEvidence`)
 
@@ -752,17 +753,17 @@ exist today: `image → caption` (image metadata), `document → text` (text
 extraction / PDF), and `image → ocr` (local tesseract.js). ASR, object
 tracking and scene graphs remain deliberately undeclared.
 
-| pack | version | modalities | processors | rawEvidence | why |
-|---|---|---|---|---|---|
-| `real_estate` | 0.4.0 | text, image, document | image metadata, document text, **ocr** | **serve** | listing photos and floor plans are published marketing material; a floor plan's content IS its lettering |
-| `medical` | 0.4.0 | text, image, document | image metadata, document text, **ocr** | deny | scans and X-ray photographs are clinical data — never served raw, but a scan's findings are printed on it |
-| `insurance` | 0.4.0 | text, image, document | image metadata, document text, **ocr** | deny | claim photos carry injuries, plates, bystanders — and repair estimates, policy numbers, receipts |
-| `legal` | 0.4.0 | text, image, document | document text, image metadata, **ocr** | deny | contracts, filings and scanned exhibits carry privilege; an exhibit has no text layer |
-| `fintech` | 0.3.0 | text, document | document text | deny | statements and KYC files; `image` withheld (biometric-adjacent), so no ocr |
-| `hr` | 0.3.0 | text, document | document text | deny | CVs and offer letters are personal data; `image` withheld, so no ocr |
-| `code_memory` (builtin) | 0.6.0 | text, image, document | image metadata, document text, **ocr** | deny | failure/dashboard screenshots + log artifacts; the text in a screenshot is the whole point of it |
-| `file_memory` | 0.4.0 | text, document, image | document text, image metadata | deny | a folder, bucket or cloud drive holds PDFs, office documents, mail and images next to its text; the source pack for `fs` (`folder` / `folder_media`), `s3` (`bucket` / `bucket_media`), `gdrive`, `onedrive` and `dropbox` (each `<kind>` / `<kind>_media`) connections — a folder can hold anything, so raw bytes never serve |
-| `web_memory` | 0.2.0 | text, document | document text | deny | a site serves PDFs and office documents next to its pages; the source pack for `url` connections (`site` / `site_media`) and for `mcp` ones (`mcp_resources` / `mcp_resources_media` — an MCP server the operator names); page images are chrome, not evidence |
+| pack                    | version | modalities            | processors                             | rawEvidence | why                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------- | --------------------- | -------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `real_estate`           | 0.4.0   | text, image, document | image metadata, document text, **ocr** | **serve**   | listing photos and floor plans are published marketing material; a floor plan's content IS its lettering                                                                                                                                                                                                                       |
+| `medical`               | 0.4.0   | text, image, document | image metadata, document text, **ocr** | deny        | scans and X-ray photographs are clinical data — never served raw, but a scan's findings are printed on it                                                                                                                                                                                                                      |
+| `insurance`             | 0.4.0   | text, image, document | image metadata, document text, **ocr** | deny        | claim photos carry injuries, plates, bystanders — and repair estimates, policy numbers, receipts                                                                                                                                                                                                                               |
+| `legal`                 | 0.4.0   | text, image, document | document text, image metadata, **ocr** | deny        | contracts, filings and scanned exhibits carry privilege; an exhibit has no text layer                                                                                                                                                                                                                                          |
+| `fintech`               | 0.3.0   | text, document        | document text                          | deny        | statements and KYC files; `image` withheld (biometric-adjacent), so no ocr                                                                                                                                                                                                                                                     |
+| `hr`                    | 0.3.0   | text, document        | document text                          | deny        | CVs and offer letters are personal data; `image` withheld, so no ocr                                                                                                                                                                                                                                                           |
+| `code_memory` (builtin) | 0.6.0   | text, image, document | image metadata, document text, **ocr** | deny        | failure/dashboard screenshots + log artifacts; the text in a screenshot is the whole point of it                                                                                                                                                                                                                               |
+| `file_memory`           | 0.4.0   | text, document, image | document text, image metadata          | deny        | a folder, bucket or cloud drive holds PDFs, office documents, mail and images next to its text; the source pack for `fs` (`folder` / `folder_media`), `s3` (`bucket` / `bucket_media`), `gdrive`, `onedrive` and `dropbox` (each `<kind>` / `<kind>_media`) connections — a folder can hold anything, so raw bytes never serve |
+| `web_memory`            | 0.2.0   | text, document        | document text                          | deny        | a site serves PDFs and office documents next to its pages; the source pack for `url` connections (`site` / `site_media`) and for `mcp` ones (`mcp_resources` / `mcp_resources_media` — an MCP server the operator names); page images are chrome, not evidence                                                                 |
 
 The `ocr` capability needs `EVIDENCE_OCR_ENABLED` on top of the usual
 ladder (`EVIDENCE_PROCESSOR_BROKER`, pack declaration, current modality
@@ -770,8 +771,14 @@ consent, quarantine, tombstone): recognition is CPU-heavy where the other
 two adapters are header reads, so it is an operator opt-in. Everything it
 uses — the WASM core and the `.traineddata` models — is a lockfile-pinned
 npm dependency read off local disk; nothing is ever downloaded at runtime.
-Languages shipped: `eng` (default) and `rus`, selected with
-`EVIDENCE_OCR_LANGS`. Words scoring below `EVIDENCE_OCR_MIN_CONFIDENCE`
+Languages shipped: `eng` (default), `rus`, `por`, `spa`, `fra` and `deu`.
+Each run reads with the configured set (`EVIDENCE_OCR_LANGS`, priority
+order) plus the tenant's own language, its most common turn language, when
+that model ships. Shipped models are not all loaded at once: a model the
+text is not in still claims characters. With Russian loaded beside English,
+Portuguese came back partly Cyrillic. `pnpm eval:media` measures it: the
+Portuguese keys went from 69% to 100% once the tenant's language was
+added. Words scoring below `EVIDENCE_OCR_MIN_CONFIDENCE`
 (0..100, default 60) are dropped from the stored text and the drop is
 stated in it; an image with nothing above the floor fails the run rather
 than storing invented characters.
@@ -781,7 +788,7 @@ the modality-consent checksum changes with it and an installed tenant
 must re-accept (`--accept-modalities`) before the new capability
 dispatches. That is the consent surface working as designed.
 
-`rawEvidence: deny` is the *absence* of the field — the schema's only
+`rawEvidence: deny` is the _absence_ of the field — the schema's only
 other value is `{ "serve": true }`, so omission is how a pack refuses.
 `gateRawEvidence` then denies raw bytes and signed URLs for that pack
 unconditionally. A `serve` declaration only OPENS the gate: current
