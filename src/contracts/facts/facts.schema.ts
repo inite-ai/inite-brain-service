@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ASSERTIONS } from '../../common/assertion';
 
 /**
  * Wire contracts for the fact read + provenance API
@@ -32,6 +33,20 @@ export const FactReadResponseSchema = z.object({
    * additive, backward-compatible.
    */
   groundingStatus: z.enum(['grounded', 'ungrounded']).optional(),
+  /**
+   * #909: where the claim came from — `stated` by a source, `inferred` by
+   * a model (`inferredBy` names the writer), a `hypothesis` put to the
+   * person, or one they `confirmed`.
+   */
+  assertion: z.enum(ASSERTIONS),
+  inferredBy: z
+    .object({
+      recorder: z.string(),
+      version: z.string().optional(),
+      model: z.string().optional(),
+      modality: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const FactProvenanceEpisodeSchema = z.object({

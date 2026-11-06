@@ -5,6 +5,7 @@
  */
 
 import type { EvidenceCapability } from '../../synthesize/synthesize.types';
+import type { DeclaredAssertion } from '../../common/assertion';
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
 /**
@@ -96,6 +97,13 @@ export interface PredicateDefinition {
    * value is still valid.
    */
   requiredEvidenceCapability?: EvidenceCapability;
+  /**
+   * #909: every value under this predicate is a guess put to the person
+   * (`hypothesis`) or one they confirmed (`confirmed`) — what
+   * assertionOf (src/common/assertion.ts) reports for its facts. Absent =
+   * each fact says (stated unless its writer stamped an inference).
+   */
+  assertion?: DeclaredAssertion;
   parentPredicateId?: string;
   subjectClasses?: string[];
   allowedValues?: string[];

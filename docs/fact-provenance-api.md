@@ -43,7 +43,8 @@ Scope: `brain:read`. Policy action: `get_fact`.
   "conversationId": "conv-1",
   "retracted": false,
   "derivedVersion": "wd-v3s",
-  "groundingStatus": "grounded"
+  "groundingStatus": "grounded",
+  "assertion": "stated"
 }
 ```
 
@@ -52,6 +53,14 @@ Scope: `brain:read`. Policy action: `get_fact`.
   `source` stamp and are present only when stamped.
 - `userId` is the per-user memory scope (migration 0055); absent =
   tenant-global.
+- `assertion` says where the claim came from: `stated` by a source
+  (an extracted mention, a direct fact, a document), `inferred` by a
+  model (the insight composers, the compaction summary; `inferredBy`
+  names the writer, its version and the modality it read), a
+  `hypothesis` put to the person, or one they `confirmed` (declared by
+  the predicate, migration 0186 — the relationship pack's guesses). GDPR
+  gives a person rights over inferences about them; this is what tells
+  one from what they said.
 - `groundingStatus` (`grounded` | `ungrounded`, migration 0115) is the
   claim-grounding state stamped by servers running
   `EVIDENCE_GROUNDING_STAMP`: `grounded` = the source names an

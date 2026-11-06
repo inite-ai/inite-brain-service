@@ -41,6 +41,9 @@ const fullFact: Required<FactReadResult> = {
   derivedVersion: 'wd-v2',
   // 0115: claim grounding state — absent = legacy (pre-stamp) row.
   groundingStatus: 'grounded',
+  // #909: where the claim came from.
+  assertion: 'inferred',
+  inferredBy: { recorder: 'arc-composer-v1', version: 'v1', model: 'm', modality: 'text' },
 };
 
 const fullEpisode: Required<FactProvenanceEpisode> = {

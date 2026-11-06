@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PII_CLASSES } from '../../ai/predicate-registry-internals/types';
+import { DECLARED_ASSERTIONS } from '../../common/assertion';
 
 /**
  * Wire contract for GET /v1/admin/predicates.
@@ -27,6 +28,7 @@ const PredicateDefinitionSchema = z.object({
   decayHalfLifeDays: z.number().nullable(),
   piiClass: PiiClassSchema,
   requiresScope: z.string().optional(),
+  assertion: z.enum(DECLARED_ASSERTIONS).optional(),
   parentPredicateId: z.string().optional(),
   subjectClasses: z.array(z.string()).optional(),
   allowedValues: z.array(z.string()).optional(),

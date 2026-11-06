@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { assertionOf, type Assertion, type InferredBy } from '../common/assertion';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService, dbMerge, queryFirst, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -57,6 +58,19 @@ import {
  * across those surfaces.
  */
 export const RETRACT_ADMIN_PREDICATES = new Set<string>(['billing_event', 'human_declared']);
+
+/** The `inferredBy` stamp of an inferred claim, when it is well-formed. */
+function inferredByOf(source: Record<string, unknown>): { inferredBy?: InferredBy } {
+  const by = source.inferredBy as Record<string, unknown> | undefined;
+  if (!by || typeof by.recorder !== 'string') return {};
+  const str = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : undefined);
+  const inferredBy: InferredBy = { recorder: by.recorder };
+  for (const key of ['version', 'model', 'modality'] as const) {
+    const v = str(by[key]);
+    if (v) inferredBy[key] = v;
+  }
+  return { inferredBy };
+}
 
 function retractRequiresAdmin(fact: { predicate?: unknown; source?: unknown }): boolean {
   const predicate = typeof fact.predicate === 'string' ? fact.predicate : '';
@@ -144,6 +158,13 @@ export interface FactReadResult {
    * EVIDENCE_GROUNDING_STAMP writer — never backfilled).
    */
   groundingStatus?: 'grounded' | 'ungrounded';
+  /**
+   * #909: where the claim came from — said by a source, inferred by a
+   * model (with `inferredBy`), a guess put to the person, or one they
+   * confirmed (src/common/assertion.ts).
+   */
+  assertion: Assertion;
+  inferredBy?: InferredBy;
 }
 
 export interface FactProvenanceEpisode {
@@ -375,6 +396,7 @@ export class FactsService {
    *    scope-fenced predicate is absent to callers without the scope.
    */
   async getFact(opts: FactReadOptions): Promise<FactReadResult> {
+    const declared = await this.predicateRegistry?.rowPolicyLookup(opts.companyId);
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
       const fact = await this.loadVisibleFact(db, opts);
       const source = (fact.source ?? {}) as Record<string, unknown>;
@@ -404,6 +426,8 @@ export class FactsService {
         ...(fact.groundingStatus === 'grounded' || fact.groundingStatus === 'ungrounded'
           ? { groundingStatus: fact.groundingStatus }
           : {}),
+        assertion: assertionOf(source, declared?.(fact.predicate).assertion),
+        ...inferredByOf(source),
       };
     });
   }

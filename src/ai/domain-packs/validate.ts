@@ -9,6 +9,7 @@ import {
   type PackToolParam,
 } from './manifest';
 import { DomainPackError } from './domain-pack-error';
+import { DECLARED_ASSERTIONS } from '../../common/assertion';
 import { validateMemoryModel } from './validate-memory-model';
 import { validateSources } from './validate-sources';
 
@@ -30,6 +31,33 @@ const PII_CLASS_SET = new Set<string>(PII_CLASSES);
 const DATATYPES = new Set(['string', 'number', 'date', 'datetime', 'enum', 'json']);
 
 export { DomainPackError };
+
+/** A pack predicate's closed-vocabulary fields: semantics, class, assertion, datatype. */
+function validatePredicateEnums(packId: string, p: DomainPackManifest['predicates'][number]): void {
+  if (!SEMANTICS.has(p.semantics as string)) {
+    throw new DomainPackError(
+      `pack "${packId}" predicate "${p.localId}" semantics "${p.semantics}" must be one of ${[...SEMANTICS].join('|')}`,
+    );
+  }
+  if (!PII_CLASS_SET.has(p.piiClass as string)) {
+    throw new DomainPackError(
+      `pack "${packId}" predicate "${p.localId}" piiClass "${p.piiClass}" must be one of ${PII_CLASSES.join('|')}`,
+    );
+  }
+  if (
+    p.assertion !== undefined &&
+    !(DECLARED_ASSERTIONS as readonly string[]).includes(p.assertion as string)
+  ) {
+    throw new DomainPackError(
+      `pack "${packId}" predicate "${p.localId}" assertion "${p.assertion}" must be one of ${DECLARED_ASSERTIONS.join('|')}`,
+    );
+  }
+  if (p.datatype !== undefined && !DATATYPES.has(p.datatype as string)) {
+    throw new DomainPackError(
+      `pack "${packId}" predicate "${p.localId}" datatype "${p.datatype}" must be one of ${[...DATATYPES].join('|')}`,
+    );
+  }
+}
 
 export function validatePack(pack: DomainPackManifest): void {
   if (!SNAKE.test(pack.id) || pack.id.includes(PACK_NAMESPACE_SEP)) {
@@ -67,21 +95,7 @@ export function validatePack(pack: DomainPackManifest): void {
       throw new DomainPackError(`pack "${pack.id}" declares duplicate localId "${p.localId}"`);
     }
     seen.add(p.localId);
-    if (!SEMANTICS.has(p.semantics as string)) {
-      throw new DomainPackError(
-        `pack "${pack.id}" predicate "${p.localId}" semantics "${p.semantics}" must be one of ${[...SEMANTICS].join('|')}`,
-      );
-    }
-    if (!PII_CLASS_SET.has(p.piiClass as string)) {
-      throw new DomainPackError(
-        `pack "${pack.id}" predicate "${p.localId}" piiClass "${p.piiClass}" must be one of ${PII_CLASSES.join('|')}`,
-      );
-    }
-    if (p.datatype !== undefined && !DATATYPES.has(p.datatype as string)) {
-      throw new DomainPackError(
-        `pack "${pack.id}" predicate "${p.localId}" datatype "${p.datatype}" must be one of ${[...DATATYPES].join('|')}`,
-      );
-    }
+    validatePredicateEnums(pack.id, p);
   }
   if (pack.extractionProfile !== undefined) {
     validateExtractionProfile(pack.id, pack.extractionProfile);

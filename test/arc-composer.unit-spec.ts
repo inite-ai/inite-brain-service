@@ -267,7 +267,13 @@ describe('ArcComposerService — summary episode stamping', () => {
     await svc.run('co_x');
     const swap = queries.find((q) => q.sql.includes('INSERT INTO knowledge_fact'));
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
-    expect(rows[0]!.source).toEqual({ vertical: 'arc', recorder: ARC_RECORDER });
+    expect(rows[0]!.source).toEqual({
+      vertical: 'arc',
+      recorder: ARC_RECORDER,
+      // #909: a composed arc is the model's conclusion.
+      assertion: 'inferred',
+      inferredBy: { recorder: ARC_RECORDER, modality: 'text' },
+    });
   });
 
   it('flag ON: source carries the member union — member order, deduped, capped 64', async () => {
