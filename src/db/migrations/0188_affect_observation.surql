@@ -17,6 +17,12 @@
 -- model that read it. Class `affect` by construction: every read surface
 -- needs brain:read_pii, and export / erase / contest / forget cover it.
 --
+-- SCOPE. An observation carries the scope tags of the turn it was read
+-- from (0093 user tag, trust-circle tags): inferred affect is never
+-- portable across circles (relationship layer §2.2), so a credential
+-- acting in a circle reads only what was read from that circle's turns —
+-- the same fence the turn itself sits behind.
+--
 -- affect_reading marks a turn as read by a reader version, observation or
 -- not (most turns are neutral and yield none) — the reader's cursor.
 --
@@ -28,6 +34,7 @@ DEFINE TABLE IF NOT EXISTS affect_observation SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS userId ON affect_observation TYPE string;
 DEFINE FIELD IF NOT EXISTS episodeId ON affect_observation TYPE record<episode>;
 DEFINE FIELD IF NOT EXISTS conversationId ON affect_observation TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS scope ON affect_observation TYPE array<string> DEFAULT [];
 DEFINE FIELD IF NOT EXISTS observedAt ON affect_observation TYPE datetime;
 DEFINE FIELD IF NOT EXISTS valence ON affect_observation TYPE float
   ASSERT $value >= -1 AND $value <= 1;

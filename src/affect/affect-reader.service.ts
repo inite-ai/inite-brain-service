@@ -42,10 +42,19 @@ export interface AffectBatch {
   userId: string;
   person: string;
   turns: AffectTurn[];
-  /** handle → episode id, conversation id, occurredAt, for the OWN turns. */
-  own: Map<string, { episodeId: string; conversationId?: string; occurredAt: string }>;
+  /** handle → episode id, conversation id, occurredAt, scope tags, for the OWN turns. */
+  own: Map<string, OwnTurn>;
   /** handle → episode id, for every turn (context included). */
   ids: Map<string, string>;
+}
+
+/** An OWN turn's coordinates: what an observation of it cites and inherits. */
+export interface OwnTurn {
+  episodeId: string;
+  conversationId?: string;
+  occurredAt: string;
+  /** The turn's scope tags (0093) — an observation sits behind the same fence. */
+  scope: string[];
 }
 
 interface EpisodeRow {
@@ -54,6 +63,7 @@ interface EpisodeRow {
   speaker?: string | null;
   text: string;
   occurredAt: Date | string;
+  scope?: string[] | null;
 }
 
 /**
@@ -199,7 +209,7 @@ export class AffectReaderService implements OnModuleInit {
       if (!first) return null;
       const conversation = await queryRows<EpisodeRow>(
         db,
-        `SELECT id, conversationId, speaker, text, occurredAt FROM episode
+        `SELECT id, conversationId, speaker, text, occurredAt, scope FROM episode
           WHERE userId = $u AND kind = 'turn' AND conversationId = $c
           ORDER BY occurredAt ASC LIMIT 400`,
         { u: userId, c: first.conversationId ?? undefined },
@@ -208,10 +218,7 @@ export class AffectReaderService implements OnModuleInit {
       const startAt = conversation.findIndex((e) => String(e.id) === String(first.id));
       const from = Math.max(0, startAt - CONTEXT_BEFORE);
       const turns: AffectTurn[] = [];
-      const own = new Map<
-        string,
-        { episodeId: string; conversationId?: string; occurredAt: string }
-      >();
+      const own = new Map<string, OwnTurn>();
       const ids = new Map<string, string>();
       let ownCount = 0;
       for (const e of conversation.slice(from)) {
@@ -234,6 +241,7 @@ export class AffectReaderService implements OnModuleInit {
             episodeId: String(e.id),
             ...(e.conversationId ? { conversationId: e.conversationId } : {}),
             occurredAt,
+            scope: e.scope ?? [],
           });
         }
       }
@@ -271,6 +279,7 @@ export class AffectReaderService implements OnModuleInit {
           userId: batch.userId,
           episodeId: new StringRecordId(turn.episodeId),
           ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
+          scope: turn.scope,
           observedAt: new Date(turn.occurredAt),
           valence: d.valence,
           label: d.label,

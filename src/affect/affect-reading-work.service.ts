@@ -24,6 +24,7 @@ interface EpisodeRow {
   speaker?: string | null;
   text: string;
   occurredAt: Date | string;
+  scope?: string[] | null;
 }
 
 /**
@@ -87,7 +88,7 @@ export class AffectReadingWorkService {
     const { rows, read } = await this.surreal.withCompany(companyId, async (db) => ({
       rows: await queryRows<EpisodeRow>(
         db,
-        `SELECT id, conversationId, speaker, text, occurredAt FROM episode
+        `SELECT id, conversationId, speaker, text, occurredAt, scope FROM episode
           WHERE id INSIDE $ids AND userId = $u`,
         { ids, u: userId },
       ),
@@ -128,6 +129,7 @@ export class AffectReadingWorkService {
           episodeId: id,
           ...(row.conversationId ? { conversationId: row.conversationId } : {}),
           occurredAt,
+          scope: row.scope ?? [],
         });
       }
     }
