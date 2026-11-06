@@ -110,6 +110,11 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.users.consents.list': { kind: 'read', family: 'rest', title: 'List consents' },
   'rest.users.consents.record': { kind: 'write', family: 'rest', title: 'Record consent' },
   'rest.users.consents.revoke': { kind: 'write', family: 'rest', title: 'Withdraw consent' },
+  // #916: age assurance and guardians (operator-attested).
+  'rest.users.age.get': { kind: 'read', family: 'rest', title: 'Get age assurance' },
+  'rest.users.age.set': { kind: 'write', family: 'rest', title: 'Record age assurance' },
+  'rest.users.guardian.set': { kind: 'write', family: 'rest', title: 'Record guardian' },
+  'rest.users.guardian.remove': { kind: 'write', family: 'rest', title: 'Remove guardian' },
   'rest.ingest.mention': { kind: 'write', family: 'rest', title: 'Ingest mention' },
   'rest.ingest.evidence_asset': {
     kind: 'write',

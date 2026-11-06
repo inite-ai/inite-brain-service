@@ -267,7 +267,14 @@ belief stamped `affect`; each carries its `assertion` (`stated` / `inferred` /
 | `POST /v1/users/:userId/consents`              | `{ purpose, basis, noticeVersion }` — basis is a GDPR art. 6 basis or `explicit_consent` (art. 9(2)(a)). Replaces the live grant for the purpose; history kept.                         |
 | `DELETE /v1/users/:userId/consents/:purpose`   | Withdraw, and erase what the purpose produced — for `affect_inference`, every inference about how the person feels.                                                                    |
 
-User forget (`POST /v1/users/:userId/forget`) erases consents and contests with the rest.
+| `GET /v1/users/:userId/age`                   | Age assurance: `status` (declared / estimated / verified), `minor`, optional `ageBand`, the guardian reference. 404 when none.                                                          |
+| `PUT /v1/users/:userId/age`                   | Operator-only (an M2M key; a user-bound token → 403). Recording a minor makes only a guardian's grant count, and erases what a grant that no longer counts produced.                      |
+| `PUT/DELETE /v1/users/:userId/guardian`       | Operator-only. An opaque guardian reference — no guardian identity is held. Removing it makes the guardian's grants stop counting and erases what they allowed.                         |
+
+A consent with `grantedBy: "guardian"` (operator-only, a guardian on record) is
+the only one that counts for a person recorded as a minor (#916).
+
+User forget (`POST /v1/users/:userId/forget`) erases consents, contests, age and guardian with the rest.
 
 ## Background work
 

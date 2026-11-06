@@ -20,7 +20,13 @@ import {
   type AffectEraseScope,
   type AffectExport,
 } from './affect-plane.service';
-import { ConsentService, type ConsentWire, type RevocationErasure } from './consent.service';
+import {
+  ConsentService,
+  type ConsentGrantor,
+  type ConsentWire,
+  type RevocationErasure,
+} from './consent.service';
+import { operatorOnly } from './age.controller';
 
 /**
  * A person's rights over their emotional data and their consents (#909
@@ -100,8 +106,11 @@ export class AffectController {
   async recordConsent(
     @Req() req: AuthenticatedRequest,
     @Param('userId') userId: string,
-    @Body() body: { purpose?: string; basis?: string; noticeVersion?: string },
+    @Body()
+    body: { purpose?: string; basis?: string; noticeVersion?: string; grantedBy?: string },
   ): Promise<ConsentWire> {
+    // A guardian's grant is attested by the operator, never by the child's token.
+    if (body?.grantedBy === 'guardian') operatorOnly(req);
     return this.consents.record({
       companyId: req.brainAuth.companyId,
       userId: pinned(userId),
@@ -109,6 +118,7 @@ export class AffectController {
       basis: body?.basis ?? '',
       noticeVersion: body?.noticeVersion ?? '',
       recordedBy: req.brainAuth.actorId ?? req.brainAuth.keyHash,
+      grantedBy: body?.grantedBy as ConsentGrantor | undefined,
     });
   }
 

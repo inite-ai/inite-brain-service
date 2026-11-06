@@ -27,10 +27,14 @@ export type ConsentBasis = (typeof CONSENT_BASES)[number];
 /** A purpose name: lowercase snake_case, as a scope or a pack id. */
 const PURPOSE_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
+/** Whose grant it is: the person's own, or their guardian's (0189). */
+export type ConsentGrantor = 'person' | 'guardian';
+
 export interface ConsentWire {
   consentId: string;
   userId: string;
   purpose: string;
+  grantedBy: ConsentGrantor;
   basis: ConsentBasis;
   noticeVersion: string;
   grantedAt: string;
@@ -50,6 +54,7 @@ interface ConsentRow {
   id: unknown;
   userId: string;
   purpose: string;
+  grantedBy?: ConsentGrantor | null;
   basis: ConsentBasis;
   noticeVersion: string;
   grantedAt: Date | string;
@@ -76,8 +81,14 @@ export class ConsentService {
     basis: string;
     noticeVersion: string;
     recordedBy?: string | undefined;
+    /** 'guardian' needs a guardian on record (0189); the default is the person's own. */
+    grantedBy?: ConsentGrantor | undefined;
   }): Promise<ConsentWire> {
     const purpose = checkPurpose(opts.purpose);
+    const grantedBy: ConsentGrantor = opts.grantedBy ?? 'person';
+    if (grantedBy !== 'person' && grantedBy !== 'guardian') {
+      throw new BadRequestException("grantedBy must be 'person' or 'guardian'");
+    }
     if (!(CONSENT_BASES as readonly string[]).includes(opts.basis)) {
       throw new BadRequestException(`basis must be one of ${CONSENT_BASES.join('|')}`);
     }
@@ -86,12 +97,23 @@ export class ConsentService {
       throw new BadRequestException('noticeVersion is required (≤128 chars)');
     }
     return this.surreal.withCompany(opts.companyId, async (db) => {
+      if (grantedBy === 'guardian') {
+        const guardian = await queryRows<unknown>(
+          db,
+          `SELECT VALUE id FROM guardian_link WHERE userId = $u LIMIT 1`,
+          { u: opts.userId },
+        );
+        if (guardian.length === 0) {
+          throw new BadRequestException('no guardian on record for this person');
+        }
+      }
       const [, created] = await db.query<[unknown, ConsentRow[]]>(
         `UPDATE consent_record SET revokedAt = time::now()
-           WHERE userId = $u AND purpose = $p AND revokedAt IS NONE;
+           WHERE userId = $u AND purpose = $p AND revokedAt IS NONE
+             AND (grantedBy ?? 'person') = $g;
          CREATE consent_record CONTENT {
            userId: $u, purpose: $p, basis: $b, noticeVersion: $n,
-           recordedBy: $by
+           recordedBy: $by, grantedBy: $g
          };`,
         {
           u: opts.userId,
@@ -99,6 +121,7 @@ export class ConsentService {
           b: opts.basis,
           n: noticeVersion,
           by: opts.recordedBy,
+          g: grantedBy,
         },
       );
       const row = (created ?? [])[0];
@@ -136,7 +159,7 @@ export class ConsentService {
     return this.surreal.withCompany(opts.companyId, async (db) => {
       const rows = await queryRows<ConsentRow>(
         db,
-        `SELECT id, userId, purpose, basis, noticeVersion, grantedAt, revokedAt
+        `SELECT id, userId, purpose, grantedBy, basis, noticeVersion, grantedAt, revokedAt
            FROM consent_record WHERE userId = $u ORDER BY grantedAt DESC LIMIT 200`,
         { u: opts.userId },
       );
@@ -144,17 +167,49 @@ export class ConsentService {
     });
   }
 
-  /** Whether the person holds a live grant for the purpose. */
+  /**
+   * Whether processing for the purpose may run for this person: a live
+   * grant — and for a person recorded as a minor (0189), a live grant from
+   * their guardian, with the guardian still on record. A child's own grant
+   * never counts.
+   */
   async isActive(companyId: string, userId: string, purpose: string): Promise<boolean> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const rows = await queryRows<unknown>(
-        db,
-        `SELECT VALUE id FROM consent_record
-           WHERE userId = $u AND purpose = $p AND revokedAt IS NONE LIMIT 1`,
+      const [grants, minor, guardian] = await db.query<[string[], boolean[], unknown[]]>(
+        `SELECT VALUE (grantedBy ?? 'person') FROM consent_record
+           WHERE userId = $u AND purpose = $p AND revokedAt IS NONE;
+         SELECT VALUE minor FROM user_age WHERE userId = $u LIMIT 1;
+         SELECT VALUE id FROM guardian_link WHERE userId = $u LIMIT 1;`,
         { u: userId, p: purpose },
       );
-      return rows.length > 0;
+      const live = grants ?? [];
+      if ((minor ?? [])[0] === true) {
+        return live.includes('guardian') && (guardian ?? []).length > 0;
+      }
+      return live.length > 0;
     });
+  }
+
+  /**
+   * A person's standing changed (recorded as a minor, guardian removed):
+   * every purpose they hold a grant for that no longer counts has what it
+   * produced erased — inference made on a child's own consent must go.
+   */
+  async reconcile(companyId: string, userId: string): Promise<Record<string, RevocationErasure>> {
+    const purposes = await this.surreal.withCompany(companyId, (db) =>
+      queryRows<string>(
+        db,
+        `SELECT VALUE purpose FROM consent_record WHERE userId = $u AND revokedAt IS NONE`,
+        { u: userId },
+      ),
+    );
+    const erased: Record<string, RevocationErasure> = {};
+    for (const purpose of new Set(purposes)) {
+      if (await this.isActive(companyId, userId, purpose)) continue;
+      const handler = this.handlers.get(purpose);
+      if (handler) erased[purpose] = await handler.onRevoke(companyId, userId);
+    }
+    return erased;
   }
 }
 
@@ -176,6 +231,7 @@ function toWire(row: ConsentRow): ConsentWire {
     consentId: String(row.id),
     userId: row.userId,
     purpose: row.purpose,
+    grantedBy: row.grantedBy === 'guardian' ? 'guardian' : 'person',
     basis: row.basis,
     noticeVersion: row.noticeVersion,
     grantedAt: iso(row.grantedAt),

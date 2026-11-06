@@ -426,20 +426,43 @@ export class UserForgetService {
       { u: userId },
     );
     const connIds = conns ?? [];
-    const [items, grants, states, idempotency, consents, contests, observations, readings] =
-      await db.query<
-        [unknown[], unknown[], unknown[], unknown[], unknown[], unknown[], unknown[], unknown[]]
-      >(
-        `SELECT VALUE id FROM source_item WHERE userId = $u OR connectionId INSIDE $conns;
+    const [
+      items,
+      grants,
+      states,
+      idempotency,
+      consents,
+      contests,
+      observations,
+      readings,
+      ages,
+      guardians,
+    ] = await db.query<
+      [
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+      ]
+    >(
+      `SELECT VALUE id FROM source_item WHERE userId = $u OR connectionId INSIDE $conns;
        SELECT VALUE id FROM source_oauth_grant WHERE userId = $u;
        SELECT VALUE id FROM source_oauth_state WHERE userId = $u;
        SELECT VALUE id FROM idempotency_key WHERE userId = $u;
        SELECT VALUE id FROM consent_record WHERE userId = $u;
        SELECT VALUE id FROM affect_contest WHERE userId = $u;
        SELECT VALUE id FROM affect_observation WHERE userId = $u;
-       SELECT VALUE id FROM affect_reading WHERE userId = $u;`,
-        { u: userId, conns: connIds },
-      );
+       SELECT VALUE id FROM affect_reading WHERE userId = $u;
+       SELECT VALUE id FROM user_age WHERE userId = $u;
+       SELECT VALUE id FROM guardian_link WHERE userId = $u;`,
+      { u: userId, conns: connIds },
+    );
     const account = [
       ...(links ?? []),
       ...(items ?? []),
@@ -454,6 +477,9 @@ export class UserForgetService {
       // #909 (0188): how the person seemed to feel, and which turns were read.
       ...(observations ?? []),
       ...(readings ?? []),
+      // #916 (0189): age assurance and the guardian reference.
+      ...(ages ?? []),
+      ...(guardians ?? []),
     ];
     const memoryFiles = files ?? [];
     if (memoryFiles.length > 0) await db.query(`DELETE $ids`, { ids: memoryFiles });

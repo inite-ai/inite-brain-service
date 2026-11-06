@@ -81,6 +81,10 @@ const PLATFORM_OPERATIONS: Array<[string, string]> = [
   ['/v1/users/{userId}/consents', 'get'],
   ['/v1/users/{userId}/consents', 'post'],
   ['/v1/users/{userId}/consents/{purpose}', 'delete'],
+  ['/v1/users/{userId}/age', 'get'],
+  ['/v1/users/{userId}/age', 'put'],
+  ['/v1/users/{userId}/guardian', 'put'],
+  ['/v1/users/{userId}/guardian', 'delete'],
   ['/v1/ingest/document', 'post'],
   ['/v1/ingest/evidence-asset', 'post'],
   // Byte custody (MM-7, EVIDENCE_BLOB_UPLOAD_ENABLED — 404 until on).
