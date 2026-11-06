@@ -331,12 +331,23 @@
       "AffectObservation": {
         "additionalProperties": false,
         "properties": {
+          "arousal": {
+            "type": "number"
+          },
           "assertion": {
             "const": "inferred",
             "type": "string"
           },
+          "assetId": {
+            "type": "string"
+          },
           "confidence": {
             "type": "number"
+          },
+          "endMs": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
           "episodeId": {
             "type": "string"
@@ -365,6 +376,13 @@
           "label": {
             "type": "string"
           },
+          "modality": {
+            "enum": [
+              "text",
+              "voice"
+            ],
+            "type": "string"
+          },
           "observationId": {
             "type": "string"
           },
@@ -373,6 +391,11 @@
           },
           "quote": {
             "type": "string"
+          },
+          "startMs": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
           },
           "target": {
             "type": "string"
@@ -384,10 +407,7 @@
         "required": [
           "observationId",
           "observedAt",
-          "valence",
-          "label",
-          "quote",
-          "episodeId",
+          "modality",
           "confidence",
           "assertion",
           "inferredBy"
@@ -4543,6 +4563,15 @@
           "acceptSources": {
             "type": "boolean"
           },
+          "deploymentContext": {
+            "enum": [
+              "consumer",
+              "workplace",
+              "education",
+              "other"
+            ],
+            "type": "string"
+          },
           "packId": {
             "type": "string"
           },
@@ -4566,6 +4595,15 @@
           },
           "acceptSources": {
             "type": "boolean"
+          },
+          "deploymentContext": {
+            "enum": [
+              "consumer",
+              "workplace",
+              "education",
+              "other"
+            ],
+            "type": "string"
           },
           "expectedChecksum": {
             "type": "string"
@@ -15016,6 +15054,10 @@
                   },
                   "scope": {
                     "description": "Comma-separated scope tags (0093).",
+                    "type": "string"
+                  },
+                  "speaker": {
+                    "description": "\"self\" = the recording is the person’s (userId) own voice — the only recordings voice affect inference (#916) may read.",
                     "type": "string"
                   },
                   "userId": {

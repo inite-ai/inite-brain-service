@@ -438,8 +438,10 @@ export class UserForgetService {
       ages,
       guardians,
       risks,
+      voiceReadings,
     ] = await db.query<
       [
+        unknown[],
         unknown[],
         unknown[],
         unknown[],
@@ -463,7 +465,8 @@ export class UserForgetService {
        SELECT VALUE id FROM affect_reading WHERE userId = $u;
        SELECT VALUE id FROM user_age WHERE userId = $u;
        SELECT VALUE id FROM guardian_link WHERE userId = $u;
-       SELECT VALUE id FROM risk_signal WHERE userId = $u;`,
+       SELECT VALUE id FROM risk_signal WHERE userId = $u;
+       SELECT VALUE id FROM voice_affect_reading WHERE userId = $u;`,
       { u: userId, conns: connIds },
     );
     const account = [
@@ -485,6 +488,8 @@ export class UserForgetService {
       ...(guardians ?? []),
       // #916 (0190): risk signals read from the person's words.
       ...(risks ?? []),
+      // #916 (0192): which of the person's recordings voice affect read.
+      ...(voiceReadings ?? []),
     ];
     // #916 (0190): the safety protocol record keeps its identifier-free
     // counts (the law's report) — the person is removed from it, not the rows.

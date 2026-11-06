@@ -26,7 +26,8 @@ export type JobType =
   | 'evidence_document_bridge'
   | 'source_sync'
   | 'read_affect'
-  | 'read_safety';
+  | 'read_safety'
+  | 'read_voice_affect';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

@@ -28,7 +28,7 @@ describe('shapeAffectSignals', () => {
     expect(s.baseline).toMatchObject({ meanValence: 0, n: 4, since: daysAgo(40) });
     expect(s.lastWeek).toEqual({ meanValence: -0.6, n: 2, deviation: -0.6 });
     const weighted = shapeAffectSignals([row(1, -1, 0.9), row(2, 1, 0.1)], now)!;
-    expect(weighted.baseline.meanValence).toBe(-0.8);
+    expect(weighted.baseline?.meanValence).toBe(-0.8);
   });
 
   it('recent lists the last two weeks, newest first, with the words', () => {

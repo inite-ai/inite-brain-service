@@ -773,6 +773,36 @@ Adding a region: provision the cell (hosts in the region), deploy brain with
 `BRAIN_REGION`, pin the region's tenants on it and on the default deployment,
 then route their traffic.
 
+## Voice affect (#916 step 4) — high-risk
+
+Inferring emotion from voice is **biometric emotion recognition** under the
+EU AI Act: prohibited at work and in education (art. 5(1)(f)), high-risk
+elsewhere (Annex III, conformity obligations from 2027-12-02), and the people
+exposed must be told (art. 50(3)). The code ships; **enabling it for a tenant
+needs counsel's sign-off**.
+
+Brain reads a person's arousal / energy from a recording only when every gate
+holds, re-checked each pass:
+
+1. a pack declares `memoryModel.voiceAffectInference` (and `audio` among its
+   modalities), the operator accepted it (`acceptModalities: true`) and declared
+   `deploymentContext: consumer | other` at install — `workplace` and
+   `education` are refused at install and at run time;
+2. the person's own consent to purpose `voice_affect_inference` (a minor's
+   counts only from a guardian);
+3. the person's emotion-recognition notice recorded
+   (`POST /v1/users/:userId/safety-events`, type `emotion_recognition_notice_shown`);
+4. the recording was uploaded with `speaker=self` (the person's own voice —
+   recordings of several speakers are never read);
+5. `VOICE_AFFECT_URL` is set: the operator's own service, brain hosts no model.
+   Contract: `POST { mediaType, contentBase64 }` →
+   `{ segments: [{ startMs, endMs, arousal 0..1, confidence }] }`.
+
+The job `read_voice_affect` runs beside the text reader. A voice observation is
+an `affect_observation` with `modality: "voice"`: arousal and a time range, no
+words, no valence. Withdrawing `voice_affect_inference` erases voice readings
+only; retention follows the declaration; export / erase / forget cover them.
+
 ## Enabling the document pipeline + external indexers
 
 The Source → Indexer → Candidates → Brain pipeline shipped complete but

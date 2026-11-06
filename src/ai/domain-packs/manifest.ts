@@ -547,6 +547,25 @@ export interface PackSafetyMonitoring {
   retentionDays: number;
 }
 
+/**
+ * #916 step 4: infer a person's arousal / energy from their VOICE —
+ * biometric emotion recognition under the EU AI Act: prohibited at work and
+ * in education (art. 5(1)(f)), high-risk elsewhere (Annex III, from
+ * 2027-12-02), and people exposed must be told (art. 50(3)). Accepted by
+ * the operator at install with a declared deployment context (refused for
+ * workplace / education), read only with each person's own consent
+ * (purpose voice_affect_inference) and after their notice was shown, by an
+ * operator-run remote service — brain hosts no model.
+ */
+export interface PackVoiceAffectInference {
+  /** How long a voice observation is kept, in days (1..3650). */
+  retentionDays: number;
+}
+
+/** Where the operator deploys the tenant (recorded at pack install). */
+export const DEPLOYMENT_CONTEXTS = ['consumer', 'workplace', 'education', 'other'] as const;
+export type DeploymentContext = (typeof DEPLOYMENT_CONTEXTS)[number];
+
 /** The pack's declared perception of its domain. Every list is optional,
  *  but a present section must carry at least one non-empty declaration or
  *  `rawEvidence: { serve: true }` (present-but-empty is an authoring error). */
@@ -566,4 +585,6 @@ export interface PackMemoryModel {
   affectInference?: PackAffectInference;
   /** Read a person's words for a risk of suicide or self-harm (#916). */
   safetyMonitoring?: PackSafetyMonitoring;
+  /** Infer arousal / energy from a person's voice (#916 step 4) — high-risk. */
+  voiceAffectInference?: PackVoiceAffectInference;
 }

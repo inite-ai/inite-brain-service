@@ -486,7 +486,7 @@ export class EntitiesService {
           : Promise.resolve([]);
       const observations = (await fenced(
         'affect_observation',
-        'id, observedAt, valence, label, target, quote, confidence',
+        'id, observedAt, valence, label, arousal, modality, target, quote, confidence',
       )) as AffectObservationRow[];
       const risks = (await fenced(
         'risk_signal',

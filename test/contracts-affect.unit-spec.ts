@@ -53,6 +53,7 @@ const fullExport: AffectExport = {
     {
       observationId: 'affect_observation:o1',
       observedAt: '2026-11-01T10:00:00.000Z',
+      modality: 'text',
       valence: -0.6,
       label: 'sadness',
       target: 'the weigh-in',

@@ -3752,6 +3752,10 @@ function uploadEvidenceBlobBody(): Json {
             height: intText('Pixel height, when known.'),
             durationMs: intText('Duration in milliseconds, when known.'),
             pageCount: intText('Page count, when known.'),
+            speaker: text(
+              '"self" = the recording is the person’s (userId) own voice — the only ' +
+                'recordings voice affect inference (#916) may read.',
+            ),
             packId: text(
               'Installed pack to dispatch processors for, fire-and-forget, ' +
                 'once the asset scans clean. Requires EVIDENCE_PROCESSOR_BROKER.',

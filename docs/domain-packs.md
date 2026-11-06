@@ -344,6 +344,7 @@ one non-empty field; present-but-empty is rejected:
 | `processors` | Core-owned capability requests (`id`, input `modality`, derived `produces`) | ≤ 16; no code/model/prompt/endpoint |
 | `rawEvidence` | Explicit raw-serving capability (`{ "serve": true }`) | consent-, scope-, PII-, and per-call-gated |
 | `affectInference` | Infer how a person feels from their own words (`{ "from": "text", "retentionDays": 90 }`) — #909 | operator consent at install (`acceptModalities`) **and** each person's own consent (purpose `affect_inference`); text only — voice is biometric emotion recognition and is refused; observations deleted after `retentionDays` (1..3650) |
+| `voiceAffectInference` | Arousal / energy from a person's own voice (`{ "retentionDays": 30 }`) — #916, **high-risk under the EU AI Act** | needs `audio` in `modalities`; operator consent plus `deploymentContext: consumer \| other` at install (refused for workplace / education); each person's consent (`voice_affect_inference`) and recorded notice; counsel before enabling |
 | `safetyMonitoring` | Read people's words for a risk of suicide or self-harm (`{ "basis": "vital_interests", "retentionDays": 180 }`) — #916 | operator consent at install (`acceptModalities`); basis `vital_interests` or `legal_obligation`, no per-person consent; signals deleted after `retentionDays` |
 
 Three laws, enforced by `validateMemoryModel`
