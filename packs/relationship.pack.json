@@ -1,6 +1,6 @@
 {
   "id": "relationship",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Relationship memory — commitments and who they were made to, open threads, what helped and what did not, tone preferences and self-reported state with its shelf life; read back by relationship_context.",
   "predicates": [
     {
@@ -60,7 +60,7 @@
       "datatype": "string",
       "semantics": "single_active",
       "decayHalfLifeDays": 7,
-      "piiClass": "sensitive",
+      "piiClass": "affect",
       "status": "active"
     },
     {
@@ -70,7 +70,7 @@
       "datatype": "string",
       "semantics": "append_only",
       "decayHalfLifeDays": 30,
-      "piiClass": "sensitive",
+      "piiClass": "affect",
       "status": "active"
     },
     {
@@ -80,7 +80,7 @@
       "datatype": "string",
       "semantics": "append_only",
       "decayHalfLifeDays": null,
-      "piiClass": "sensitive",
+      "piiClass": "affect",
       "status": "active"
     },
     {
@@ -90,7 +90,7 @@
       "datatype": "string",
       "semantics": "append_only",
       "decayHalfLifeDays": null,
-      "piiClass": "sensitive",
+      "piiClass": "affect",
       "status": "active"
     }
   ],

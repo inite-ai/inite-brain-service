@@ -1,4 +1,4 @@
-import type { PredicateDefinition } from '../predicate-registry-internals/types';
+import { PII_CLASSES, type PredicateDefinition } from '../predicate-registry-internals/types';
 import {
   composePredicateId,
   PACK_NAMESPACE_SEP,
@@ -26,7 +26,7 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 // invalid enum here would otherwise surface as a raw Surreal ASSERT error
 // (HTTP 500 + a half-installed pack) rather than a clean 400.
 const SEMANTICS = new Set(['append_only', 'single_active', 'bitemporal']);
-const PII_CLASSES = new Set(['none', 'identifier', 'behavioral', 'text', 'sensitive']);
+const PII_CLASS_SET = new Set<string>(PII_CLASSES);
 const DATATYPES = new Set(['string', 'number', 'date', 'datetime', 'enum', 'json']);
 
 export { DomainPackError };
@@ -72,9 +72,9 @@ export function validatePack(pack: DomainPackManifest): void {
         `pack "${pack.id}" predicate "${p.localId}" semantics "${p.semantics}" must be one of ${[...SEMANTICS].join('|')}`,
       );
     }
-    if (!PII_CLASSES.has(p.piiClass as string)) {
+    if (!PII_CLASS_SET.has(p.piiClass as string)) {
       throw new DomainPackError(
-        `pack "${pack.id}" predicate "${p.localId}" piiClass "${p.piiClass}" must be one of ${[...PII_CLASSES].join('|')}`,
+        `pack "${pack.id}" predicate "${p.localId}" piiClass "${p.piiClass}" must be one of ${PII_CLASSES.join('|')}`,
       );
     }
     if (p.datatype !== undefined && !DATATYPES.has(p.datatype as string)) {

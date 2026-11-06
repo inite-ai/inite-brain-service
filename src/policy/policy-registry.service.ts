@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { PII_CLASSES } from '../ai/predicate-registry-internals/types';
 import { SourcesService } from '../sources/sources.service';
 import { ACTIONS, ActionFamily } from './action-registry';
 import { POLICY_ATTRIBUTES, PolicyMacro, POLICY_MACROS } from './policy.types';
@@ -71,9 +72,7 @@ export class PolicyRegistryService {
       ops: spec.ops,
       description: spec.description,
       ...(attr === 'predicate' && predicateIds.length > 0 ? { values: predicateIds } : {}),
-      ...(attr === 'piiClass'
-        ? { values: ['none', 'identifier', 'behavioral', 'text', 'sensitive'] }
-        : {}),
+      ...(attr === 'piiClass' ? { values: [...PII_CLASSES] } : {}),
       ...(attr === 'source.vertical' && sourceHints.verticals.length > 0
         ? { values: sourceHints.verticals }
         : {}),

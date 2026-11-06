@@ -58,6 +58,7 @@ export interface ReadToolDeps {
         companyId: string;
         query: string;
         userId?: string | undefined;
+        callerScopes: readonly string[];
       }) => Promise<BeliefCandidate[]>)
     | undefined;
   /** The cross-encoder's relevance per candidate (CrossEncoderService.relevance). */
