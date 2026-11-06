@@ -122,6 +122,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
     title: 'Record a safety event',
   },
   'rest.users.safety_events.list': { kind: 'read', family: 'rest', title: 'List safety events' },
+  // #916: data residency directory.
+  'rest.admin.residency.get': { kind: 'read', family: 'rest', title: 'Get tenant residency' },
+  'rest.admin.residency.pin': { kind: 'write', family: 'rest', title: 'Pin tenant residency' },
   'rest.admin.safety_report': {
     kind: 'read',
     family: 'rest',

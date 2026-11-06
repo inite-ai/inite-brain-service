@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { AdminResidencyController } from './admin-residency.controller';
+import { ResidencyAdminService } from './residency-admin.service';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuthModule } from '../auth/auth.module';
 import { DreamsModule } from '../dreams/dreams.module';
@@ -115,6 +117,7 @@ import { PlatformSettingsService } from './platform-settings.service';
     McpModule,
   ],
   controllers: [
+    AdminResidencyController,
     AdminEntityConsolidationController,
     AdminController,
     AdminDemoController,
@@ -141,6 +144,7 @@ import { PlatformSettingsService } from './platform-settings.service';
     ProjectionsController,
   ],
   providers: [
+    ResidencyAdminService,
     AdminService,
     PredicateConsolidationService,
     MemoryDecisionsReadService,

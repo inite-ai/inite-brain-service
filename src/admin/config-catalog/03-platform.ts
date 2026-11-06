@@ -2,6 +2,16 @@ import type { ConfigCatalogSpec } from '../config-catalog.data';
 
 /** Rows 1230–1647 of the catalogue, in order (see config-catalog.data.ts). */
 export const CATALOG_PART_03: ConfigCatalogSpec[] = [
+  // ── Data residency (#916, src/db/residency.ts) ──────────
+  {
+    key: 'BRAIN_REGION',
+    category: 'auth',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The region this deployment serves (a residency cell, e.g. "ru"). Empty = the default deployment: it serves every tenant not pinned elsewhere. A regional cell serves only tenants pinned to it (PUT /v1/admin/residency/:companyId) and answers 421 for any other; a tenant pinned to another region is never created or read here.',
+  },
   // ── Throttle ────────────────────────────────────────────
   {
     key: 'THROTTLE_TTL_MS',
