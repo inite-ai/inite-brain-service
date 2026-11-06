@@ -208,6 +208,13 @@ the resource `brain://relationship/<userId>`. It returns a brief with citations:
 }
 ```
 
+Built 2026-11 (#909 step 5): `affectSignals`, for a caller holding
+`brain:read_pii` — inferred affect as signals (`kind: "inferred"`): the
+last two weeks' observations with the person's words, their own baseline
+(confidence-weighted mean valence over everything kept), the last week
+as a deviation from it, and a weekly trend, each with its `n`. `state`
+never reads it.
+
 No `suggest_approach`. Brain returns what is known and what the person
 said worked; the agent decides how to behave. That keeps brain out of the
 business of steering emotions, keeps responsibility where the behaviour
