@@ -2343,6 +2343,15 @@
           "aspect": {
             "type": "string"
           },
+          "assertion": {
+            "enum": [
+              "stated",
+              "inferred",
+              "hypothesis",
+              "confirmed"
+            ],
+            "type": "string"
+          },
           "confidence": {
             "type": "number"
           },
@@ -2361,6 +2370,27 @@
               "ungrounded"
             ],
             "type": "string"
+          },
+          "inferredBy": {
+            "additionalProperties": false,
+            "properties": {
+              "modality": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "recorder": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "recorder"
+            ],
+            "type": "object"
           },
           "kind": {
             "type": "string"
@@ -2390,7 +2420,8 @@
           "statement",
           "confidence",
           "validFrom",
-          "retracted"
+          "retracted",
+          "assertion"
         ],
         "type": "object"
       },
