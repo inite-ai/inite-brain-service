@@ -111,6 +111,7 @@ lanes. The rest comes in batches:
 | `fact_conflict`       | pairs of competing facts, with the subject's other facts  | supersedes the loser and makes the winner the current value                                                                               |
 | `fact_corroboration`  | pairs of facts that may state one thing in two wordings   | records the second as corroborating the first                                                                                             |
 | `scene_summary`       | conversation scenes as transcripts                        | stores the gist, memory value, state changes and entity mentions                                                                          |
+| `affect_reading`      | a consenting person's own turns, with context             | keeps each reading whose quote is the person's exact words, unless they contested it; marks the turns read                               |
 | `belief_statement`    | remembered states (subject, attribute, value)             | replaces the template sentence with yours                                                                                                 |
 
 1. When you are idle (between tasks, at the end of a session), call

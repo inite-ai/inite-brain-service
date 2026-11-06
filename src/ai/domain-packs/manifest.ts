@@ -519,6 +519,21 @@ export interface PackRawEvidenceCapability {
   serve: true;
 }
 
+/**
+ * #909: the pack asks core to infer how a person feels from their own
+ * words. Consent-gated twice: the operator accepts the declaration at
+ * install (it rides the modality consent checksum — what the substrate
+ * DOES with a person's data), and each person gives their own consent
+ * (purpose `affect_inference`) before anything is read. Text only: voice
+ * is biometric emotion recognition under the EU AI Act and is not
+ * declarable here.
+ */
+export interface PackAffectInference {
+  from: 'text';
+  /** How long an inference is kept, in days (1..3650); then it is deleted. */
+  retentionDays: number;
+}
+
 /** The pack's declared perception of its domain. Every list is optional,
  *  but a present section must carry at least one non-empty declaration or
  *  `rawEvidence: { serve: true }` (present-but-empty is an authoring error). */
@@ -534,4 +549,6 @@ export interface PackMemoryModel {
   processors?: PackModalityProcessor[];
   /** Raw serving is separately scope-, consent-, and PII-gated per call. */
   rawEvidence?: PackRawEvidenceCapability;
+  /** Infer how a person feels from what they say (#909). */
+  affectInference?: PackAffectInference;
 }

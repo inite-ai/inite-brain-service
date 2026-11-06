@@ -298,6 +298,7 @@ import {
   AffectEraseResponseSchema,
   AffectExportResponseSchema,
   AffectFactSchema,
+  AffectObservationSchema,
   ConsentListResponseSchema,
   ConsentResponseSchema,
   ConsentRevokeResponseSchema,
@@ -542,6 +543,7 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   // --- emotional data + consents (src/contracts/users/affect.schema.ts, #909)
   AffectFact: AffectFactSchema,
   AffectBelief: AffectBeliefSchema,
+  AffectObservation: AffectObservationSchema,
   AffectExportResponse: AffectExportResponseSchema,
   AffectEraseResponse: AffectEraseResponseSchema,
   AffectContestResponse: AffectContestResponseSchema,

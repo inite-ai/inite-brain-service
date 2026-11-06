@@ -4,6 +4,8 @@ import { AiModule } from '../ai/ai.module';
 import { AffectController } from './affect.controller';
 import { AffectPlaneService } from './affect-plane.service';
 import { ConsentService } from './consent.service';
+import { AffectReaderService } from './affect-reader.service';
+import { AffectReadingWorkService } from './affect-reading-work.service';
 
 /**
  * A person's emotional data as a category, and their consents per
@@ -13,7 +15,7 @@ import { ConsentService } from './consent.service';
 @Module({
   imports: [AuthModule, AiModule],
   controllers: [AffectController],
-  providers: [ConsentService, AffectPlaneService],
-  exports: [ConsentService, AffectPlaneService],
+  providers: [ConsentService, AffectPlaneService, AffectReaderService, AffectReadingWorkService],
+  exports: [ConsentService, AffectPlaneService, AffectReaderService, AffectReadingWorkService],
 })
 export class AffectModule {}

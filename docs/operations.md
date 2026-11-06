@@ -694,6 +694,30 @@ POST /v1/admin/maintenance/backfill-stems   {"tenant": "<companyId>", "maxRows":
 
 Measured by `test/eval/lexical-stems` (MIRACL, README).
 
+## Emotion inference (#909)
+
+Brain infers how a person seemed to feel from their own words only when two
+consents hold, and never from voice:
+
+1. **The operator's.** A pack declares `memoryModel.affectInference` (the
+   `relationship` pack does: text, 90 days); installing or upgrading it needs
+   `acceptModalities: true`, and the declaration rides the modality consent
+   checksum (any change re-asks).
+2. **The person's.** `POST /v1/users/:userId/consents` with purpose
+   `affect_inference` (basis `explicit_consent`, the notice version they saw).
+   Withdrawal (`DELETE …/consents/affect_inference`) erases every inference.
+
+The reader runs as the `read_affect` job, scheduled when an extraction pass
+read a conversation that went quiet; it reads each consenting person's unread
+turns with the tenant's chat model (`OPENAI_CHAT_MODEL`) and writes
+`affect_observation` rows that quote the person's exact words. In harness mode
+the connected agent reads (`take_memory_work`, kind `affect_reading`) and the
+job only sweeps retention: observations older than the declaration's
+`retentionDays` are deleted. A person's emotional data — `affect`-classed
+facts, beliefs and observations — is exported, erased and contested under
+`/v1/users/:userId/affect` (docs/api.md), needs `brain:read_pii` to read, and
+goes with user forget.
+
 ## Enabling the document pipeline + external indexers
 
 The Source → Indexer → Candidates → Brain pipeline shipped complete but

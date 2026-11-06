@@ -39,6 +39,20 @@ const fullExport: AffectExport = {
       status: 'active',
     },
   ],
+  observations: [
+    {
+      observationId: 'affect_observation:o1',
+      observedAt: '2026-11-01T10:00:00.000Z',
+      valence: -0.6,
+      label: 'sadness',
+      target: 'the weigh-in',
+      quote: 'I dread the weigh-in',
+      episodeId: 'episode:e1',
+      confidence: 0.8,
+      assertion: 'inferred',
+      inferredBy: { recorder: 'affect-reader-v1', model: 'm', modality: 'text' },
+    },
+  ],
 };
 
 const erased: AffectEraseResult = {
@@ -47,6 +61,7 @@ const erased: AffectEraseResult = {
   factsDeleted: 1,
   beliefsDeleted: 2,
   derivedDeleted: 0,
+  observationsDeleted: 3,
 };
 
 const consent: Required<ConsentWire> = {

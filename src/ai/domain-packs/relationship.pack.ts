@@ -149,6 +149,12 @@ VALUE  the rejected guess ("coach: snacks more after long meetings") — so nobo
       status: 'active',
     },
   ],
+  // #909: infer how the person feels from their own words — the operator
+  // accepts it at install (acceptModalities), each person consents
+  // (purpose affect_inference); kept 90 days.
+  memoryModel: {
+    affectInference: { from: 'text', retentionDays: 90 },
+  },
   extractionProfile: {
     guidance: `Apply this profile to conversations between a person and someone who helps
 them — a coach, an assistant, a specialist. Prefer the relationship__* predicates:
