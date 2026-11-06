@@ -718,6 +718,23 @@ facts, beliefs and observations — is exported, erased and contested under
 `/v1/users/:userId/affect` (docs/api.md), needs `brain:read_pii` to read, and
 goes with user forget.
 
+## Safety monitoring (#916)
+
+A pack that declares `memoryModel.safetyMonitoring` (`basis`: `vital_interests`
+or `legal_obligation`, `retentionDays`) — the `relationship` pack does, 180
+days — asks brain to read people's own words for a risk of suicide or
+self-harm (concern / urgent, after the C-SSRS ideation ladder), for the
+operator's crisis protocol under CA SB 243 and NY GBL art. 47. The operator
+accepts it at install (`acceptModalities: true`); no per-person consent is
+asked (the basis is the operator's), and minors are read too. The job
+`read_safety` runs beside `read_affect`, with the tenant's chat model at the
+normal (not flex) tier; in harness mode the connected agent reads
+(`safety_reading`). Signals are class `health` (`brain:read_pii`), served in
+`relationship_context.safety`, deleted after `retentionDays` and by user
+forget. Brain never contacts anyone: the agent's protocol acts, and records
+what it showed in the safety-event log, whose identifier-free counts
+(`GET /v1/admin/safety/report`) survive user forget.
+
 ## Enabling the document pipeline + external indexers
 
 The Source → Indexer → Candidates → Brain pipeline shipped complete but

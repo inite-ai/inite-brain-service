@@ -308,6 +308,11 @@ import {
   SetAgeResponseSchema,
   SetGuardianRequestSchema,
   RemoveGuardianResponseSchema,
+  RiskSignalSchema,
+  SafetyEventSchema,
+  RecordSafetyEventRequestSchema,
+  SafetyEventListResponseSchema,
+  SafetyReportResponseSchema,
 } from '../src/contracts/users/affect.schema';
 import {
   EvidenceGrantRowSchema,
@@ -561,6 +566,11 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   SetAgeResponse: SetAgeResponseSchema,
   SetGuardianRequest: SetGuardianRequestSchema,
   RemoveGuardianResponse: RemoveGuardianResponseSchema,
+  RiskSignal: RiskSignalSchema,
+  SafetyEvent: SafetyEventSchema,
+  RecordSafetyEventRequest: RecordSafetyEventRequestSchema,
+  SafetyEventListResponse: SafetyEventListResponseSchema,
+  SafetyReportResponse: SafetyReportResponseSchema,
   // --- raw-evidence read gateway (src/contracts/evidence/raw.schema.ts)
   EvidenceRawUrlResponse: EvidenceRawUrlResponseSchema,
   // --- evidence sharing (src/contracts/evidence/grants.schema.ts)
@@ -3101,6 +3111,60 @@ function affectPaths(): Json {
         parameters: [user],
         responses: {
           '200': jsonResponse('What was removed and erased.', ref('RemoveGuardianResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/users/{userId}/safety-events': {
+      post: operation({
+        operationId: 'recordSafetyEvent',
+        tag: 'Users',
+        summary: 'Record what the safety protocol showed a person',
+        description:
+          'AI disclosure, a break reminder, a crisis referral (with the resource), a minor’s ' +
+          'safety setting changed, an emotion-recognition notice — the operator’s record (CA SB ' +
+          '243, NY GBL art. 47, EU AI Act art. 50(3)). User forget removes the person from these ' +
+          'rows and keeps the counts. ' +
+          pin +
+          'Source: src/affect/safety.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user],
+        requestBody: jsonBody(ref('RecordSafetyEventRequest')),
+        responses: {
+          '201': jsonResponse('The event.', ref('SafetyEvent')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+      get: operation({
+        operationId: 'listSafetyEvents',
+        tag: 'Users',
+        summary: "A person's safety protocol record",
+        description: 'Newest first. ' + pin + 'Source: src/affect/safety.controller.ts.',
+        scope: 'brain:read',
+        parameters: [user],
+        responses: {
+          '200': jsonResponse('The events.', ref('SafetyEventListResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/admin/safety/report': {
+      get: operation({
+        operationId: 'safetyReport',
+        tag: 'Users',
+        summary: 'Safety protocol counts, without identifiers',
+        description:
+          'Counts by month and event type in [from, to), with no person in them — the report CA ' +
+          'SB 243 asks an operator to file. Source: src/affect/safety.controller.ts.',
+        scope: 'brain:admin',
+        parameters: [
+          queryParam('from', 'ISO date, inclusive.'),
+          queryParam('to', 'ISO date, exclusive.'),
+        ],
+        responses: {
+          '200': jsonResponse('The counts.', ref('SafetyReportResponse')),
+          '400': errorRef('BadRequest'),
           ...AUTH_ERRORS,
         },
       }),

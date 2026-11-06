@@ -127,3 +127,57 @@ export function shapeAffectSignals(
     weekly,
   };
 }
+
+/** Risk signals listed: the last thirty days, newest first. */
+const SAFETY_DAYS = 30;
+const SAFETY_MAX = 10;
+
+export interface RiskSignalRow {
+  id: unknown;
+  observedAt: string | Date;
+  level: 'concern' | 'urgent';
+  quote: string;
+  confidence: number;
+}
+
+/**
+ * #916: risk of suicide or self-harm read from the person's words, for the
+ * operator's protocol — the last thirty days, newest first, with the words
+ * and the level. Brain reports; the agent's protocol decides (a referral,
+ * a check-in). Never fed into `state`.
+ */
+export interface SafetySignals {
+  kind: 'inferred';
+  signals: Array<{
+    signalId: string;
+    at: string;
+    level: 'concern' | 'urgent';
+    quote: string;
+    confidence: number;
+  }>;
+  /** The most recent urgent signal, when any falls in the window. */
+  lastUrgentAt?: string;
+}
+
+export function shapeSafetySignals(
+  rows: readonly RiskSignalRow[],
+  now: Date,
+): SafetySignals | null {
+  const at = (r: RiskSignalRow) => new Date(r.observedAt).getTime();
+  const recent = rows
+    .filter((r) => now.getTime() - at(r) <= SAFETY_DAYS * 24 * 3600_000)
+    .sort((a, b) => at(b) - at(a));
+  if (recent.length === 0) return null;
+  const urgent = recent.find((r) => r.level === 'urgent');
+  return {
+    kind: 'inferred',
+    signals: recent.slice(0, SAFETY_MAX).map((r) => ({
+      signalId: String(r.id),
+      at: iso(r.observedAt),
+      level: r.level,
+      quote: r.quote,
+      confidence: r.confidence,
+    })),
+    ...(urgent ? { lastUrgentAt: iso(urgent.observedAt) } : {}),
+  };
+}

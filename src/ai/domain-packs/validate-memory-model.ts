@@ -64,6 +64,7 @@ const MEMORY_MODEL_FIELDS = new Set([
   'processors',
   'rawEvidence',
   'affectInference',
+  'safetyMonitoring',
 ]);
 const MODALITIES = new Set<string>(PACK_MEMORY_MODALITIES);
 const REPRESENTATION_KINDS = new Set<string>(PACK_REPRESENTATION_KINDS);
@@ -169,6 +170,7 @@ interface MemoryModelShape {
   processors?: unknown;
   rawEvidence?: unknown;
   affectInference?: unknown;
+  safetyMonitoring?: unknown;
 }
 
 /**
@@ -198,10 +200,11 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
     model.processors,
     model.rawEvidence,
     model.affectInference,
+    model.safetyMonitoring,
   ].filter((v) => v !== undefined);
   if (declared.length === 0) {
     throw new DomainPackError(
-      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints|modalities|processors|rawEvidence|affectInference (omit the section instead of declaring it empty)`,
+      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints|modalities|processors|rawEvidence|affectInference|safetyMonitoring (omit the section instead of declaring it empty)`,
     );
   }
   const sceneIds = validateSceneSchemas(pack.id, model.sceneSchemas);
@@ -224,6 +227,7 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
   validateProcessors(pack.id, model.processors);
   validateRawEvidence(pack.id, model.rawEvidence);
   validateAffectInference(pack.id, model.affectInference);
+  validateSafetyMonitoring(pack.id, model.safetyMonitoring);
 }
 
 function validateModalities(packId: string, modalities: unknown): void {
@@ -337,6 +341,29 @@ function validateAffectInference(packId: string, affect: unknown): void {
   if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 3650) {
     throw new DomainPackError(
       `pack "${packId}" memoryModel affectInference.retentionDays must be an integer 1..3650`,
+    );
+  }
+}
+
+function validateSafetyMonitoring(packId: string, safety: unknown): void {
+  if (safety === undefined) return;
+  assertObjectEntry(packId, 'safetyMonitoring', safety);
+  const s = safety as Record<string, unknown>;
+  assertKnownKeys({
+    packId,
+    field: 'safetyMonitoring',
+    value: s,
+    allowed: new Set(['basis', 'retentionDays']),
+  });
+  if (s.basis !== 'vital_interests' && s.basis !== 'legal_obligation') {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel safetyMonitoring.basis must be "vital_interests" or "legal_obligation"`,
+    );
+  }
+  const days = s.retentionDays;
+  if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel safetyMonitoring.retentionDays must be an integer 1..3650`,
     );
   }
 }

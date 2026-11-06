@@ -4,6 +4,9 @@ import { AiModule } from '../ai/ai.module';
 import { AffectController } from './affect.controller';
 import { AgeController } from './age.controller';
 import { AgeService } from './age.service';
+import { SafetyReaderService } from './safety-reader.service';
+import { SafetyEventService } from './safety-event.service';
+import { SafetyController } from './safety.controller';
 import { AffectPlaneService } from './affect-plane.service';
 import { ConsentService } from './consent.service';
 import { AffectReaderService } from './affect-reader.service';
@@ -16,13 +19,15 @@ import { AffectReadingWorkService } from './affect-reading-work.service';
  */
 @Module({
   imports: [AuthModule, AiModule],
-  controllers: [AffectController, AgeController],
+  controllers: [AffectController, AgeController, SafetyController],
   providers: [
     ConsentService,
     AffectPlaneService,
     AffectReaderService,
     AffectReadingWorkService,
     AgeService,
+    SafetyReaderService,
+    SafetyEventService,
   ],
   exports: [
     ConsentService,
@@ -30,6 +35,8 @@ import { AffectReadingWorkService } from './affect-reading-work.service';
     AffectReaderService,
     AffectReadingWorkService,
     AgeService,
+    SafetyReaderService,
+    SafetyEventService,
   ],
 })
 export class AffectModule {}

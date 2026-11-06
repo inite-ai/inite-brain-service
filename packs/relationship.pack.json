@@ -100,6 +100,10 @@
     "affectInference": {
       "from": "text",
       "retentionDays": 90
+    },
+    "safetyMonitoring": {
+      "basis": "vital_interests",
+      "retentionDays": 180
     }
   },
   "extractionProfile": {

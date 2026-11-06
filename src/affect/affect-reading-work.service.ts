@@ -4,6 +4,14 @@ import { SurrealService, queryRows } from '../db/surreal.service';
 import { workExpiry, workNonce, type HarnessWork } from '../common/harness-work';
 import { mintWorkToken, type AffectTokenPayload } from '../common/harness-work-token';
 import { ConsentService } from './consent.service';
+import { SafetyReaderService, SAFETY_TURNS_PER_BATCH } from './safety-reader.service';
+import {
+  SAFETY_READER_VERSION,
+  SAFETY_READING_SCHEMA,
+  SAFETY_READING_SYSTEM,
+  parseSafetyReading,
+  safetyReadingUser,
+} from './safety-reading';
 import { AFFECT_INFERENCE_PURPOSE } from './affect-plane.service';
 import {
   AffectReaderService,
@@ -38,10 +46,12 @@ interface EpisodeRow {
 export class AffectReadingWorkService {
   private readonly logger = new Logger(AffectReadingWorkService.name);
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly surreal: SurrealService,
     private readonly reader: AffectReaderService,
     private readonly consents: ConsentService,
+    private readonly safety: SafetyReaderService,
   ) {}
 
   async take(
@@ -54,7 +64,7 @@ export class AffectReadingWorkService {
       return null;
     }
     const max = Math.max(1, Math.min(opts.max ?? AFFECT_TURNS_PER_BATCH, AFFECT_TURNS_PER_BATCH));
-    const batch = await this.reader.pendingBatch(companyId, opts.userId, max);
+    const batch = await this.reader.pendingBatch(companyId, opts.userId, { maxOwn: max });
     if (!batch) return null;
     const payload: AffectTokenPayload = {
       v: 2,
@@ -77,11 +87,12 @@ export class AffectReadingWorkService {
     };
   }
 
-  async submit(
+  /** The batch a token names, rebuilt from the stored turns; a turn read since stays context. */
+  private async rebuild(
     companyId: string,
     payload: AffectTokenPayload,
-    result: unknown,
-  ): Promise<{ turns: number; observations: number; contested: number; stale: number }> {
+    readerVersion: string,
+  ): Promise<{ batch: AffectBatch; stale: number }> {
     const userId = payload.u;
     if (userId === undefined) throw new BadRequestException('affect work is per person');
     const ids = payload.e.map(([, id]) => new StringRecordId(id)).filter((id) => String(id));
@@ -96,7 +107,7 @@ export class AffectReadingWorkService {
         db,
         `SELECT VALUE episodeId FROM affect_reading
           WHERE userId = $u AND readerVersion = $v AND episodeId INSIDE $ids`,
-        { u: userId, v: AFFECT_READER_VERSION, ids },
+        { u: userId, v: readerVersion, ids },
       ),
     }));
     const byId = new Map(rows.map((r) => [String(r.id), r]));
@@ -133,9 +144,62 @@ export class AffectReadingWorkService {
         });
       }
     }
+    return { batch, stale };
+  }
+
+  async submit(companyId: string, payload: AffectTokenPayload, result: unknown): Promise<object> {
+    if (payload.t === 'safety_reading') return this.submitSafety(companyId, payload, result);
+    const { batch, stale } = await this.rebuild(companyId, payload, AFFECT_READER_VERSION);
     if (batch.own.size === 0) return { turns: 0, observations: 0, contested: 0, stale };
     const drafts = parseAffectReading(result, batch.turns);
     const out = await this.reader.apply(companyId, batch, { drafts, model: 'connected-agent' });
+    return { ...out, stale };
+  }
+
+  /**
+   * #916: the safety reading for one person — offered to the agent acting
+   * for them while the tenant's operator accepted safetyMonitoring. No
+   * per-person consent (the operator's basis); minors included.
+   */
+  async takeSafety(
+    companyId: string,
+    opts: { userId?: string | undefined; max?: number | undefined } = {},
+  ): Promise<HarnessWork | null> {
+    if (opts.userId === undefined) return null;
+    if (!(await this.safety.tenantMonitoring(companyId))) return null;
+    const max = Math.max(1, Math.min(opts.max ?? SAFETY_TURNS_PER_BATCH, SAFETY_TURNS_PER_BATCH));
+    const batch = await this.safety.pendingBatch(companyId, opts.userId, max);
+    if (!batch) return null;
+    const payload: AffectTokenPayload = {
+      v: 2,
+      t: 'safety_reading',
+      c: companyId,
+      u: opts.userId,
+      e: batch.turns.map((t) => [t.handle, batch.ids.get(t.handle)!, t.own ? 1 : 0]),
+      n: workNonce(),
+      exp: workExpiry(),
+    };
+    this.logger.log(`harness work taken ${companyId}: safety_reading turns=${batch.own.size}`);
+    return {
+      kind: 'safety_reading',
+      token: mintWorkToken(payload),
+      systemPrompt: SAFETY_READING_SYSTEM,
+      userContent: safetyReadingUser(batch.person, batch.turns),
+      schema: SAFETY_READING_SCHEMA,
+      items: batch.own.size,
+      expiresAt: new Date(payload.exp * 1000).toISOString(),
+    };
+  }
+
+  private async submitSafety(
+    companyId: string,
+    payload: AffectTokenPayload,
+    result: unknown,
+  ): Promise<object> {
+    const { batch, stale } = await this.rebuild(companyId, payload, SAFETY_READER_VERSION);
+    if (batch.own.size === 0) return { turns: 0, signals: 0, urgent: 0, stale };
+    const drafts = parseSafetyReading(result, batch.turns);
+    const out = await this.safety.apply(companyId, batch, { drafts, model: 'connected-agent' });
     return { ...out, stale };
   }
 }

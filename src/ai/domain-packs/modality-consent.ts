@@ -4,6 +4,7 @@ import type {
   DomainPackManifest,
   PackAffectInference,
   PackMemoryModality,
+  PackSafetyMonitoring,
   PackModalityProcessor,
   PackRawEvidenceCapability,
 } from './manifest';
@@ -36,6 +37,8 @@ export interface ModalityConsentSection {
   rawEvidence?: PackRawEvidenceCapability;
   /** #909: inferring how a person feels from their words; absent when none. */
   affectInference?: PackAffectInference;
+  /** #916: reading a person's words for a risk of suicide or self-harm. */
+  safetyMonitoring?: PackSafetyMonitoring;
 }
 
 /**
@@ -57,11 +60,13 @@ export function declaredModalitySection(
   );
   const rawEvidence = memoryModel.rawEvidence;
   const affectInference = memoryModel.affectInference;
+  const safetyMonitoring = memoryModel.safetyMonitoring;
   if (
     nonText.length === 0 &&
     processors.length === 0 &&
     rawEvidence === undefined &&
-    affectInference === undefined
+    affectInference === undefined &&
+    safetyMonitoring === undefined
   ) {
     return null;
   }
@@ -72,6 +77,7 @@ export function declaredModalitySection(
     // #909: what the substrate does with a person's words is the operator's
     // decision too — the same checksum, the same re-consent trigger.
     ...(affectInference !== undefined ? { affectInference } : {}),
+    ...(safetyMonitoring !== undefined ? { safetyMonitoring } : {}),
   };
 }
 
@@ -150,15 +156,34 @@ export function hasCurrentModalityConsent(rows: ReadonlyArray<ModalityConsentRow
 export function currentAffectInference(
   rows: ReadonlyArray<ModalityConsentRow>,
 ): PackAffectInference | null {
-  let best: PackAffectInference | null = null;
+  return strictestAccepted(rows, (section) => section.affectInference);
+}
+
+/**
+ * #916: the safety monitoring the tenant's operator accepted — same rule
+ * as {@link currentAffectInference}; several packs, the shortest
+ * retention wins. Null = no safety reading for this tenant.
+ */
+export function currentSafetyMonitoring(
+  rows: ReadonlyArray<ModalityConsentRow>,
+): PackSafetyMonitoring | null {
+  return strictestAccepted(rows, (section) => section.safetyMonitoring);
+}
+
+/** The accepted declaration with the shortest retention across installed packs. */
+function strictestAccepted<T extends { retentionDays: number }>(
+  rows: ReadonlyArray<ModalityConsentRow>,
+  pick: (section: ModalityConsentSection) => T | undefined,
+): T | null {
+  let best: T | null = null;
   for (const row of rows) {
     try {
       if (typeof row.manifest !== 'object' || row.manifest === null) continue;
       const section = declaredModalitySection(row.manifest as DomainPackManifest);
-      const affect = section?.affectInference;
-      if (!section || !affect || row.acceptedModalities !== true) continue;
+      const declared = section ? pick(section) : undefined;
+      if (!section || !declared || row.acceptedModalities !== true) continue;
       if (row.acceptedModalitiesChecksum !== modalitiesChecksum(section)) continue;
-      if (!best || affect.retentionDays < best.retentionDays) best = affect;
+      if (!best || declared.retentionDays < best.retentionDays) best = declared;
     } catch {
       // Malformed manifest — not consent.
     }
@@ -199,9 +224,13 @@ export function modalityConsentRequired(opts: {
   const affectNote = affect
     ? `; infers how a person feels from their words (kept ${String(affect.retentionDays)} days, each person's own consent required)`
     : '';
+  const safety = opts.declared.safetyMonitoring;
+  const safetyNote = safety
+    ? `; reads people's words for a risk of suicide or self-harm (basis ${safety.basis}, kept ${String(safety.retentionDays)} days)`
+    : '';
   return (
     `pack "${opts.packId}" v${opts.version} declares non-text modality ` +
-    `processing (${names || 'none'})${rawNote}${affectNote}. ` +
+    `processing (${names || 'none'})${rawNote}${affectNote}${safetyNote}. ` +
     `Review the declaration and repeat the install with acceptModalities: true.`
   );
 }

@@ -25,7 +25,8 @@ export type JobType =
   | 'registry_mirror'
   | 'evidence_document_bridge'
   | 'source_sync'
-  | 'read_affect';
+  | 'read_affect'
+  | 'read_safety';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

@@ -271,6 +271,9 @@ belief stamped `affect`; each carries its `assertion` (`stated` / `inferred` /
 | `PUT /v1/users/:userId/age`                   | Operator-only (an M2M key; a user-bound token → 403). Recording a minor makes only a guardian's grant count, and erases what a grant that no longer counts produced.                      |
 | `PUT/DELETE /v1/users/:userId/guardian`       | Operator-only. An opaque guardian reference — no guardian identity is held. Removing it makes the guardian's grants stop counting and erases what they allowed.                         |
 
+| `POST/GET /v1/users/:userId/safety-events`     | The operator's safety protocol record: `ai_disclosure_shown`, `break_reminder_shown`, `crisis_referral_shown` (with `resource`), `minor_safety_setting_changed`, `emotion_recognition_notice_shown`, each with `protocolVersion`. User forget removes the person from these rows, not the rows. |
+| `GET /v1/admin/safety/report?from=&to=`       | `brain:admin`. Counts by month and type, no identifiers — the report CA SB 243 asks an operator to file.                                                                                |
+
 A consent with `grantedBy: "guardian"` (operator-only, a guardian on record) is
 the only one that counts for a person recorded as a minor (#916).
 

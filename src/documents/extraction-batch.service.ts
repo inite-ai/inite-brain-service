@@ -1,5 +1,6 @@
 import { runInCircle } from '../auth/circle-scope';
 import { AffectReaderService } from '../affect/affect-reader.service';
+import { SafetyReaderService } from '../affect/safety-reader.service';
 import { ModuleRef } from '@nestjs/core';
 import { FactResolutionService } from '../dreams/fact-resolution.service';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
@@ -181,23 +182,29 @@ export class ExtractionBatchService implements OnModuleInit {
   }
 
   /**
-   * Ask for the affect pass (#909): a no-op for a tenant whose operator
-   * accepted no `affectInference` declaration, and in harness mode only
-   * its retention sweep runs (the connected agent reads). Off the pass's
+   * Ask for the affect (#909) and safety (#916) passes: each a no-op for a
+   * tenant whose operator accepted no such declaration, and in harness
+   * mode only their retention sweeps run (the connected agent reads). Off the pass's
    * own path: a failure is logged, never thrown.
    */
   private readAffect(companyId: string): void {
-    let reader: AffectReaderService | undefined;
-    try {
-      reader = this.moduleRef?.get(AffectReaderService, { strict: false });
-    } catch {
-      reader = undefined;
+    // #909 affect and #916 safety: each a no-op for a tenant whose operator
+    // accepted no such declaration.
+    for (const token of [AffectReaderService, SafetyReaderService] as const) {
+      let reader: { schedule(companyId: string): Promise<void> } | undefined;
+      try {
+        reader = this.moduleRef?.get<{ schedule(c: string): Promise<void> }>(token, {
+          strict: false,
+        });
+      } catch {
+        reader = undefined;
+      }
+      void reader
+        ?.schedule(companyId)
+        .catch((e: unknown) =>
+          this.logger.warn(`${token.name} schedule ${companyId} failed: ${(e as Error).message}`),
+        );
     }
-    void reader
-      ?.schedule(companyId)
-      .catch((e: unknown) =>
-        this.logger.warn(`affect schedule ${companyId} failed: ${(e as Error).message}`),
-      );
   }
 
   /**
