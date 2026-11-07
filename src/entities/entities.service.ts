@@ -1,4 +1,6 @@
 import { scopeFenceSql } from '../auth/scope-visibility';
+import { shapeAffectSignals, type AffectObservationRow } from './affect-signals';
+import { classRequiredScope } from '../ai/predicate-registry-internals/types';
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -461,11 +463,27 @@ export class EntitiesService {
       });
       const visible = rows.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();
+      // #909: inferred affect is class `affect` — only a caller holding its
+      // scope reads it, behind the same user and circle fence as the facts.
+      const affectScope = classRequiredScope('affect');
+      const observations =
+        affectScope && scopes.includes(affectScope as BrainScope)
+          ? await queryRows<AffectObservationRow>(
+              db,
+              `SELECT id, observedAt, valence, label, target, quote, confidence
+                 FROM affect_observation
+                WHERE userId = $relUser AND ${user.clause}
+                ORDER BY observedAt DESC
+                LIMIT 500`,
+              { ...user.params, relUser: userId },
+            )
+          : [];
       return shapeRelationshipContext({
         userId,
         name: name && name !== userId ? name : undefined,
         rows: visible,
         now,
+        affectSignals: shapeAffectSignals(observations, now),
       });
     });
   }

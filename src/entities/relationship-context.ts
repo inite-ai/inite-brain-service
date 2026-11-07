@@ -84,7 +84,16 @@ export interface RelationshipContext {
     confirmed: RelationshipItem[];
     rejected: RelationshipItem[];
   };
+  /**
+   * #909: how the person has SEEMED to feel, read from their words by the
+   * affect reader — signals at a time, never their state (`state` answers
+   * only from what they said). Present only for a caller holding
+   * brain:read_pii, and only when there are observations.
+   */
+  affectSignals?: AffectSignals;
 }
+
+import type { AffectSignals } from './affect-signals';
 
 const iso = (v: string | Date): string => new Date(v).toISOString();
 
@@ -107,6 +116,8 @@ export function shapeRelationshipContext(p: {
   name?: string | undefined;
   rows: readonly RelationshipFactRow[];
   now: Date;
+  /** #909: shaped by shapeAffectSignals, for a caller allowed to read them. */
+  affectSignals?: AffectSignals | null | undefined;
 }): RelationshipContext {
   // Newest first, whatever order the read returned.
   const rows = [...p.rows].sort(
@@ -139,6 +150,7 @@ export function shapeRelationshipContext(p: {
     whatHelped: of('helped').map(item),
     whatDidNotHelp: of('did_not_help').map(item),
     hypotheses: hypothesesOf(of),
+    ...(p.affectSignals ? { affectSignals: p.affectSignals } : {}),
   };
 }
 
