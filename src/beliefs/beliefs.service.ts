@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { BrainScope } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
+import { fencedClasses } from '../ai/predicate-registry-internals/types';
 
 /**
  * Belief read surface (Belief-B, BELIEFS_API_ENABLED — default off →
@@ -22,9 +23,10 @@ import { pinUserScope } from '../auth/user-scope';
  *    is missing/blank (out-of-contract) is invisible to EVERYONE —
  *    fail-closed, the same doctrine the promotion applies on write.
  *
- * No PII fence: semantic_belief carries no piiClass column (0120) —
- * statements are distilled state, not verbatim turns; the raw text
- * stays behind the episode read port's brain:read_pii gate.
+ *  - class: a belief stamped `affect`, `health` or `sensitive` (0185)
+ *    needs brain:read_pii, the predicate rule (classRequiredScope) applied
+ *    to the row's own class. An unclassed row (NONE — the scene
+ *    promoter's) reads as before.
  *
  * No row policy: beliefs are keyed by FREE-TEXT (subject, field), not
  * by registry predicates — the predicate-scope fence has nothing to
@@ -89,6 +91,7 @@ export interface BeliefReadRow {
   corroborationCount?: unknown;
   conversationCount?: unknown;
   promoterVersion?: unknown;
+  piiClass?: unknown;
 }
 
 /**
@@ -108,11 +111,26 @@ export function beliefVisible(
   return scopeUserId === undefined || owner === scopeUserId;
 }
 
+/**
+ * The class fence of a belief (0185): a row stamped with a class the
+ * caller's scopes do not cover is invisible — the predicate rule
+ * (classRequiredScope) applied to the row's own class. NONE reads.
+ */
+export function beliefClassReadable(
+  belief: Pick<BeliefReadRow, 'piiClass'>,
+  scopes: readonly string[],
+): boolean {
+  return (
+    typeof belief.piiClass !== 'string' ||
+    !(fencedClasses(scopes) as string[]).includes(belief.piiClass)
+  );
+}
+
 const SELECT_COLUMNS = `id, userId, subject, field, value, priorValue,
               statement, statementSource, confidence, revision, status,
               supersededBy, validFrom, validUntil, sourceSceneIds,
               conversationIds, corroborationCount, conversationCount,
-              promoterVersion`;
+              promoterVersion, piiClass`;
 
 interface BeliefReadOptions {
   companyId: string;
@@ -165,7 +183,8 @@ export class BeliefsService {
       if (
         !belief ||
         actingCircleTags().length > 0 ||
-        !beliefVisible(belief, pinUserScope(undefined))
+        !beliefVisible(belief, pinUserScope(undefined)) ||
+        !beliefClassReadable(belief, opts.scopes)
       ) {
         throw new NotFoundException(`Belief ${opts.beliefId} not found`);
       }
@@ -197,6 +216,11 @@ export class BeliefsService {
         // DB-representable out-of-contract shape.
         clauses.push(`userId != ''`);
       }
+      const fenced = fencedClasses(opts.scopes);
+      if (fenced.length > 0) {
+        clauses.push('(piiClass = NONE OR piiClass NOTINSIDE $fenced)');
+        params.fenced = fenced;
+      }
       if (opts.subject !== undefined) {
         clauses.push('subject = $s');
         params.s = opts.subject;
@@ -218,7 +242,9 @@ export class BeliefsService {
           LIMIT ${opts.limit}`,
         params,
       );
-      const beliefs = rows.filter((r) => beliefVisible(r, scopeUserId)).map(toWire);
+      const beliefs = rows
+        .filter((r) => beliefVisible(r, scopeUserId) && beliefClassReadable(r, opts.scopes))
+        .map(toWire);
       return { beliefs, found: beliefs.length };
     });
   }

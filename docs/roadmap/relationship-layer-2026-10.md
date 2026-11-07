@@ -180,6 +180,11 @@ row policy (`src/beliefs/beliefs.service.ts`, header). An affect belief
 written today would be readable by any user-scoped `brain:read` caller.
 The belief plane needs a sensitivity column before affect touches it.
 
+Closed by #909 step 1 (0185): `semantic_belief.piiClass`, and the class
+is the fence — `affect`, `health` and `sensitive` need `brain:read_pii`
+on facts (by predicate class) and on beliefs (by row class). The pack's
+feeling and hypothesis predicates are classed `affect` from 0.3.0.
+
 ### 2.5 The read surface
 
 One MCP tool, `relationship_context(userId)` — built in, listed only for a

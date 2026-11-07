@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PII_CLASSES } from '../../ai/predicate-registry-internals/types';
 
 /**
  * Wire contracts for write-side admin endpoints (POST / DELETE).
@@ -78,7 +79,7 @@ export const ChangefeedDrainResponseSchema = z.object({
 // the predicates list test (same shape goes through that schema).
 const PredicateDatatypeSchema = z.enum(['string', 'number', 'date', 'datetime', 'enum', 'json']);
 const SemanticsSchema = z.enum(['append_only', 'single_active', 'bitemporal']);
-const PiiClassSchema = z.enum(['none', 'identifier', 'behavioral', 'text', 'sensitive']);
+const PiiClassSchema = z.enum(PII_CLASSES);
 const PredicateStatusSchema = z.enum(['active', 'proposed', 'aliased', 'deprecated']);
 const PredicateCreatedBySchema = z.enum(['system', 'admin', 'llm_auto', 'migration']);
 

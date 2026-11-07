@@ -14,6 +14,7 @@ import {
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { PredicateRegistryService, PredicateDefinition } from '../ai/predicate-registry.service';
+import type { PiiClass } from '../ai/predicate-registry-internals/types';
 import {
   PredicateConsolidationService,
   type ConsolidationResult,
@@ -54,7 +55,7 @@ export class AdminPredicatesController {
     body: Partial<PredicateDefinition> & {
       predicateId: string;
       semantics: 'append_only' | 'single_active' | 'bitemporal';
-      piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+      piiClass: PiiClass;
     },
   ): Promise<PredicateMutationResponse> {
     if (!body?.predicateId?.trim()) {

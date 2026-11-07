@@ -99,11 +99,18 @@ type PackPredicate = {
   datatype: 'string' | 'number' | 'date' | 'datetime' | 'enum' | 'json';
   semantics: 'append_only' | 'single_active' | 'bitemporal';
   decayHalfLifeDays: number | null;
-  piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+  piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive' | 'affect' | 'health';
   status: 'active' | 'proposed' | 'aliased' | 'deprecated';
   requiresScope?: string; allowedValues?: string[]; /* …optional */
 };
 ```
+
+The class is the read fence: a predicate classed `sensitive`, `affect` (how a
+person feels — what they say, guesses put to them, inferred emotion) or
+`health` (GDPR art. 9 special category) is served only to a credential holding
+`brain:read_pii`, whether or not it sets `requiresScope`. An explicit
+`requiresScope` still wins. Class a predicate by what its values reveal: a
+mood is `affect` even when it is phrased as a preference.
 
 ## Namespacing (the one hard rule)
 

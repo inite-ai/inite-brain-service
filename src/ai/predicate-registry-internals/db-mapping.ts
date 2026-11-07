@@ -6,6 +6,7 @@ import type {
   PredicateStatus,
   Semantics,
 } from './types';
+import { withClassScope } from './types';
 
 /** Deterministic (recursively key-sorted) JSON — so the profile hash is stable
  *  regardless of manifest key order. Local copy to keep db-mapping dependency-free. */
@@ -72,7 +73,7 @@ function evidenceCapabilityOf(
 
 export function deserializeFromRow(row: Record<string, unknown>): PredicateDefinition {
   const requiredEvidenceCapability = evidenceCapabilityOf(row.requiredEvidenceCapability);
-  return {
+  return withClassScope({
     predicateId: String(row.predicateId),
     displayLabel: String(row.displayLabel ?? row.predicateId),
     description: String(row.description ?? ''),
@@ -90,7 +91,7 @@ export function deserializeFromRow(row: Record<string, unknown>): PredicateDefin
     status: (row.status as PredicateStatus) ?? 'active',
     ...(row.aliasedTo ? { aliasedTo: String(row.aliasedTo) } : {}),
     createdBy: (row.createdBy as PredicateDefinition['createdBy']) ?? 'system',
-  };
+  });
 }
 
 /**
