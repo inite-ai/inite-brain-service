@@ -68,6 +68,7 @@ const consent: Required<ConsentWire> = {
   consentId: 'consent_record:c1',
   userId: 'u1',
   purpose: 'affect_inference',
+  grantedBy: 'guardian',
   basis: 'explicit_consent',
   noticeVersion: 'notice-2026-11',
   grantedAt: '2026-11-01T00:00:00.000Z',

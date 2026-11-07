@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ASSERTIONS } from '../../common/assertion';
 import { CONSENT_BASES } from '../../affect/consent.service';
+import { AGE_BANDS, AGE_STATUSES } from '../../affect/age.service';
 
 /**
  * Wire contracts for a person's emotional data and consents (#909 step 3):
@@ -80,6 +81,8 @@ export const AffectContestResponseSchema = z.object({
 export const RecordConsentRequestSchema = z.object({
   /** Lowercase snake_case, e.g. `affect_inference`. */
   purpose: z.string(),
+  /** 'guardian' (an M2M key attests it; a guardian must be on record) or 'person' (default). */
+  grantedBy: z.enum(['person', 'guardian']).optional(),
   basis: z.enum(CONSENT_BASES),
   /** The version of the notice the person was shown. */
   noticeVersion: z.string(),
@@ -89,6 +92,7 @@ export const ConsentResponseSchema = z.object({
   consentId: z.string(),
   userId: z.string(),
   purpose: z.string(),
+  grantedBy: z.enum(['person', 'guardian']),
   basis: z.enum(CONSENT_BASES),
   noticeVersion: z.string(),
   grantedAt: z.string(),
@@ -105,4 +109,35 @@ export const ConsentRevokeResponseSchema = z.object({
   revoked: z.boolean(),
   /** What withdrawing erased, by kind (counts). */
   erased: z.record(z.string(), z.number()),
+});
+
+/** GET/PUT /v1/users/:userId/age, PUT /v1/users/:userId/guardian (#916). */
+export const AgeResponseSchema = z.object({
+  userId: z.string(),
+  status: z.enum(AGE_STATUSES),
+  minor: z.boolean(),
+  ageBand: z.enum(AGE_BANDS).optional(),
+  method: z.string().optional(),
+  assuredAt: z.string(),
+  guardian: z.object({ guardianRef: z.string(), verifiedAt: z.string() }).optional(),
+});
+
+export const SetAgeRequestSchema = z.object({
+  status: z.enum(AGE_STATUSES),
+  minor: z.boolean(),
+  ageBand: z.enum(AGE_BANDS).optional(),
+  method: z.string().optional(),
+});
+
+export const SetAgeResponseSchema = z.object({
+  age: AgeResponseSchema,
+  /** Per purpose whose grant stopped counting: what was erased. */
+  erased: z.record(z.string(), z.record(z.string(), z.number())),
+});
+
+export const SetGuardianRequestSchema = z.object({ guardianRef: z.string() });
+
+export const RemoveGuardianResponseSchema = z.object({
+  removed: z.boolean(),
+  erased: z.record(z.string(), z.record(z.string(), z.number())),
 });

@@ -303,6 +303,11 @@ import {
   ConsentResponseSchema,
   ConsentRevokeResponseSchema,
   RecordConsentRequestSchema,
+  AgeResponseSchema,
+  SetAgeRequestSchema,
+  SetAgeResponseSchema,
+  SetGuardianRequestSchema,
+  RemoveGuardianResponseSchema,
 } from '../src/contracts/users/affect.schema';
 import {
   EvidenceGrantRowSchema,
@@ -551,6 +556,11 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   ConsentResponse: ConsentResponseSchema,
   ConsentListResponse: ConsentListResponseSchema,
   ConsentRevokeResponse: ConsentRevokeResponseSchema,
+  AgeResponse: AgeResponseSchema,
+  SetAgeRequest: SetAgeRequestSchema,
+  SetAgeResponse: SetAgeResponseSchema,
+  SetGuardianRequest: SetGuardianRequestSchema,
+  RemoveGuardianResponse: RemoveGuardianResponseSchema,
   // --- raw-evidence read gateway (src/contracts/evidence/raw.schema.ts)
   EvidenceRawUrlResponse: EvidenceRawUrlResponseSchema,
   // --- evidence sharing (src/contracts/evidence/grants.schema.ts)
@@ -3022,6 +3032,75 @@ function affectPaths(): Json {
         responses: {
           '201': jsonResponse('The grant.', ref('ConsentResponse')),
           '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/users/{userId}/age': {
+      get: operation({
+        operationId: 'getAge',
+        tag: 'Users',
+        summary: "A person's age assurance",
+        description:
+          'How sure the operator is of the person’s age (declared / estimated / verified), whether ' +
+          'they are a minor, an optional coarse band and their guardian reference. 404 when none is ' +
+          'recorded. ' +
+          pin +
+          'Source: src/affect/age.controller.ts.',
+        scope: 'brain:read',
+        parameters: [user],
+        responses: {
+          '200': jsonResponse('The age assurance.', ref('AgeResponse')),
+          '404': errorRef('NotFound'),
+          ...AUTH_ERRORS,
+        },
+      }),
+      put: operation({
+        operationId: 'setAge',
+        tag: 'Users',
+        summary: "Record a person's age assurance",
+        description:
+          'Operator-attested (an M2M key; a user-bound token → 403). Recording a minor makes only ' +
+          'a guardian’s consent count, and erases what a grant that no longer counts produced. ' +
+          'Source: src/affect/age.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user],
+        requestBody: jsonBody(ref('SetAgeRequest')),
+        responses: {
+          '200': jsonResponse('The record, and what was erased.', ref('SetAgeResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/users/{userId}/guardian': {
+      put: operation({
+        operationId: 'setGuardian',
+        tag: 'Users',
+        summary: "Record a person's guardian",
+        description:
+          'An opaque reference to the guardian as the operator knows them — brain holds no guardian ' +
+          'identity. Operator-attested (M2M only). Source: src/affect/age.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user],
+        requestBody: jsonBody(ref('SetGuardianRequest')),
+        responses: {
+          '200': jsonResponse('The age record with its guardian.', ref('AgeResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+      delete: operation({
+        operationId: 'removeGuardian',
+        tag: 'Users',
+        summary: "Remove a person's guardian",
+        description:
+          'A minor’s guardian grants stop counting, and what they allowed is erased. Operator-only. ' +
+          'Source: src/affect/age.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user],
+        responses: {
+          '200': jsonResponse('What was removed and erased.', ref('RemoveGuardianResponse')),
           ...AUTH_ERRORS,
         },
       }),

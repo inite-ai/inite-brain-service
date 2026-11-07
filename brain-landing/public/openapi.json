@@ -381,6 +381,63 @@
         ],
         "type": "object"
       },
+      "AgeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ageBand": {
+            "enum": [
+              "under_13",
+              "13_15",
+              "16_17",
+              "adult"
+            ],
+            "type": "string"
+          },
+          "assuredAt": {
+            "type": "string"
+          },
+          "guardian": {
+            "additionalProperties": false,
+            "properties": {
+              "guardianRef": {
+                "type": "string"
+              },
+              "verifiedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "guardianRef",
+              "verifiedAt"
+            ],
+            "type": "object"
+          },
+          "method": {
+            "type": "string"
+          },
+          "minor": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "declared",
+              "estimated",
+              "verified"
+            ],
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "status",
+          "minor",
+          "assuredAt"
+        ],
+        "type": "object"
+      },
       "AgentConnectionsListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1345,6 +1402,13 @@
           "grantedAt": {
             "type": "string"
           },
+          "grantedBy": {
+            "enum": [
+              "person",
+              "guardian"
+            ],
+            "type": "string"
+          },
           "noticeVersion": {
             "type": "string"
           },
@@ -1362,6 +1426,7 @@
           "consentId",
           "userId",
           "purpose",
+          "grantedBy",
           "basis",
           "noticeVersion",
           "grantedAt",
@@ -6603,6 +6668,13 @@
             ],
             "type": "string"
           },
+          "grantedBy": {
+            "enum": [
+              "person",
+              "guardian"
+            ],
+            "type": "string"
+          },
           "noticeVersion": {
             "type": "string"
           },
@@ -7062,6 +7134,34 @@
           "packId",
           "latestVersion",
           "versions"
+        ],
+        "type": "object"
+      },
+      "RemoveGuardianResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "erased": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed",
+          "erased"
         ],
         "type": "object"
       },
@@ -7682,6 +7782,79 @@
         },
         "required": [
           "results"
+        ],
+        "type": "object"
+      },
+      "SetAgeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ageBand": {
+            "enum": [
+              "under_13",
+              "13_15",
+              "16_17",
+              "adult"
+            ],
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "minor": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "declared",
+              "estimated",
+              "verified"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "minor"
+        ],
+        "type": "object"
+      },
+      "SetAgeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "age": {
+            "$ref": "#/components/schemas/AgeResponse"
+          },
+          "erased": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "age",
+          "erased"
+        ],
+        "type": "object"
+      },
+      "SetGuardianRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "guardianRef": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guardianRef"
         ],
         "type": "object"
       },
@@ -16482,6 +16655,98 @@
         ]
       }
     },
+    "/v1/users/{userId}/age": {
+      "get": {
+        "description": "How sure the operator is of the person’s age (declared / estimated / verified), whether they are a minor, an optional coarse band and their guardian reference. 404 when none is recorded. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/age.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "getAge",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgeResponse"
+                }
+              }
+            },
+            "description": "The age assurance."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "A person's age assurance",
+        "tags": [
+          "Users"
+        ]
+      },
+      "put": {
+        "description": "Operator-attested (an M2M key; a user-bound token → 403). Recording a minor makes only a guardian’s consent count, and erases what a grant that no longer counts produced. Source: src/affect/age.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "setAge",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAgeResponse"
+                }
+              }
+            },
+            "description": "The record, and what was erased."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Record a person's age assurance",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/v1/users/{userId}/consents": {
       "get": {
         "description": "Every grant, newest first, withdrawn ones included (`active: false`). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:read`.",
@@ -16617,6 +16882,95 @@
           }
         },
         "summary": "Withdraw consent",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/users/{userId}/guardian": {
+      "delete": {
+        "description": "A minor’s guardian grants stop counting, and what they allowed is erased. Operator-only. Source: src/affect/age.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "removeGuardian",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveGuardianResponse"
+                }
+              }
+            },
+            "description": "What was removed and erased."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Remove a person's guardian",
+        "tags": [
+          "Users"
+        ]
+      },
+      "put": {
+        "description": "An opaque reference to the guardian as the operator knows them — brain holds no guardian identity. Operator-attested (M2M only). Source: src/affect/age.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "setGuardian",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetGuardianRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgeResponse"
+                }
+              }
+            },
+            "description": "The age record with its guardian."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Record a person's guardian",
         "tags": [
           "Users"
         ]

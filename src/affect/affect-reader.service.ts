@@ -139,6 +139,8 @@ export class AffectReaderService implements OnModuleInit {
     let observations = 0;
     let turns = 0;
     for (const userId of await this.consentingUsers(companyId)) {
+      // A grant that does not count (a minor's own, #916) buys no reading.
+      if (!(await this.consents.isActive(companyId, userId, AFFECT_INFERENCE_PURPOSE))) continue;
       for (let i = 0; i < BATCHES_PER_PERSON; i++) {
         const batch = await this.pendingBatch(companyId, userId, AFFECT_TURNS_PER_BATCH);
         if (!batch) break;
