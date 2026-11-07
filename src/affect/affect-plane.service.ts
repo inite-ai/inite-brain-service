@@ -48,12 +48,21 @@ export interface AffectBeliefWire {
 export interface AffectObservationWire {
   observationId: string;
   observedAt: string;
-  valence: number;
-  label: string;
+  /** text | voice (#916). */
+  modality: 'text' | 'voice';
+  /** Text readings: valence and label; voice readings carry arousal instead. */
+  valence?: number;
+  label?: string;
+  arousal?: number;
   target?: string;
-  /** The person's exact words it was read from. */
-  quote: string;
-  episodeId: string;
+  /** Text: the person's exact words it was read from. */
+  quote?: string;
+  /** Text: the turn. */
+  episodeId?: string;
+  /** Voice: the recording and the time range. */
+  assetId?: string;
+  startMs?: number;
+  endMs?: number;
   confidence: number;
   assertion: 'inferred';
   inferredBy: InferredBy;
@@ -107,11 +116,15 @@ interface FactRow {
 interface ObservationRow {
   id: unknown;
   observedAt: Date | string;
-  valence: number;
-  label: string;
+  valence?: number | null;
+  label?: string | null;
+  arousal?: number | null;
   target?: string | null;
-  quote: string;
-  episodeId: unknown;
+  quote?: string | null;
+  episodeId?: unknown;
+  assetId?: unknown;
+  startMs?: number | null;
+  endMs?: number | null;
   confidence: number;
   readerVersion: string;
   model?: string | null;
@@ -149,7 +162,7 @@ export class AffectPlaneService implements OnModuleInit {
     // Withdrawing consent to inference erases every inference.
     this.consents.registerRevocationHandler(AFFECT_INFERENCE_PURPOSE, {
       onRevoke: async (companyId, userId) => {
-        const r = await this.erase({ companyId, userId, scope: 'inferred' });
+        const r = await this.erase({ companyId, userId, scope: 'inferred', modality: 'text' });
         return {
           factsDeleted: r.factsDeleted,
           beliefsDeleted: r.beliefsDeleted,
@@ -200,6 +213,8 @@ export class AffectPlaneService implements OnModuleInit {
     companyId: string;
     userId: string;
     scope: AffectEraseScope;
+    /** Only observations of this modality (a purpose's withdrawal); all by default. */
+    modality?: 'text' | 'voice' | undefined;
   }): Promise<AffectEraseResult> {
     const { facts, declared } = await this.loadFacts(opts.companyId, opts.userId);
     const beliefs = await this.loadBeliefs(opts.companyId, opts.userId);
@@ -210,7 +225,9 @@ export class AffectPlaneService implements OnModuleInit {
     const beliefIds = beliefs.map((b) => String(b.id));
     const counts = await this.surreal.withCompany(opts.companyId, async (db) => ({
       ...(await purgeAffectRows(db, { factIds, beliefIds })),
-      observationsDeleted: await eraseObservations(db, opts.userId),
+      // Withdrawing consent to TEXT inference erases text readings; the
+      // category rights (export/erase) cover every modality.
+      observationsDeleted: await eraseObservations(db, opts.userId, opts.modality),
       riskSignalsDeleted: opts.scope === 'all' ? await eraseRiskSignals(db, opts.userId) : 0,
     }));
     this.logger.log(
@@ -281,7 +298,13 @@ export class AffectPlaneService implements OnModuleInit {
     const observation = (await this.loadObservations(opts.companyId, opts.userId)).find(
       (o) => String(o.id) === opts.id,
     );
-    if (observation) return { kind: 'observation', statement: observation.quote };
+    if (observation) {
+      // A voice reading has no words: its key is the recording and the range.
+      const key =
+        observation.quote ??
+        `${String(observation.assetId)}:${String(observation.startMs)}-${String(observation.endMs)}`;
+      return { kind: 'observation', statement: key };
+    }
     throw new NotFoundException(`${opts.id} is not in this person's emotional data`);
   }
 
@@ -319,8 +342,8 @@ export class AffectPlaneService implements OnModuleInit {
     return this.surreal.withCompany(companyId, (db) =>
       queryRows<ObservationRow>(
         db,
-        `SELECT id, observedAt, valence, label, target, quote, episodeId, confidence,
-                readerVersion, model, modality
+        `SELECT id, observedAt, valence, label, arousal, target, quote, episodeId, assetId,
+                startMs, endMs, confidence, readerVersion, model, modality
            FROM affect_observation
           WHERE userId = $u
           ORDER BY observedAt DESC
@@ -374,11 +397,13 @@ function factWire(f: FactRow, declared: string | undefined): AffectFactWire {
 async function eraseObservations(
   db: { query<T extends unknown[]>(sql: string, params?: Record<string, unknown>): Promise<T> },
   userId: string,
+  modality?: 'text' | 'voice',
 ): Promise<number> {
   const [, rows] = await db.query<[unknown, unknown[]]>(
-    `LET $obs = (SELECT VALUE id FROM affect_observation WHERE userId = $u);
+    `LET $obs = (SELECT VALUE id FROM affect_observation
+       WHERE userId = $u AND ($m = NONE OR (modality ?? 'text') = $m));
      DELETE $obs RETURN BEFORE;`,
-    { u: userId },
+    { u: userId, m: modality },
   );
   return (rows ?? []).length;
 }
@@ -396,14 +421,20 @@ async function eraseRiskSignals(
 }
 
 function observationWire(o: ObservationRow): AffectObservationWire {
+  const has = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined;
   return {
     observationId: String(o.id),
     observedAt: iso(o.observedAt),
-    valence: o.valence,
-    label: o.label,
+    modality: o.modality === 'voice' ? 'voice' : 'text',
+    ...(has(o.valence) ? { valence: o.valence } : {}),
+    ...(has(o.label) ? { label: o.label } : {}),
+    ...(has(o.arousal) ? { arousal: o.arousal } : {}),
     ...(o.target ? { target: o.target } : {}),
-    quote: o.quote,
-    episodeId: String(o.episodeId),
+    ...(has(o.quote) ? { quote: o.quote } : {}),
+    ...(has(o.episodeId) ? { episodeId: String(o.episodeId) } : {}),
+    ...(has(o.assetId) ? { assetId: String(o.assetId) } : {}),
+    ...(has(o.startMs) ? { startMs: o.startMs } : {}),
+    ...(has(o.endMs) ? { endMs: o.endMs } : {}),
     confidence: o.confidence,
     assertion: 'inferred',
     inferredBy: {

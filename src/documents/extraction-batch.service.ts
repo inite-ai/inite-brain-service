@@ -1,6 +1,7 @@
 import { runInCircle } from '../auth/circle-scope';
 import { AffectReaderService } from '../affect/affect-reader.service';
 import { SafetyReaderService } from '../affect/safety-reader.service';
+import { VoiceAffectReaderService } from '../affect/voice-affect-reader.service';
 import { ModuleRef } from '@nestjs/core';
 import { FactResolutionService } from '../dreams/fact-resolution.service';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
@@ -190,7 +191,11 @@ export class ExtractionBatchService implements OnModuleInit {
   private readAffect(companyId: string): void {
     // #909 affect and #916 safety: each a no-op for a tenant whose operator
     // accepted no such declaration.
-    for (const token of [AffectReaderService, SafetyReaderService] as const) {
+    for (const token of [
+      AffectReaderService,
+      SafetyReaderService,
+      VoiceAffectReaderService,
+    ] as const) {
       let reader: { schedule(companyId: string): Promise<void> } | undefined;
       try {
         reader = this.moduleRef?.get<{ schedule(c: string): Promise<void> }>(token, {

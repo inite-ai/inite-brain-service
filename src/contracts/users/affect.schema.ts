@@ -45,14 +45,23 @@ export const AffectBeliefSchema = z.object({
 export const AffectObservationSchema = z.object({
   observationId: z.string(),
   observedAt: z.string(),
-  /** −1 (very unpleasant) … +1 (very pleasant). */
-  valence: z.number(),
-  /** anger / disgust / fear / joy / sadness / surprise / neutral. */
-  label: z.string(),
+  /** text | voice (#916). */
+  modality: z.enum(['text', 'voice']),
+  /** Text readings: −1 (very unpleasant) … +1 (very pleasant). */
+  valence: z.number().optional(),
+  /** Text readings: anger / disgust / fear / joy / sadness / surprise / neutral. */
+  label: z.string().optional(),
+  /** Voice readings: 0 (calm, low energy) … 1 (agitated, high energy). */
+  arousal: z.number().optional(),
   /** What the feeling was about, when the words say. */
   target: z.string().optional(),
-  quote: z.string(),
-  episodeId: z.string(),
+  /** Text: the person's exact words; voice readings carry none. */
+  quote: z.string().optional(),
+  episodeId: z.string().optional(),
+  /** Voice: the recording and the time range. */
+  assetId: z.string().optional(),
+  startMs: z.number().int().optional(),
+  endMs: z.number().int().optional(),
   confidence: z.number(),
   assertion: z.literal('inferred'),
   inferredBy: InferredBySchema,

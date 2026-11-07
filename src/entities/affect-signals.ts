@@ -29,21 +29,28 @@ const TREND_WEEKS = 4;
 export interface AffectObservationRow {
   id: unknown;
   observedAt: string | Date;
-  valence: number;
-  label: string;
+  /** Text readings carry valence and label; voice readings (#916) arousal. */
+  valence?: number | null;
+  label?: string | null;
+  arousal?: number | null;
+  modality?: string | null;
   target?: string | null;
-  quote: string;
+  quote?: string | null;
   confidence: number;
 }
 
 export interface AffectSignalItem {
   observationId: string;
   at: string;
-  valence: number;
-  label: string;
+  /** text | voice. */
+  modality: 'text' | 'voice';
+  valence?: number;
+  label?: string;
+  /** Voice: 0 calm … 1 agitated. */
+  arousal?: number;
   about?: string;
-  /** The person's exact words it was read from. */
-  quote: string;
+  /** Text: the person's exact words it was read from. */
+  quote?: string;
   confidence: number;
 }
 
@@ -57,8 +64,8 @@ export interface AffectSignals {
   /** Always 'inferred': read from the person's words, never said by them. */
   kind: 'inferred';
   recent: AffectSignalItem[];
-  /** The person's own mean over every kept observation. */
-  baseline: AffectWindow & { since: string };
+  /** The person's own mean valence over every kept text reading (absent: voice only). */
+  baseline?: AffectWindow & { since: string };
   /** The last seven days, and how far they sit from the baseline. */
   lastWeek?: AffectWindow & { deviation: number };
   /** Weekly means, oldest first, weeks with observations only. */
@@ -68,15 +75,19 @@ export interface AffectSignals {
 const iso = (v: string | Date): string => new Date(v).toISOString();
 const round = (x: number): number => Math.round(x * 1000) / 1000 || 0;
 
+/** Confidence-weighted mean valence over the rows that carry valence (text readings). */
 function window(rows: readonly AffectObservationRow[]): AffectWindow | null {
   let weight = 0;
   let sum = 0;
+  let n = 0;
   for (const r of rows) {
+    if (typeof r.valence !== 'number') continue;
     weight += r.confidence;
     sum += r.valence * r.confidence;
+    n += 1;
   }
-  if (rows.length === 0 || weight === 0) return null;
-  return { meanValence: round(sum / weight), n: rows.length };
+  if (n === 0 || weight === 0) return null;
+  return { meanValence: round(sum / weight), n };
 }
 
 /** Monday 00:00 UTC of the week holding `t`. */
@@ -90,21 +101,23 @@ export function shapeAffectSignals(
   rows: readonly AffectObservationRow[],
   now: Date,
 ): AffectSignals | null {
+  if (rows.length === 0) return null;
   const baseline = window(rows);
-  if (!baseline) return null;
   const at = (r: AffectObservationRow) => new Date(r.observedAt).getTime();
   const sorted = [...rows].sort((a, b) => at(b) - at(a));
   const nowMs = now.getTime();
   const recent = sorted
     .filter((r) => nowMs - at(r) <= RECENT_DAYS * 24 * 3600_000)
     .slice(0, RECENT_MAX)
-    .map((r) => ({
+    .map((r): AffectSignalItem => ({
       observationId: String(r.id),
       at: iso(r.observedAt),
-      valence: r.valence,
-      label: r.label,
+      modality: r.modality === 'voice' ? 'voice' : 'text',
+      ...(typeof r.valence === 'number' ? { valence: r.valence } : {}),
+      ...(r.label ? { label: r.label } : {}),
+      ...(typeof r.arousal === 'number' ? { arousal: r.arousal } : {}),
       ...(r.target ? { about: r.target } : {}),
-      quote: r.quote,
+      ...(r.quote ? { quote: r.quote } : {}),
       confidence: r.confidence,
     }));
   const week = window(sorted.filter((r) => nowMs - at(r) <= WEEK_MS));
@@ -116,12 +129,17 @@ export function shapeAffectSignals(
   const weekly = [...byWeek.entries()]
     .sort((a, b) => a[0] - b[0])
     .slice(-TREND_WEEKS)
-    .map(([w, rs]) => ({ weekStart: new Date(w).toISOString(), ...window(rs)! }));
+    .flatMap(([w, rs]) => {
+      const win = window(rs);
+      return win ? [{ weekStart: new Date(w).toISOString(), ...win }] : [];
+    });
   return {
     kind: 'inferred',
     recent,
-    baseline: { ...baseline, since: iso(sorted[sorted.length - 1]!.observedAt) },
-    ...(week
+    ...(baseline
+      ? { baseline: { ...baseline, since: iso(sorted[sorted.length - 1]!.observedAt) } }
+      : {}),
+    ...(week && baseline
       ? { lastWeek: { ...week, deviation: round(week.meanValence - baseline.meanValence) } }
       : {}),
     weekly,

@@ -65,6 +65,15 @@ export class UploadEvidenceBlobDto {
   modality!: EvidenceModality;
 
   /**
+   * #916: 'self' = the recording is the person's (userId) own voice — the
+   * only recordings voice affect inference may read. Absent = unknown
+   * speakers; never read for voice affect.
+   */
+  @IsOptional()
+  @IsIn(['self'])
+  speaker?: 'self' | undefined;
+
+  /**
    * Overrides the uploaded part's own Content-Type. Optional: the part
    * usually declares it. Either way the effective value is checked
    * against the upload allowlist AND against `modality` — see

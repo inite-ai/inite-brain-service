@@ -5,6 +5,7 @@ import { AffectController } from './affect.controller';
 import { AgeController } from './age.controller';
 import { AgeService } from './age.service';
 import { SafetyReaderService } from './safety-reader.service';
+import { VoiceAffectReaderService } from './voice-affect-reader.service';
 import { SafetyEventService } from './safety-event.service';
 import { SafetyController } from './safety.controller';
 import { AffectPlaneService } from './affect-plane.service';
@@ -28,6 +29,7 @@ import { AffectReadingWorkService } from './affect-reading-work.service';
     AgeService,
     SafetyReaderService,
     SafetyEventService,
+    VoiceAffectReaderService,
   ],
   exports: [
     ConsentService,
@@ -37,6 +39,7 @@ import { AffectReadingWorkService } from './affect-reading-work.service';
     AgeService,
     SafetyReaderService,
     SafetyEventService,
+    VoiceAffectReaderService,
   ],
 })
 export class AffectModule {}
