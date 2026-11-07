@@ -184,5 +184,6 @@
   "0183_llm_tenant_spend.surql": "7cac8447176ae7465a000748893a0785dc8e56673c3ecdee564bf83920c095fe",
   "0184_language_stems.surql": "6126b8ad9bf849e20775afe36f1eff38aa7eadb78d98e637a72ce2a99e0e4fcc",
   "0185_affect_health_classes.surql": "ced121c669a33f02ceb29e6bb93d338920e34b259c02eac886896e9b9c1da737",
-  "0186_claim_assertion.surql": "eb679a9aeb85da39edce2d09d703af630feef58c5bebf69d0b21d288f3f55e10"
+  "0186_claim_assertion.surql": "eb679a9aeb85da39edce2d09d703af630feef58c5bebf69d0b21d288f3f55e10",
+  "0187_consent_and_affect_rights.surql": "6ed902d50b26beedfd9678c3ec1f758c083407a18b50a04591b42db7d4a92399"
 }

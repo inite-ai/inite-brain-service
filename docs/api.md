@@ -250,6 +250,25 @@ user-enumeration oracle either.
 | `POST /v1/entities/:id/forget`  | Hard GDPR cascade — facts + edges + embeddings deleted, HMAC tombstone retained.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `POST /v1/users/:userId/forget` | GDPR erasure of one end-user's memory scope (migration 0055): personal facts (incl. those on shared entities), personal entities + edges + dedup refs, usage/feedback rows, audit mirror.                                                                                                                                                                                                                                                                                                                                                                                             |
 
+## A person's emotional data and consents (#909)
+
+Always on — these are rights, not features. A user-bound token acts only for
+its own user (another user → 403); an M2M key acts for any user of its tenant.
+"Emotional data" is every fact under a predicate classed `affect` and every
+belief stamped `affect`; each carries its `assertion` (`stated` / `inferred` /
+`hypothesis` / `confirmed`).
+
+| Endpoint                                       | Notes                                                                                                                                                                                   |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/users/:userId/affect`                 | Export the category. `brain:read` + `brain:read_pii` (the class's read fence).                                                                                                          |
+| `DELETE /v1/users/:userId/affect?scope=`       | Hard-delete the category (`all`, default) or only the inferences (`inferred`), with rows composed from it and their audit mirror. The rest of the person's memory is untouched.          |
+| `POST /v1/users/:userId/affect/:id/contest`    | The person says an inference or guess is wrong: erased, and a hash of it kept so it is not inferred again. A stated fact answers 400 — retract or restate it.                            |
+| `GET /v1/users/:userId/consents`               | Every grant, newest first, withdrawn ones included.                                                                                                                                     |
+| `POST /v1/users/:userId/consents`              | `{ purpose, basis, noticeVersion }` — basis is a GDPR art. 6 basis or `explicit_consent` (art. 9(2)(a)). Replaces the live grant for the purpose; history kept.                         |
+| `DELETE /v1/users/:userId/consents/:purpose`   | Withdraw, and erase what the purpose produced — for `affect_inference`, every inference about how the person feels.                                                                    |
+
+User forget (`POST /v1/users/:userId/forget`) erases consents and contests with the rest.
+
 ## Background work
 
 | Endpoint              | Notes                                                                  |

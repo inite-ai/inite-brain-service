@@ -293,6 +293,17 @@ import {
 } from '../src/contracts/users/user-profile.schema';
 import { EvidenceRawUrlResponseSchema } from '../src/contracts/evidence/raw.schema';
 import {
+  AffectBeliefSchema,
+  AffectContestResponseSchema,
+  AffectEraseResponseSchema,
+  AffectExportResponseSchema,
+  AffectFactSchema,
+  ConsentListResponseSchema,
+  ConsentResponseSchema,
+  ConsentRevokeResponseSchema,
+  RecordConsentRequestSchema,
+} from '../src/contracts/users/affect.schema';
+import {
   EvidenceGrantRowSchema,
   EvidenceGrantsListResponseSchema,
   GrantEvidenceAccessRequestSchema,
@@ -528,6 +539,16 @@ const ZOD_COMPONENTS: Record<string, z.ZodType> = {
   ProfileFact: ProfileFactSchema,
   ProfileSection: ProfileSectionSchema,
   UserProfileResponse: UserProfileResponseSchema,
+  // --- emotional data + consents (src/contracts/users/affect.schema.ts, #909)
+  AffectFact: AffectFactSchema,
+  AffectBelief: AffectBeliefSchema,
+  AffectExportResponse: AffectExportResponseSchema,
+  AffectEraseResponse: AffectEraseResponseSchema,
+  AffectContestResponse: AffectContestResponseSchema,
+  RecordConsentRequest: RecordConsentRequestSchema,
+  ConsentResponse: ConsentResponseSchema,
+  ConsentListResponse: ConsentListResponseSchema,
+  ConsentRevokeResponse: ConsentRevokeResponseSchema,
   // --- raw-evidence read gateway (src/contracts/evidence/raw.schema.ts)
   EvidenceRawUrlResponse: EvidenceRawUrlResponseSchema,
   // --- evidence sharing (src/contracts/evidence/grants.schema.ts)
@@ -2894,6 +2915,138 @@ function memoryReadPaths(): Json {
 }
 
 /**
+ * A person's emotional data and consents (#909). Always on — these are
+ * rights. A user-bound token acts only for its own user (403 otherwise);
+ * an M2M key for any user of its tenant.
+ */
+function affectPaths(): Json {
+  const user = pathParam('userId', 'The person.');
+  const pin =
+    'A user-bound token acts only for its own user (another → 403); an M2M key for any user. ';
+  return {
+    '/v1/users/{userId}/affect': {
+      get: operation({
+        operationId: 'exportAffect',
+        tag: 'Users',
+        summary: "Export a person's emotional data",
+        description:
+          'Every fact under a predicate classed `affect` and every belief stamped `affect` ' +
+          'in the person’s memory, each with its `assertion` (stated / inferred / ' +
+          'hypothesis / confirmed). ' +
+          pin +
+          'Needs `brain:read` as well. Source: src/affect/affect.controller.ts.',
+        scope: 'brain:read_pii',
+        parameters: [user],
+        responses: {
+          '200': jsonResponse('The category.', ref('AffectExportResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+      delete: operation({
+        operationId: 'eraseAffect',
+        tag: 'Users',
+        summary: "Erase a person's emotional data",
+        description:
+          'Hard-deletes the category — `scope=all` (default) or only the inferences ' +
+          '(`scope=inferred`) — with every row composed from it and its audit mirror; the ' +
+          'rest of the person’s memory is untouched. ' +
+          pin +
+          'Source: src/affect/affect.controller.ts.',
+        scope: 'brain:write',
+        parameters: [
+          user,
+          queryParam('scope', "'all' (default) or 'inferred'.", {
+            type: 'string',
+            enum: ['all', 'inferred'],
+          }),
+        ],
+        responses: {
+          '200': jsonResponse('What was erased.', ref('AffectEraseResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/users/{userId}/affect/{id}/contest': {
+      post: operation({
+        operationId: 'contestAffect',
+        tag: 'Users',
+        summary: 'Contest an inference',
+        description:
+          'The person says an inference or a guess about them is wrong: it is erased, and ' +
+          'a hash of it is kept so it is not inferred again. A stated fact answers 400 ' +
+          '(retract or restate it). ' +
+          pin +
+          'Source: src/affect/affect.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user, pathParam('id', 'The fact or belief id.')],
+        responses: {
+          '200': jsonResponse('The contest.', ref('AffectContestResponse')),
+          '400': errorRef('BadRequest'),
+          '404': errorRef('NotFound'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/users/{userId}/consents': {
+      get: operation({
+        operationId: 'listConsents',
+        tag: 'Users',
+        summary: "A person's consents",
+        description:
+          'Every grant, newest first, withdrawn ones included (`active: false`). ' +
+          pin +
+          'Source: src/affect/affect.controller.ts.',
+        scope: 'brain:read',
+        parameters: [user],
+        responses: {
+          '200': jsonResponse('The consents.', ref('ConsentListResponse')),
+          ...AUTH_ERRORS,
+        },
+      }),
+      post: operation({
+        operationId: 'recordConsent',
+        tag: 'Users',
+        summary: 'Record consent for a purpose',
+        description:
+          'Records the person’s consent for one purpose, with its legal basis and the ' +
+          'notice version they saw; a live grant for the same purpose is replaced (history ' +
+          'kept). ' +
+          pin +
+          'Source: src/affect/affect.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user],
+        requestBody: jsonBody(ref('RecordConsentRequest')),
+        responses: {
+          '201': jsonResponse('The grant.', ref('ConsentResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+    '/v1/users/{userId}/consents/{purpose}': {
+      delete: operation({
+        operationId: 'revokeConsent',
+        tag: 'Users',
+        summary: 'Withdraw consent',
+        description:
+          'Withdraws the person’s consent for the purpose and erases what processing for ' +
+          'it produced (for `affect_inference`: every inference about how they feel). ' +
+          pin +
+          'Source: src/affect/affect.controller.ts.',
+        scope: 'brain:write',
+        parameters: [user, pathParam('purpose', 'The purpose, e.g. `affect_inference`.')],
+        responses: {
+          '200': jsonResponse('The withdrawal.', ref('ConsentRevokeResponse')),
+          '400': errorRef('BadRequest'),
+          ...AUTH_ERRORS,
+        },
+      }),
+    },
+  };
+}
+
+/**
  * Raw-evidence read gateway (Brain v2.1 MM-3). The '/v1/episodes
  * 404-until-flag' precedent: every route (the unauthenticated redeem
  * included) answers a bare 404 while EVIDENCE_RAW_READ_ENABLED is off,
@@ -3737,6 +3890,7 @@ export function buildOpenApiDocument(): Json {
       ...sourcePlanePaths(),
       ...driverPaths(),
       ...memoryReadPaths(),
+      ...affectPaths(),
       ...evidencePaths(),
       ...evidenceGrantPaths(),
       ...evidenceIngestPaths(),

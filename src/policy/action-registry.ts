@@ -103,6 +103,13 @@ export const ACTIONS: Record<string, ActionSpec> = {
 
   // REST-only actions
   'rest.users.forget': { kind: 'write', family: 'rest', title: 'GDPR user forget' },
+  // #909: a person's emotional data as a category, and their consents.
+  'rest.users.affect.export': { kind: 'read', family: 'rest', title: 'Export emotional data' },
+  'rest.users.affect.erase': { kind: 'write', family: 'rest', title: 'Erase emotional data' },
+  'rest.users.affect.contest': { kind: 'write', family: 'rest', title: 'Contest an inference' },
+  'rest.users.consents.list': { kind: 'read', family: 'rest', title: 'List consents' },
+  'rest.users.consents.record': { kind: 'write', family: 'rest', title: 'Record consent' },
+  'rest.users.consents.revoke': { kind: 'write', family: 'rest', title: 'Withdraw consent' },
   'rest.ingest.mention': { kind: 'write', family: 'rest', title: 'Ingest mention' },
   'rest.ingest.evidence_asset': {
     kind: 'write',

@@ -123,6 +123,185 @@
       }
     },
     "schemas": {
+      "AffectBelief": {
+        "additionalProperties": false,
+        "properties": {
+          "assertion": {
+            "const": "inferred",
+            "type": "string"
+          },
+          "beliefId": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "beliefId",
+          "subject",
+          "field",
+          "statement",
+          "assertion",
+          "validFrom",
+          "status"
+        ],
+        "type": "object"
+      },
+      "AffectContestResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contested": {
+            "type": "string"
+          },
+          "erased": {
+            "$ref": "#/components/schemas/AffectEraseResponse"
+          }
+        },
+        "required": [
+          "contested",
+          "erased"
+        ],
+        "type": "object"
+      },
+      "AffectEraseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "beliefsDeleted": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "derivedDeleted": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "factsDeleted": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "all",
+              "inferred"
+            ],
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "scope",
+          "factsDeleted",
+          "beliefsDeleted",
+          "derivedDeleted"
+        ],
+        "type": "object"
+      },
+      "AffectExportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "beliefs": {
+            "items": {
+              "$ref": "#/components/schemas/AffectBelief"
+            },
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/AffectFact"
+            },
+            "type": "array"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "facts",
+          "beliefs"
+        ],
+        "type": "object"
+      },
+      "AffectFact": {
+        "additionalProperties": false,
+        "properties": {
+          "aspect": {
+            "type": "string"
+          },
+          "assertion": {
+            "enum": [
+              "stated",
+              "inferred",
+              "hypothesis",
+              "confirmed"
+            ],
+            "type": "string"
+          },
+          "factId": {
+            "type": "string"
+          },
+          "inferredBy": {
+            "additionalProperties": false,
+            "properties": {
+              "modality": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "recorder": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "recorder"
+            ],
+            "type": "object"
+          },
+          "retracted": {
+            "type": "boolean"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factId",
+          "aspect",
+          "statement",
+          "assertion",
+          "validFrom",
+          "retracted"
+        ],
+        "type": "object"
+      },
       "AgentConnectionsListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1045,6 +1224,95 @@
           "id",
           "type",
           "canonicalName"
+        ],
+        "type": "object"
+      },
+      "ConsentListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "consents": {
+            "items": {
+              "$ref": "#/components/schemas/ConsentResponse"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "consents"
+        ],
+        "type": "object"
+      },
+      "ConsentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "basis": {
+            "enum": [
+              "consent",
+              "explicit_consent",
+              "contract",
+              "legal_obligation",
+              "vital_interests",
+              "public_task",
+              "legitimate_interests"
+            ],
+            "type": "string"
+          },
+          "consentId": {
+            "type": "string"
+          },
+          "grantedAt": {
+            "type": "string"
+          },
+          "noticeVersion": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "consentId",
+          "userId",
+          "purpose",
+          "basis",
+          "noticeVersion",
+          "grantedAt",
+          "active"
+        ],
+        "type": "object"
+      },
+      "ConsentRevokeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "erased": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "purpose",
+          "revoked",
+          "erased"
         ],
         "type": "object"
       },
@@ -6238,6 +6506,35 @@
           "status",
           "failed",
           "outcome"
+        ],
+        "type": "object"
+      },
+      "RecordConsentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "enum": [
+              "consent",
+              "explicit_consent",
+              "contract",
+              "legal_obligation",
+              "vital_interests",
+              "public_task",
+              "legitimate_interests"
+            ],
+            "type": "string"
+          },
+          "noticeVersion": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "basis",
+          "noticeVersion"
         ],
         "type": "object"
       },
@@ -15957,6 +16254,292 @@
         "summary": "Answer a question from memory, with citations",
         "tags": [
           "Search"
+        ]
+      }
+    },
+    "/v1/users/{userId}/affect": {
+      "delete": {
+        "description": "Hard-deletes the category — `scope=all` (default) or only the inferences (`scope=inferred`) — with every row composed from it and its audit mirror; the rest of the person’s memory is untouched. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "eraseAffect",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "'all' (default) or 'inferred'.",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "inferred"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffectEraseResponse"
+                }
+              }
+            },
+            "description": "What was erased."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Erase a person's emotional data",
+        "tags": [
+          "Users"
+        ]
+      },
+      "get": {
+        "description": "Every fact under a predicate classed `affect` and every belief stamped `affect` in the person’s memory, each with its `assertion` (stated / inferred / hypothesis / confirmed). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Needs `brain:read` as well. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:read_pii`.",
+        "operationId": "exportAffect",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffectExportResponse"
+                }
+              }
+            },
+            "description": "The category."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Export a person's emotional data",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/users/{userId}/affect/{id}/contest": {
+      "post": {
+        "description": "The person says an inference or a guess about them is wrong: it is erased, and a hash of it is kept so it is not inferred again. A stated fact answers 400 (retract or restate it). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "contestAffect",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The fact or belief id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffectContestResponse"
+                }
+              }
+            },
+            "description": "The contest."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        },
+        "summary": "Contest an inference",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/users/{userId}/consents": {
+      "get": {
+        "description": "Every grant, newest first, withdrawn ones included (`active: false`). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:read`.",
+        "operationId": "listConsents",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentListResponse"
+                }
+              }
+            },
+            "description": "The consents."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "A person's consents",
+        "tags": [
+          "Users"
+        ]
+      },
+      "post": {
+        "description": "Records the person’s consent for one purpose, with its legal basis and the notice version they saw; a live grant for the same purpose is replaced (history kept). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "recordConsent",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "The grant."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Record consent for a purpose",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/v1/users/{userId}/consents/{purpose}": {
+      "delete": {
+        "description": "Withdraws the person’s consent for the purpose and erases what processing for it produced (for `affect_inference`: every inference about how they feel). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "operationId": "revokeConsent",
+        "parameters": [
+          {
+            "description": "The person.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The purpose, e.g. `affect_inference`.",
+            "in": "path",
+            "name": "purpose",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentRevokeResponse"
+                }
+              }
+            },
+            "description": "The withdrawal."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        },
+        "summary": "Withdraw consent",
+        "tags": [
+          "Users"
         ]
       }
     },
