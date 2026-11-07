@@ -112,6 +112,11 @@ person feels — what they say, guesses put to them, inferred emotion) or
 `requiresScope` still wins. Class a predicate by what its values reveal: a
 mood is `affect` even when it is phrased as a preference.
 
+`assertion?: 'hypothesis' | 'confirmed'` declares that every value under the
+predicate is a guess put to the person, or one they confirmed — what a fact
+read reports as its `assertion` (the relationship pack's `hypothesis` and
+`hypothesis_confirmed`). Leave it out for anything a source states.
+
 ## Namespacing (the one hard rule)
 
 Every pack predicate is stored as **`<packId>__<localId>`** — double underscore

@@ -71,7 +71,8 @@
       "semantics": "append_only",
       "decayHalfLifeDays": 30,
       "piiClass": "affect",
-      "status": "active"
+      "status": "active",
+      "assertion": "hypothesis"
     },
     {
       "localId": "hypothesis_confirmed",
@@ -81,7 +82,8 @@
       "semantics": "append_only",
       "decayHalfLifeDays": null,
       "piiClass": "affect",
-      "status": "active"
+      "status": "active",
+      "assertion": "confirmed"
     },
     {
       "localId": "hypothesis_rejected",

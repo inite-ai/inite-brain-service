@@ -118,6 +118,7 @@ VALUE  the guess and who made it ("coach: anxious about work"). Never a fact abo
       semantics: 'append_only',
       decayHalfLifeDays: 30,
       piiClass: 'affect',
+      assertion: 'hypothesis',
       status: 'active',
     },
     {
@@ -131,6 +132,7 @@ VALUE  the guess as confirmed ("coach: snacks more after long meetings"); what t
       semantics: 'append_only',
       decayHalfLifeDays: null,
       piiClass: 'affect',
+      assertion: 'confirmed',
       status: 'active',
     },
     {

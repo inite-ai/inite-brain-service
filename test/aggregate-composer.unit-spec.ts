@@ -226,6 +226,9 @@ describe('AggregateComposerService — summary episode stamping', () => {
     expect(rows[0]!.source).toEqual({
       vertical: 'aggregate',
       recorder: AGGREGATE_RECORDER,
+      // #909: a composed aggregate is the model's conclusion.
+      assertion: 'inferred',
+      inferredBy: { recorder: AGGREGATE_RECORDER, modality: 'text' },
     });
   });
 

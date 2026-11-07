@@ -23,6 +23,7 @@ const DEFINITION_FIELDS: Array<keyof PackPredicate> = [
   'decayHalfLifeDays',
   'piiClass',
   'requiresScope',
+  'assertion',
   'parentPredicateId',
   'subjectClasses',
   'allowedValues',

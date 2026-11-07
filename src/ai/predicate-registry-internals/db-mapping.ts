@@ -7,6 +7,11 @@ import type {
   Semantics,
 } from './types';
 import { withClassScope } from './types';
+import { DECLARED_ASSERTIONS, type DeclaredAssertion } from '../../common/assertion';
+
+function isDeclaredAssertion(v: unknown): v is DeclaredAssertion {
+  return typeof v === 'string' && (DECLARED_ASSERTIONS as readonly string[]).includes(v);
+}
 
 /** Deterministic (recursively key-sorted) JSON — so the profile hash is stable
  *  regardless of manifest key order. Local copy to keep db-mapping dependency-free. */
@@ -47,6 +52,7 @@ export function serializeForInsert(p: PredicateDefinition): Record<string, unkno
     ...(p.requiredEvidenceCapability
       ? { requiredEvidenceCapability: p.requiredEvidenceCapability }
       : {}),
+    ...(p.assertion ? { assertion: p.assertion } : {}),
     ...(p.parentPredicateId ? { parentPredicateId: p.parentPredicateId } : {}),
     ...(p.subjectClasses ? { subjectClasses: p.subjectClasses } : {}),
     ...(p.allowedValues ? { allowedValues: p.allowedValues } : {}),
@@ -83,6 +89,7 @@ export function deserializeFromRow(row: Record<string, unknown>): PredicateDefin
     piiClass: row.piiClass as PiiClass,
     ...(row.requiresScope ? { requiresScope: String(row.requiresScope) } : {}),
     ...(requiredEvidenceCapability ? { requiredEvidenceCapability } : {}),
+    ...(isDeclaredAssertion(row.assertion) ? { assertion: row.assertion } : {}),
     ...(row.parentPredicateId ? { parentPredicateId: String(row.parentPredicateId) } : {}),
     ...(Array.isArray(row.subjectClasses)
       ? { subjectClasses: row.subjectClasses as string[] }
