@@ -4,6 +4,7 @@ import type { BrainScope } from '../auth/api-key.types';
 import { registerCodeMemoryReadTools, registerCodeMemoryWriteTools } from './code-memory-tools';
 import { registerCommunityTools } from './community-tools';
 import { registerHarnessWorkTools } from './harness-work-tools';
+import { registerMediaReadTools, registerMediaWriteTools } from './media-tools';
 import { registerOnboardingTools } from './onboarding-tools';
 import { registerProceduralReadTools } from './procedural-tools';
 import { PUBLIC_TOOL_NAMES } from './public-tools';
@@ -76,6 +77,7 @@ function record(): Recorded[] {
   });
   registerProceduralReadTools(server, companyId, { procedural: none, scopes });
   registerCommunityTools(server, companyId, { communities: none, scopes });
+  registerMediaReadTools({ server, companyId, scopes, actorKeyHash: '', deps: {} });
   registerCodeMemoryReadTools({ server, companyId, scopes, deps: none });
   registerSourceReadTools({ server, companyId, deps: none });
   registerOnboardingTools({ server, ctx: { companyId, scopes, named: true }, deps: none });
@@ -88,6 +90,7 @@ function record(): Recorded[] {
     deps: none,
   });
   registerCodeMemoryWriteTools({ server, companyId, deps: none });
+  registerMediaWriteTools({ server, companyId, deps: {} });
   registerHarnessWorkTools({ server, companyId, deps: {} });
   return out;
 }
@@ -142,6 +145,7 @@ export function requiredScopeOf(name: string): BrainScope | null {
       deps: none,
     });
     registerCodeMemoryWriteTools({ server: ws, companyId: '', deps: none });
+    registerMediaWriteTools({ server: ws, companyId: '', deps: {} });
     registerHarnessWorkTools({ server: ws, companyId: '', deps: {} });
     for (const r of write) map.set(r.name, 'brain:write');
     const admin: Recorded[] = [];

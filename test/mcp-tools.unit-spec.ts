@@ -106,10 +106,16 @@ describe('McpService.buildServer — scope-gated tool surface', () => {
   it('registers the read baseline with only brain:read', async () => {
     const names = toolNames(await buildWithScopes(['brain:read']));
     for (const t of READ_BASELINE) expect(names).toContain(t);
+    // Only for a key that may read media (brain:read_media).
+    expect(names).not.toContain('read_media');
+    expect(toolNames(await buildWithScopes(['brain:read', 'brain:read_media']))).toContain(
+      'read_media',
+    );
   });
 
   it('does NOT register mutation tools without brain:write', async () => {
     const names = toolNames(await buildWithScopes(['brain:read']));
+    expect(names).not.toContain('upload_media');
     expect(names).not.toContain('record_fact');
     expect(names).not.toContain('retract_fact');
     expect(names).not.toContain('link_entities');
