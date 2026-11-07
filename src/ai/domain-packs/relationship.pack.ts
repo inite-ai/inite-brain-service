@@ -20,7 +20,7 @@ import type { DomainPackManifest } from './manifest';
  */
 export const RELATIONSHIP_PACK: DomainPackManifest = {
   id: 'relationship',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Relationship memory — commitments and who they were made to, open threads, what helped and what did not, tone preferences and self-reported state with its shelf life; read back by relationship_context.',
   predicates: [
@@ -100,7 +100,7 @@ VALUE  the state as said ("exhausted, sleeping about five hours a night"); give 
       datatype: 'string',
       semantics: 'single_active',
       decayHalfLifeDays: 7,
-      piiClass: 'sensitive',
+      piiClass: 'affect',
       status: 'active',
     },
     // The hypothesis lifecycle (relationship layer §1.1): a guess about the
@@ -117,7 +117,8 @@ VALUE  the guess and who made it ("coach: anxious about work"). Never a fact abo
       datatype: 'string',
       semantics: 'append_only',
       decayHalfLifeDays: 30,
-      piiClass: 'sensitive',
+      piiClass: 'affect',
+      assertion: 'hypothesis',
       status: 'active',
     },
     {
@@ -130,7 +131,8 @@ VALUE  the guess as confirmed ("coach: snacks more after long meetings"); what t
       datatype: 'string',
       semantics: 'append_only',
       decayHalfLifeDays: null,
-      piiClass: 'sensitive',
+      piiClass: 'affect',
+      assertion: 'confirmed',
       status: 'active',
     },
     {
@@ -143,10 +145,18 @@ VALUE  the rejected guess ("coach: snacks more after long meetings") — so nobo
       datatype: 'string',
       semantics: 'append_only',
       decayHalfLifeDays: null,
-      piiClass: 'sensitive',
+      piiClass: 'affect',
       status: 'active',
     },
   ],
+  // #909: infer how the person feels from their own words — the operator
+  // accepts it at install (acceptModalities), each person consents
+  // (purpose affect_inference); kept 90 days.
+  memoryModel: {
+    affectInference: { from: 'text', retentionDays: 90 },
+    // #916: risk of suicide or self-harm, for the operator's crisis protocol.
+    safetyMonitoring: { basis: 'vital_interests', retentionDays: 180 },
+  },
   extractionProfile: {
     guidance: `Apply this profile to conversations between a person and someone who helps
 them — a coach, an assistant, a specialist. Prefer the relationship__* predicates:

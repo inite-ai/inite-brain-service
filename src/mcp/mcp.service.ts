@@ -55,6 +55,7 @@ import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { toolObservationsEnabled } from '../common/tool-observation-flags';
+import { AffectReadingWorkService } from '../affect/affect-reading-work.service';
 import { registerHarnessWorkTools } from './harness-work-tools';
 import { registerMediaReadTools, registerMediaWriteTools, type MediaToolDeps } from './media-tools';
 import { EvidenceUploadService } from '../evidence/evidence-upload.service';
@@ -899,6 +900,7 @@ export class McpService {
           dreams: this.dreamsWork,
           scenes: () => this.adminWork(SceneSummaryWorkService),
           beliefs: () => this.adminWork(BeliefStatementWorkService),
+          affect: () => this.adminWork(AffectReadingWorkService),
         },
       });
     }

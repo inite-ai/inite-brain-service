@@ -170,12 +170,11 @@ describe('EvidenceDocumentBridgeService', () => {
 
   it.each([
     ['representation_missing', undefined, asset()],
-    ['not_asset_text', representation({ kind: 'caption' }), asset()],
-    ['not_asset_text', representation({ subjectKind: 'fragment' }), asset()],
+    ['not_words', representation({ kind: 'caption' }), asset()],
+    ['not_words', representation({ kind: 'embedding' }), asset()],
     ['superseded', representation({ supersededBy: 'derived_representation:r2' }), asset()],
     ['empty_text', representation({ content: '   ' }), asset()],
     ['asset_missing', representation(), undefined],
-    ['not_document_modality', representation(), asset({ modality: 'image' })],
     ['asset_gone', representation(), asset({ availability: 'gone' })],
   ])('skips cleanly: %s', async (skipped, rep, assetRow) => {
     const { svc, ingest } = bridgeWith({ rep, asset: assetRow });
@@ -212,6 +211,34 @@ describe('EvidenceDocumentBridgeService', () => {
     const r = await svc.bridge('co_1', REF);
     expect(r).toEqual({ parts: 3, ingested: 1, deduplicated: 1, failed: 1 });
     expect(ingest.calls).toHaveLength(3);
+  });
+
+  it("an image's OCR run becomes one document: its regions in reading order", async () => {
+    const regions = [
+      { kind: 'ocr', content: 'INVOICE #INV-2026-0417' },
+      { kind: 'ocr', content: 'stale', supersededBy: 'derived_representation:r9' },
+      { kind: 'ocr', content: 'Total due: $12,480.00' },
+    ];
+    const rep = {
+      kind: 'ocr',
+      subjectKind: 'fragment',
+      content: 'INVOICE #INV-2026-0417',
+      producedByRun: 'processing_run:p1',
+    };
+    let call = 0;
+    const surreal = {
+      withCompany: (_c: string, fn: (db: unknown) => Promise<unknown>) =>
+        fn({ query: async () => [call++ === 0 ? [rep] : regions] }),
+    } as unknown as SurrealService;
+    const ingest = ingestStub();
+    const svc = new EvidenceDocumentBridgeService(
+      surreal,
+      ingest.svc,
+      storeWith(asset({ modality: 'image' })),
+    );
+    const r = await svc.bridge('co_1', REF);
+    expect(r).toMatchObject({ parts: 1, ingested: 1 });
+    expect(ingest.calls[0]?.dto.text).toBe('INVOICE #INV-2026-0417\n\nTotal due: $12,480.00');
   });
 
   it('enqueue dedups per (asset, representation) through the claim service', async () => {

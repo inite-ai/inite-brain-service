@@ -20,6 +20,7 @@ import {
   type PredicateSnapshot,
   type Semantics,
   SNAPSHOT_TTL_MS,
+  withClassScope,
 } from './predicate-registry-internals/types';
 // Core + installed Domain Packs (namespaced predicates), assembled + collision-
 // checked at load. The registry seeds / falls back on the MERGED set so a pack's
@@ -331,7 +332,7 @@ export class PredicateRegistryService {
     // tenant snapshot wasn't preloaded yet (early-boot search path) — the
     // policy reflects the code-side defaults until the cache populates.
     const seed = SEED_PREDICATES.find((p) => p.predicateId === predicate);
-    return seed ?? DEFAULT_FALLBACK;
+    return seed ? withClassScope(seed) : DEFAULT_FALLBACK;
   }
 
   /**

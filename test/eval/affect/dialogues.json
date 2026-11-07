@@ -1,0 +1,159 @@
+{
+  "about": "Hand-written conversations for eval:affect (#909). Each OWN turn carries `gold`: the Ekman labels a careful reader would agree the person expresses (empty = nothing to read), and `trap` when the turn is built to tempt a false reading. Written for this battery; no third-party text.",
+  "conversations": [
+    {
+      "id": "en-coach-weighin",
+      "lang": "en",
+      "person": "Ana",
+      "turns": [
+        { "speaker": "coach", "text": "Morning Ana! How did the week go with the meal plan?" },
+        { "speaker": "Ana", "own": true, "text": "Honestly I dread the weigh-in on Friday. I keep thinking the number will be worse.", "gold": ["fear"] },
+        { "speaker": "coach", "text": "That's a very common feeling. What would make Friday easier?" },
+        { "speaker": "Ana", "own": true, "text": "Maybe if we skip the scale and just talk about habits.", "gold": [] },
+        { "speaker": "coach", "text": "We can do that. Did the batch cooking on Sunday work?" },
+        { "speaker": "Ana", "own": true, "text": "Yes!! I actually loved it, first week I didn't order takeaway once.", "gold": ["joy"] },
+        { "speaker": "Ana", "own": true, "text": "Thanks for asking 🙂", "gold": [], "trap": "formula" }
+      ]
+    },
+    {
+      "id": "en-work-sarcasm",
+      "lang": "en",
+      "person": "Tom",
+      "turns": [
+        { "speaker": "assistant", "text": "Your 9am got moved to 7am tomorrow." },
+        { "speaker": "Tom", "own": true, "text": "Oh great, another 7am meeting. Just what I needed.", "gold": ["anger"], "trap": "sarcasm" },
+        { "speaker": "assistant", "text": "Should I decline it?" },
+        { "speaker": "Tom", "own": true, "text": "No, keep it. Send me the deck tonight.", "gold": [] },
+        { "speaker": "Tom", "own": true, "text": "My manager said she was thrilled with the launch, so at least that's done.", "gold": [], "trap": "other_person" },
+        { "speaker": "Tom", "own": true, "text": "The API is slow again today.", "gold": [], "trap": "opinion" }
+      ]
+    },
+    {
+      "id": "en-family-hypothetical",
+      "lang": "en",
+      "person": "Priya",
+      "turns": [
+        { "speaker": "coach", "text": "How are things at home since your mom moved in?" },
+        { "speaker": "Priya", "own": true, "text": "If she found out I'd skipped her birthday dinner she'd be devastated.", "gold": [], "trap": "hypothetical" },
+        { "speaker": "Priya", "own": true, "text": "I'm exhausted. I haven't slept more than five hours since she arrived.", "gold": ["sadness"] },
+        { "speaker": "coach", "text": "That sounds hard. Is there anyone who can share the evenings?" },
+        { "speaker": "Priya", "own": true, "text": "My brother, but he keeps cancelling and it makes me furious.", "gold": ["anger"] },
+        { "speaker": "Priya", "own": true, "text": "Sorry for the rant, haha.", "gold": [], "trap": "formula" }
+      ]
+    },
+    {
+      "id": "en-support-quoted",
+      "lang": "en",
+      "person": "Jake",
+      "turns": [
+        { "speaker": "agent", "text": "I see the refund was issued yesterday." },
+        { "speaker": "Jake", "own": true, "text": "The email literally said \"we're so excited to have you back\" — after charging me twice.", "gold": ["anger"], "trap": "quoted" },
+        { "speaker": "agent", "text": "I'm sorry about that. The second charge is reversed now." },
+        { "speaker": "Jake", "own": true, "text": "Ok, I can see it in the app. That's a relief, thanks.", "gold": ["joy"] },
+        { "speaker": "Jake", "own": true, "text": "What's the order number for the new one?", "gold": [] }
+      ]
+    },
+    {
+      "id": "en-news-surprise",
+      "lang": "en",
+      "person": "Lena",
+      "turns": [
+        { "speaker": "assistant", "text": "You got an email from the visa office: approved." },
+        { "speaker": "Lena", "own": true, "text": "Wait, what? Already?? I didn't expect it before March!", "gold": ["surprise", "joy"] },
+        { "speaker": "Lena", "own": true, "text": "Book the flight for the 12th please.", "gold": [] },
+        { "speaker": "assistant", "text": "Booked. Window seat as usual." },
+        { "speaker": "Lena", "own": true, "text": "The airline food on that route is disgusting, remind me to bring my own.", "gold": ["disgust"] }
+      ]
+    },
+    {
+      "id": "ru-coach-work",
+      "lang": "ru",
+      "person": "Мария",
+      "turns": [
+        { "speaker": "коуч", "text": "Мария, как прошла неделя на новой работе?" },
+        { "speaker": "Мария", "own": true, "text": "Честно, я в панике. Завтра первая презентация перед директором, а у меня ничего не готово.", "gold": ["fear"] },
+        { "speaker": "коуч", "text": "Давайте разберём, что осталось сделать." },
+        { "speaker": "Мария", "own": true, "text": "Осталось собрать цифры за квартал и три слайда.", "gold": [] },
+        { "speaker": "Мария", "own": true, "text": "Начальник сказал, что он в восторге от моего плана, так что хоть это.", "gold": [], "trap": "other_person" },
+        { "speaker": "Мария", "own": true, "text": "Ну супер, ещё и ноутбук сломался. Прекрасный день.", "gold": ["anger"], "trap": "sarcasm" },
+        { "speaker": "Мария", "own": true, "text": "Спасибо, что выслушали!", "gold": [], "trap": "formula" }
+      ]
+    },
+    {
+      "id": "ru-health-loss",
+      "lang": "ru",
+      "person": "Игорь",
+      "turns": [
+        { "speaker": "ассистент", "text": "Напомнить про запись к кардиологу на четверг?" },
+        { "speaker": "Игорь", "own": true, "text": "Да. После того как не стало отца, мне тяжело даже думать о больницах.", "gold": ["sadness"] },
+        { "speaker": "Игорь", "own": true, "text": "Если анализы окажутся плохими, жена будет в ужасе.", "gold": [], "trap": "hypothetical" },
+        { "speaker": "ассистент", "text": "Хорошо, напомню в среду вечером." },
+        { "speaker": "Игорь", "own": true, "text": "Отлично, спасибо.", "gold": [], "trap": "formula" },
+        { "speaker": "Игорь", "own": true, "text": "Кстати, сегодня впервые за месяц пробежал пять километров, очень доволен собой!", "gold": ["joy"] }
+      ]
+    },
+    {
+      "id": "ru-support-neutral",
+      "lang": "ru",
+      "person": "Олег",
+      "turns": [
+        { "speaker": "оператор", "text": "Добрый день! Чем могу помочь?" },
+        { "speaker": "Олег", "own": true, "text": "Нужно перенести доставку на пятницу, адрес тот же.", "gold": [] },
+        { "speaker": "оператор", "text": "Перенесла. Интервал с 10 до 14 подойдёт?" },
+        { "speaker": "Олег", "own": true, "text": "Подойдёт. Курьер в прошлый раз написал «рад был помочь» и бросил коробку у двери, это мерзко.", "gold": ["disgust", "anger"], "trap": "quoted" },
+        { "speaker": "Олег", "own": true, "text": "Приложение у вас тормозит.", "gold": [], "trap": "opinion" }
+      ]
+    },
+    {
+      "id": "pt-coach-ana",
+      "lang": "pt",
+      "person": "Ana",
+      "turns": [
+        { "speaker": "coach", "text": "Oi Ana, como foi o fim de semana com a família?" },
+        { "speaker": "Ana", "own": true, "text": "Comi demais no churrasco e agora estou com muita vergonha de contar.", "gold": ["sadness"] },
+        { "speaker": "coach", "text": "Obrigada por contar. O que você sentiu na hora?" },
+        { "speaker": "Ana", "own": true, "text": "Na hora estava ótimo, todo mundo rindo, foi divertido de verdade.", "gold": ["joy"] },
+        { "speaker": "Ana", "own": true, "text": "Minha irmã ficou furiosa com o meu cunhado, mas isso é outra história.", "gold": [], "trap": "other_person" },
+        { "speaker": "Ana", "own": true, "text": "Valeu, até quinta!", "gold": [], "trap": "formula" }
+      ]
+    },
+    {
+      "id": "pt-work-stress",
+      "lang": "pt",
+      "person": "Rafael",
+      "turns": [
+        { "speaker": "assistente", "text": "Você tem três reuniões seguidas amanhã à tarde." },
+        { "speaker": "Rafael", "own": true, "text": "Que maravilha, mais uma tarde perdida em reunião.", "gold": ["anger"], "trap": "sarcasm" },
+        { "speaker": "Rafael", "own": true, "text": "Estou com medo de não entregar o relatório até sexta.", "gold": ["fear"] },
+        { "speaker": "assistente", "text": "Quer que eu bloqueie a manhã de quinta para o relatório?" },
+        { "speaker": "Rafael", "own": true, "text": "Sim, por favor. E move a reunião das 16h para segunda.", "gold": [] },
+        { "speaker": "Rafael", "own": true, "text": "Se o cliente cancelar o contrato, eu ficaria arrasado.", "gold": [], "trap": "hypothetical" }
+      ]
+    },
+    {
+      "id": "pt-support-relief",
+      "lang": "pt",
+      "person": "Beatriz",
+      "turns": [
+        { "speaker": "atendente", "text": "Encontramos a sua mala, ela chega amanhã de manhã." },
+        { "speaker": "Beatriz", "own": true, "text": "Nossa, que alívio! Eu já tinha perdido as esperanças.", "gold": ["joy"] },
+        { "speaker": "Beatriz", "own": true, "text": "O e-mail de vocês dizia \"lamentamos profundamente\", mas ninguém respondia o telefone, um absurdo.", "gold": ["anger"], "trap": "quoted" },
+        { "speaker": "atendente", "text": "Peço desculpas pela demora. Posso confirmar o endereço?" },
+        { "speaker": "Beatriz", "own": true, "text": "Rua das Flores, 120, apartamento 32.", "gold": [] }
+      ]
+    },
+    {
+      "id": "en-mixed-terse",
+      "lang": "en",
+      "person": "Sam",
+      "turns": [
+        { "speaker": "assistant", "text": "The landlord replied: the rent goes up 20% in May." },
+        { "speaker": "Sam", "own": true, "text": "ugh.", "gold": ["anger", "sadness"] },
+        { "speaker": "Sam", "own": true, "text": "fine. draft a reply asking for 10.", "gold": [] },
+        { "speaker": "assistant", "text": "Drafted. Want to read it?" },
+        { "speaker": "Sam", "own": true, "text": "send it", "gold": [] },
+        { "speaker": "Sam", "own": true, "text": "lol he said yes to 10. not bad", "gold": ["joy"] }
+      ]
+    }
+  ]
+}

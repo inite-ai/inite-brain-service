@@ -408,8 +408,9 @@ export class UserForgetService {
    * verbatim notes (memory_file), the links from this user to accounts
    * elsewhere (external_identity), and their personal source connections
    * with every catalogue item, OAuth grant (a stored credential) and
-   * pending OAuth state, and the stored responses of writes made for them
-   * under an Idempotency-Key. Each was written with the user's id and was
+   * pending OAuth state, the stored responses of writes made for them
+   * under an Idempotency-Key, and their consents and contested inferences
+   * (0187). Each was written with the user's id and was
    * missing from this cascade (ground rule 4: a table holding user content
    * is wired into forget). Select ids, then DELETE by id: the 3.2.4
    * planner contract every step above follows.
@@ -425,13 +426,47 @@ export class UserForgetService {
       { u: userId },
     );
     const connIds = conns ?? [];
-    const [items, grants, states, idempotency] = await db.query<
-      [unknown[], unknown[], unknown[], unknown[]]
+    const [
+      items,
+      grants,
+      states,
+      idempotency,
+      consents,
+      contests,
+      observations,
+      readings,
+      ages,
+      guardians,
+      risks,
+      voiceReadings,
+    ] = await db.query<
+      [
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+        unknown[],
+      ]
     >(
       `SELECT VALUE id FROM source_item WHERE userId = $u OR connectionId INSIDE $conns;
        SELECT VALUE id FROM source_oauth_grant WHERE userId = $u;
        SELECT VALUE id FROM source_oauth_state WHERE userId = $u;
-       SELECT VALUE id FROM idempotency_key WHERE userId = $u;`,
+       SELECT VALUE id FROM idempotency_key WHERE userId = $u;
+       SELECT VALUE id FROM consent_record WHERE userId = $u;
+       SELECT VALUE id FROM affect_contest WHERE userId = $u;
+       SELECT VALUE id FROM affect_observation WHERE userId = $u;
+       SELECT VALUE id FROM affect_reading WHERE userId = $u;
+       SELECT VALUE id FROM user_age WHERE userId = $u;
+       SELECT VALUE id FROM guardian_link WHERE userId = $u;
+       SELECT VALUE id FROM risk_signal WHERE userId = $u;
+       SELECT VALUE id FROM voice_affect_reading WHERE userId = $u;`,
       { u: userId, conns: connIds },
     );
     const account = [
@@ -442,7 +477,27 @@ export class UserForgetService {
       ...(states ?? []),
       // Stored write responses (0179) of requests made for this user.
       ...(idempotency ?? []),
+      // #909 (0187): the person's consents and the inferences they contested.
+      ...(consents ?? []),
+      ...(contests ?? []),
+      // #909 (0188): how the person seemed to feel, and which turns were read.
+      ...(observations ?? []),
+      ...(readings ?? []),
+      // #916 (0189): age assurance and the guardian reference.
+      ...(ages ?? []),
+      ...(guardians ?? []),
+      // #916 (0190): risk signals read from the person's words.
+      ...(risks ?? []),
+      // #916 (0192): which of the person's recordings voice affect read.
+      ...(voiceReadings ?? []),
     ];
+    // #916 (0190): the safety protocol record keeps its identifier-free
+    // counts (the law's report) — the person is removed from it, not the rows.
+    await db.query(
+      `LET $events = (SELECT VALUE id FROM safety_event WHERE userId = $u);
+       UPDATE $events SET userId = NONE;`,
+      { u: userId },
+    );
     const memoryFiles = files ?? [];
     if (memoryFiles.length > 0) await db.query(`DELETE $ids`, { ids: memoryFiles });
     if (account.length > 0) await db.query(`DELETE $ids`, { ids: account });

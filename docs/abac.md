@@ -80,7 +80,7 @@ them yet, so edit them via the API or the raw document.
 | Attribute | Ops | Notes |
 |---|---|---|
 | `predicate` | eq, in, prefix | tenant predicate registry ids |
-| `piiClass` | eq, in | from the predicate registry (`none/identifier/behavioral/text/sensitive`) |
+| `piiClass` | eq, in | from the predicate registry (`none/identifier/behavioral/text/sensitive/affect/health`); `sensitive`, `affect` and `health` already need `brain:read_pii` before any policy runs |
 | `source.vertical`, `source.recorder` | eq, in | who wrote the fact |
 | `source.documentId`, `source.originKey` | eq, in (+prefix on originKey) | document lineage |
 | `source.meta.<key>` | eq, in, exists, not_exists | operator metadata projected from documents (`IngestDocumentDto.meta`) and direct facts (`IngestFactDto.metadata`), sanitized (`SOURCE_META_STRICT` to reject instead of drop) |

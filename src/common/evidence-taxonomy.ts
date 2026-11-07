@@ -20,6 +20,29 @@ export const DERIVED_REPRESENTATION_KINDS = [
 ] as const;
 export type DerivedRepresentationKind = (typeof DERIVED_REPRESENTATION_KINDS)[number];
 
+/**
+ * Whether a representation's content is the asset's own words — what the
+ * evidence → document bridge may hand the document pipeline to read
+ * facts from. Words read off a page (`text`), off pixels (`ocr`) or off
+ * speech (`asr`) are; `caption` is not (today it is the image's format,
+ * geometry and EXIF, not what the image says), nor are tracks, graphs
+ * or vectors. Keyed by the kind union, so a new kind must take a side.
+ */
+export const KIND_CARRIES_WORDS: Readonly<Record<DerivedRepresentationKind, boolean>> = {
+  caption: false,
+  ocr: true,
+  asr: true,
+  object_track: false,
+  scene_graph: false,
+  embedding: false,
+  text: true,
+};
+
+/** A representation kind read from a row: true only for a known word-bearing kind. */
+export function carriesWords(kind: string): boolean {
+  return (KIND_CARRIES_WORDS as Record<string, boolean | undefined>)[kind] === true;
+}
+
 /** Lifecycle states of a platform-executed processing run (0121). */
 export const PROCESSING_RUN_STATUSES = [
   'pending',

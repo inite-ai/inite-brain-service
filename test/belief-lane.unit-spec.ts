@@ -35,6 +35,7 @@ interface BeliefRowFixture {
   revision: number;
   validFrom: string;
   score: number;
+  piiClass?: string;
 }
 
 const row = (over: Partial<BeliefRowFixture>): BeliefRowFixture => ({
@@ -86,6 +87,7 @@ const baseOpts = {
   companyId: 'co_belief',
   query: 'which database are we using for the inventory service?',
   userId: 'u1' as string | undefined,
+  callerScopes: ['brain:read'] as readonly string[],
 };
 
 describe('BeliefLaneService — D4 scoped-user fence', () => {
@@ -122,6 +124,36 @@ describe('BeliefLaneService — D4 scoped-user fence', () => {
     const out = await new BeliefLaneService(surreal, embedderOk).beliefLines(baseOpts);
     expect(out.lines).toEqual([]);
     expect(out.byId.size).toBe(0);
+  });
+});
+
+describe('BeliefLaneService — class fence (0185, #909)', () => {
+  it('without brain:read_pii: WHERE excludes the fenced classes, and the JS re-check drops one that slips through', async () => {
+    const { surreal, calls } = surrealOf({
+      bm25Rows: [
+        row({ id: 'semantic_belief:mood', field: 'mood', piiClass: 'affect' }),
+        row({ id: 'semantic_belief:db' }),
+      ],
+    });
+    const out = await new BeliefLaneService(surreal, embedderOk).beliefLines(baseOpts);
+    const retrievals = calls.filter((c) => c.sql.includes('FROM semantic_belief'));
+    for (const c of retrievals) {
+      expect(c.sql).toContain('piiClass NOTINSIDE $fenced');
+      expect(c.params?.fenced).toEqual(expect.arrayContaining(['affect', 'health', 'sensitive']));
+    }
+    expect([...out.byId.keys()]).toEqual(['semantic_belief:db']);
+  });
+
+  it('with brain:read_pii: no class clause, an affect belief serves', async () => {
+    const { surreal, calls } = surrealOf({
+      bm25Rows: [row({ id: 'semantic_belief:mood', field: 'mood', piiClass: 'affect' })],
+    });
+    const out = await new BeliefLaneService(surreal, embedderOk).beliefLines({
+      ...baseOpts,
+      callerScopes: ['brain:read', 'brain:read_pii'],
+    });
+    for (const c of calls) expect(c.sql).not.toContain('$fenced');
+    expect([...out.byId.keys()]).toEqual(['semantic_belief:mood']);
   });
 });
 

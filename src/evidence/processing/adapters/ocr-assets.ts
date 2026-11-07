@@ -88,6 +88,10 @@ export const OCR_TESSDATA_VARIANT = '4.0.0_best_int';
 const DATA_PACKAGE_MANIFESTS: Record<OcrLanguage, string> = {
   eng: '@tesseract.js-data/eng/package.json',
   rus: '@tesseract.js-data/rus/package.json',
+  por: '@tesseract.js-data/por/package.json',
+  spa: '@tesseract.js-data/spa/package.json',
+  fra: '@tesseract.js-data/fra/package.json',
+  deu: '@tesseract.js-data/deu/package.json',
 };
 
 export function isOcrLanguage(value: string): value is OcrLanguage {

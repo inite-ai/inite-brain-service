@@ -13,6 +13,7 @@ import {
   processorBrokerEnabled,
 } from '../common/evidence-flags';
 import type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
+import { carriesWords } from '../common/evidence-taxonomy';
 import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { JobClaimService } from '../jobs/job-claim.service';
@@ -135,7 +136,7 @@ export class EvidenceProcessorBrokerService {
         'EVIDENCE_PROCESSOR_BROKER (with EVIDENCE_SUBSTRATE_ENABLED) is off',
       );
     }
-    const { asset, pack } = await this.loadRows(companyId, req);
+    const { asset, pack, tenantLang } = await this.loadRows(companyId, req);
     const modality = asset.modality as EvidenceModality;
     const capabilities = this.declaredCapabilities(pack.manifest, modality);
     const result: DispatchResult = {
@@ -172,7 +173,7 @@ export class EvidenceProcessorBrokerService {
         assetRecordId: asset.id,
         packId: req.packId,
         adapter,
-        input: this.buildInput(asset, adapter),
+        input: { ...this.buildInput(asset, adapter), tenantLang },
       });
       result.runs.push(run);
     }
@@ -189,38 +190,39 @@ export class EvidenceProcessorBrokerService {
   }
 
   /**
-   * Evidence → document bridge (EVIDENCE_DOCUMENT_BRIDGE): every
-   * asset-level `text` representation a `document` asset just gained —
-   * or already had (`replayed`: the operator sweep IS the backfill) —
-   * gets one `evidence_document_bridge` job, deduped per (asset,
-   * representation). The documents module owns the handler; this module
-   * cannot import it, so the queue is the seam. Never fails a dispatch:
-   * a queue hiccup is logged, the runs already happened.
+   * Evidence → document bridge (EVIDENCE_DOCUMENT_BRIDGE): every run that
+   * read words off an asset — a PDF's text layer, an image's OCR — whether
+   * it just succeeded or was `replayed` (the operator sweep IS the
+   * backfill), gets one `evidence_document_bridge` job, keyed on the run's
+   * first representation; the bridge reads the run's whole output, so an
+   * OCR page of many regions becomes one document. The documents module
+   * owns the handler; this module cannot import it, so the queue is the
+   * seam. Never fails a dispatch: a queue hiccup is logged, the runs
+   * already happened.
    */
   private async enqueueDocumentBridge(
     companyId: string,
     p: { asset: AssetRow; packId: string; runs: ExecuteRunResult[] },
   ): Promise<void> {
     if (!this.claim || !evidenceDocumentBridgeEnabled()) return;
-    if (p.asset.modality !== 'document') return;
     const assetId = String(p.asset.id);
     for (const run of p.runs) {
-      if (run.capability !== 'text') continue;
+      if (!carriesWords(run.capability)) continue;
       if (run.status !== 'succeeded' && run.status !== 'replayed') continue;
-      for (const representationId of run.representationIds) {
-        try {
-          await this.claim.enqueue({
-            jobType: 'evidence_document_bridge',
-            companyId,
-            triggeredBy: 'manual',
-            dedupKey: `evbridge_${idTailOf(assetId)}_${idTailOf(representationId)}`,
-            payload: { assetId, representationId, packId: p.packId },
-          });
-        } catch (err) {
-          this.logger.warn(
-            `evidence bridge enqueue failed asset=${assetId} rep=${representationId}: ${errorMessage(err)}`,
-          );
-        }
+      const representationId = run.representationIds[0];
+      if (representationId === undefined) continue;
+      try {
+        await this.claim.enqueue({
+          jobType: 'evidence_document_bridge',
+          companyId,
+          triggeredBy: 'manual',
+          dedupKey: `evbridge_${idTailOf(assetId)}_${idTailOf(representationId)}`,
+          payload: { assetId, representationId, packId: p.packId },
+        });
+      } catch (err) {
+        this.logger.warn(
+          `evidence bridge enqueue failed asset=${assetId} rep=${representationId}: ${errorMessage(err)}`,
+        );
       }
     }
   }
@@ -313,8 +315,8 @@ export class EvidenceProcessorBrokerService {
   private async loadRows(
     companyId: string,
     req: { packId: string; assetId: string },
-  ): Promise<{ asset: AssetRow; pack: PackRow }> {
-    const { asset, pack } = await this.surreal.withCompany(companyId, async (db) => {
+  ): Promise<{ asset: AssetRow; pack: PackRow; tenantLang: string | undefined }> {
+    const { asset, pack, tenantLang } = await this.surreal.withCompany(companyId, async (db) => {
       const assetRow = await queryFirst<AssetRow>(
         db,
         `SELECT * FROM type::record('evidence_asset', $tail) LIMIT 1`,
@@ -330,11 +332,19 @@ export class EvidenceProcessorBrokerService {
            FROM domain_pack WHERE packId = $p AND status = 'active' LIMIT 1`,
         { p: req.packId },
       );
-      return { asset: assetRow, pack: packRow };
+      // The tenant's most common language over up to 500 turns: the
+      // language a reader that picks models (OCR) reads in. A bounded
+      // scan; NONE for a tenant whose turns carry no language.
+      const langRow = await queryFirst<{ lang?: string }>(
+        db,
+        `SELECT lang, count() AS n FROM (SELECT lang FROM episode WHERE lang != NONE LIMIT 500)
+           GROUP BY lang ORDER BY n DESC LIMIT 1`,
+      );
+      return { asset: assetRow, pack: packRow, tenantLang: langRow?.lang };
     });
     if (!asset) throw new NotFoundException(`asset ${req.assetId} not found`);
     if (!pack) throw new NotFoundException(`pack ${req.packId} is not installed`);
-    return { asset, pack };
+    return { asset, pack, tenantLang };
   }
 
   /** The pack's declared representation needs for this modality, deduped

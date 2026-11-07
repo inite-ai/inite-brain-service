@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import type { DeploymentContext } from '../ai/domain-packs/manifest';
 import {
   BadRequestException,
   Injectable,
@@ -33,6 +34,7 @@ import {
   mcpToolsChecksum,
   modalitiesChecksum,
   modalityConsentRequired,
+  voiceContextRefusal,
   packChecksum,
   sourcesChecksum,
   sourcesConsentRequired,
@@ -80,6 +82,8 @@ interface DomainPackRow {
   acceptedModalitiesChecksum?: unknown;
   acceptedSources?: unknown;
   acceptedSourcesChecksum?: unknown;
+  /** #916 (0192): where the tenant is deployed, recorded at install. */
+  deploymentContext?: unknown;
 }
 
 /** `listInstalled` projection of `domain_pack`. */
@@ -196,6 +200,8 @@ export class DomainPackInstallService {
       /** Consent to the manifest's declared sources (source plane) —
        *  see sources-consent.ts. */
       acceptSources?: boolean | undefined;
+      /** #916: where the tenant is deployed; voice affect is refused at work / in education. */
+      deploymentContext?: DeploymentContext | undefined;
     } = {},
   ): Promise<{
     packId: string;
@@ -311,7 +317,7 @@ export class DomainPackInstallService {
         mintedInstallId = undefined;
         const existing = await queryRows<DomainPackRow>(
           db,
-          `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum, acceptedSources, acceptedSourcesChecksum FROM domain_pack WHERE packId = $packId LIMIT 1`,
+          `SELECT id, version, manifest, webhookSecret, installId, acceptedMcpTools, acceptedMcpToolsChecksum, acceptedModalities, acceptedModalitiesChecksum, acceptedSources, acceptedSourcesChecksum, deploymentContext FROM domain_pack WHERE packId = $packId LIMIT 1`,
           { packId: manifest.id },
         );
         const row = existing[0];
@@ -342,6 +348,7 @@ export class DomainPackInstallService {
           priorChecksum: row?.acceptedSourcesChecksum ? String(row.acceptedSourcesChecksum) : null,
         });
         if (sourcesMessage) throw new BadRequestException(sourcesMessage);
+        assertVoiceContext(manifest, opts.deploymentContext, row);
         // installId (0068) — the opaque per-install identity external tool
         // endpoints see instead of companyId. Minted once, kept forever.
         if (externalTools.length > 0 && !row?.installId) {
@@ -408,6 +415,7 @@ export class DomainPackInstallService {
       }),
     );
 
+    await this.recordDeploymentContext(companyId, manifest.id, opts.deploymentContext);
     this.registry.invalidate(companyId);
     this.packToolsReader?.invalidate(companyId);
     // Covers both fresh installs and upgrades whose diff flipped
@@ -436,6 +444,21 @@ export class DomainPackInstallService {
    * (upgrades preserve an existing one). Extracted from the install
    * closure for the complexity gate.
    */
+  /** #916: where the operator deploys the tenant, as declared at this install (kept otherwise). */
+  private async recordDeploymentContext(
+    companyId: string,
+    packId: string,
+    ctx: DeploymentContext | undefined,
+  ): Promise<void> {
+    if (!ctx) return;
+    await this.surreal.withCompany(companyId, async (db) => {
+      await db.query(`UPDATE domain_pack SET deploymentContext = $ctx WHERE packId = $p`, {
+        ctx,
+        p: packId,
+      });
+    });
+  }
+
   private async applyPackUpgrade(opts: {
     db: Surreal;
     row: DomainPackRow;
@@ -700,4 +723,17 @@ export class DomainPackInstallService {
     );
     return { packId, predicatesDeprecated: deprecated };
   }
+}
+
+/** #916: refuse a voice-affect pack without an allowed deployment context (AI Act art. 5(1)(f)). */
+function assertVoiceContext(
+  manifest: DomainPackManifest,
+  declared: DeploymentContext | undefined,
+  row: DomainPackRow | undefined,
+): void {
+  const message = voiceContextRefusal(
+    manifest,
+    declared ?? (row?.deploymentContext as string | undefined),
+  );
+  if (message) throw new BadRequestException(message);
 }

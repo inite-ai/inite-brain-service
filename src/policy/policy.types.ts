@@ -46,7 +46,8 @@ export const POLICY_ATTRIBUTES: Record<
   piiClass: {
     type: 'string',
     ops: ['eq', 'in'],
-    description: 'PII class of the predicate (none/identifier/behavioral/text/sensitive)',
+    description:
+      'PII class of the predicate (none/identifier/behavioral/text/sensitive/affect/health)',
   },
   'source.vertical': {
     type: 'string',

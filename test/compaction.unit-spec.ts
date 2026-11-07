@@ -518,6 +518,9 @@ describe('PromotionRunnerService — summary episode stamping', () => {
     expect(created[0]!.source).toEqual({
       kind: 'promotion',
       eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
+      // #909: a summary is the model's condensation.
+      assertion: 'inferred',
+      inferredBy: { recorder: 'compaction-promotion', modality: 'text' },
     });
   });
 
@@ -529,6 +532,9 @@ describe('PromotionRunnerService — summary episode stamping', () => {
       kind: 'promotion',
       eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
       episodeIds: ['episode:e1', 'episode:shared', 'episode:e2'],
+      // #909: a summary is the model's condensation.
+      assertion: 'inferred',
+      inferredBy: { recorder: 'compaction-promotion', modality: 'text' },
     });
   });
 
@@ -539,6 +545,9 @@ describe('PromotionRunnerService — summary episode stamping', () => {
     expect(created[0]!.source).toEqual({
       kind: 'promotion',
       eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
+      // #909: a summary is the model's condensation.
+      assertion: 'inferred',
+      inferredBy: { recorder: 'compaction-promotion', modality: 'text' },
     });
   });
 

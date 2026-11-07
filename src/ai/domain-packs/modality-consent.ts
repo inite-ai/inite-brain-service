@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from './checksum';
 import type {
   DomainPackManifest,
+  PackAffectInference,
   PackMemoryModality,
+  PackSafetyMonitoring,
+  PackVoiceAffectInference,
+  DeploymentContext,
   PackModalityProcessor,
   PackRawEvidenceCapability,
 } from './manifest';
@@ -33,6 +37,12 @@ export interface ModalityConsentSection {
   processors?: PackModalityProcessor[];
   /** Raw-evidence capability declaration; absent when none. */
   rawEvidence?: PackRawEvidenceCapability;
+  /** #909: inferring how a person feels from their words; absent when none. */
+  affectInference?: PackAffectInference;
+  /** #916: reading a person's words for a risk of suicide or self-harm. */
+  safetyMonitoring?: PackSafetyMonitoring;
+  /** #916: inferring arousal / energy from a person's voice — high-risk. */
+  voiceAffectInference?: PackVoiceAffectInference;
 }
 
 /**
@@ -53,12 +63,38 @@ export function declaredModalitySection(
     (processor) => processor.modality !== 'text',
   );
   const rawEvidence = memoryModel.rawEvidence;
-  if (nonText.length === 0 && processors.length === 0 && rawEvidence === undefined) return null;
+  const affectInference = memoryModel.affectInference;
+  const safetyMonitoring = memoryModel.safetyMonitoring;
+  const voiceAffectInference = memoryModel.voiceAffectInference;
+  if (
+    nonText.length === 0 &&
+    processors.length === 0 &&
+    rawEvidence === undefined &&
+    affectInference === undefined &&
+    safetyMonitoring === undefined &&
+    voiceAffectInference === undefined
+  ) {
+    return null;
+  }
   return {
     modalities: nonText,
     ...(processors.length > 0 ? { processors } : {}),
     ...(rawEvidence !== undefined ? { rawEvidence } : {}),
+    // #909: what the substrate does with a person's words is the operator's
+    // decision too — the same checksum, the same re-consent trigger.
+    ...(affectInference !== undefined ? { affectInference } : {}),
+    ...(safetyMonitoring !== undefined ? { safetyMonitoring } : {}),
+    ...(voiceAffectInference !== undefined ? { voiceAffectInference } : {}),
   };
+}
+
+/** Whether a consent section covers media at all (anything beyond affect inference). */
+function declaresMedia(section: ModalityConsentSection): boolean {
+  return (
+    section.modalities.length > 0 ||
+    (section.processors?.length ?? 0) > 0 ||
+    section.rawEvidence !== undefined
+  );
 }
 
 /** The manifest's raw-evidence capability declaration, or null when the
@@ -105,7 +141,9 @@ export function hasCurrentModalityConsent(rows: ReadonlyArray<ModalityConsentRow
     try {
       if (typeof row.manifest !== 'object' || row.manifest === null) continue;
       const section = declaredModalitySection(row.manifest as DomainPackManifest);
-      if (!section) continue;
+      // A section that only declares affect inference (#909) consents to
+      // reading words, not to serving media.
+      if (!section || !declaresMedia(section)) continue;
       if (row.acceptedModalities !== true) continue;
       const checksum = modalitiesChecksum(section);
       if (checksum !== null && row.acceptedModalitiesChecksum === checksum) return true;
@@ -114,6 +152,92 @@ export function hasCurrentModalityConsent(rows: ReadonlyArray<ModalityConsentRow
     }
   }
   return false;
+}
+
+/**
+ * #909: the affect inference the tenant's operator consented to — the
+ * declaration of an installed pack whose CURRENT media section carries
+ * accepted consent (the hasCurrentModalityConsent rule). Several packs:
+ * the shortest retention wins. Null = no inference for this tenant.
+ */
+export function currentAffectInference(
+  rows: ReadonlyArray<ModalityConsentRow>,
+): PackAffectInference | null {
+  return strictestAccepted(rows, (section) => section.affectInference);
+}
+
+/**
+ * #916: the safety monitoring the tenant's operator accepted — same rule
+ * as {@link currentAffectInference}; several packs, the shortest
+ * retention wins. Null = no safety reading for this tenant.
+ */
+export function currentSafetyMonitoring(
+  rows: ReadonlyArray<ModalityConsentRow>,
+): PackSafetyMonitoring | null {
+  return strictestAccepted(rows, (section) => section.safetyMonitoring);
+}
+
+/** Deployment contexts where voice emotion recognition is prohibited (AI Act art. 5(1)(f)). */
+const VOICE_PROHIBITED: readonly string[] = ['workplace', 'education'];
+
+/**
+ * #916: why an install of this manifest in this deployment context must be
+ * refused, or null. Voice affect needs a declared context, and never one
+ * where the AI Act prohibits emotion recognition.
+ */
+export function voiceContextRefusal(
+  manifest: DomainPackManifest,
+  context: DeploymentContext | string | undefined,
+): string | null {
+  if (!manifest.memoryModel?.voiceAffectInference) return null;
+  if (!context) {
+    return `pack "${manifest.id}" infers emotion from voice: declare deploymentContext (consumer | other) at install`;
+  }
+  if (VOICE_PROHIBITED.includes(context)) {
+    return `pack "${manifest.id}" infers emotion from voice, which the EU AI Act prohibits in a ${context} deployment (art. 5(1)(f))`;
+  }
+  return null;
+}
+
+/**
+ * #916: the voice affect inference the operator accepted, for a row whose
+ * recorded deployment context allows it — null otherwise (fail closed).
+ */
+export function currentVoiceAffect(
+  rows: ReadonlyArray<ModalityConsentRow & { deploymentContext?: unknown }>,
+): PackVoiceAffectInference | null {
+  return strictestAccepted(
+    rows.filter(
+      (r) =>
+        typeof r.deploymentContext === 'string' &&
+        !VOICE_PROHIBITED.includes(r.deploymentContext) &&
+        typeof r.manifest === 'object' &&
+        r.manifest !== null &&
+        voiceContextRefusal(r.manifest as DomainPackManifest, r.deploymentContext) === null,
+    ),
+    (section) => section.voiceAffectInference,
+  );
+}
+
+/** The accepted declaration with the shortest retention across installed packs. */
+function strictestAccepted<T extends { retentionDays: number }>(
+  rows: ReadonlyArray<ModalityConsentRow>,
+  pick: (section: ModalityConsentSection) => T | undefined,
+): T | null {
+  let best: T | null = null;
+  for (const row of rows) {
+    try {
+      if (typeof row.manifest !== 'object' || row.manifest === null) continue;
+      const section = declaredModalitySection(row.manifest as DomainPackManifest);
+      const declared = section ? pick(section) : undefined;
+      if (!section || !declared || row.acceptedModalities !== true) continue;
+      if (row.acceptedModalitiesChecksum !== modalitiesChecksum(section)) continue;
+      if (!best || declared.retentionDays < best.retentionDays) best = declared;
+    } catch {
+      // Malformed manifest — not consent.
+    }
+  }
+  return best;
 }
 
 /**
@@ -145,9 +269,20 @@ export function modalityConsentRequired(opts: {
     .join(', ');
   const rawNote =
     opts.declared.rawEvidence !== undefined ? '; declares the raw-evidence capability' : '';
+  const affect = opts.declared.affectInference;
+  const affectNote = affect
+    ? `; infers how a person feels from their words (kept ${String(affect.retentionDays)} days, each person's own consent required)`
+    : '';
+  const safety = opts.declared.safetyMonitoring;
+  const voiceNote = opts.declared.voiceAffectInference
+    ? `; infers arousal from people's VOICE (biometric emotion recognition, high-risk under the EU AI Act; kept ${String(opts.declared.voiceAffectInference.retentionDays)} days)`
+    : '';
+  const safetyNote = safety
+    ? `; reads people's words for a risk of suicide or self-harm (basis ${safety.basis}, kept ${String(safety.retentionDays)} days)`
+    : '';
   return (
     `pack "${opts.packId}" v${opts.version} declares non-text modality ` +
-    `processing (${names || 'none'})${rawNote}. ` +
+    `processing (${names || 'none'})${rawNote}${affectNote}${safetyNote}${voiceNote}. ` +
     `Review the declaration and repeat the install with acceptModalities: true.`
   );
 }

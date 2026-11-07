@@ -1,5 +1,6 @@
 import type { Logger } from '@nestjs/common';
 import { StringRecordId, type Surreal } from 'surrealdb';
+import { inferredStamp } from '../common/assertion';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
 import { scopeForUser, withSourceScope } from '../auth/scope-tags';
@@ -253,12 +254,21 @@ async function composeEntity<P>(
       ? await deps.embedding.embedMany(kept.map((x) => spec.embeddingTextOf(x.proposal)))
       : [];
   const rows = kept.map((x, i) => {
-    const row = spec.buildRow(x.proposal, {
+    const built = spec.buildRow(x.proposal, {
       entityId: new StringRecordId(entityId),
       facts,
       vector: vectors[i]!, // vectors is 1:1 with kept (embedMany) ⇒ in-bounds
       version,
     });
+    // #909: a composed row is the model's conclusion over facts, not
+    // anything a source said — stamped where every composer passes.
+    const row = {
+      ...built,
+      source: {
+        ...((built.source as Record<string, unknown> | undefined) ?? {}),
+        ...inferredStamp({ recorder: spec.recorder, version }),
+      },
+    };
     // Kernel-central stamp AFTER buildRow — both composers inherit it,
     // the specs stay untouched (D2).
     // Trust circles §3.5: a summary of facts said in a circle stays in it.
