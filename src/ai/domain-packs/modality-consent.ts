@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from './checksum';
 import type {
   DomainPackManifest,
+  PackAffectInference,
   PackMemoryModality,
   PackModalityProcessor,
   PackRawEvidenceCapability,
@@ -33,6 +34,8 @@ export interface ModalityConsentSection {
   processors?: PackModalityProcessor[];
   /** Raw-evidence capability declaration; absent when none. */
   rawEvidence?: PackRawEvidenceCapability;
+  /** #909: inferring how a person feels from their words; absent when none. */
+  affectInference?: PackAffectInference;
 }
 
 /**
@@ -53,12 +56,32 @@ export function declaredModalitySection(
     (processor) => processor.modality !== 'text',
   );
   const rawEvidence = memoryModel.rawEvidence;
-  if (nonText.length === 0 && processors.length === 0 && rawEvidence === undefined) return null;
+  const affectInference = memoryModel.affectInference;
+  if (
+    nonText.length === 0 &&
+    processors.length === 0 &&
+    rawEvidence === undefined &&
+    affectInference === undefined
+  ) {
+    return null;
+  }
   return {
     modalities: nonText,
     ...(processors.length > 0 ? { processors } : {}),
     ...(rawEvidence !== undefined ? { rawEvidence } : {}),
+    // #909: what the substrate does with a person's words is the operator's
+    // decision too — the same checksum, the same re-consent trigger.
+    ...(affectInference !== undefined ? { affectInference } : {}),
   };
+}
+
+/** Whether a consent section covers media at all (anything beyond affect inference). */
+function declaresMedia(section: ModalityConsentSection): boolean {
+  return (
+    section.modalities.length > 0 ||
+    (section.processors?.length ?? 0) > 0 ||
+    section.rawEvidence !== undefined
+  );
 }
 
 /** The manifest's raw-evidence capability declaration, or null when the
@@ -105,7 +128,9 @@ export function hasCurrentModalityConsent(rows: ReadonlyArray<ModalityConsentRow
     try {
       if (typeof row.manifest !== 'object' || row.manifest === null) continue;
       const section = declaredModalitySection(row.manifest as DomainPackManifest);
-      if (!section) continue;
+      // A section that only declares affect inference (#909) consents to
+      // reading words, not to serving media.
+      if (!section || !declaresMedia(section)) continue;
       if (row.acceptedModalities !== true) continue;
       const checksum = modalitiesChecksum(section);
       if (checksum !== null && row.acceptedModalitiesChecksum === checksum) return true;
@@ -114,6 +139,31 @@ export function hasCurrentModalityConsent(rows: ReadonlyArray<ModalityConsentRow
     }
   }
   return false;
+}
+
+/**
+ * #909: the affect inference the tenant's operator consented to — the
+ * declaration of an installed pack whose CURRENT media section carries
+ * accepted consent (the hasCurrentModalityConsent rule). Several packs:
+ * the shortest retention wins. Null = no inference for this tenant.
+ */
+export function currentAffectInference(
+  rows: ReadonlyArray<ModalityConsentRow>,
+): PackAffectInference | null {
+  let best: PackAffectInference | null = null;
+  for (const row of rows) {
+    try {
+      if (typeof row.manifest !== 'object' || row.manifest === null) continue;
+      const section = declaredModalitySection(row.manifest as DomainPackManifest);
+      const affect = section?.affectInference;
+      if (!section || !affect || row.acceptedModalities !== true) continue;
+      if (row.acceptedModalitiesChecksum !== modalitiesChecksum(section)) continue;
+      if (!best || affect.retentionDays < best.retentionDays) best = affect;
+    } catch {
+      // Malformed manifest — not consent.
+    }
+  }
+  return best;
 }
 
 /**
@@ -145,9 +195,13 @@ export function modalityConsentRequired(opts: {
     .join(', ');
   const rawNote =
     opts.declared.rawEvidence !== undefined ? '; declares the raw-evidence capability' : '';
+  const affect = opts.declared.affectInference;
+  const affectNote = affect
+    ? `; infers how a person feels from their words (kept ${String(affect.retentionDays)} days, each person's own consent required)`
+    : '';
   return (
     `pack "${opts.packId}" v${opts.version} declares non-text modality ` +
-    `processing (${names || 'none'})${rawNote}. ` +
+    `processing (${names || 'none'})${rawNote}${affectNote}. ` +
     `Review the declaration and repeat the install with acceptModalities: true.`
   );
 }

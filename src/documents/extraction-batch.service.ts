@@ -1,4 +1,5 @@
 import { runInCircle } from '../auth/circle-scope';
+import { AffectReaderService } from '../affect/affect-reader.service';
 import { ModuleRef } from '@nestjs/core';
 import { FactResolutionService } from '../dreams/fact-resolution.service';
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
@@ -180,6 +181,26 @@ export class ExtractionBatchService implements OnModuleInit {
   }
 
   /**
+   * Ask for the affect pass (#909): a no-op for a tenant whose operator
+   * accepted no `affectInference` declaration, and in harness mode only
+   * its retention sweep runs (the connected agent reads). Off the pass's
+   * own path: a failure is logged, never thrown.
+   */
+  private readAffect(companyId: string): void {
+    let reader: AffectReaderService | undefined;
+    try {
+      reader = this.moduleRef?.get(AffectReaderService, { strict: false });
+    } catch {
+      reader = undefined;
+    }
+    void reader
+      ?.schedule(companyId)
+      .catch((e: unknown) =>
+        this.logger.warn(`affect schedule ${companyId} failed: ${(e as Error).message}`),
+      );
+  }
+
+  /**
    * Harness mode (EXTRACTION_SOURCE=harness, #819): no triage, no read, no
    * model call — the waiting documents stay pending for the connected
    * agent (take_memory_work). One line with the count, never content.
@@ -195,6 +216,8 @@ export class ExtractionBatchService implements OnModuleInit {
     this.logger.log(
       `extract_documents ${companyId}: harness mode, ${waiting.length}${waiting.length === PASS_DOCS ? '+' : ''} document(s) left for the connected agent`,
     );
+    // The affect pass still sweeps retention in harness mode.
+    this.readAffect(companyId);
     return { read: 0, failed: 0, committed: 0, retry: 0 };
   }
 
@@ -298,6 +321,9 @@ export class ExtractionBatchService implements OnModuleInit {
       );
     }
     if (committed > 0) this.resolveNewFacts(ctx.companyId);
+    // A conversation read for facts has gone quiet: read how its consenting
+    // people felt (#909), once its turns are settled.
+    if (read > 0) this.readAffect(ctx.companyId);
     return { read, failed, committed, retry };
   }
 

@@ -194,6 +194,11 @@
             "minimum": -9007199254740991,
             "type": "integer"
           },
+          "observationsDeleted": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
           "scope": {
             "enum": [
               "all",
@@ -210,7 +215,8 @@
           "scope",
           "factsDeleted",
           "beliefsDeleted",
-          "derivedDeleted"
+          "derivedDeleted",
+          "observationsDeleted"
         ],
         "type": "object"
       },
@@ -229,6 +235,12 @@
             },
             "type": "array"
           },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/AffectObservation"
+            },
+            "type": "array"
+          },
           "userId": {
             "type": "string"
           }
@@ -236,7 +248,8 @@
         "required": [
           "userId",
           "facts",
-          "beliefs"
+          "beliefs",
+          "observations"
         ],
         "type": "object"
       },
@@ -299,6 +312,72 @@
           "assertion",
           "validFrom",
           "retracted"
+        ],
+        "type": "object"
+      },
+      "AffectObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "assertion": {
+            "const": "inferred",
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "episodeId": {
+            "type": "string"
+          },
+          "inferredBy": {
+            "additionalProperties": false,
+            "properties": {
+              "modality": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "recorder": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "recorder"
+            ],
+            "type": "object"
+          },
+          "label": {
+            "type": "string"
+          },
+          "observationId": {
+            "type": "string"
+          },
+          "observedAt": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "valence": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "observationId",
+          "observedAt",
+          "valence",
+          "label",
+          "quote",
+          "episodeId",
+          "confidence",
+          "assertion",
+          "inferredBy"
         ],
         "type": "object"
       },

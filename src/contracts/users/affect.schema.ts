@@ -39,10 +39,28 @@ export const AffectBeliefSchema = z.object({
   status: z.string(),
 });
 
+/** How the person seemed to feel at a time, read from their exact words (0188). */
+export const AffectObservationSchema = z.object({
+  observationId: z.string(),
+  observedAt: z.string(),
+  /** −1 (very unpleasant) … +1 (very pleasant). */
+  valence: z.number(),
+  /** anger / disgust / fear / joy / sadness / surprise / neutral. */
+  label: z.string(),
+  /** What the feeling was about, when the words say. */
+  target: z.string().optional(),
+  quote: z.string(),
+  episodeId: z.string(),
+  confidence: z.number(),
+  assertion: z.literal('inferred'),
+  inferredBy: InferredBySchema,
+});
+
 export const AffectExportResponseSchema = z.object({
   userId: z.string(),
   facts: z.array(AffectFactSchema),
   beliefs: z.array(AffectBeliefSchema),
+  observations: z.array(AffectObservationSchema),
 });
 
 export const AffectEraseResponseSchema = z.object({
@@ -51,6 +69,7 @@ export const AffectEraseResponseSchema = z.object({
   factsDeleted: z.number().int(),
   beliefsDeleted: z.number().int(),
   derivedDeleted: z.number().int(),
+  observationsDeleted: z.number().int(),
 });
 
 export const AffectContestResponseSchema = z.object({

@@ -343,6 +343,7 @@ one non-empty field; present-but-empty is rejected:
 | `modalities` | Evidence inputs the domain can perceive: `text`, `image`, `audio`, `video`, `document`, `sensor` | unique, ≤ 6 |
 | `processors` | Core-owned capability requests (`id`, input `modality`, derived `produces`) | ≤ 16; no code/model/prompt/endpoint |
 | `rawEvidence` | Explicit raw-serving capability (`{ "serve": true }`) | consent-, scope-, PII-, and per-call-gated |
+| `affectInference` | Infer how a person feels from their own words (`{ "from": "text", "retentionDays": 90 }`) — #909 | operator consent at install (`acceptModalities`) **and** each person's own consent (purpose `affect_inference`); text only — voice is biometric emotion recognition and is refused; observations deleted after `retentionDays` (1..3650) |
 
 Three laws, enforced by `validateMemoryModel`
 (`src/ai/domain-packs/validate-memory-model.ts`):
