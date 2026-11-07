@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { inferredStamp } from '../common/assertion';
 import { ConfigService } from '@nestjs/config';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
@@ -372,6 +373,8 @@ export class PromotionRunnerService {
         // what made every summary of open-ended history expire at birth.
         eventRange: validity.eventRange,
         ...(episodeIds.length ? { episodeIds } : {}),
+        // #909: a summary is the model's condensation, not a source's words.
+        ...inferredStamp({ recorder: 'compaction-promotion' }),
       },
       derivedFrom: members.map((m) => m.id),
       status: 'active',

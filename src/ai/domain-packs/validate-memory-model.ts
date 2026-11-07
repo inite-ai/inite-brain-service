@@ -63,6 +63,9 @@ const MEMORY_MODEL_FIELDS = new Set([
   'modalities',
   'processors',
   'rawEvidence',
+  'affectInference',
+  'safetyMonitoring',
+  'voiceAffectInference',
 ]);
 const MODALITIES = new Set<string>(PACK_MEMORY_MODALITIES);
 const REPRESENTATION_KINDS = new Set<string>(PACK_REPRESENTATION_KINDS);
@@ -167,6 +170,9 @@ interface MemoryModelShape {
   modalities?: unknown;
   processors?: unknown;
   rawEvidence?: unknown;
+  affectInference?: unknown;
+  safetyMonitoring?: unknown;
+  voiceAffectInference?: unknown;
 }
 
 /**
@@ -195,10 +201,13 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
     model.modalities,
     model.processors,
     model.rawEvidence,
+    model.affectInference,
+    model.safetyMonitoring,
+    model.voiceAffectInference,
   ].filter((v) => v !== undefined);
   if (declared.length === 0) {
     throw new DomainPackError(
-      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints|modalities|processors|rawEvidence (omit the section instead of declaring it empty)`,
+      `pack "${pack.id}" memoryModel must declare at least one of sceneSchemas|stateModels|attentionHints|verificationRules|retentionHints|modalities|processors|rawEvidence|affectInference|safetyMonitoring|voiceAffectInference (omit the section instead of declaring it empty)`,
     );
   }
   const sceneIds = validateSceneSchemas(pack.id, model.sceneSchemas);
@@ -220,6 +229,9 @@ export function validateMemoryModel(pack: DomainPackManifest, mm: unknown): void
   validateModalities(pack.id, model.modalities);
   validateProcessors(pack.id, model.processors);
   validateRawEvidence(pack.id, model.rawEvidence);
+  validateAffectInference(pack.id, model.affectInference);
+  validateSafetyMonitoring(pack.id, model.safetyMonitoring);
+  validateVoiceAffect(pack.id, model);
 }
 
 function validateModalities(packId: string, modalities: unknown): void {
@@ -310,6 +322,78 @@ function validateRawEvidence(packId: string, rawEvidence: unknown): void {
   if (raw.serve !== true) {
     throw new DomainPackError(
       `pack "${packId}" memoryModel rawEvidence.serve must be literal true (omit rawEvidence to deny serving)`,
+    );
+  }
+}
+
+function validateAffectInference(packId: string, affect: unknown): void {
+  if (affect === undefined) return;
+  assertObjectEntry(packId, 'affectInference', affect);
+  const a = affect as Record<string, unknown>;
+  assertKnownKeys({
+    packId,
+    field: 'affectInference',
+    value: a,
+    allowed: new Set(['from', 'retentionDays']),
+  });
+  if (a.from !== 'text') {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel affectInference.from must be "text" (voice is biometric emotion recognition and is not declarable)`,
+    );
+  }
+  const days = a.retentionDays;
+  if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel affectInference.retentionDays must be an integer 1..3650`,
+    );
+  }
+}
+
+function validateSafetyMonitoring(packId: string, safety: unknown): void {
+  if (safety === undefined) return;
+  assertObjectEntry(packId, 'safetyMonitoring', safety);
+  const s = safety as Record<string, unknown>;
+  assertKnownKeys({
+    packId,
+    field: 'safetyMonitoring',
+    value: s,
+    allowed: new Set(['basis', 'retentionDays']),
+  });
+  if (s.basis !== 'vital_interests' && s.basis !== 'legal_obligation') {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel safetyMonitoring.basis must be "vital_interests" or "legal_obligation"`,
+    );
+  }
+  const days = s.retentionDays;
+  if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel safetyMonitoring.retentionDays must be an integer 1..3650`,
+    );
+  }
+}
+
+function validateVoiceAffect(packId: string, model: MemoryModelShape): void {
+  const voice = model.voiceAffectInference;
+  if (voice === undefined) return;
+  assertObjectEntry(packId, 'voiceAffectInference', voice);
+  const v = voice as Record<string, unknown>;
+  assertKnownKeys({
+    packId,
+    field: 'voiceAffectInference',
+    value: v,
+    allowed: new Set(['retentionDays']),
+  });
+  const days = v.retentionDays;
+  if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel voiceAffectInference.retentionDays must be an integer 1..3650`,
+    );
+  }
+  // Voice is read from recordings: the pack must declare audio, which is
+  // itself consented to with the same checksum.
+  if (!Array.isArray(model.modalities) || !(model.modalities as unknown[]).includes('audio')) {
+    throw new DomainPackError(
+      `pack "${packId}" memoryModel voiceAffectInference needs "audio" in memoryModel.modalities`,
     );
   }
 }

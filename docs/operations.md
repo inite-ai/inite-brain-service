@@ -695,6 +695,115 @@ POST /v1/admin/maintenance/backfill-stems   {"tenant": "<companyId>", "maxRows":
 
 Measured by `test/eval/lexical-stems` (MIRACL, README).
 
+## Emotion inference (#909)
+
+Brain infers how a person seemed to feel from their own words only when two
+consents hold, and never from voice:
+
+1. **The operator's.** A pack declares `memoryModel.affectInference` (the
+   `relationship` pack does: text, 90 days); installing or upgrading it needs
+   `acceptModalities: true`, and the declaration rides the modality consent
+   checksum (any change re-asks).
+2. **The person's.** `POST /v1/users/:userId/consents` with purpose
+   `affect_inference` (basis `explicit_consent`, the notice version they saw).
+   Withdrawal (`DELETE …/consents/affect_inference`) erases every inference.
+
+The reader runs as the `read_affect` job, scheduled when an extraction pass
+read a conversation that went quiet; it reads each consenting person's unread
+turns with the tenant's chat model (`OPENAI_CHAT_MODEL`) and writes
+`affect_observation` rows that quote the person's exact words. In harness mode
+the connected agent reads (`take_memory_work`, kind `affect_reading`) and the
+job only sweeps retention: observations older than the declaration's
+`retentionDays` are deleted. A person's emotional data — `affect`-classed
+facts, beliefs and observations — is exported, erased and contested under
+`/v1/users/:userId/affect` (docs/api.md), needs `brain:read_pii` to read, and
+goes with user forget.
+
+## Safety monitoring (#916)
+
+A pack that declares `memoryModel.safetyMonitoring` (`basis`: `vital_interests`
+or `legal_obligation`, `retentionDays`) — the `relationship` pack does, 180
+days — asks brain to read people's own words for a risk of suicide or
+self-harm (concern / urgent, after the C-SSRS ideation ladder), for the
+operator's crisis protocol under CA SB 243 and NY GBL art. 47. The operator
+accepts it at install (`acceptModalities: true`); no per-person consent is
+asked (the basis is the operator's), and minors are read too. The job
+`read_safety` runs beside `read_affect`, with the tenant's chat model at the
+normal (not flex) tier; in harness mode the connected agent reads
+(`safety_reading`). Signals are class `health` (`brain:read_pii`), served in
+`relationship_context.safety`, deleted after `retentionDays` and by user
+forget. Brain never contacts anyone: the agent's protocol acts, and records
+what it showed in the safety-event log, whose identifier-free counts
+(`GET /v1/admin/safety/report`) survive user forget.
+
+## Data residency (#916)
+
+A tenant's memory lives — and is processed — in one region. Residency is a
+**cell**: one brain deployment per region, with its own SurrealDB
+(`SURREALDB_URL`), blob store (`EVIDENCE_STORAGE*`) and model endpoint
+(`OPENAI_BASE_URL`, or harness mode so no text leaves for a model), and
+`BRAIN_REGION` naming the region. Routing one process to several regional
+clusters is deliberately not supported: a tenant's turns would still pass
+through a server abroad.
+
+Each deployment keeps a directory of pins (`tenant_residency`, in its system
+database — company ids and regions, no personal data), read before any tenant
+database is created or opened:
+
+- a tenant pinned to this deployment's region is served;
+- a tenant pinned to another region gets **421 Misdirected Request** with
+  `region` in the body, and nothing is created or read here;
+- a tenant with no pin is served only by the default deployment (no
+  `BRAIN_REGION`); a regional cell refuses it, so a misrouted first request
+  cannot start a tenant abroad;
+- if the directory has never been read, the check fails closed.
+
+A fresh cell serves no tenant yet, so no key can authenticate through one:
+its first pins are the ops path, run on the cell with its own environment —
+`pnpm residency:pin <companyId> ru` (`--show <companyId>` to read). After
+that, pin with a platform-operator key (`brain:platform_admin` +
+`BRAIN_TENANT_OVERRIDE_ENABLED`): `PUT /v1/admin/residency/:companyId
+{ "region": "ru" }` — on the tenant's regional cell **and** on the default
+deployment (which must refuse it). A tenant that already has data on a
+deployment cannot be pinned elsewhere there (409): moving a tenant is an
+export and an import. `GET /v1/admin/residency/:companyId` shows the pin and
+the deployment's region. The edge (DNS / gateway) routes each tenant's host
+to its cell; the 421 is the backstop when it does not.
+
+Adding a region: provision the cell (hosts in the region), deploy brain with
+`BRAIN_REGION`, pin the region's tenants on it and on the default deployment,
+then route their traffic.
+
+## Voice affect (#916 step 4) — high-risk
+
+Inferring emotion from voice is **biometric emotion recognition** under the
+EU AI Act: prohibited at work and in education (art. 5(1)(f)), high-risk
+elsewhere (Annex III, conformity obligations from 2027-12-02), and the people
+exposed must be told (art. 50(3)). The code ships; **enabling it for a tenant
+needs counsel's sign-off**.
+
+Brain reads a person's arousal / energy from a recording only when every gate
+holds, re-checked each pass:
+
+1. a pack declares `memoryModel.voiceAffectInference` (and `audio` among its
+   modalities), the operator accepted it (`acceptModalities: true`) and declared
+   `deploymentContext: consumer | other` at install — `workplace` and
+   `education` are refused at install and at run time;
+2. the person's own consent to purpose `voice_affect_inference` (a minor's
+   counts only from a guardian);
+3. the person's emotion-recognition notice recorded
+   (`POST /v1/users/:userId/safety-events`, type `emotion_recognition_notice_shown`);
+4. the recording was uploaded with `speaker=self` (the person's own voice —
+   recordings of several speakers are never read);
+5. `VOICE_AFFECT_URL` is set: the operator's own service, brain hosts no model.
+   Contract: `POST { mediaType, contentBase64 }` →
+   `{ segments: [{ startMs, endMs, arousal 0..1, confidence }] }`.
+
+The job `read_voice_affect` runs beside the text reader. A voice observation is
+an `affect_observation` with `modality: "voice"`: arousal and a time range, no
+words, no valence. Withdrawing `voice_affect_inference` erases voice readings
+only; retention follows the declaration; export / erase / forget cover them.
+
 ## Enabling the document pipeline + external indexers
 
 The Source → Indexer → Candidates → Brain pipeline shipped complete but

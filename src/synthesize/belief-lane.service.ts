@@ -2,7 +2,8 @@ import { actingCircleTags } from '../auth/circle-scope';
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
-import { beliefVisible } from '../beliefs/beliefs.service';
+import { beliefClassReadable, beliefVisible } from '../beliefs/beliefs.service';
+import { fencedClasses } from '../ai/predicate-registry-internals/types';
 import { beliefStamp } from './evidence-visibility';
 import { rrfFuse } from './segment-lane.service';
 import { buildLexMatchLeg } from '../search/internals/lex-leg';
@@ -27,6 +28,7 @@ interface BeliefLaneRow {
   statement?: unknown;
   revision?: unknown;
   validFrom?: Date | string;
+  piiClass?: unknown;
   score?: number;
 }
 
@@ -124,6 +126,8 @@ export class BeliefLaneService {
     companyId: string;
     query: string;
     userId?: string | undefined;
+    /** The caller's scopes — a belief of a fenced class (0185) never serves. */
+    callerScopes: readonly string[];
     limit?: number | undefined;
   }): Promise<BeliefCandidate[]> {
     const fused = await this.retrieve(opts);
@@ -140,6 +144,8 @@ export class BeliefLaneService {
   async beliefLines(opts: {
     companyId: string;
     query: string;
+    /** The caller's scopes — a belief of a fenced class (0185) never serves. */
+    callerScopes: readonly string[];
     /** Scope key of the asking end-user; omitted → the lane is EMPTY
      *  (fence 2 — scoped-user-only, see the class doc). */
     userId?: string | undefined;
@@ -162,6 +168,7 @@ export class BeliefLaneService {
     companyId: string;
     query: string;
     userId?: string | undefined;
+    callerScopes: readonly string[];
   }): Promise<BeliefLaneRow[]> {
     // Fence 2 (D4): an unscoped request serves NO beliefs — checked
     // before any IO so the off-path issues zero queries.
@@ -182,14 +189,18 @@ export class BeliefLaneService {
         this.logger.warn(`belief lane dense leg unavailable: ${(e as Error).message}`);
       }
 
-      // Fences 2/3 compose in the WHERE, in the design order.
-      const where = `userId = $u AND status = 'active'`;
+      // Fences 2/3 compose in the WHERE, in the design order, then the
+      // class fence (0185): affect/health/sensitive need brain:read_pii.
+      const fenced = fencedClasses(opts.callerScopes);
+      const where =
+        `userId = $u AND status = 'active'` +
+        (fenced.length > 0 ? ` AND (piiClass = NONE OR piiClass NOTINSIDE $fenced)` : '');
       // `slot` is the cross-plane identity (0147) — the belief-side
       // twin of a fact's `predicateAlias ?? predicate`. Without it the
       // damping pass cannot tell which fact a belief contradicts.
       const select =
         `id, userId, subject, field, (predicateAlias ?? predicateId) AS slot, ` +
-        `value, statement, revision, validFrom`;
+        `value, statement, revision, validFrom, piiClass`;
       const fused = await this.surreal.withCompany(opts.companyId, async (db) => {
         const [dense] = queryVector
           ? await db.query<[BeliefLaneRow[]]>(
@@ -199,7 +210,7 @@ export class BeliefLaneService {
               WHERE embedding != NONE AND array::len(embedding) = array::len($q) AND ${where}
               ORDER BY score DESC
               LIMIT $k`,
-              { q: queryVector, k: fetchK, u: userId },
+              { q: queryVector, k: fetchK, u: userId, fenced },
             )
           : [[] as BeliefLaneRow[]];
         // The or_terms disjunctive BM25 leg (see the class doc) —
@@ -215,11 +226,11 @@ export class BeliefLaneService {
               WHERE ${lex.where} AND ${where}
               ORDER BY score DESC
               LIMIT $k`,
-          { ...lex.params, k: fetchK, u: userId },
+          { ...lex.params, k: fetchK, u: userId, fenced },
         );
         return rrfFuse([dense ?? [], bm25 ?? []]);
       });
-      return fused;
+      return fused.filter((row) => beliefClassReadable(row, opts.callerScopes));
     } catch (e) {
       // Fence 6: degrade to an empty section, never fail the answer.
       this.logger.warn(`belief lane failed (companyId=${opts.companyId}): ${(e as Error).message}`);

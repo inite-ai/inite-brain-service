@@ -519,6 +519,53 @@ export interface PackRawEvidenceCapability {
   serve: true;
 }
 
+/**
+ * #909: the pack asks core to infer how a person feels from their own
+ * words. Consent-gated twice: the operator accepts the declaration at
+ * install (it rides the modality consent checksum — what the substrate
+ * DOES with a person's data), and each person gives their own consent
+ * (purpose `affect_inference`) before anything is read. Text only: voice
+ * is biometric emotion recognition under the EU AI Act and is not
+ * declarable here.
+ */
+export interface PackAffectInference {
+  from: 'text';
+  /** How long an inference is kept, in days (1..3650); then it is deleted. */
+  retentionDays: number;
+}
+
+/**
+ * #916: the pack asks core to read a person's own words for a risk of
+ * suicide or self-harm, for the operator's crisis protocol (CA SB 243, NY
+ * GBL art. 47). Its basis is the operator's, not the person's consent —
+ * vital interests (GDPR art. 9(2)(c)) or a legal obligation — so the
+ * operator accepts it at install (it rides the modality consent checksum).
+ */
+export interface PackSafetyMonitoring {
+  basis: 'vital_interests' | 'legal_obligation';
+  /** How long a risk signal is kept, in days (1..3650). */
+  retentionDays: number;
+}
+
+/**
+ * #916 step 4: infer a person's arousal / energy from their VOICE —
+ * biometric emotion recognition under the EU AI Act: prohibited at work and
+ * in education (art. 5(1)(f)), high-risk elsewhere (Annex III, from
+ * 2027-12-02), and people exposed must be told (art. 50(3)). Accepted by
+ * the operator at install with a declared deployment context (refused for
+ * workplace / education), read only with each person's own consent
+ * (purpose voice_affect_inference) and after their notice was shown, by an
+ * operator-run remote service — brain hosts no model.
+ */
+export interface PackVoiceAffectInference {
+  /** How long a voice observation is kept, in days (1..3650). */
+  retentionDays: number;
+}
+
+/** Where the operator deploys the tenant (recorded at pack install). */
+export const DEPLOYMENT_CONTEXTS = ['consumer', 'workplace', 'education', 'other'] as const;
+export type DeploymentContext = (typeof DEPLOYMENT_CONTEXTS)[number];
+
 /** The pack's declared perception of its domain. Every list is optional,
  *  but a present section must carry at least one non-empty declaration or
  *  `rawEvidence: { serve: true }` (present-but-empty is an authoring error). */
@@ -534,4 +581,10 @@ export interface PackMemoryModel {
   processors?: PackModalityProcessor[];
   /** Raw serving is separately scope-, consent-, and PII-gated per call. */
   rawEvidence?: PackRawEvidenceCapability;
+  /** Infer how a person feels from what they say (#909). */
+  affectInference?: PackAffectInference;
+  /** Read a person's words for a risk of suicide or self-harm (#916). */
+  safetyMonitoring?: PackSafetyMonitoring;
+  /** Infer arousal / energy from a person's voice (#916 step 4) — high-risk. */
+  voiceAffectInference?: PackVoiceAffectInference;
 }

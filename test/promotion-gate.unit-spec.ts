@@ -298,6 +298,9 @@ describe('PromotionRunnerService — gate off is byte-identical (pin)', () => {
     expect(summary.source).toEqual({
       kind: 'promotion',
       eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-05-01T00:00:00Z' },
+      // #909: a summary is the model's condensation.
+      assertion: 'inferred',
+      inferredBy: { recorder: 'compaction-promotion', modality: 'text' },
     });
     expect((summary.derivedFrom as unknown[]).length).toBe(5);
     // No consolidation-gate query was issued.

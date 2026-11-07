@@ -99,11 +99,23 @@ type PackPredicate = {
   datatype: 'string' | 'number' | 'date' | 'datetime' | 'enum' | 'json';
   semantics: 'append_only' | 'single_active' | 'bitemporal';
   decayHalfLifeDays: number | null;
-  piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+  piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive' | 'affect' | 'health';
   status: 'active' | 'proposed' | 'aliased' | 'deprecated';
   requiresScope?: string; allowedValues?: string[]; /* …optional */
 };
 ```
+
+The class is the read fence: a predicate classed `sensitive`, `affect` (how a
+person feels — what they say, guesses put to them, inferred emotion) or
+`health` (GDPR art. 9 special category) is served only to a credential holding
+`brain:read_pii`, whether or not it sets `requiresScope`. An explicit
+`requiresScope` still wins. Class a predicate by what its values reveal: a
+mood is `affect` even when it is phrased as a preference.
+
+`assertion?: 'hypothesis' | 'confirmed'` declares that every value under the
+predicate is a guess put to the person, or one they confirmed — what a fact
+read reports as its `assertion` (the relationship pack's `hypothesis` and
+`hypothesis_confirmed`). Leave it out for anything a source states.
 
 ## Namespacing (the one hard rule)
 
@@ -331,6 +343,9 @@ one non-empty field; present-but-empty is rejected:
 | `modalities` | Evidence inputs the domain can perceive: `text`, `image`, `audio`, `video`, `document`, `sensor` | unique, ≤ 6 |
 | `processors` | Core-owned capability requests (`id`, input `modality`, derived `produces`) | ≤ 16; no code/model/prompt/endpoint |
 | `rawEvidence` | Explicit raw-serving capability (`{ "serve": true }`) | consent-, scope-, PII-, and per-call-gated |
+| `affectInference` | Infer how a person feels from their own words (`{ "from": "text", "retentionDays": 90 }`) — #909 | operator consent at install (`acceptModalities`) **and** each person's own consent (purpose `affect_inference`); text only — voice is biometric emotion recognition and is refused; observations deleted after `retentionDays` (1..3650) |
+| `voiceAffectInference` | Arousal / energy from a person's own voice (`{ "retentionDays": 30 }`) — #916, **high-risk under the EU AI Act** | needs `audio` in `modalities`; operator consent plus `deploymentContext: consumer \| other` at install (refused for workplace / education); each person's consent (`voice_affect_inference`) and recorded notice; counsel before enabling |
+| `safetyMonitoring` | Read people's words for a risk of suicide or self-harm (`{ "basis": "vital_interests", "retentionDays": 180 }`) — #916 | operator consent at install (`acceptModalities`); basis `vital_interests` or `legal_obligation`, no per-person consent; signals deleted after `retentionDays` |
 
 Three laws, enforced by `validateMemoryModel`
 (`src/ai/domain-packs/validate-memory-model.ts`):

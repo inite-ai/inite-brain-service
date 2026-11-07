@@ -1,4 +1,11 @@
 import { scopeFenceSql } from '../auth/scope-visibility';
+import {
+  shapeAffectSignals,
+  shapeSafetySignals,
+  type AffectObservationRow,
+  type RiskSignalRow,
+} from './affect-signals';
+import { classRequiredScope } from '../ai/predicate-registry-internals/types';
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
@@ -461,11 +468,37 @@ export class EntitiesService {
       });
       const visible = rows.filter((r) => rowPolicy.filter(r));
       rowPolicy.finish();
+      // #909/#916: inferred affect (class `affect`) and risk signals (class
+      // `health`) — only a caller holding their scope reads them, behind the
+      // same user and circle fence as the facts.
+      const piiScope = classRequiredScope('affect');
+      const mayRead = piiScope !== undefined && scopes.includes(piiScope as BrainScope);
+      const fenced = (table: string, fields: string) =>
+        mayRead
+          ? queryRows(
+              db,
+              `SELECT ${fields} FROM ${table}
+                WHERE userId = $relUser AND ${user.clause}
+                ORDER BY observedAt DESC
+                LIMIT 500`,
+              { ...user.params, relUser: userId },
+            )
+          : Promise.resolve([]);
+      const observations = (await fenced(
+        'affect_observation',
+        'id, observedAt, valence, label, arousal, modality, target, quote, confidence',
+      )) as AffectObservationRow[];
+      const risks = (await fenced(
+        'risk_signal',
+        'id, observedAt, level, quote, confidence',
+      )) as RiskSignalRow[];
       return shapeRelationshipContext({
         userId,
         name: name && name !== userId ? name : undefined,
         rows: visible,
         now,
+        affectSignals: shapeAffectSignals(observations, now),
+        safety: shapeSafetySignals(risks, now),
       });
     });
   }

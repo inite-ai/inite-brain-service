@@ -24,7 +24,10 @@ export type JobType =
   | 'scenarios_batch'
   | 'registry_mirror'
   | 'evidence_document_bridge'
-  | 'source_sync';
+  | 'source_sync'
+  | 'read_affect'
+  | 'read_safety'
+  | 'read_voice_affect';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

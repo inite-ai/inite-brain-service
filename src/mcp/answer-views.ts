@@ -92,12 +92,18 @@ export async function focusOf(
 async function scoredBeliefs(ctx: {
   deps: ReadToolDeps;
   companyId: string;
+  scopes: BrainScope[];
   query: string;
   userId?: string | undefined;
 }): Promise<FocusBelief[]> {
   const { beliefs, relevance } = ctx.deps;
   if (!beliefs || !relevance || ctx.userId === undefined) return [];
-  const found = await beliefs({ companyId: ctx.companyId, query: ctx.query, userId: ctx.userId });
+  const found = await beliefs({
+    companyId: ctx.companyId,
+    query: ctx.query,
+    userId: ctx.userId,
+    callerScopes: ctx.scopes,
+  });
   if (found.length === 0) return [];
   const scores = await relevance(
     ctx.query,

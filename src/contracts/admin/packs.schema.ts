@@ -44,6 +44,8 @@ export const InstallPackRequestSchema = z.object({
    *  processing, unless a prior install already accepted the identical
    *  media section — an upgrade that CHANGES it re-requires the flag. */
   acceptModalities: z.boolean().optional(),
+  /** #916: consumer | workplace | education | other — voice affect is refused at work / in education. */
+  deploymentContext: z.enum(['consumer', 'workplace', 'education', 'other']).optional(),
   /** Explicit consent to the manifest's declared `sources` section (the
    *  source plane — where the pack wants to read from). Required (400
    *  otherwise) whenever the manifest declares sources, unless a prior
@@ -61,6 +63,8 @@ export const InstallFromRegistryRequestSchema = z.object({
   acceptMcpTools: z.boolean().optional(),
   /** See InstallPackRequest.acceptModalities — same consent gate. */
   acceptModalities: z.boolean().optional(),
+  /** #916: consumer | workplace | education | other — voice affect is refused at work / in education. */
+  deploymentContext: z.enum(['consumer', 'workplace', 'education', 'other']).optional(),
   /** See InstallPackRequest.acceptSources — same consent gate. */
   acceptSources: z.boolean().optional(),
 });

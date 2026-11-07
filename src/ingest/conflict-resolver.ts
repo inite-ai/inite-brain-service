@@ -45,6 +45,7 @@
  */
 
 import { CORE_PREDICATES } from '../ai/predicate-registry.service';
+import { type PiiClass, withClassScope } from '../ai/predicate-registry-internals/types';
 import type { EvidenceCapability } from '../synthesize/synthesize.types';
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
@@ -87,7 +88,7 @@ export interface ResolveOutcome {
 export interface PredicatePolicy {
   semantics: Semantics;
   decayHalfLifeDays: number | null; // null = never decay
-  piiClass: 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+  piiClass: PiiClass;
   requiresScope?: 'brain:read_pii';
   /**
    * 0113 (FOVEA_EVIDENCE_CAPABILITY): the evidence capability claims
@@ -109,6 +110,14 @@ export const DEFAULT_POLICY: PredicatePolicy = {
   piiClass: 'none',
 };
 
+/** The read scope a seed predicate needs: its own, else its class's (#909). */
+function scopeOf(p: { piiClass: string; requiresScope?: string }): {
+  requiresScope?: 'brain:read_pii';
+} {
+  const scope = withClassScope(p).requiresScope;
+  return scope ? { requiresScope: scope as 'brain:read_pii' } : {};
+}
+
 /**
  * Legacy non-tenant-aware policy lookup, kept for display-only consumers
  * (search result enrichment, artifact rendering, admin UI). The runtime
@@ -127,7 +136,7 @@ export function policyFor(predicate: string): PredicatePolicy {
     semantics: seed.semantics,
     decayHalfLifeDays: seed.decayHalfLifeDays,
     piiClass: seed.piiClass,
-    ...(seed.requiresScope ? { requiresScope: seed.requiresScope as 'brain:read_pii' } : {}),
+    ...scopeOf(seed),
     // 0113: no CORE seed sets it (all text) — threaded for shape parity
     // with the registry rows so a future seed value is not silently lost.
     ...(seed.requiredEvidenceCapability
@@ -149,7 +158,7 @@ export const PREDICATE_POLICIES: Record<string, PredicatePolicy> = Object.fromEn
       semantics: p.semantics,
       decayHalfLifeDays: p.decayHalfLifeDays,
       piiClass: p.piiClass,
-      ...(p.requiresScope ? { requiresScope: p.requiresScope as 'brain:read_pii' } : {}),
+      ...scopeOf(p),
       ...(p.requiredEvidenceCapability
         ? { requiredEvidenceCapability: p.requiredEvidenceCapability }
         : {}),
