@@ -115,6 +115,18 @@ export const ACTIONS: Record<string, ActionSpec> = {
   'rest.users.age.set': { kind: 'write', family: 'rest', title: 'Record age assurance' },
   'rest.users.guardian.set': { kind: 'write', family: 'rest', title: 'Record guardian' },
   'rest.users.guardian.remove': { kind: 'write', family: 'rest', title: 'Remove guardian' },
+  // #916: the operator's safety protocol record.
+  'rest.users.safety_events.record': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Record a safety event',
+  },
+  'rest.users.safety_events.list': { kind: 'read', family: 'rest', title: 'List safety events' },
+  'rest.admin.safety_report': {
+    kind: 'read',
+    family: 'rest',
+    title: 'Safety report (no identifiers)',
+  },
   'rest.ingest.mention': { kind: 'write', family: 'rest', title: 'Ingest mention' },
   'rest.ingest.evidence_asset': {
     kind: 'write',

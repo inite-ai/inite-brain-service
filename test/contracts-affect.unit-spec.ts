@@ -39,6 +39,16 @@ const fullExport: AffectExport = {
       status: 'active',
     },
   ],
+  riskSignals: [
+    {
+      signalId: 'risk_signal:r1',
+      observedAt: '2026-11-01T10:00:00.000Z',
+      level: 'concern',
+      quote: 'some words',
+      episodeId: 'episode:e1',
+      confidence: 0.6,
+    },
+  ],
   observations: [
     {
       observationId: 'affect_observation:o1',
@@ -62,6 +72,7 @@ const erased: AffectEraseResult = {
   beliefsDeleted: 2,
   derivedDeleted: 0,
   observationsDeleted: 3,
+  riskSignalsDeleted: 0,
 };
 
 const consent: Required<ConsentWire> = {

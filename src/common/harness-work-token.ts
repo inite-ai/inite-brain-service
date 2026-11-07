@@ -36,6 +36,7 @@ export const HARNESS_WORK_KINDS = [
   'fact_conflict',
   'fact_corroboration',
   'scene_summary',
+  'safety_reading',
   'affect_reading',
   'belief_statement',
 ] as const;
@@ -101,7 +102,7 @@ export interface ResolutionTokenPayload extends TokenBase {
 }
 
 export interface AffectTokenPayload extends TokenBase {
-  t: 'affect_reading';
+  t: 'affect_reading' | 'safety_reading';
   /** [handle, episode id, 1 = the person's own turn / 0 = context] in prompt order. */
   e: Array<[string, string, 0 | 1]>;
 }
@@ -194,6 +195,7 @@ export function verifyWorkToken(
 function wellFormed(p: WorkTokenPayload): boolean {
   switch (p.t) {
     case 'affect_reading':
+    case 'safety_reading':
       return (
         tuples(p.e, 3) &&
         p.e.length > 0 &&

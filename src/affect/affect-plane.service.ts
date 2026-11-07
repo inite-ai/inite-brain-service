@@ -59,11 +59,22 @@ export interface AffectObservationWire {
   inferredBy: InferredBy;
 }
 
+/** A risk of suicide or self-harm read from the person's words (#916, 0190). */
+export interface RiskSignalWire {
+  signalId: string;
+  observedAt: string;
+  level: 'concern' | 'urgent';
+  quote: string;
+  episodeId: string;
+  confidence: number;
+}
+
 export interface AffectExport {
   userId: string;
   facts: AffectFactWire[];
   beliefs: AffectBeliefWire[];
   observations: AffectObservationWire[];
+  riskSignals: RiskSignalWire[];
 }
 
 export type AffectEraseScope = 'all' | 'inferred';
@@ -77,6 +88,8 @@ export interface AffectEraseResult {
   derivedDeleted: number;
   /** Inferences read from the person's words (0188). */
   observationsDeleted: number;
+  /** Risk signals (0190) — erased with scope `all` only: they rest on the operator's basis, not on consent to inference. */
+  riskSignalsDeleted: number;
 }
 
 interface FactRow {
@@ -142,6 +155,7 @@ export class AffectPlaneService implements OnModuleInit {
           beliefsDeleted: r.beliefsDeleted,
           derivedDeleted: r.derivedDeleted,
           observationsDeleted: r.observationsDeleted,
+          riskSignalsDeleted: r.riskSignalsDeleted,
         };
       },
     });
@@ -151,11 +165,34 @@ export class AffectPlaneService implements OnModuleInit {
     const { facts, declared } = await this.loadFacts(opts.companyId, opts.userId);
     const beliefs = await this.loadBeliefs(opts.companyId, opts.userId);
     const observations = await this.loadObservations(opts.companyId, opts.userId);
+    const risks = await this.surreal.withCompany(opts.companyId, (db) =>
+      queryRows<{
+        id: unknown;
+        observedAt: Date | string;
+        level: 'concern' | 'urgent';
+        quote: string;
+        episodeId: unknown;
+        confidence: number;
+      }>(
+        db,
+        `SELECT id, observedAt, level, quote, episodeId, confidence FROM risk_signal
+          WHERE userId = $u ORDER BY observedAt DESC LIMIT ${CATEGORY_CAP}`,
+        { u: opts.userId },
+      ),
+    );
     return {
       userId: opts.userId,
       facts: facts.map((f) => factWire(f, declared(f))),
       beliefs: beliefs.map(beliefWire),
       observations: observations.map(observationWire),
+      riskSignals: risks.map((r) => ({
+        signalId: String(r.id),
+        observedAt: iso(r.observedAt),
+        level: r.level,
+        quote: r.quote,
+        episodeId: String(r.episodeId),
+        confidence: r.confidence,
+      })),
     };
   }
 
@@ -174,6 +211,7 @@ export class AffectPlaneService implements OnModuleInit {
     const counts = await this.surreal.withCompany(opts.companyId, async (db) => ({
       ...(await purgeAffectRows(db, { factIds, beliefIds })),
       observationsDeleted: await eraseObservations(db, opts.userId),
+      riskSignalsDeleted: opts.scope === 'all' ? await eraseRiskSignals(db, opts.userId) : 0,
     }));
     this.logger.log(
       `affect erase ${opts.companyId}: scope=${opts.scope} facts=${counts.factsDeleted} beliefs=${counts.beliefsDeleted} derived=${counts.derivedDeleted} observations=${counts.observationsDeleted}`,
@@ -207,7 +245,7 @@ export class AffectPlaneService implements OnModuleInit {
         await db.query(`DELETE $id`, { id: new StringRecordId(opts.id) });
         observationsDeleted = 1;
       }
-      return { ...purged, observationsDeleted };
+      return { ...purged, observationsDeleted, riskSignalsDeleted: 0 };
     });
     return {
       contested: opts.id,
@@ -340,6 +378,18 @@ async function eraseObservations(
   const [, rows] = await db.query<[unknown, unknown[]]>(
     `LET $obs = (SELECT VALUE id FROM affect_observation WHERE userId = $u);
      DELETE $obs RETURN BEFORE;`,
+    { u: userId },
+  );
+  return (rows ?? []).length;
+}
+
+async function eraseRiskSignals(
+  db: { query<T extends unknown[]>(sql: string, params?: Record<string, unknown>): Promise<T> },
+  userId: string,
+): Promise<number> {
+  const [, rows] = await db.query<[unknown, unknown[]]>(
+    `LET $risks = (SELECT VALUE id FROM risk_signal WHERE userId = $u);
+     DELETE $risks RETURN BEFORE;`,
     { u: userId },
   );
   return (rows ?? []).length;

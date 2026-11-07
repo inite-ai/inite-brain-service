@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ASSERTIONS } from '../../common/assertion';
 import { CONSENT_BASES } from '../../affect/consent.service';
 import { AGE_BANDS, AGE_STATUSES } from '../../affect/age.service';
+import { SAFETY_EVENT_TYPES } from '../../affect/safety-event.service';
 
 /**
  * Wire contracts for a person's emotional data and consents (#909 step 3):
@@ -57,11 +58,22 @@ export const AffectObservationSchema = z.object({
   inferredBy: InferredBySchema,
 });
 
+/** A risk of suicide or self-harm read from the person's words (#916). */
+export const RiskSignalSchema = z.object({
+  signalId: z.string(),
+  observedAt: z.string(),
+  level: z.enum(['concern', 'urgent']),
+  quote: z.string(),
+  episodeId: z.string(),
+  confidence: z.number(),
+});
+
 export const AffectExportResponseSchema = z.object({
   userId: z.string(),
   facts: z.array(AffectFactSchema),
   beliefs: z.array(AffectBeliefSchema),
   observations: z.array(AffectObservationSchema),
+  riskSignals: z.array(RiskSignalSchema),
 });
 
 export const AffectEraseResponseSchema = z.object({
@@ -71,6 +83,7 @@ export const AffectEraseResponseSchema = z.object({
   beliefsDeleted: z.number().int(),
   derivedDeleted: z.number().int(),
   observationsDeleted: z.number().int(),
+  riskSignalsDeleted: z.number().int(),
 });
 
 export const AffectContestResponseSchema = z.object({
@@ -140,4 +153,30 @@ export const SetGuardianRequestSchema = z.object({ guardianRef: z.string() });
 export const RemoveGuardianResponseSchema = z.object({
   removed: z.boolean(),
   erased: z.record(z.string(), z.record(z.string(), z.number())),
+});
+
+/** POST/GET /v1/users/:userId/safety-events, GET /v1/admin/safety/report (#916). */
+export const SafetyEventSchema = z.object({
+  eventId: z.string(),
+  type: z.enum(SAFETY_EVENT_TYPES),
+  protocolVersion: z.string(),
+  resource: z.string().optional(),
+  at: z.string(),
+});
+
+export const RecordSafetyEventRequestSchema = z.object({
+  type: z.enum(SAFETY_EVENT_TYPES),
+  protocolVersion: z.string(),
+  /** The crisis resource referred to (e.g. "988"), for crisis_referral_shown. */
+  resource: z.string().optional(),
+});
+
+export const SafetyEventListResponseSchema = z.object({ events: z.array(SafetyEventSchema) });
+
+export const SafetyReportResponseSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  rows: z.array(
+    z.object({ month: z.string(), type: z.enum(SAFETY_EVENT_TYPES), count: z.number().int() }),
+  ),
 });

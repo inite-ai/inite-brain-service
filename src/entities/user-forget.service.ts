@@ -437,8 +437,10 @@ export class UserForgetService {
       readings,
       ages,
       guardians,
+      risks,
     ] = await db.query<
       [
+        unknown[],
         unknown[],
         unknown[],
         unknown[],
@@ -460,7 +462,8 @@ export class UserForgetService {
        SELECT VALUE id FROM affect_observation WHERE userId = $u;
        SELECT VALUE id FROM affect_reading WHERE userId = $u;
        SELECT VALUE id FROM user_age WHERE userId = $u;
-       SELECT VALUE id FROM guardian_link WHERE userId = $u;`,
+       SELECT VALUE id FROM guardian_link WHERE userId = $u;
+       SELECT VALUE id FROM risk_signal WHERE userId = $u;`,
       { u: userId, conns: connIds },
     );
     const account = [
@@ -480,7 +483,16 @@ export class UserForgetService {
       // #916 (0189): age assurance and the guardian reference.
       ...(ages ?? []),
       ...(guardians ?? []),
+      // #916 (0190): risk signals read from the person's words.
+      ...(risks ?? []),
     ];
+    // #916 (0190): the safety protocol record keeps its identifier-free
+    // counts (the law's report) — the person is removed from it, not the rows.
+    await db.query(
+      `LET $events = (SELECT VALUE id FROM safety_event WHERE userId = $u);
+       UPDATE $events SET userId = NONE;`,
+      { u: userId },
+    );
     const memoryFiles = files ?? [];
     if (memoryFiles.length > 0) await db.query(`DELETE $ids`, { ids: memoryFiles });
     if (account.length > 0) await db.query(`DELETE $ids`, { ids: account });

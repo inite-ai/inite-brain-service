@@ -91,9 +91,14 @@ export interface RelationshipContext {
    * brain:read_pii, and only when there are observations.
    */
   affectSignals?: AffectSignals;
+  /**
+   * #916: risk of suicide or self-harm read from the person's words, for
+   * the operator's protocol. brain:read_pii only (class `health`).
+   */
+  safety?: SafetySignals;
 }
 
-import type { AffectSignals } from './affect-signals';
+import type { AffectSignals, SafetySignals } from './affect-signals';
 
 const iso = (v: string | Date): string => new Date(v).toISOString();
 
@@ -118,6 +123,8 @@ export function shapeRelationshipContext(p: {
   now: Date;
   /** #909: shaped by shapeAffectSignals, for a caller allowed to read them. */
   affectSignals?: AffectSignals | null | undefined;
+  /** #916: shaped by shapeSafetySignals, for a caller allowed to read them. */
+  safety?: SafetySignals | null | undefined;
 }): RelationshipContext {
   // Newest first, whatever order the read returned.
   const rows = [...p.rows].sort(
@@ -151,6 +158,7 @@ export function shapeRelationshipContext(p: {
     whatDidNotHelp: of('did_not_help').map(item),
     hypotheses: hypothesesOf(of),
     ...(p.affectSignals ? { affectSignals: p.affectSignals } : {}),
+    ...(p.safety ? { safety: p.safety } : {}),
   };
 }
 

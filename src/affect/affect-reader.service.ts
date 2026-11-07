@@ -142,7 +142,9 @@ export class AffectReaderService implements OnModuleInit {
       // A grant that does not count (a minor's own, #916) buys no reading.
       if (!(await this.consents.isActive(companyId, userId, AFFECT_INFERENCE_PURPOSE))) continue;
       for (let i = 0; i < BATCHES_PER_PERSON; i++) {
-        const batch = await this.pendingBatch(companyId, userId, AFFECT_TURNS_PER_BATCH);
+        const batch = await this.pendingBatch(companyId, userId, {
+          maxOwn: AFFECT_TURNS_PER_BATCH,
+        });
         if (!batch) break;
         const drafts = await this.callModel(batch);
         if (drafts === null) break;
@@ -171,16 +173,19 @@ export class AffectReaderService implements OnModuleInit {
   }
 
   /**
-   * The person's earliest unread conversation: up to `maxOwn` of their
-   * unread turns in it, with the turns just before them as context. The
+   * The person's earliest conversation unread by `readerVersion` (the
+   * affect reader's by default; the safety reader keeps its own cursor in
+   * the same table): up to `maxOwn` of their unread turns in it, with the turns just before them as context. The
    * person's turns are those spoken as them — their user entity's name or
    * ref (`user:<id>`); a turn spoken by anyone else is context only.
    */
   async pendingBatch(
     companyId: string,
     userId: string,
-    maxOwn: number,
+    opts: { maxOwn: number; readerVersion?: string | undefined },
   ): Promise<AffectBatch | null> {
+    const { maxOwn } = opts;
+    const readerVersion = opts.readerVersion ?? AFFECT_READER_VERSION;
     return this.surreal.withCompany(companyId, async (db) => {
       const name = (
         await queryRows<string>(
@@ -195,7 +200,7 @@ export class AffectReaderService implements OnModuleInit {
       const read = await queryRows<unknown>(
         db,
         `SELECT VALUE episodeId FROM affect_reading WHERE userId = $u AND readerVersion = $v`,
-        { u: userId, v: AFFECT_READER_VERSION },
+        { u: userId, v: readerVersion },
       );
       const readIds = read.map((id) => new StringRecordId(String(id)));
       const first = (

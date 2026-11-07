@@ -534,6 +534,19 @@ export interface PackAffectInference {
   retentionDays: number;
 }
 
+/**
+ * #916: the pack asks core to read a person's own words for a risk of
+ * suicide or self-harm, for the operator's crisis protocol (CA SB 243, NY
+ * GBL art. 47). Its basis is the operator's, not the person's consent —
+ * vital interests (GDPR art. 9(2)(c)) or a legal obligation — so the
+ * operator accepts it at install (it rides the modality consent checksum).
+ */
+export interface PackSafetyMonitoring {
+  basis: 'vital_interests' | 'legal_obligation';
+  /** How long a risk signal is kept, in days (1..3650). */
+  retentionDays: number;
+}
+
 /** The pack's declared perception of its domain. Every list is optional,
  *  but a present section must carry at least one non-empty declaration or
  *  `rawEvidence: { serve: true }` (present-but-empty is an authoring error). */
@@ -551,4 +564,6 @@ export interface PackMemoryModel {
   rawEvidence?: PackRawEvidenceCapability;
   /** Infer how a person feels from what they say (#909). */
   affectInference?: PackAffectInference;
+  /** Read a person's words for a risk of suicide or self-harm (#916). */
+  safetyMonitoring?: PackSafetyMonitoring;
 }

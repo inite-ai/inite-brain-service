@@ -154,6 +154,8 @@ VALUE  the rejected guess ("coach: snacks more after long meetings") — so nobo
   // (purpose affect_inference); kept 90 days.
   memoryModel: {
     affectInference: { from: 'text', retentionDays: 90 },
+    // #916: risk of suicide or self-harm, for the operator's crisis protocol.
+    safetyMonitoring: { basis: 'vital_interests', retentionDays: 180 },
   },
   extractionProfile: {
     guidance: `Apply this profile to conversations between a person and someone who helps
