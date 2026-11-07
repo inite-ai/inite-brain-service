@@ -1,4 +1,6 @@
 import './record-id-format';
+import { deploymentRegion } from './residency';
+import { ResidencyDirectory } from './residency-directory';
 import {
   Injectable,
   Logger,
@@ -163,6 +165,11 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    *  docs/audits/runtime-auth-embedding-2026-09-08.md. */
   private rootCreds!: { username: string; password: string };
   private surrealUrl!: string;
+  /** #916: which tenants this deployment's region serves (src/db/residency.ts). */
+  readonly residency: ResidencyDirectory = new ResidencyDirectory(
+    (fn) => this.withAdminDb(fn),
+    deploymentRegion(),
+  );
 
   constructor(
     private readonly configService: ConfigService,
@@ -432,6 +439,8 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
+    // #916: a tenant of another region is never created or opened here.
+    await this.residency.assert(companyId);
     const database = `co_${companyId}`;
     // Schema FIRST, then the pool. Provisioning runs on the dedicated
     // migrator and lease connections and can wait — on this pod's schema
@@ -526,6 +535,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
       throw new Error(`Invalid companyId: ${companyId}`);
     }
+    await this.residency.assert(companyId);
     const database = `co_${companyId}`;
     // Before the scoped pool, for the reason spelled out in withCompany:
     // schema apply never runs on the caller's connection anyway, and a

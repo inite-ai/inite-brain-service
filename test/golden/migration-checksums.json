@@ -188,5 +188,6 @@
   "0187_consent_and_affect_rights.surql": "6ed902d50b26beedfd9678c3ec1f758c083407a18b50a04591b42db7d4a92399",
   "0188_affect_observation.surql": "973c462bfdbee0800a0f3fb9b454691dc57cd7d2bfae0f4193095d2393f09888",
   "0189_age_and_guardians.surql": "e52ee26d61d62ddee178f84cf64f8f2cf451d9fc8bbab13308ce25aef3e8ae4c",
-  "0190_safety_layer.surql": "13691d47f75f9546b57ea01c00efbb1686f70bbd76afccd3e520ca0486c2a39d"
+  "0190_safety_layer.surql": "13691d47f75f9546b57ea01c00efbb1686f70bbd76afccd3e520ca0486c2a39d",
+  "0191_tenant_residency.surql": "6aeb633ded0aa5214d40be840c4a18aa9ac17b25965bd798725cca1a8d4726bc"
 }

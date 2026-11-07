@@ -68,6 +68,7 @@
     "train:decision-gate": "ts-node -r tsconfig-paths/register scripts/train-decision-gate.ts",
     "pack:init": "ts-node -r tsconfig-paths/register scripts/init-pack.ts",
     "pack:validate": "ts-node -r tsconfig-paths/register scripts/validate-pack.ts",
+    "residency:pin": "ts-node -T scripts/residency-pin.ts",
     "pack:install": "ts-node -r tsconfig-paths/register scripts/install-pack.ts",
     "pack:sign": "ts-node -r tsconfig-paths/register scripts/sign-pack.ts",
     "pack:publish": "ts-node -r tsconfig-paths/register scripts/publish-pack.ts",

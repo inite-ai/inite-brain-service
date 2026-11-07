@@ -735,6 +735,44 @@ forget. Brain never contacts anyone: the agent's protocol acts, and records
 what it showed in the safety-event log, whose identifier-free counts
 (`GET /v1/admin/safety/report`) survive user forget.
 
+## Data residency (#916)
+
+A tenant's memory lives — and is processed — in one region. Residency is a
+**cell**: one brain deployment per region, with its own SurrealDB
+(`SURREALDB_URL`), blob store (`EVIDENCE_STORAGE*`) and model endpoint
+(`OPENAI_BASE_URL`, or harness mode so no text leaves for a model), and
+`BRAIN_REGION` naming the region. Routing one process to several regional
+clusters is deliberately not supported: a tenant's turns would still pass
+through a server abroad.
+
+Each deployment keeps a directory of pins (`tenant_residency`, in its system
+database — company ids and regions, no personal data), read before any tenant
+database is created or opened:
+
+- a tenant pinned to this deployment's region is served;
+- a tenant pinned to another region gets **421 Misdirected Request** with
+  `region` in the body, and nothing is created or read here;
+- a tenant with no pin is served only by the default deployment (no
+  `BRAIN_REGION`); a regional cell refuses it, so a misrouted first request
+  cannot start a tenant abroad;
+- if the directory has never been read, the check fails closed.
+
+A fresh cell serves no tenant yet, so no key can authenticate through one:
+its first pins are the ops path, run on the cell with its own environment —
+`pnpm residency:pin <companyId> ru` (`--show <companyId>` to read). After
+that, pin with a platform-operator key (`brain:platform_admin` +
+`BRAIN_TENANT_OVERRIDE_ENABLED`): `PUT /v1/admin/residency/:companyId
+{ "region": "ru" }` — on the tenant's regional cell **and** on the default
+deployment (which must refuse it). A tenant that already has data on a
+deployment cannot be pinned elsewhere there (409): moving a tenant is an
+export and an import. `GET /v1/admin/residency/:companyId` shows the pin and
+the deployment's region. The edge (DNS / gateway) routes each tenant's host
+to its cell; the 421 is the backstop when it does not.
+
+Adding a region: provision the cell (hosts in the region), deploy brain with
+`BRAIN_REGION`, pin the region's tenants on it and on the default deployment,
+then route their traffic.
+
 ## Enabling the document pipeline + external indexers
 
 The Source → Indexer → Candidates → Brain pipeline shipped complete but
