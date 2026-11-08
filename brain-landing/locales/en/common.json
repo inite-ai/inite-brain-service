@@ -2517,5 +2517,89 @@
         "desc": "What is on for one workspace is not silently on for another, and changes take effect without a redeploy. Several capabilities ship off until an operator turns them on."
       }
     ]
+  },
+  "demo": {
+    "button": "Try the demo",
+    "banner": "This is a demo: the company and its data are made up, and nothing can be changed.",
+    "left": "{time} left.",
+    "exit": "Leave the demo",
+    "ended": "The demo has ended.",
+    "again": "Open it again",
+    "hours": "h",
+    "minutes": "min",
+    "note": "Nothing you ask is remembered.",
+    "workspace": {
+      "title": "Ana's workspace",
+      "org": "Atlântica Group (demo)",
+      "intro": "A small hospitality group opening a second office in Lisbon. Brain built this memory from six sources: board notes, an email, a CRM export, call notes, a supply contract and an operations report.",
+      "nav": "Demo workspace",
+      "graph": "Knowledge graph",
+      "sources": "Sources",
+      "chat": "Ask the memory",
+      "entities": "{n} entities",
+      "facts": "{n} facts",
+      "links": "{n} links",
+      "sourceFacts": "{n} facts",
+      "earlier": "earlier",
+      "until": "until {date}",
+      "placeholder": "Ask about a person, a company or the Lisbon opening",
+      "ask": "Ask",
+      "asking": "Looking...",
+      "nothing": "Memory holds nothing about that yet. Try a name from the graph.",
+      "failed": "The answer did not come through. Try again in a moment.",
+      "busy": "Too many questions at once. Wait a minute and ask again.",
+      "empty": "The demo workspace has no data yet.",
+      "loading": "Loading the workspace...",
+      "pick": "Pick a node to see what memory holds about it.",
+      "from": "from",
+      "suggestions": [
+        "When does the Lisbon opening happen?",
+        "What did Hotel Maré Alta complain about?",
+        "Who is Bruno Demo?",
+        "What does Grão Verde Cafés supply?"
+      ],
+      "types": {
+        "staff": "team",
+        "customer": "client",
+        "project": "project",
+        "location": "place",
+        "topic": "deal",
+        "asset": "asset",
+        "other": "company or person"
+      },
+      "predicates": {
+        "industry": "industry",
+        "headcount": "headcount",
+        "job_title": "job title",
+        "preference": "preference",
+        "responsible_for": "responsible for",
+        "decision": "decision",
+        "address": "address",
+        "monthly_rent": "rent",
+        "lease_start": "lease starts",
+        "target_date": "target date",
+        "status": "status",
+        "next_step": "next step",
+        "supplies": "supplies",
+        "payment_terms": "payment terms",
+        "complained_about": "complained about",
+        "intent": "wants",
+        "deal_stage": "deal stage",
+        "deal_amount": "deal amount"
+      },
+      "edges": {
+        "works_at": "works at",
+        "reports_to": "reports to",
+        "located_in": "located in",
+        "leases": "leases",
+        "owns": "owns",
+        "leads": "leads",
+        "about": "about",
+        "supplies": "supplies",
+        "client_of": "client of",
+        "with": "with",
+        "account_manager_of": "manages the account of"
+      }
+    }
   }
 }

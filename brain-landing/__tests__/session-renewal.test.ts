@@ -169,7 +169,12 @@ describe('rotation is single-flight with a grace window — the provider revokes
     expect(f).toHaveBeenCalledTimes(1)
     // Anonymous stays a 200 with no session and no cookies.
     const anon = await GET(req({}))
-    expect(await anon.json()).toEqual({ isAuthenticated: false, isAdmin: false })
+    expect(await anon.json()).toEqual({
+      isAuthenticated: false,
+      isAdmin: false,
+      demo: false,
+      demoEnabled: false,
+    })
     expect(setCookie(anon, 'access_token')).toBeUndefined()
   })
 })

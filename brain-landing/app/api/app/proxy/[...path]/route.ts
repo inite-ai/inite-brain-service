@@ -25,6 +25,8 @@ import { extractProxyPath, collectQuery, isPathAllowed } from '@/lib/bff-proxy'
  *      brain:write`) — no admin, no PII. PII predicates come back
  *      redacted.
  *   6. The internal debug `__trace` is forwarded only for admins.
+ *   7. A demo session (`/api/auth/demo`) gets nothing here: writes are
+ *      403 `demo_read_only`, reads go to `/api/app/demo` instead.
  */
 
 const ROUTE_PREFIX = '/api/app/proxy/'
@@ -82,6 +84,17 @@ async function forward(
   session: UserSession,
   request: NextRequest,
 ): Promise<NextResponse> {
+  // A demo persona never reaches a real tenant's memory through here: it
+  // reads the demo workspace (`/api/app/demo`) and writes nothing.
+  if (session.demo) {
+    const writing = request.method !== 'GET' && request.method !== 'HEAD'
+    return NextResponse.json(
+      writing
+        ? { error: 'The demo is read-only', code: 'demo_read_only' }
+        : { error: 'The demo reads the demo workspace only', code: 'demo_workspace_only' },
+      { status: 403 },
+    )
+  }
   if (!appEnabled()) {
     return NextResponse.json(
       {

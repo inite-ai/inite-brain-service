@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ArrowRight, GitBranch, Quote } from 'lucide-react'
 import { getMessages, type Lang } from '../lib/i18n'
+import { DemoSignInButton } from './demo-session/DemoSignInButton'
 
 export function Hero({ lang }: { lang: Lang }) {
   const { hero: h } = getMessages(lang)
@@ -15,6 +16,7 @@ export function Hero({ lang }: { lang: Lang }) {
               {h.ctaPrimary}<ArrowRight className="size-4" aria-hidden="true" />
             </a>
             <Link href={`/${lang}/docs/getting-started`} className="btn-ghost min-h-11 px-5 inline-flex items-center rounded-md text-sm">{h.ctaSecondary}</Link>
+            <DemoSignInButton lang={lang} className="btn-ghost min-h-11 px-5 inline-flex items-center rounded-md text-sm" />
           </div>
           <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs text-[var(--text-faint)]">
             <li className="text-[var(--data)]">{h.trust.license}</li><li>{h.trust.stack}</li><li>{h.trust.eval}</li>

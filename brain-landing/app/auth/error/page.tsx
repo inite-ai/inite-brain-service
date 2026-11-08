@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { DemoSignInButton } from '../../../components/demo-session/DemoSignInButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +37,10 @@ export default async function AuthErrorPage({ searchParams }: Props) {
           >
             Back home
           </Link>
+          <DemoSignInButton
+            lang="en"
+            className="h-9 px-3.5 inline-flex items-center rounded-md border border-[var(--border-strong)] text-[var(--text)] text-sm hover:bg-[var(--bg-overlay)]"
+          />
         </div>
       </div>
     </div>
