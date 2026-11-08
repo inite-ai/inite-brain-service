@@ -1,0 +1,55 @@
+{
+  "about": "Speech the memory receives as recordings: a call summary, a stand-up, a note. Spoken by the macOS system voices (Samantha, Daniel, Milena, Luciana) and encoded to 32 kbit/s mono mp3 by the shipped ffmpeg. `keys` lists what memory must keep; each key is a list of accepted spellings (a number may come back as digits or words).",
+  "items": [
+    {
+      "id": "en-call",
+      "lang": "en",
+      "text": "The client call moved to Thursday at two pm. Diego will send the contract draft tonight. The budget is capped at forty eight thousand dollars this quarter.",
+      "keys": [
+        ["thursday"],
+        ["diego"],
+        ["contract draft"],
+        ["48,000", "48000", "forty eight thousand", "forty-eight thousand"]
+      ]
+    },
+    {
+      "id": "en-standup",
+      "lang": "en",
+      "text": "Yesterday I fixed the ledger sync timeout. Today I am deploying version three point twelve to production. No blockers.",
+      "keys": [["ledger sync", "ledger-sync"], ["3.12", "three point twelve"], ["production"]]
+    },
+    {
+      "id": "ru-call",
+      "lang": "ru",
+      "text": "Созвон с клиентом перенесли на среду. Иван отправит договор вечером. Бюджет на квартал триста тысяч рублей.",
+      "keys": [["среду"], ["иван"], ["договор"], ["300 тысяч", "300000", "300 000", "триста тысяч"]]
+    },
+    {
+      "id": "ru-note",
+      "lang": "ru",
+      "text": "Пароль от вайфая в офисе сменили. Новая сеть называется офис пять джи. Ответственный Пётр Сидоров.",
+      "keys": [["пароль"], ["5g", "5 g", "пять джи", "5 джи"], ["пётр сидоров", "петр сидоров"]]
+    },
+    {
+      "id": "pt-call",
+      "lang": "pt",
+      "text": "A reunião com o fornecedor ficou para sexta-feira. Beto vai levar a proposta revisada. O orçamento máximo é de sessenta mil reais.",
+      "keys": [
+        ["sexta"],
+        ["beto"],
+        ["proposta revisada"],
+        ["60 mil", "60.000", "sessenta mil", "60000"]
+      ]
+    },
+    {
+      "id": "pt-note",
+      "lang": "pt",
+      "text": "O voo para Lisboa sai às sete e quarenta e cinco. O portão é o B vinte e dois.",
+      "keys": [
+        ["lisboa"],
+        ["7h45", "7:45", "sete e quarenta e cinco", "7.45"],
+        ["b22", "b 22", "b vinte e dois", "b-22"]
+      ]
+    }
+  ]
+}

@@ -46,6 +46,7 @@
     "eval:claim-check": "ts-node -T test/eval/claim-check/runner.ts",
     "eval:entity-resolution": "ts-node -T test/eval/entity-resolution/runner.ts",
     "eval:media": "ts-node -T test/eval/media/runner.ts",
+    "eval:media-asr": "ts-node -T test/eval/media/asr-runner.ts",
     "eval:affect": "ts-node -T test/eval/affect/runner.ts",
     "eval:lexical-stems": "ts-node -T test/eval/lexical-stems/runner.ts",
     "eval:community-evidence": "ts-node -T test/eval/community-evidence/runner.ts",
@@ -114,6 +115,7 @@
     "chrono-node": "^2.10.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "ffmpeg-static": "5.2.0",
     "helmet": "^8.3.0",
     "jose": "^6.2.13",
     "js-tiktoken": "^1.0.21",
@@ -163,7 +165,8 @@
       "@nestjs/core",
       "protobufjs",
       "sharp",
-      "onnxruntime-node"
+      "onnxruntime-node",
+      "ffmpeg-static"
     ],
     "overrides": {
       "sharp": "^0.35.5",

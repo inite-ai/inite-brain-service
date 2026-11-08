@@ -1,4 +1,5 @@
 import { MediaReadingWorkService } from './media-reading-work.service';
+import { AsrAdapter } from './processing/adapters/asr.adapter';
 import { Module } from '@nestjs/common';
 import { EvidenceBlobUploadInterceptor } from './blob-upload.interceptor';
 import { EvidenceAdminController } from './evidence-admin.controller';
@@ -118,6 +119,7 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
     MailTextAdapter,
     ImageMetadataAdapter,
     OcrAdapter,
+    AsrAdapter,
     {
       provide: EVIDENCE_PROCESSOR_ADAPTERS,
       // Rest parameter, not one named argument per adapter: the registry
@@ -136,6 +138,7 @@ import { EvidenceStorageModule } from './storage/evidence-storage.module';
         MailTextAdapter,
         ImageMetadataAdapter,
         OcrAdapter,
+        AsrAdapter,
       ],
     },
     ProcessingRunService,
