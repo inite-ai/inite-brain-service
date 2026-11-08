@@ -30,6 +30,8 @@ import { credentialKeys } from './secret-cipher';
  */
 export const HARNESS_WORK_KINDS = [
   'predicate_semantics',
+  // Before extraction: an image's reading becomes a document to extract.
+  'media_reading',
   'extraction',
   'fact_resolution',
   'entity_match',
@@ -101,6 +103,12 @@ export interface ResolutionTokenPayload extends TokenBase {
   f: Array<[string, string[], string]>;
 }
 
+export interface MediaTokenPayload extends TokenBase {
+  t: 'media_reading';
+  /** [asset id, byte hash the agent was shown, consenting pack] per image (i1, i2, …). */
+  a: Array<[string, string, string]>;
+}
+
 export interface AffectTokenPayload extends TokenBase {
   t: 'affect_reading' | 'safety_reading';
   /** [handle, episode id, 1 = the person's own turn / 0 = context] in prompt order. */
@@ -114,7 +122,8 @@ export type WorkTokenPayload =
   | PairsTokenPayload
   | ScenesTokenPayload
   | PredicatesTokenPayload
-  | BeliefsTokenPayload;
+  | BeliefsTokenPayload
+  | MediaTokenPayload;
 
 /** Longest token accepted: 64 documents and every memory handle fit well inside. */
 export const WORK_TOKEN_MAX_CHARS = 32_768;
@@ -196,11 +205,7 @@ function wellFormed(p: WorkTokenPayload): boolean {
   switch (p.t) {
     case 'affect_reading':
     case 'safety_reading':
-      return (
-        tuples(p.e, 3) &&
-        p.e.length > 0 &&
-        p.e.every((x) => typeof x[0] === 'string' && typeof x[1] === 'string')
-      );
+      return turnsWellFormed(p);
     case 'extraction':
       return (
         Array.isArray(p.d) &&
@@ -222,6 +227,8 @@ function wellFormed(p: WorkTokenPayload): boolean {
       return Array.isArray(p.q) && p.q.length > 0 && p.q.every((x) => typeof x === 'string');
     case 'belief_statement':
       return tuples(p.b, 2);
+    case 'media_reading':
+      return tuples(p.a, 3);
   }
 }
 
@@ -231,5 +238,14 @@ function tuples(xs: unknown, length: number): boolean {
     Array.isArray(xs) &&
     xs.length > 0 &&
     xs.every((x) => Array.isArray(x) && (x as unknown[]).length === length)
+  );
+}
+
+/** affect / safety readings: [handle, episode id, own] per turn. */
+function turnsWellFormed(p: AffectTokenPayload): boolean {
+  return (
+    tuples(p.e, 3) &&
+    p.e.length > 0 &&
+    p.e.every((x) => typeof x[0] === 'string' && typeof x[1] === 'string')
   );
 }

@@ -16,6 +16,11 @@ export interface HarnessWork {
   schema: Record<string, unknown>;
   /** How many documents, pairs or scenes the batch covers. */
   items: number;
+  /**
+   * Images the work reads, in item order, sent as MCP image blocks after
+   * the text of the tool result (not inside its JSON).
+   */
+  images?: Array<{ data: string; mimeType: string }> | undefined;
   expiresAt: string;
 }
 

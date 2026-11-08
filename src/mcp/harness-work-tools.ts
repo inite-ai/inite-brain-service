@@ -8,6 +8,7 @@ import type { SceneSummaryWorkService } from '../admin/scene-summary-work.servic
 import type { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import type { AffectReadingWorkService } from '../affect/affect-reading-work.service';
 import type { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
+import type { MediaReadingWorkService } from '../evidence/media-reading-work.service';
 import { pinUserScope } from '../auth/user-scope';
 import { extractionSource } from '../common/extraction-source';
 import type { HarnessWork } from '../common/harness-work';
@@ -28,6 +29,7 @@ export interface HarnessWorkToolDeps {
   /** Resolved lazily: these live in AdminModule, which imports McpModule. */
   scenes?: (() => SceneSummaryWorkService | undefined) | undefined;
   beliefs?: (() => BeliefStatementWorkService | undefined) | undefined;
+  media?: (() => MediaReadingWorkService | undefined) | undefined;
   /** #909: how a person feels, read from their words (AffectModule). */
   affect?: (() => AffectReadingWorkService | undefined) | undefined;
 }
@@ -55,7 +57,7 @@ export function registerHarnessWorkTools(p: {
     {
       title: 'Take memory work',
       description:
-        'Returns the next batch of work the memory left for a connected model, in this order: predicate_semantics (new attributes: one value at a time or several), extraction (stored documents to read into facts), fact_resolution (new facts beside the memory facts they resemble: same, replaces, contradicts or unrelated), entity_match (pairs of entities that may be one thing), fact_conflict (pairs of competing facts), fact_corroboration (pairs of facts that may state one thing twice), scene_summary (conversation scenes to summarise), safety_reading (a person’s own words read for a risk of suicide or self-harm), affect_reading (how a consenting person seemed to feel, from their own words), belief_statement (remembered states to phrase as a sentence). A batch holds the systemPrompt and userContent the server model would have been sent, the JSON schema of the reply, how many items it covers, and the signed work token its reply is submitted with, valid until expiresAt. Returns {work: null} when nothing is waiting.',
+        'Returns the next batch of work the memory left for a connected model, in this order: predicate_semantics (new attributes: one value at a time or several), media_reading (images to read: their text verbatim and what they show; the images follow as image blocks), extraction (stored documents to read into facts), fact_resolution (new facts beside the memory facts they resemble: same, replaces, contradicts or unrelated), entity_match (pairs of entities that may be one thing), fact_conflict (pairs of competing facts), fact_corroboration (pairs of facts that may state one thing twice), scene_summary (conversation scenes to summarise), safety_reading (a person’s own words read for a risk of suicide or self-harm), affect_reading (how a consenting person seemed to feel, from their own words), belief_statement (remembered states to phrase as a sentence). A batch holds the systemPrompt and userContent the server model would have been sent, the JSON schema of the reply, how many items it covers, and the signed work token its reply is submitted with, valid until expiresAt. Returns {work: null} when nothing is waiting.',
       inputSchema: {
         userId: z
           .string()
@@ -78,9 +80,18 @@ export function registerHarnessWorkTools(p: {
         work = await take(deps, kind, { companyId, userId, max: args.maxItems });
         if (work) break;
       }
-      const out = { work };
+      // Images travel as image blocks, not base64 inside the JSON.
+      const images = work?.images ?? [];
+      const out = { work: work ? { ...work, images: undefined } : null };
       return {
-        content: [{ type: 'text', text: JSON.stringify(out) }],
+        content: [
+          { type: 'text' as const, text: JSON.stringify(out) },
+          ...images.map((img) => ({
+            type: 'image' as const,
+            data: img.data,
+            mimeType: img.mimeType,
+          })),
+        ],
         structuredContent: asStructuredContent(out),
       };
     },
@@ -91,7 +102,7 @@ export function registerHarnessWorkTools(p: {
     {
       title: 'Submit memory work',
       description:
-        "Stores a model's JSON reply to a batch of memory work, with its work token. The server applies it with its own code: extraction replies are grounded against the text it handed out, resolved and committed; attribute classifications update the vocabulary; verdicts link identical entities or supersede the losing fact; scene summaries and belief sentences are validated and written. An item whose evidence changed since it was handed out is skipped and counted stale, so a batch applied twice changes nothing the second time. Returns counts for the batch. A bad, expired or foreign token is refused.",
+        "Stores a model's JSON reply to a batch of memory work, with its work token. The server applies it with its own code: extraction replies are grounded against the text it handed out, resolved and committed; attribute classifications update the vocabulary; verdicts link identical entities or supersede the losing fact; scene summaries and belief sentences are validated and written; an image's reading is stored with the image and read into facts. An item whose evidence changed since it was handed out is skipped and counted stale, so a batch applied twice changes nothing the second time. Returns counts for the batch. A bad, expired or foreign token is refused.",
       inputSchema: {
         token: z.string().min(1).max(WORK_TOKEN_MAX_CHARS),
         result: z.record(z.string(), z.unknown()).describe('The reply object, matching the schema'),
@@ -131,6 +142,8 @@ async function take(
       return deps.dreams ? deps.dreams.takeFactCorroboration(companyId, opts) : null;
     case 'predicate_semantics':
       return deps.predicates ? deps.predicates.take(companyId, opts) : null;
+    case 'media_reading':
+      return deps.media?.()?.take(companyId, opts) ?? null;
     case 'scene_summary':
     case 'belief_statement':
     case 'affect_reading':
@@ -177,6 +190,8 @@ async function submit(
       return need(deps.scenes?.()).submit(companyId, payload, result);
     case 'belief_statement':
       return need(deps.beliefs?.()).submit(companyId, payload, result);
+    case 'media_reading':
+      return need(deps.media?.()).submit(companyId, payload, result);
     case 'affect_reading':
     case 'safety_reading':
       return need(deps.affect?.()).submit(companyId, payload, result);

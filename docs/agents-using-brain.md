@@ -107,6 +107,17 @@ Writes work as usual. `ingest_document`, the mention routes and the plugin's
 capture store text raw, and it is searchable at once through the episode
 lanes. The rest comes in batches:
 
+| `kind`                | What you read                                                | What the server does with your reply                                                                                                      |
+| --------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `predicate_semantics` | new attributes: can a subject hold one value or several      | sets the attribute's policy, so the next value supersedes or adds                                                                         |
+| `media_reading`       | images (sent as image blocks): their text and what they show | stores the reading with the image and reads it into facts that cite the image                                                             |
+| `extraction`          | stored turns and documents, with the memory context          | grounds every value against the text, resolves entities, commits                                                                          |
+| `fact_resolution`     | each new fact beside the memory facts most like it           | same → corroborates; replaces → closes the value that holds from the earlier time (whichever arrived first); contradicts → both competing |
+| `entity_match`        | pairs of entities whose names are close, with their facts    | links the same thing (`identity_of`), or remembers "different"                                                                            |
+| `fact_conflict`       | pairs of competing facts, with the subject's other facts     | supersedes the loser and makes the winner the current value                                                                               |
+| `fact_corroboration`  | pairs of facts that may state one thing in two wordings      | records the second as corroborating the first                                                                                             |
+| `scene_summary`       | conversation scenes as transcripts                           | stores the gist, memory value, state changes and entity mentions                                                                          |
+| `belief_statement`    | remembered states (subject, attribute, value)                | replaces the template sentence with yours                                                                                                 |
 | `kind`                | What you read                                             | What the server does with your reply                                                                                                      |
 | --------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `predicate_semantics` | new attributes: can a subject hold one value or several   | sets the attribute's policy, so the next value supersedes or adds                                                                         |
@@ -129,6 +140,10 @@ lanes. The rest comes in batches:
    attributes or beliefs the batch covers), `token` and `expiresAt`. Answer
    it with your model: `systemPrompt` as the system message, `userContent`
    as the user message, and a JSON object matching `schema` as the reply.
+   A `media_reading` batch's images arrive as image blocks after the JSON
+   text of the result, in item order (`i1` is the first); give them to your
+   model with the user message. An image is offered only when a pack's
+   current modality consent covers reading images into text.
    Batches number their items (`p1`, `s1`, `q1`, `b1`, …). Answer each item
    once, by its number. For extraction, copy values verbatim where the prompt
    says so: the server drops anything the text does not hold, exactly as it
