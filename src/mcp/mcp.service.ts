@@ -58,6 +58,13 @@ import { toolObservationsEnabled } from '../common/tool-observation-flags';
 import { AffectReadingWorkService } from '../affect/affect-reading-work.service';
 import { registerHarnessWorkTools } from './harness-work-tools';
 import { MediaReadingWorkService } from '../evidence/media-reading-work.service';
+import { registerMediaReadTools, registerMediaWriteTools, type MediaToolDeps } from './media-tools';
+import { EvidenceUploadService } from '../evidence/evidence-upload.service';
+import { EvidenceReadService } from '../evidence/evidence-read.service';
+import {
+  EVIDENCE_STORAGE_ADAPTERS,
+  type EvidenceStorageRegistry,
+} from '../evidence/storage/storage-adapter';
 import { ExtractionWorkService } from '../documents/extraction-work.service';
 import { DreamsWorkService } from '../dreams/dreams-work.service';
 import { FactSourceTurnsService } from '../facts/fact-source-turns.service';
@@ -219,6 +226,23 @@ export class McpService {
   }
 
   /** A harness work service of AdminModule (which imports McpModule), resolved per call. */
+  /** The evidence services the media tools read and write with, resolved per call. */
+  private mediaDeps(): MediaToolDeps {
+    return {
+      uploads: () => this.adminWork(EvidenceUploadService),
+      reads: () => this.adminWork(EvidenceReadService),
+      storage: () => {
+        try {
+          return this.moduleRef?.get<symbol, EvidenceStorageRegistry>(EVIDENCE_STORAGE_ADAPTERS, {
+            strict: false,
+          });
+        } catch {
+          return undefined;
+        }
+      },
+    };
+  }
+
   private adminWork<T>(token: new (...args: never[]) => T): T | undefined {
     try {
       return this.moduleRef?.get(token, { strict: false });
@@ -717,7 +741,7 @@ export class McpService {
       toolProfile?: ToolProfile | undefined;
     },
   ): Promise<McpServer> {
-    const actorKeyHash = caller?.actorKeyHash;
+    const actorKeyHash = caller?.actorKeyHash ?? `mcp:${companyId}`;
     const policy = caller?.policy;
     const profile = caller?.toolProfile ?? resolveToolProfile();
     // Bindings are fetched BEFORE the wrappers so the ABAC gate knows
@@ -805,6 +829,13 @@ export class McpService {
       communities: this.communities,
       scopes,
     });
+    registerMediaReadTools({
+      server,
+      companyId,
+      scopes,
+      actorKeyHash,
+      deps: this.mediaDeps(),
+    });
     registerCodeMemoryReadTools({
       server,
       companyId,
@@ -843,7 +874,7 @@ export class McpService {
         server,
         companyId,
         scopes,
-        actorKeyHash: actorKeyHash ?? `mcp:${companyId}`,
+        actorKeyHash,
         actorId: caller?.actorId,
         deps: {
           ingest: this.ingest,
@@ -859,6 +890,7 @@ export class McpService {
         companyId,
         deps: { ingest: this.ingest },
       });
+      registerMediaWriteTools({ server, companyId, deps: this.mediaDeps() });
       registerHarnessWorkTools({
         server,
         companyId,
@@ -877,7 +909,7 @@ export class McpService {
     if (scopes.includes('brain:admin')) {
       registerAdminTools(server, companyId, {
         entities: this.entities,
-        actorKeyHash: actorKeyHash ?? `mcp:${companyId}`,
+        actorKeyHash,
       });
     }
     registerPackTools({

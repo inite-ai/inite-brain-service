@@ -65,6 +65,7 @@ Read (with `brain:read`):
 | `search_communities`, `list_communities`, `find_entity_communities` | Graph community summaries (thematic clusters)                                                                                                                                                                                                                                                                                                                     |
 | `why`, `recall_decisions`                                           | Code-memory: why code is the way it is; past recorded decisions                                                                                                                                                                                                                                                                                                   |
 | `get_source_reputation`                                             | Learned trust profile of a source vertical                                                                                                                                                                                                                                                                                                                        |
+| `read_media`                                                        | A stored image (image block, ≤1568 px) or recording (audio block, ≤10 MB) by the evidence asset or fragment id a fact cites. Listed only to a key holding `brain:read_media`; runs the raw-evidence checks of the REST raw route (a pack's consent to serve raw evidence; every read audited)                                                                     |
 | `workspace_status`                                                  | Which tenant this connection writes to, what is already in its memory, and `nextSteps` — the setup actions that would change something. First call after connecting                                                                                                                                                                                               |
 | `rename_workspace`                                                  | Name the workspace (`brain:write`). Offered only while it has none, and gone once it does                                                                                                                                                                                                                                                                         |
 | `get_fact`                                                          | One fact as stored: statement, validity, source attribution, lifecycle (`retracted: true` still resolves), `groundingStatus` (`grounded`/`ungrounded`; absent = legacy row) and `assertion` (`stated`/`inferred`/`hypothesis`/`confirmed`). Registered when the server runs `FACTS_API_ENABLED`                                                                                                                              |
@@ -82,7 +83,11 @@ Write (adds with `brain:write`): `record_fact` (accepts `conversationId` +
 `record_fact` for anything longer than one claim; accepts
 `toolObservationRef: tool_observation:<id>` to close the tool result →
 document → fact provenance loop under `TOOL_OBSERVATIONS_ENABLED`),
-`record_decision`.
+`record_decision`, and `upload_media` (an image, recording or document as
+base64 into the evidence plane: kept, scanned, read by the processors the
+workspace consented to, and remembered with the file as provenance; on a
+server running `EVIDENCE_BLOB_UPLOAD_ENABLED`; the JSON body cap, 1 MB by
+default, bounds the file, so larger ones go over `POST /v1/ingest/evidence-blob`).
 
 Admin (adds with `brain:admin`): `forget_entity` — GDPR hard-delete with a
 synchronous cascade and tombstones.
