@@ -737,6 +737,36 @@ export function evidenceOcrEnabled(): boolean {
 }
 
 /**
+ * Local speech-to-text processor — EVIDENCE_ASR_ENABLED (#900 step 4).
+ *
+ * AsrAdapter offers the 'asr' capability for audio assets and the sound
+ * of video ones: ffmpeg (the ffmpeg-static binary, no system package)
+ * decodes any accepted container to 16 kHz mono, and Whisper through
+ * transformers.js transcribes it locally. Default off: the model is a few
+ * hundred megabytes resident once loaded and transcription costs CPU in
+ * proportion to duration, an operator's capacity decision, so it gets an
+ * explicit switch on top of the dispatch ladder, as OCR does. Read at call
+ * time. EVIDENCE_ family sits off the ENGINE flag budget by design.
+ */
+export function evidenceAsrEnabled(): boolean {
+  return envFlagEnabled(process.env.EVIDENCE_ASR_ENABLED);
+}
+
+/** Default speech model: multilingual Whisper small, quantised (transformers.js). */
+const DEFAULT_ASR_MODEL = 'Xenova/whisper-small';
+
+/**
+ * Speech model — EVIDENCE_ASR_MODEL (non-boolean): a transformers.js
+ * automatic-speech-recognition model id, downloaded once into the
+ * transformers cache like the local embedder. An OUTPUT knob, so it rides
+ * the adapter's fingerprint. Unset ⇒ Xenova/whisper-small.
+ */
+export function evidenceAsrModel(): string {
+  const raw = process.env.EVIDENCE_ASR_MODEL?.trim();
+  return raw ? raw : DEFAULT_ASR_MODEL;
+}
+
+/**
  * Languages whose `.traineddata` ships in the image. THE authority for
  * the set — ocr-assets.ts re-exports it rather than keeping a second
  * copy, and the boot validator below checks against it, so adding a

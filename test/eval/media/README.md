@@ -73,5 +73,47 @@ look like 77% keys. The margin is now added in sRGB and in white. The
 adapter's unit test renderer has the same shape; its assertions do not
 depend on first letters.
 
+## Part two: does the speech reader hear?
+
+```
+pnpm eval:media-asr
+```
+
+Six recordings (`audio/`, about 180 KB in total) of the kinds a memory
+receives: a call summary, a stand-up and a note, in EN, RU and PT. The
+macOS system voices (Samantha, Daniel, Milena, Luciana) speak them and the
+shipped ffmpeg encodes them to 32 kbit/s mono mp3. `asr-dataset.json`
+holds what was said, plus the keys with every accepted spelling, since a
+number may come back as digits or as words.
+
+Each recording runs through the real `AsrAdapter` (ffmpeg decode, Whisper
+via transformers.js) in two arms:
+
+- with the tenant's language, which is what the broker passes;
+- with no language.
+
+Result (2026-11-03, `Xenova/whisper-small`, CPU, about half real time):
+
+| arm             | lang | WER   | keys      |
+| --------------- | ---- | ----- | --------- |
+| tenant language | en   | 20.9% | **100%**  |
+| tenant language | ru   | 26.3% | **83.3%** |
+| tenant language | pt   | 32.4% | **100%**  |
+| no language     | ru   | 100%  | 29.2%     |
+| no language     | pt   | 95.2% | 58.3%     |
+
+What it shows:
+
+- **The keys survive** (numbers, names, dates, codes): 100% in English and
+  Portuguese. Russian is at 83.3% because "пароль" was heard as "пороль".
+- **WER overstates the errors.** It counts "forty eight thousand" against
+  "$48,000" as three errors; the keys accept both spellings, so the key
+  score is the better measure here.
+- **The language must be passed.** Without it, Whisper in transformers.js
+  does not detect the language and translates Russian and Portuguese into
+  English ("Созвон с клиентом перенесли на среду" → "The client was called
+  to transfer the contract…"). That is why the run reads in the tenant's
+  language.
+
 Part two, whether the words an image yields reach searchable memory,
 lands with the change that wires OCR into memory (#900, step 2).
