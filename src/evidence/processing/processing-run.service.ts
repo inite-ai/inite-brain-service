@@ -81,7 +81,7 @@ export class ProcessingRunService {
 
   async execute(companyId: string, opts: ExecuteRunOpts): Promise<ExecuteRunResult> {
     const { adapter } = opts;
-    const fingerprint = processorConfigFingerprint(adapter);
+    const fingerprint = processorConfigFingerprint(adapter, opts.input);
     const tail = processingRunIdTail({
       assetTail: idTailOf(String(opts.assetRecordId)),
       capability: adapter.capability,

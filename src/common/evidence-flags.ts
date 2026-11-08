@@ -747,8 +747,27 @@ export function evidenceOcrEnabled(): boolean {
  * to reject an unshipped language without importing anything from the
  * evidence dirs.
  */
-export const OCR_SUPPORTED_LANGUAGES = ['eng', 'rus'] as const;
+export const OCR_SUPPORTED_LANGUAGES = ['eng', 'rus', 'por', 'spa', 'fra', 'deu'] as const;
 export type OcrLanguage = (typeof OCR_SUPPORTED_LANGUAGES)[number];
+
+/**
+ * The ISO 639-1 code of each shipped model's language — the code the rest
+ * of Brain stamps on rows (`lang`). How a tenant's own language selects a
+ * model (OcrAdapter: the configured set plus the tenant's language).
+ */
+export const OCR_LANGUAGE_ISO: Readonly<Record<OcrLanguage, string>> = {
+  eng: 'en',
+  rus: 'ru',
+  por: 'pt',
+  spa: 'es',
+  fra: 'fr',
+  deu: 'de',
+};
+
+/** The shipped model for an ISO 639-1 language, if one ships. */
+export function ocrLanguageFor(iso: string | undefined): OcrLanguage | undefined {
+  return OCR_SUPPORTED_LANGUAGES.find((lang) => OCR_LANGUAGE_ISO[lang] === iso);
+}
 
 /** Default OCR language set. (Named WITHOUT the full env-key substring so
  *  the W6 boot-capture truth gate doesn't mistake this module-scope

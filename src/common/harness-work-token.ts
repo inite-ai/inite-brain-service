@@ -38,6 +38,8 @@ export const HARNESS_WORK_KINDS = [
   'fact_conflict',
   'fact_corroboration',
   'scene_summary',
+  'safety_reading',
+  'affect_reading',
   'belief_statement',
 ] as const;
 export type HarnessWorkKind = (typeof HARNESS_WORK_KINDS)[number];
@@ -107,7 +109,14 @@ export interface MediaTokenPayload extends TokenBase {
   a: Array<[string, string, string]>;
 }
 
+export interface AffectTokenPayload extends TokenBase {
+  t: 'affect_reading' | 'safety_reading';
+  /** [handle, episode id, 1 = the person's own turn / 0 = context] in prompt order. */
+  e: Array<[string, string, 0 | 1]>;
+}
+
 export type WorkTokenPayload =
+  | AffectTokenPayload
   | ExtractionTokenPayload
   | ResolutionTokenPayload
   | PairsTokenPayload
@@ -194,6 +203,9 @@ export function verifyWorkToken(
 
 function wellFormed(p: WorkTokenPayload): boolean {
   switch (p.t) {
+    case 'affect_reading':
+    case 'safety_reading':
+      return turnsWellFormed(p);
     case 'extraction':
       return (
         Array.isArray(p.d) &&
@@ -226,5 +238,14 @@ function tuples(xs: unknown, length: number): boolean {
     Array.isArray(xs) &&
     xs.length > 0 &&
     xs.every((x) => Array.isArray(x) && (x as unknown[]).length === length)
+  );
+}
+
+/** affect / safety readings: [handle, episode id, own] per turn. */
+function turnsWellFormed(p: AffectTokenPayload): boolean {
+  return (
+    tuples(p.e, 3) &&
+    p.e.length > 0 &&
+    p.e.every((x) => typeof x[0] === 'string' && typeof x[1] === 'string')
   );
 }

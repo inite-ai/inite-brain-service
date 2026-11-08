@@ -218,9 +218,9 @@ describe('OcrAdapter offline contract', () => {
   });
 
   it('refuses a language the image does not ship rather than fetching it', () => {
-    expect(isOcrLanguage('fra')).toBe(false);
-    expect(() => assertOcrLanguagesLocal(['fra'])).toThrow(/not installed/);
-    expect(() => assertOcrLanguagesLocal(['fra'])).toThrow(/never downloads/);
+    expect(isOcrLanguage('ita')).toBe(false);
+    expect(() => assertOcrLanguagesLocal(['ita'])).toThrow(/not installed/);
+    expect(() => assertOcrLanguagesLocal(['ita'])).toThrow(/never downloads/);
     expect(() => assertOcrLanguagesLocal([])).toThrow(/no OCR language configured/);
   });
 
@@ -491,7 +491,7 @@ describe('OcrAdapter failure modes', () => {
   });
 
   it('refuses an unshipped language BEFORE reading a byte', async () => {
-    process.env.EVIDENCE_OCR_LANGS = 'fra';
+    process.env.EVIDENCE_OCR_LANGS = 'ita';
     // openStream would throw if it were reached; it must not be.
     const never: ProcessorInput = {
       asset: inputFor(null).asset,
@@ -548,9 +548,9 @@ describe('OCR boot validation', () => {
   it('ERRORS on a language this build does not ship', () => {
     // Not a warning: the reader clamps back to English, so without this
     // the operator would silently get a language they did not choose.
-    const [error] = errorsFor({ EVIDENCE_OCR_LANGS: 'eng+fra' });
+    const [error] = errorsFor({ EVIDENCE_OCR_LANGS: 'eng+ita' });
     expect(error).toContain('does not ship');
-    expect(error).toContain('fra');
+    expect(error).toContain('ita');
     expect(error).toContain('never downloaded at runtime');
   });
 
@@ -600,6 +600,17 @@ describe('OcrAdapter fingerprint discipline', () => {
     process.env.EVIDENCE_OCR_LANGS = 'eng+rus';
     expect(adapter.configParts()[0]).toBe('langs=eng+rus');
     expect(processorConfigFingerprint(adapter)).not.toBe(before);
+  });
+
+  it("adds the tenant's own language when its model ships, and keys on it", () => {
+    const plain = processorConfigFingerprint(adapter);
+    const pt = { ...inputFor(null), tenantLang: 'pt' };
+    expect(adapter.configParts(pt)[0]).toBe('langs=eng+por');
+    expect(processorConfigFingerprint(adapter, pt)).not.toBe(plain);
+    // Already configured, or no model for it: the configured set alone.
+    process.env.EVIDENCE_OCR_LANGS = 'eng+rus';
+    expect(adapter.configParts({ ...inputFor(null), tenantLang: 'ru' })[0]).toBe('langs=eng+rus');
+    expect(adapter.configParts({ ...inputFor(null), tenantLang: 'hi' })[0]).toBe('langs=eng+rus');
   });
 
   it('treats language ORDER as significant — tesseract does', () => {

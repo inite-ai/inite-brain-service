@@ -5,9 +5,70 @@
  */
 
 import type { EvidenceCapability } from '../../synthesize/synthesize.types';
+import type { DeclaredAssertion } from '../../common/assertion';
 
 export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
-export type PiiClass = 'none' | 'identifier' | 'behavioral' | 'text' | 'sensitive';
+/**
+ * A predicate's sensitivity class. `affect` (how a person feels: stated
+ * mood, guesses about it, inferred emotion) and `health` (GDPR art. 9 /
+ * LGPD art. 11 special category) join `sensitive` as the classes a read
+ * must hold brain:read_pii for — see classRequiredScope.
+ */
+export const PII_CLASSES = [
+  'none',
+  'identifier',
+  'behavioral',
+  'text',
+  'sensitive',
+  'affect',
+  'health',
+] as const;
+export type PiiClass = (typeof PII_CLASSES)[number];
+
+/**
+ * The scope a read needs for a predicate of this class. The class is the
+ * fence: before #909 only an explicit `requiresScope` gated a row, so a
+ * pack predicate classed `sensitive` (relationship__stated_affect) was
+ * readable by any brain:read caller. One rule for every class, applied
+ * where a definition is built (withClassScope), so every consumer of
+ * `requiresScope` — the row filter, search, documents, communities —
+ * fences by class without knowing about classes.
+ */
+const CLASS_SCOPE: Readonly<Record<PiiClass, 'brain:read_pii' | undefined>> = {
+  none: undefined,
+  identifier: undefined,
+  behavioral: undefined,
+  text: undefined,
+  sensitive: 'brain:read_pii',
+  affect: 'brain:read_pii',
+  health: 'brain:read_pii',
+};
+
+export function classRequiredScope(piiClass: string): 'brain:read_pii' | undefined {
+  return CLASS_SCOPE[piiClass as PiiClass];
+}
+
+/**
+ * The classes a caller holding `scopes` may not read — for a store that
+ * carries the class on the row (semantic_belief.piiClass, 0185) rather
+ * than through a predicate. Pushed into WHERE so a fence never starves
+ * a page after LIMIT.
+ */
+export function fencedClasses(scopes: readonly string[]): PiiClass[] {
+  return PII_CLASSES.filter((c) => {
+    const scope = CLASS_SCOPE[c];
+    return scope !== undefined && !scopes.includes(scope);
+  });
+}
+
+/** A definition with its class's scope filled in; an explicit requiresScope wins. */
+export function withClassScope<T extends { piiClass: string; requiresScope?: string }>(
+  def: T,
+): T & { requiresScope?: string } {
+  if (def.requiresScope) return def;
+  const scope = classRequiredScope(def.piiClass);
+  return scope ? { ...def, requiresScope: scope } : def;
+}
 export type PredicateStatus = 'active' | 'proposed' | 'aliased' | 'deprecated';
 
 export interface PredicateDefinition {
@@ -36,6 +97,13 @@ export interface PredicateDefinition {
    * value is still valid.
    */
   requiredEvidenceCapability?: EvidenceCapability;
+  /**
+   * #909: every value under this predicate is a guess put to the person
+   * (`hypothesis`) or one they confirmed (`confirmed`) — what
+   * assertionOf (src/common/assertion.ts) reports for its facts. Absent =
+   * each fact says (stated unless its writer stamped an inference).
+   */
+  assertion?: DeclaredAssertion;
   parentPredicateId?: string;
   subjectClasses?: string[];
   allowedValues?: string[];

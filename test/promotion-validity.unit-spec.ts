@@ -161,6 +161,9 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
     expect(doc.source).toEqual({
       kind: 'promotion',
       eventRange: { from: '2025-01-01T00:00:00Z', to: '2025-02-01T00:00:00Z' },
+      // #909: a summary is the model's condensation.
+      assertion: 'inferred',
+      inferredBy: { recorder: 'compaction-promotion', modality: 'text' },
     });
     expect(doc.embedding).toEqual([1, 0]);
   });

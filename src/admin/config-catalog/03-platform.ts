@@ -2,6 +2,35 @@ import type { ConfigCatalogSpec } from '../config-catalog.data';
 
 /** Rows 1230–1647 of the catalogue, in order (see config-catalog.data.ts). */
 export const CATALOG_PART_03: ConfigCatalogSpec[] = [
+  // ── Voice affect (#916, src/affect/voice-affect-reader.service.ts) ──
+  {
+    key: 'VOICE_AFFECT_URL',
+    category: 'pipeline',
+    defaultValue: '',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      "The operator's voice-affect service (arousal / energy from a person's own voice). Empty = voice affect reads nothing. High-risk under the EU AI Act; read only under an accepted voiceAffectInference in an allowed deployment context, with the person's consent and recorded notice.",
+  },
+  {
+    key: 'VOICE_AFFECT_TOKEN',
+    category: 'pipeline',
+    defaultValue: '',
+    secret: true,
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description: 'Bearer for VOICE_AFFECT_URL, when the service wants one. Never logged.',
+  },
+  // ── Data residency (#916, src/db/residency.ts) ──────────
+  {
+    key: 'BRAIN_REGION',
+    category: 'auth',
+    defaultValue: '',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'The region this deployment serves (a residency cell, e.g. "ru"). Empty = the default deployment: it serves every tenant not pinned elsewhere. A regional cell serves only tenants pinned to it (PUT /v1/admin/residency/:companyId) and answers 421 for any other; a tenant pinned to another region is never created or read here.',
+  },
   // ── Throttle ────────────────────────────────────────────
   {
     key: 'THROTTLE_TTL_MS',

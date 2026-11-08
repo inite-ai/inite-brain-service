@@ -194,6 +194,8 @@ describe('GET /v1/facts/:id — fact read', () => {
       conversationId: 'conv-1',
       retracted: false,
       derivedVersion: 'wd-v3s',
+      // #909: nothing stamped an inference — what a source said.
+      assertion: 'stated',
     });
   });
 

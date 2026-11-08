@@ -43,6 +43,7 @@ import { SourcePlaneModule } from './source-plane/source-plane.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { KeysModule } from './keys/keys.module';
 import { UsersModule } from './users/users.module';
+import { AffectModule } from './affect/affect.module';
 import { StrategyModule } from './strategy/strategy.module';
 import { MriModule } from './mri/mri.module';
 
@@ -124,6 +125,7 @@ import { MriModule } from './mri/mri.module';
     SourcePlaneModule,
     EpisodesModule,
     UsersModule,
+    AffectModule,
     StrategyModule,
     MriModule,
   ],

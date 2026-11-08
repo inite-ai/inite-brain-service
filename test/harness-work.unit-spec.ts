@@ -72,6 +72,7 @@ describe('work tokens of every kind', () => {
     { ...base, t: 'predicate_semantics', q: ['gym_plan'] },
     { ...base, t: 'belief_statement', u: 'u1', b: [['semantic_belief:1', 's']] },
     { ...base, t: 'media_reading', a: [['evidence_asset:1', 'hash', 'pack']] },
+    { ...base, t: 'affect_reading', u: 'u1', e: [['t1', 'episode:1', 1]] },
   ])('round-trips $t', (p) => {
     expect(verifyWorkToken(mintWorkToken(p))).toEqual({ state: 'valid', payload: p });
   });

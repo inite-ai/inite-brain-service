@@ -55,6 +55,7 @@ import { PackToolProxyService } from './pack-tool-proxy.service';
 import { registerPackTools } from './pack-tools';
 import { ToolObservationService } from '../outcomes/tool-observation.service';
 import { toolObservationsEnabled } from '../common/tool-observation-flags';
+import { AffectReadingWorkService } from '../affect/affect-reading-work.service';
 import { registerHarnessWorkTools } from './harness-work-tools';
 import { MediaReadingWorkService } from '../evidence/media-reading-work.service';
 import { ExtractionWorkService } from '../documents/extraction-work.service';
@@ -869,6 +870,7 @@ export class McpService {
           scenes: () => this.adminWork(SceneSummaryWorkService),
           beliefs: () => this.adminWork(BeliefStatementWorkService),
           media: () => this.adminWork(MediaReadingWorkService),
+          affect: () => this.adminWork(AffectReadingWorkService),
         },
       });
     }

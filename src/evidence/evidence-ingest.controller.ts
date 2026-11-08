@@ -180,6 +180,9 @@ export class EvidenceIngestController {
       durationMs: body.durationMs,
       pageCount: body.pageCount,
       packId: body.packId,
+      // #916: the operator marks a recording as the person's own voice —
+      // the only recordings voice affect may read.
+      ...(body.speaker === 'self' ? { meta: { speaker: 'self' } } : {}),
     });
   }
 

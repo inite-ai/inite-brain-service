@@ -6,6 +6,7 @@ import {
   evidenceOcrEnabled,
   evidenceOcrLanguages,
   evidenceOcrMinConfidence,
+  ocrLanguageFor,
 } from '../../../common/evidence-flags';
 import type { EvidenceModality } from '../../../common/evidence-taxonomy';
 import type { FragmentLocator } from '../../locator';
@@ -92,9 +93,9 @@ export class OcrAdapter implements ProcessorAdapter {
    * The DEADLINES deliberately do not ride it — a timeout is a run
    * failure, not a different output (the adapter-io contract).
    */
-  configParts(): string[] {
+  configParts(input?: ProcessorInput): string[] {
     return [
-      `langs=${evidenceOcrLanguages().join('+')}`,
+      `langs=${ocrLanguagesFor(input).join('+')}`,
       `tessdata=${OCR_TESSDATA_VARIANT}`,
       `minConfidence=${String(evidenceOcrMinConfidence())}`,
       `prep=${IMAGE_PREP_CONTRACT}`,
@@ -118,7 +119,7 @@ export class OcrAdapter implements ProcessorAdapter {
   }
 
   async process(input: ProcessorInput): Promise<ProcessorOutput[]> {
-    const langs = evidenceOcrLanguages();
+    const langs = ocrLanguagesFor(input);
     // Before a byte is read: refuse an unshipped language, and prove the
     // models are on local disk. A missing model must be a named failure,
     // never a network reach and never a stall.
@@ -151,6 +152,20 @@ export class OcrAdapter implements ProcessorAdapter {
     }
     return outputs;
   }
+}
+
+/**
+ * The models one run reads with: the operator's configured set
+ * (EVIDENCE_OCR_LANGS, priority order) plus the tenant's own language when
+ * a model for it ships. Not every shipped model at once: a model the text
+ * is not in still claims characters — with Russian loaded beside English,
+ * Portuguese came back partly Cyrillic ("Conceição" → "Сопсе!сао",
+ * eval:media) — so the set is what the tenant writes in.
+ */
+function ocrLanguagesFor(input?: ProcessorInput): string[] {
+  const langs = evidenceOcrLanguages();
+  const own = ocrLanguageFor(input?.tenantLang);
+  return own && !langs.includes(own) ? [...langs, own] : langs;
 }
 
 /**

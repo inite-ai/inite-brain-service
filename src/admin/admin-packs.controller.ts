@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { DEPLOYMENT_CONTEXTS, type DeploymentContext } from '../ai/domain-packs/manifest';
 import { Throttle } from '@nestjs/throttler';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
@@ -63,6 +64,8 @@ export class AdminPacksController {
       acceptModalities?: boolean;
       /** Consent to the declared sources section (source plane). */
       acceptSources?: boolean;
+      /** #916: consumer | workplace | education | other — voice affect is refused at work / in education. */
+      deploymentContext?: string;
     },
   ): Promise<InstallPackResponse> {
     // A pasted manifest whose id the registry sells is held to the same
@@ -79,6 +82,7 @@ export class AdminPacksController {
       acceptMcpTools: body?.acceptMcpTools,
       acceptModalities: body?.acceptModalities,
       acceptSources: body?.acceptSources,
+      deploymentContext: deploymentContextOf(body?.deploymentContext),
     });
   }
 
@@ -97,6 +101,7 @@ export class AdminPacksController {
       acceptMcpTools?: boolean;
       acceptModalities?: boolean;
       acceptSources?: boolean;
+      deploymentContext?: string;
     },
   ): Promise<InstallPackResponse> {
     const { manifest, checksum } = await this.registry.resolveForInstall({
@@ -109,6 +114,7 @@ export class AdminPacksController {
       acceptMcpTools: body?.acceptMcpTools,
       acceptModalities: body?.acceptModalities,
       acceptSources: body?.acceptSources,
+      deploymentContext: deploymentContextOf(body?.deploymentContext),
     });
   }
 
@@ -142,4 +148,15 @@ export class AdminPacksController {
   ): Promise<UninstallPackResponse> {
     return this.packs.uninstall(req.brainAuth.companyId, packId);
   }
+}
+
+/** A declared deployment context, or a 400 (#916). */
+function deploymentContextOf(raw: string | undefined): DeploymentContext | undefined {
+  if (raw === undefined) return undefined;
+  if (!(DEPLOYMENT_CONTEXTS as readonly string[]).includes(raw)) {
+    throw new BadRequestException(
+      `deploymentContext must be one of ${DEPLOYMENT_CONTEXTS.join('|')}`,
+    );
+  }
+  return raw as DeploymentContext;
 }

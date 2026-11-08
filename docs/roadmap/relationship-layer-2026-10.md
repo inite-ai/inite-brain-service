@@ -180,6 +180,11 @@ row policy (`src/beliefs/beliefs.service.ts`, header). An affect belief
 written today would be readable by any user-scoped `brain:read` caller.
 The belief plane needs a sensitivity column before affect touches it.
 
+Closed by #909 step 1 (0185): `semantic_belief.piiClass`, and the class
+is the fence — `affect`, `health` and `sensitive` need `brain:read_pii`
+on facts (by predicate class) and on beliefs (by row class). The pack's
+feeling and hypothesis predicates are classed `affect` from 0.3.0.
+
 ### 2.5 The read surface
 
 One MCP tool, `relationship_context(userId)` — built in, listed only for a
@@ -202,6 +207,13 @@ the resource `brain://relationship/<userId>`. It returns a brief with citations:
   ]
 }
 ```
+
+Built 2026-11 (#909 step 5): `affectSignals`, for a caller holding
+`brain:read_pii` — inferred affect as signals (`kind: "inferred"`): the
+last two weeks' observations with the person's words, their own baseline
+(confidence-weighted mean valence over everything kept), the last week
+as a deviation from it, and a weekly trend, each with its `n`. `state`
+never reads it.
 
 No `suggest_approach`. Brain returns what is known and what the person
 said worked; the agent decides how to behave. That keeps brain out of the

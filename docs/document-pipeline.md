@@ -59,28 +59,32 @@ pointer back to the container.
 
 Bytes never enter this pipeline directly: they enter the evidence plane
 (`POST /v1/ingest/evidence-blob` → content-addressed blob → platform
-processors). A processor's asset-level `text` representation of a
-`document` asset (PDF text extraction today) is what the fragment lane
-embeds — and, until `EVIDENCE_DOCUMENT_BRIDGE`, where the text stopped:
-an uploaded PDF yielded fragments for retrieval and not one fact.
+processors). The words a processor reads off an asset — a document's
+text layer, an image's OCR regions — are what the fragment lane embeds,
+and, until `EVIDENCE_DOCUMENT_BRIDGE`, where the text stopped: an
+uploaded PDF or screenshot yielded fragments for retrieval and not one
+fact. Which representation kinds carry words is `KIND_CARRIES_WORDS` in
+`src/common/evidence-taxonomy.ts` (`text`, `ocr`, `asr`; not `caption`,
+which today is format, geometry and EXIF).
 
 With the flag on, the broker enqueues one `evidence_document_bridge`
-job per (asset, representation) after every successful **or replayed**
-text run — a replay is what the operator dispatch sweep
+job per run after every successful **or replayed** word-bearing run —
+a replay is what the operator dispatch sweep
 (`POST /v1/admin/maintenance/evidence/dispatch`) produces over the
 existing corpus, so the sweep doubles as the backfill. The documents
 module (`src/documents/evidence-document-bridge.service.ts`) re-reads
-the representation and ingests it here as an ordinary document:
+the run's outputs — one paragraph per OCR region, in the order the run
+wrote them — and ingests them here as an ordinary document:
 
-| field                                  | value                                                                                                       |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `kind`                                 | `evidence_text`                                                                                             |
-| `text`                                 | the representation's content, split at paragraph boundaries into ≤512K parts (`originUri#part=n` for n > 1) |
-| `originUri`                            | the asset's own, else `evidence://asset/<id>`                                                               |
-| `occurredAt` / `contextRef` / `userId` | the asset's — facts stay attributed to whoever brought the bytes                                            |
-| `meta`                                 | `{ evidence_bridge: true }` — an ABAC rule can match `source.meta.evidence_bridge`                          |
-| `indexers`                             | the pack whose processor produced the text                                                                  |
-| internal header                        | `evidenceAssetId`, `evidenceRepresentationId` (brain-owned keys, never caller-assertable)                   |
+| field                                  | value                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `kind`                                 | `evidence_text`                                                                                               |
+| `text`                                 | the run's word-bearing content, split at paragraph boundaries into ≤512K parts (`originUri#part=n` for n > 1) |
+| `originUri`                            | the asset's own, else `evidence://asset/<id>`                                                                 |
+| `occurredAt` / `contextRef` / `userId` | the asset's — facts stay attributed to whoever brought the bytes                                              |
+| `meta`                                 | `{ evidence_bridge: true }` — an ABAC rule can match `source.meta.evidence_bridge`                            |
+| `indexers`                             | the pack whose processor produced the text                                                                    |
+| internal header                        | `evidenceAssetId`, `evidenceRepresentationId` (brain-owned keys, never caller-assertable)                     |
 
 Every committed fact's `source.evidence[]` then carries
 `{ kind: 'asset', ref: <evidence_asset id>, note: 'text via <representation>' }`

@@ -6,6 +6,7 @@ import type { DreamsWorkService } from '../dreams/dreams-work.service';
 import type { FactResolutionService } from '../dreams/fact-resolution.service';
 import type { SceneSummaryWorkService } from '../admin/scene-summary-work.service';
 import type { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
+import type { AffectReadingWorkService } from '../affect/affect-reading-work.service';
 import type { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 import type { MediaReadingWorkService } from '../evidence/media-reading-work.service';
 import { pinUserScope } from '../auth/user-scope';
@@ -29,6 +30,8 @@ export interface HarnessWorkToolDeps {
   scenes?: (() => SceneSummaryWorkService | undefined) | undefined;
   beliefs?: (() => BeliefStatementWorkService | undefined) | undefined;
   media?: (() => MediaReadingWorkService | undefined) | undefined;
+  /** #909: how a person feels, read from their words (AffectModule). */
+  affect?: (() => AffectReadingWorkService | undefined) | undefined;
 }
 
 /**
@@ -54,7 +57,7 @@ export function registerHarnessWorkTools(p: {
     {
       title: 'Take memory work',
       description:
-        'Returns the next batch of work the memory left for a connected model, in this order: predicate_semantics (new attributes: one value at a time or several), media_reading (images to read: their text verbatim and what they show; the images follow as image blocks), extraction (stored documents to read into facts), fact_resolution (new facts beside the memory facts they resemble: same, replaces, contradicts or unrelated), entity_match (pairs of entities that may be one thing), fact_conflict (pairs of competing facts), fact_corroboration (pairs of facts that may state one thing twice), scene_summary (conversation scenes to summarise), belief_statement (remembered states to phrase as a sentence). A batch holds the systemPrompt and userContent the server model would have been sent, the JSON schema of the reply, how many items it covers, and the signed work token its reply is submitted with, valid until expiresAt. Returns {work: null} when nothing is waiting.',
+        'Returns the next batch of work the memory left for a connected model, in this order: predicate_semantics (new attributes: one value at a time or several), media_reading (images to read: their text verbatim and what they show; the images follow as image blocks), extraction (stored documents to read into facts), fact_resolution (new facts beside the memory facts they resemble: same, replaces, contradicts or unrelated), entity_match (pairs of entities that may be one thing), fact_conflict (pairs of competing facts), fact_corroboration (pairs of facts that may state one thing twice), scene_summary (conversation scenes to summarise), safety_reading (a person’s own words read for a risk of suicide or self-harm), affect_reading (how a consenting person seemed to feel, from their own words), belief_statement (remembered states to phrase as a sentence). A batch holds the systemPrompt and userContent the server model would have been sent, the JSON schema of the reply, how many items it covers, and the signed work token its reply is submitted with, valid until expiresAt. Returns {work: null} when nothing is waiting.',
       inputSchema: {
         userId: z
           .string()
@@ -139,13 +142,32 @@ async function take(
       return deps.dreams ? deps.dreams.takeFactCorroboration(companyId, opts) : null;
     case 'predicate_semantics':
       return deps.predicates ? deps.predicates.take(companyId, opts) : null;
-    case 'scene_summary':
-      return deps.scenes?.()?.take(companyId, opts) ?? null;
-    case 'belief_statement':
-      return deps.beliefs?.()?.take(companyId, opts) ?? null;
     case 'media_reading':
       return deps.media?.()?.take(companyId, opts) ?? null;
+    case 'scene_summary':
+    case 'belief_statement':
+    case 'affect_reading':
+    case 'safety_reading':
+      return takeLazy(deps, kind, { companyId, ...opts });
   }
+}
+
+/** The kinds served by services resolved per call (AdminModule, AffectModule). */
+function takeLazy(
+  deps: HarnessWorkToolDeps,
+  kind: 'scene_summary' | 'belief_statement' | 'affect_reading' | 'safety_reading',
+  {
+    companyId,
+    ...opts
+  }: { companyId: string; userId: string | undefined; max: number | undefined },
+): Promise<HarnessWork | null> | null {
+  if (kind === 'scene_summary') return deps.scenes?.()?.take(companyId, opts) ?? null;
+  if (kind === 'belief_statement') return deps.beliefs?.()?.take(companyId, opts) ?? null;
+  const affect = deps.affect?.();
+  if (!affect) return null;
+  return kind === 'affect_reading'
+    ? affect.take(companyId, opts)
+    : affect.takeSafety(companyId, opts);
 }
 
 async function submit(
@@ -170,6 +192,9 @@ async function submit(
       return need(deps.beliefs?.()).submit(companyId, payload, result);
     case 'media_reading':
       return need(deps.media?.()).submit(companyId, payload, result);
+    case 'affect_reading':
+    case 'safety_reading':
+      return need(deps.affect?.()).submit(companyId, payload, result);
   }
 }
 

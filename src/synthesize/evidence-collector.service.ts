@@ -410,12 +410,14 @@ export class EvidenceCollectorService {
     companyId,
     query,
     userId,
+    callerScopes,
   }: {
     beliefLane?: boolean | undefined;
     beliefDateDisambiguation?: boolean | undefined;
     companyId: string;
     query: string;
     userId?: string | undefined;
+    callerScopes: string[];
   }): Promise<{ lines: string[]; byId: ReadonlyMap<string, CitableBelief> }> {
     const empty = { lines: [], byId: new Map<string, CitableBelief>() };
     if (beliefLane !== true || !this.beliefLane) return empty;
@@ -424,6 +426,7 @@ export class EvidenceCollectorService {
       companyId,
       query,
       userId,
+      callerScopes,
       // D4 date-token disambiguation — caller-resolved with the lane flag.
       dateDisambiguation: beliefDateDisambiguation,
     });
