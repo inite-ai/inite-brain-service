@@ -5,9 +5,8 @@
  * Source of truth: inite-auth-service `src/organizations/demo-tenant.ts`
  * and inite-shared `packages/auth/src/kit/demo.ts` (`@inite/auth/demo`).
  * This repo is public and takes no private package, so the values are
- * pinned here once; `__tests__/demo-tenant.test.ts` and the engine's
- * `test/demo-tenant.unit-spec.ts` fail if this file and the engine's
- * `src/demo/demo-tenant.ts` drift apart.
+ * pinned here once; `__tests__/demo-tenant.test.ts` pins them and fails if
+ * this file and the engine's `src/demo/demo-tenant.ts` drift apart.
  */
 export const DEMO_ORG_ID = 'a7a71c00-de00-4000-8000-000000000001'
 export const DEMO_ORG_SLUG = 'demo'

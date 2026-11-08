@@ -59,7 +59,7 @@ function req(path: string, method = 'GET', body?: unknown, ip = '198.51.100.1'):
   })
 }
 
-const brainCalls = () => f.mock.calls.filter(([u]) => String(u).startsWith('https://brain.test'))
+const brainCalls = () => f.mock.calls.filter(([u]) => new URL(String(u)).host === 'brain.test')
 const grants = () =>
   f.mock.calls
     .filter(([u]) => String(u).includes('/oauth/token'))

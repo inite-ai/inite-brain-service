@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   DEMO_ORG_ID,
   DEMO_ORG_NAME,
@@ -13,6 +11,8 @@ import { VALID_COMPANY_ID } from '../src/auth/claim-parsers';
  * src/organizations/demo-tenant.ts, inite-shared @inite/auth/demo). This
  * repo is public and imports neither, so the value is pinned here: a drift
  * would point the demo workspace and the seed at a tenant nobody signs in to.
+ * The landing's copy (brain-landing/lib/demo-tenant.ts) is checked against
+ * this file by brain-landing/__tests__/demo-tenant.test.ts.
  */
 describe('demo tenant pin', () => {
   it('is the family demo org', () => {
@@ -30,13 +30,5 @@ describe('demo tenant pin', () => {
     expect(isDemoCompanyId('demo')).toBe(false);
     expect(isDemoCompanyId(`${DEMO_ORG_ID} `)).toBe(false);
     expect(isDemoCompanyId(undefined)).toBe(false);
-  });
-
-  it('the landing pins the same id', () => {
-    const landing = readFileSync(
-      join(__dirname, '..', 'brain-landing', 'lib', 'demo-tenant.ts'),
-      'utf8',
-    );
-    expect(landing).toContain(`'${DEMO_ORG_ID}'`);
   });
 });
