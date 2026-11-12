@@ -2,6 +2,15 @@ name: Dependency review
 
 on:
   pull_request:
+    # The review diffs manifests and lockfiles; a PR touching none of them
+    # has nothing to review. Not a required check.
+    paths:
+      - '**/package.json'
+      - '**/pnpm-lock.yaml'
+      - '**/package-lock.json'
+      - '**/requirements*.txt'
+      - '**/pyproject.toml'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -9,6 +18,7 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # The action needs a public repo (or GitHub Advanced Security). Skip on
     # private so PRs aren't blocked red until the repo is public.
     if: ${{ github.event.repository.private == false }}

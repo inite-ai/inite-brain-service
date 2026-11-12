@@ -45,11 +45,15 @@ on:
         type: string
   push:
     tags: ['v*']
+  # package.json is not on this list on purpose (since 12.11.2026): it
+  # changes on most PRs (scripts, release-please's version bump) without
+  # changing what is installed into the image; a dependency change always
+  # moves pnpm-lock.yaml, which is listed. That one path made this two-arch
+  # build run on 91 PRs in 11 days.
   pull_request:
     paths:
       - 'Dockerfile'
       - '.dockerignore'
-      - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/release-image.yml'
 

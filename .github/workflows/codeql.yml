@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # A change to prose alone has nothing for CodeQL to analyse. main (on
+    # push) and the weekly run still scan the whole tree, so nothing that
+    # merges goes unscanned. Not a required check, so a skipped PR run
+    # blocks nothing.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'packs/**'
+      - 'models/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'CHANGELOG.md'
   schedule:
     - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
 
@@ -13,10 +24,17 @@ on:
 permissions:
   contents: read
 
+# A new commit on a PR supersedes the PR's analysis in flight. main is never
+# cancelled: its result is the baseline every PR alert is compared against.
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (javascript-typescript)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
