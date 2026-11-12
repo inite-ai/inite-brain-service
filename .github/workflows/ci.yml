@@ -90,8 +90,20 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          if [ "$EVENT" = "schedule" ]; then
+            # The nightly run exists for two jobs: the real-LLM quality eval
+            # and the supply-chain CVE gate (see the schedule comment at the
+            # top). It used to re-run the whole engine suite as well, on a
+            # main every push to which had already been through it: 68
+            # minutes a night, 11 nights to 11.11.2026, for a verdict nothing
+            # read. Every engine gate stays on every PR and every push to main.
+            echo "[ci] event=schedule — eval and supply-chain only"
+            echo "engine=false" >> "$GITHUB_OUTPUT"
+            echo "web=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT" != "pull_request" ]; then
-            # push to main, schedule and manual dispatch always run the full
+            # push to main and manual dispatch always run the full
             # pipeline: main is what the deploy and the release ride on, and
             # a partial verdict there is not a verdict.
             echo "[ci] event=$EVENT — running every gate"

@@ -2,16 +2,18 @@ name: OpenSSF Scorecard
 
 on:
   branch_protection_rule:
+  # Weekly, plus whenever branch protection changes. It used to run on every
+  # push to main too (64 runs in 11 days); the score moves with settings and
+  # workflows, not with each merge, and a week is fresh enough for the badge.
   schedule:
     - cron: '0 7 * * 1' # weekly, Monday 07:00 UTC
-  push:
-    branches: [main]
 
 permissions: read-all
 
 jobs:
   analysis:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # publish_results needs a public repo. Skip on private until then.
     if: ${{ github.event.repository.private == false }}
     permissions:

@@ -11,7 +11,6 @@ on:
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer.yml'
-      - 'package.json'
       - 'pnpm-lock.yaml'
   push:
     branches: [main]
