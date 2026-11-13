@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.9.0](https://github.com/inite-ai/inite-brain-service/compare/v2.8.1...v2.9.0) (2026-11-13)
+
+
+### Features
+
+* **auth:** brain:erase, a scope that only erases one person ([261de6f](https://github.com/inite-ai/inite-brain-service/commit/261de6f2a1ce83d03e4616c8ad32e0aeec3fbaa3))
+* **auth:** brain:erase, a scope that only erases one person ([f960c20](https://github.com/inite-ai/inite-brain-service/commit/f960c202181f0c5420d50ac2fd70e7b23d30251e))
+* **db:** row fixes run as verified data migrations, so a backfill can no longer silently do nothing ([#941](https://github.com/inite-ai/inite-brain-service/issues/941)) ([0c84f3e](https://github.com/inite-ai/inite-brain-service/commit/0c84f3e4601fa1872065cf672cbeaf2d24ace2e0))
+* **embedder:** every vector write declares its embedding space ([#942](https://github.com/inite-ai/inite-brain-service/issues/942)) ([d5a593d](https://github.com/inite-ai/inite-brain-service/commit/d5a593d7a22947dfe0600489c3a02531c0e45ad3))
+* **entities:** people, organisations and documents get entity types of their own, and an entity keeps the type it was extracted with ([#939](https://github.com/inite-ai/inite-brain-service/issues/939)) ([e2a4b9d](https://github.com/inite-ai/inite-brain-service/commit/e2a4b9d6d0b4198ca344a6b1147ba8c3d03713db))
+* **evidence:** a fragment's raw read serves its part — the image region or the recording span, not the whole file ([#930](https://github.com/inite-ai/inite-brain-service/issues/930)) ([2f7ed5a](https://github.com/inite-ai/inite-brain-service/commit/2f7ed5add76b42e3061797c95c2fc1e43ed51a16))
+* **synthesize:** a provider outage is announced as model_unavailable, never as an empty memory ([#946](https://github.com/inite-ai/inite-brain-service/issues/946)) ([b7f7db1](https://github.com/inite-ai/inite-brain-service/commit/b7f7db1dc0054e13514edbbc3abf39027a741062))
+
+
+### Bug Fixes
+
+* **db:** 0193 marks only real duplicates — the key backfill no longer reads every row as one ([#944](https://github.com/inite-ai/inite-brain-service/issues/944)) ([a3cd7e4](https://github.com/inite-ai/inite-brain-service/commit/a3cd7e45086dce960c81ab42b4fefde20c42e099))
+* **db:** a long or failing migration no longer loses its lease, hides drift or bricks a tenant ([#938](https://github.com/inite-ai/inite-brain-service/issues/938)) ([9c68bc5](https://github.com/inite-ai/inite-brain-service/commit/9c68bc534176176ba1ab7391aeca62607de07a89))
+* **db:** record ids are bound as (table, key), never parsed from a composed string ([#940](https://github.com/inite-ai/inite-brain-service/issues/940)) ([3b0d070](https://github.com/inite-ai/inite-brain-service/commit/3b0d07008ca470ce64c3dc5c213208d4a77b9680))
+* **deps:** patched hono, @hono/node-server, minimatch and glob across every lockfile ([#929](https://github.com/inite-ai/inite-brain-service/issues/929)) ([863f2a8](https://github.com/inite-ai/inite-brain-service/commit/863f2a8257aefe18c542e696727a7bf9be08afc8))
+* **episodes:** a turn is unique per user — two users sharing client conversation ids no longer collapse into one episode ([#936](https://github.com/inite-ai/inite-brain-service/issues/936)) ([c8aadd6](https://github.com/inite-ai/inite-brain-service/commit/c8aadd673a9e060d39009d52f86b3385037e8f9c))
+* **search:** the HNSW legs ask the catalogue whether the index is usable; update-story pins its reverse-lookup index ([#932](https://github.com/inite-ai/inite-brain-service/issues/932)) ([70bc5c3](https://github.com/inite-ai/inite-brain-service/commit/70bc5c3d2d261d3c88fbc3cd112b7dc3e2f400c5))
+
 ## [2.8.1](https://github.com/inite-ai/inite-brain-service/compare/v2.8.0...v2.8.1) (2026-11-13)
 
 
