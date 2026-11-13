@@ -19,6 +19,9 @@ const VALID_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:write',
   'brain:admin',
   'brain:read_pii',
+  // Narrow erasure of one end-user (api-key.types.ts) — a product
+  // backend's M2M token carries it instead of brain:admin.
+  'brain:erase',
 ]);
 
 /**

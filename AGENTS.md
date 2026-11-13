@@ -43,7 +43,7 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
    path may skip the scope fences (`src/auth/user-scope.ts`,
    `src/auth/tenant-scope.ts`, `src/search/internals/where-builder.ts`).
 3. **Never change the token contract** (accepted `iss`/`aud`, claim shapes,
-   scope names `brain:read|write|admin|read_pii|read_media|platform_admin`)
+   scope names `brain:read|write|admin|read_pii|erase|read_media|platform_admin`)
    without a Triad-level change agreed first.
 4. **GDPR forget stays complete and synchronous.** `forget_entity` / user
    forget must keep cascading every derived row and leaving only tombstones.

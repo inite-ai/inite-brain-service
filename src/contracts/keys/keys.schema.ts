@@ -4,7 +4,8 @@ import { z } from 'zod';
  * Self-serve API keys — the contract the app's Keys screen and any
  * scripted provisioning share.
  *
- * Only the four user-delegable scopes appear here. The hosting-operator
+ * Only the user-delegable scopes appear here (brain:erase is the narrow
+ * erase-one-person scope, see src/auth/api-key.types.ts). The hosting-operator
  * scopes (`brain:platform_admin`, `brain:read_media`, `registry:*`,
  * `indexer:write`) are deliberately absent: they are granted through
  * operator configuration and must never be mintable through a token or a
@@ -15,6 +16,7 @@ export const IssuableScopeSchema = z.enum([
   'brain:write',
   'brain:admin',
   'brain:read_pii',
+  'brain:erase',
 ]);
 
 export const IssueKeyRequestSchema = z.object({

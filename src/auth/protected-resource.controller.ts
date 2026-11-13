@@ -60,7 +60,13 @@ export class ProtectedResourceController {
       // The user-delegable surface. Integration scopes (indexer:write,
       // registry:publish) are operator-provisioned keys, not something
       // an MCP client should request on a user's behalf.
-      scopes_supported: ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii'],
+      scopes_supported: [
+        'brain:read',
+        'brain:write',
+        'brain:admin',
+        'brain:read_pii',
+        'brain:erase',
+      ],
       bearer_methods_supported: ['header'],
       // Docs are served by the landing app under a language prefix;
       // `${base}/docs` is a 404 there.
