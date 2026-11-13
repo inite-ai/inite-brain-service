@@ -177,7 +177,13 @@ export class CommitWriterService {
         () =>
           this.entities.resolveOrCreateNamedEntity({
             db,
-            e: { name: me.name, type: me.type, canonical: me.canonical, known: me.known },
+            e: {
+              name: me.name,
+              type: me.type,
+              typeRaw: me.typeRaw,
+              canonical: me.canonical,
+              known: me.known,
+            },
             // Two anchors, most specific first. A system-of-record id names
             // WHICH entity this is (a CRM contact by its id, whatever it is
             // called today) and cannot be guessed from prose, so it wins when

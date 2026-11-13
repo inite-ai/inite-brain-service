@@ -6,6 +6,7 @@ import {
   PACK_SOURCE_SCHEDULES,
   PACK_SOURCE_SHAPES,
 } from '../../ai/domain-packs/manifest';
+import { ENTITY_TYPES } from '../../common/entity-types';
 import { SourceItemSchema } from './source-item.schema';
 
 /**
@@ -431,9 +432,8 @@ export const EntityMappingSchema = z.object({
       states: z.record(z.string().max(128), z.string().max(64)).optional(),
     })
     .optional(),
-  coreType: z
-    .enum(['customer', 'staff', 'asset', 'project', 'topic', 'location', 'other'])
-    .optional(),
+  /** The core entity type the record's entity is filed under (src/common/entity-types.ts). */
+  coreType: z.enum(ENTITY_TYPES).optional(),
 });
 export const RecordMappingSchema = z.record(z.string().max(64), EntityMappingSchema);
 export type RecordMappingWire = z.infer<typeof RecordMappingSchema>;

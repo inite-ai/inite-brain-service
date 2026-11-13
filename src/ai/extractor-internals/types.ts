@@ -2,10 +2,18 @@
  * Public type surface for the extractor pipeline. Shared by the
  * service, prompts, validators, and local-synth modules.
  */
+import { ENTITY_TYPES, type EntityType } from '../../common/entity-types';
 
 export interface ExtractedEntity {
   name: string;
-  type: 'customer' | 'staff' | 'asset' | 'project' | 'topic' | 'location' | 'other';
+  /** One of the core entity types (src/common/entity-types.ts). */
+  type: EntityType;
+  /**
+   * The type as the model / indexer wrote it, when `type` had to be
+   * normalised away from it ("vendor" → other). The upsert path keeps it
+   * on the entity (`typeRaw`, migration 0195). Absent when they agree.
+   */
+  typeRaw?: string | undefined;
   /** Optional canonical clue ("Apple Inc.", "Acme Corp"). */
   canonical?: string | undefined;
   /**
@@ -155,12 +163,5 @@ export function parseCardinality(raw: unknown): FactCardinality | undefined {
   return raw === 'one' || raw === 'many' ? raw : undefined;
 }
 
-export const ENTITY_TYPE_VOCABULARY = [
-  'customer',
-  'staff',
-  'asset',
-  'project',
-  'topic',
-  'location',
-  'other',
-] as const;
+/** The extractor's closed entity-type enum — the core list, never a copy of it. */
+export const ENTITY_TYPE_VOCABULARY = ENTITY_TYPES;

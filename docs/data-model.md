@@ -26,6 +26,32 @@ algebra — sequential validity intervals don't compete.
 
 Full semantics: [bitemporal-semantics.md](bitemporal-semantics.md).
 
+## Entity types
+
+Every entity (`knowledge_entity.type`) has one of the core types. The
+list lives in one place, `src/common/entity-types.ts`, and the schema
+ASSERT (migration 0195), the extractor's closed enum, the records door's
+`coreType` and the wire contract all read it.
+
+| Type           | Meaning                                                                       |
+| -------------- | ----------------------------------------------------------------------------- |
+| `customer`     | a person or organisation placed as a client / customer / lead of the business |
+| `staff`        | a person placed as working for the business                                   |
+| `person`       | any other named person (family, friend, contact)                              |
+| `organization` | any other named company, institution, team or group                           |
+| `asset`        | a product, system, service, code module or other owned thing                  |
+| `project`      | a deal, project, initiative, task or ticket                                   |
+| `document`     | a named document, file, page or contract treated as a subject                 |
+| `topic`        | an abstract subject or theme                                                  |
+| `location`     | a named place                                                                 |
+| `other`        | none of the above                                                             |
+
+`customer` and `staff` are roles: CRM connectors and packs keep filing
+people and organisations under them. A type that is not on the list is
+stored as `other`, and what was written is kept on the entity as
+`typeRaw` (also when only its case differed, e.g. `Person`). Entities
+created before 0195 have no `typeRaw`.
+
 ## Predicate vocabulary
 
 Brain governs how facts are merged via per-predicate policies
