@@ -5,6 +5,7 @@ import type { Surreal } from 'surrealdb';
 import type { MigrationLock } from './migration-lock';
 import { enrichTransactionError, isReadConflict, isUniqueViolation } from './surreal-retry';
 import { migrationChecksum, recordMigrationDrift } from './migration-checksum';
+import { MigrationApplyError } from './migration-blocked';
 
 /**
  * Schema migrator — versioned, append-only DDL applied per tenant DB.
@@ -96,6 +97,19 @@ DEFINE INDEX IF NOT EXISTS schema_migrations_id_idx ON schema_migrations FIELDS 
 `;
 
 const FILE_NAME = /^(\d{4})_.+\.surql$/;
+
+/**
+ * The `DEFINE ANALYZER IF NOT EXISTS …;` statements of a migration file, in
+ * order (see SchemaMigrator.defineAnalyzersFirst). Comments are dropped
+ * first so a `;` inside one cannot cut a statement short; an analyzer
+ * definition holds no string literal, so `--` is never data there.
+ */
+export function analyzerDefinitions(sql: string): string[] {
+  const code = sql.replace(/--[^\n]*/g, '');
+  return (code.match(/\bDEFINE\s+ANALYZER\s+IF\s+NOT\s+EXISTS\b[^;]*;/gi) ?? []).map((s) =>
+    s.replace(/\s+/g, ' ').trim(),
+  );
+}
 
 interface LedgerRow {
   id: unknown;
@@ -273,6 +287,7 @@ export class SchemaMigrator {
    */
   private async applyOne(conn: Surreal, m: Migration): Promise<void> {
     this.logger.log(`Applying ${m.name}`);
+    await this.defineAnalyzersFirst(conn, m);
     const batch =
       `BEGIN TRANSACTION;\n${m.sql}\n` +
       `CREATE schema_migrations CONTENT { migrationId: $mig_id, name: $mig_name, checksum: $mig_sum };\n` +
@@ -301,11 +316,41 @@ export class SchemaMigrator {
           this.logger.error(
             `Migration ${m.name} failed after ${attempts} attempt(s): ${(err as Error).message}`,
           );
-          throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
+          throw new MigrationApplyError(m.id, m.name, err);
         }
         const baseMs = 20 * Math.pow(2, attempts - 1);
         await this.sleep(baseMs + Math.random() * baseMs);
       }
+    }
+  }
+
+  /**
+   * Commit the file's `DEFINE ANALYZER IF NOT EXISTS` statements before the
+   * file's own transaction. SurrealDB 3.2.4 builds a FULLTEXT index over the
+   * rows a table already holds right in `DEFINE INDEX`, and that build looks
+   * the analyzer up in the COMMITTED catalogue: an analyzer defined earlier
+   * in the same transaction is invisible to it ("The analyzer 'x' does not
+   * exist"). On an empty table nothing is built and the file passes, which
+   * is why 0184 applied on every fresh database and on empty prod tenants
+   * and failed on every tenant with a fact or a turn (incident 2026-11-13,
+   * test/migration-populated-tenant.e2e-spec.ts). The statements stay in the
+   * file's batch too, where IF NOT EXISTS makes them no-ops. An analyzer is
+   * inert on its own, so one left behind by a file that then fails changes
+   * nothing, and the retry defines it again as a no-op.
+   */
+  private async defineAnalyzersFirst(conn: Surreal, m: Migration): Promise<void> {
+    const analyzers = analyzerDefinitions(m.sql);
+    if (analyzers.length === 0) return;
+    try {
+      await conn.query(`BEGIN TRANSACTION;\n${analyzers.join('\n')}\nCOMMIT TRANSACTION;`);
+    } catch (err) {
+      // Not fatal: an analyzer that leans on something the file defines
+      // later (a function) cannot go first; the file's own batch still
+      // defines it in order and is the one whose outcome counts.
+      this.logger.warn(
+        `Migration ${m.name}: analyzers could not be committed ahead of the file: ` +
+          (err as Error).message,
+      );
     }
   }
 
