@@ -46,6 +46,7 @@ import { UsersModule } from './users/users.module';
 import { AffectModule } from './affect/affect.module';
 import { StrategyModule } from './strategy/strategy.module';
 import { MriModule } from './mri/mri.module';
+import { DataMigrationsModule } from './db/data-migrations/data-migrations.module';
 
 @Module({
   imports: [
@@ -128,6 +129,7 @@ import { MriModule } from './mri/mri.module';
     AffectModule,
     StrategyModule,
     MriModule,
+    DataMigrationsModule,
   ],
   controllers: [HealthController],
   providers: [

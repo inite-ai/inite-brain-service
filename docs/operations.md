@@ -1077,6 +1077,51 @@ silently discarded on the next deploy. A value at or below the 5-minute
 re-auth margin is honoured but logged at error level: every scoped acquire
 then re-signs, which only the expiry e2e wants.
 
+## Data migrations (0197)
+
+Schema migrations (`src/db/migrations/`) define schema only, from 0197 on.
+Fixes to existing rows are **data migrations** (`src/db/data-migrations/`),
+run in the background by the job `data_migrations`:
+
+- an hourly cron (`:23` UTC) enqueues one job per tenant on the fan-out
+  roster, deduplicated per hour; a tenant this process has seen with every
+  data migration verified done is not enqueued again until a deploy adds a
+  new one;
+- the job runs each data migration not yet done, 500 rows per step, within a
+  20 s budget per tenant; a run cut off by the budget enqueues its own
+  continuation 30 s later;
+- after the steps it re-counts the rows still needing the fix, and the
+  migration is marked done only when that count is 0.
+
+Why: on SurrealDB 3.2.4 an `UPDATE t … WHERE` planned through an index on
+the filtered field is a silent no-op. 0182's backfill left 20 closed edges
+unchecked across 3 tenants and 0164's second backfill left one closed edge
+without `validUntil`, both recorded as applied. A data migration selects ids
+first and updates exactly those records.
+
+Each tenant's ledger is the table `data_migration` (one row per id:
+`status` pending/done, `fixed`, `remaining`, `lastRunAt`, `verifiedAt`):
+
+```sql
+SELECT * FROM data_migration;
+```
+
+`brain_data_migration_remaining{migration}` is the rows a data migration
+still has to fix, summed over the tenants this process ran it for (no tenant
+label). It should fall to 0; a value that stops falling with the log line
+`a step fixed none of N pending rows` is a fix that does not take.
+
+The data migrations shipped so far:
+
+| id                                  | fixes                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `edge_valid_until_from_invalidated` | pre-0164 closed edges with no `validUntil` (re-applies 0164's second fix) |
+| `edge_resolution_checked`           | closed edges never marked `resolutionCheckedAt` (re-applies 0182)         |
+| `edge_valid_from_created`           | open edges written with no `validFrom` (dreams `identity_of` links)       |
+
+They move ids, instants and flags the rows already hold and write no user
+content, so the GDPR forget cascade is unchanged.
+
 ## Request metrics and SLOs
 
 `/metrics` exports request RED metrics for every route and every MCP tool:
