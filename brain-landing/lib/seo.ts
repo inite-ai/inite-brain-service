@@ -12,11 +12,11 @@ export const GITHUB_URL = `https://github.com/${REPO}`
 /**
  * The company Brain belongs to.
  *
- * It was declared twice and linked zero times: `organizationSchema` asserts
- * `parentOrganization` and lists inite.ai under `sameAs`, and neither is a
- * hyperlink. JSON-LD states a relationship; it does not carry one. Every MCP
- * catalogue that lists this server (pulsemcp, mcphq, mcp-marketplace,
- * roninforge) points at brain.inite.ai, and from here nothing pointed on — the
+ * It was declared and never linked: `organizationSchema` asserts
+ * `parentOrganization`, which is not a hyperlink. JSON-LD states a
+ * relationship; it does not carry one. Every MCP catalogue that lists this
+ * server (pulsemcp, mcphq, mcp-marketplace, roninforge) points at
+ * brain.inite.ai, and from here nothing pointed on — the
  * whole family's earned links dead-ended on a subdomain.
  *
  * The footer link below is the only crawlable edge from Brain to the parent,
@@ -54,8 +54,8 @@ type Json = Record<string, unknown>
  * with nothing declaring it, that reference resolved to nothing and Brain read
  * as a company nobody had heard of that happens to share a word in its name.
  *
- * `sameAs` carries the family handles as well as the repository, for the same
- * reason: they are how a search engine ties this domain to the rest.
+ * `sameAs` carries only pages about Brain itself (its repository). The family
+ * tie is `parentOrganization`; inite.ai's own handles identify the parent.
  */
 export function organizationSchema(): Json {
   return {
@@ -66,13 +66,9 @@ export function organizationSchema(): Json {
     url: ORG.url,
     logo: ORG.logo,
     description: ORG.description,
-    sameAs: [
-      ...ORG.sameAs,
-      PARENT.url,
-      'https://www.linkedin.com/company/inite-ai/',
-      'https://t.me/initeai',
-      'https://github.com/inite-ai',
-    ],
+    // Brain's own pages only. inite.ai and its LinkedIn, Telegram and GitHub
+    // identify the parent, stated in parentOrganization below.
+    sameAs: [...ORG.sameAs],
     parentOrganization: {
       '@type': 'Organization',
       '@id': `${PARENT.url}/#organization`,
