@@ -560,7 +560,7 @@ jobs:
         run: |
           docker network create brain-ci
           docker run -d --name surreal --network brain-ci \
-            surrealdb/surrealdb:v3.2.4 \
+            surrealdb/surrealdb:v3.3.5 \
             start --user=root --pass=root --bind=0.0.0.0:8000 memory
           sleep 5
           docker run -d --name brain --network brain-ci -p 3030:3000 \
