@@ -5,6 +5,7 @@ import { strictestPiiUnion } from '../common/media-pii';
 import { SurrealService, dbCreate, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import { gateRawEvidence } from '../mcp/raw-evidence-gate';
+import type { FragmentLocator } from './locator';
 import type { EvidenceTokenPayload } from './raw-url-token';
 import {
   EVIDENCE_STORAGE_ADAPTERS,
@@ -25,6 +26,8 @@ export interface SubjectBlob {
   storageRef: string;
   mediaType: string;
   byteLength: number;
+  /** A fragment's place in its parent: the raw route serves that part (fragment-crop.ts). */
+  locator?: FragmentLocator | undefined;
 }
 
 interface AssetRow {
@@ -39,6 +42,7 @@ interface AssetRow {
 
 interface FragmentRow extends AssetRow {
   fragmentPiiClasses?: string[] | null | undefined;
+  locator?: FragmentLocator | null | undefined;
   assetIdStr?: string | undefined;
 }
 
@@ -168,7 +172,11 @@ export class EvidenceReadService {
       if (!(await this.grantOk(db, row.id, undefined))) {
         throw await this.deny(db, audit, 'denied_revoked');
       }
-      const blob = blobOf(row, audit.assetId, audit.fragmentId);
+      // A fragment token serves the fragment's part: it must still be a
+      // fragment of this asset, or there is no part to cut (never the whole).
+      const locator = payload.f ? await this.fragmentLocator(db, payload.f, row.id) : undefined;
+      if (locator === null) throw await this.deny(db, audit, 'denied_blob');
+      const blob = blobOf({ ...row, locator }, audit.assetId, audit.fragmentId);
       if (!blob || !(await this.blobExists(blob.storageRef))) {
         throw await this.deny(db, audit, 'denied_blob');
       }
@@ -190,12 +198,27 @@ export class EvidenceReadService {
     return { ...row, assetIdStr: String(row.id) };
   }
 
+  /** The locator of a fragment of `asset`; null when it is gone or not that asset's. */
+  private async fragmentLocator(
+    db: Surreal,
+    fragmentId: string,
+    asset: unknown,
+  ): Promise<FragmentLocator | undefined | null> {
+    const row = await queryFirst<{ asset?: unknown; locator?: FragmentLocator | null }>(
+      db,
+      `SELECT assetId AS asset, locator FROM type::record('evidence_fragment', $tail) LIMIT 1`,
+      { tail: idTailOf(fragmentId) },
+    );
+    if (!row || String(row.asset) !== String(asset)) return null;
+    return row.locator ?? undefined;
+  }
+
   /** Fragment twin: the PARENT asset's row fields through the record
    *  link, plus the fragment's own piiClasses for the strictest union. */
   private async loadFragment(db: Surreal, fragmentId: string): Promise<FragmentRow | null> {
     const row = await queryFirst<FragmentRow & { asset?: unknown }>(
       db,
-      `SELECT id, piiClasses AS fragmentPiiClasses, assetId AS asset,
+      `SELECT id, piiClasses AS fragmentPiiClasses, assetId AS asset, locator,
               assetId.availability AS availability,
               assetId.quarantineStatus AS quarantineStatus,
               assetId.storageRef AS storageRef,
@@ -304,7 +327,7 @@ function availabilityOk(row: AssetRow): boolean {
 /** Step 7 shape: a servable row must carry a resolvable storageRef +
  *  the metadata the stream headers need. */
 function blobOf(
-  row: AssetRow,
+  row: AssetRow & { locator?: FragmentLocator | null | undefined },
   assetIdStr: string,
   fragmentIdStr: string | undefined,
 ): SubjectBlob | null {
@@ -321,5 +344,6 @@ function blobOf(
     storageRef: row.storageRef,
     mediaType: row.mediaType,
     byteLength: row.byteLength,
+    ...(row.locator ? { locator: row.locator } : {}),
   };
 }

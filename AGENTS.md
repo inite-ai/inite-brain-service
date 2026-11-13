@@ -58,7 +58,8 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
    `plugins/inite-brain/skills/` (`pnpm plugin:sync`),
    `src/data/skill-versions.json` + `src/data/skill-changelog.ts`
    (`pnpm skills:build`), `src/db/migrations/0135_flexible_reconcile.surql`
-   (`pnpm migrations:flexible`), `CHANGELOG.md` and version numbers
+   (`pnpm migrations:flexible`), `test/golden/mcp-tool-schemas.json`
+   (`pnpm mcp:schemas`), `CHANGELOG.md` and version numbers
    (release-please).
 8. **Never skip or weaken a gate** — no `.skip`, no lowered coverage
    threshold, no raised lint warning cap, no deleted assertion to get green.
@@ -135,9 +136,11 @@ Mirrors [.github/workflows/ci.yml](.github/workflows/ci.yml) (CI installs with
 | Jobs e2e (Docker)            | `pnpm test:e2e:jobs`                                                                    |
 | Landing (`brain-landing/`)   | `pnpm lint:i18n && pnpm lint:ci && pnpm typecheck && pnpm test && pnpm build`           |
 | Regenerate OpenAPI           | `pnpm openapi:build`                                                                    |
+| Regenerate MCP schema golden | `pnpm mcp:schemas` (`test/golden/mcp-tool-schemas.json`)                                |
 | Sync plugin skills           | `pnpm plugin:sync` (`--check` reports drift)                                            |
 
-CI jobs: `engine-checks` = `lint:ci` + `format:check` + `typecheck` + `build`;
+CI jobs: `engine-checks` = `lint:ci` + `format:check` + `typecheck` + `build`
+(+ on a PR, the contract breaking-change check, see Evolving data and contracts);
 `engine-unit`; `engine-socket`; `engine-e2e` (4 shards); `engine-jobs-e2e`;
 `web` (landing); `docker`; `build-test` judges those; `supply-chain`
 (`pnpm audit --audit-level=high`) is its own required check. The real-LLM
@@ -192,8 +195,9 @@ tests: add the name to the expected lists in `test/mcp-tools.unit-spec.ts`;
 `test/mcp-tool-descriptions.unit-spec.ts` (a description says what the tool
 does, not what the model should do) and
 `test/mcp-tool-schema-cost.unit-spec.ts` (use `isoDateTime()` from
-`src/mcp/iso-datetime.ts`, not `z.string().datetime()`) must stay green; an
-e2e like `test/mcp-fact-tools.e2e-spec.ts` → list it in
+`src/mcp/iso-datetime.ts`, not `z.string().datetime()`) must stay green; run
+`pnpm mcp:schemas` (`test/mcp-tool-schemas.unit-spec.ts` pins every tool's
+input schema); an e2e like `test/mcp-fact-tools.e2e-spec.ts` → list it in
 [docs/agents-using-brain.md](docs/agents-using-brain.md).
 
 **Add a REST route:** controller in the feature dir with
@@ -230,6 +234,32 @@ Retrieval/answer lanes: `LaneId` in `src/search/retrieval-profile.ts` and
 
 **Add a UI page:** `brain-landing/app/[lang]/…` (Next app router); admin
 strings go through `getMessages()`, never JSX literals (`pnpm lint:i18n`).
+
+## Evolving data and contracts
+
+Every release deploys to prod, and old clients and old code meet new shapes.
+
+- **Schema: expand → migrate → contract.** A release's schema must be
+  readable and writable by the PREVIOUS release's code: a failed deploy is
+  rolled back automatically by re-pinning the old image, and migrations
+  only run forward, so the old code wakes up on the new schema
+  ([docs/DEPLOY.md](docs/DEPLOY.md) § Rollback). Add the new field/table
+  first (old code ignores it), move reads and writes over in a later
+  release, drop the old one only after no deployed code needs it.
+- **REST and MCP: additive only.** New optional fields, new enum values in
+  requests, new routes and tools are fine. Removal goes through
+  deprecation: mark the field or tool deprecated (OpenAPI
+  `deprecated: true` / "Deprecated: use X" in the description and the MCP
+  tool description), keep it working for at least one minor release, then
+  remove it in a `!` release (`feat(api)!: …`), which release-please cuts
+  as a major.
+- **The gates.** `test/mcp-tool-schemas.unit-spec.ts` fails on a breaking
+  MCP schema change (tool removed or renamed, property removed or newly
+  required, type narrowed, enum value removed); additive changes only need
+  `pnpm mcp:schemas`. On every PR, CI compares the base branch's
+  `docs/openapi.json` and MCP golden with the PR's
+  (`scripts/ci/openapi-breaking.ts`) and fails on a breaking change unless
+  the PR title carries `!:`.
 
 ## From idea to PR
 

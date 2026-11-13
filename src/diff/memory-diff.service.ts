@@ -4,6 +4,7 @@ import { SurrealService, queryRows } from '../db/surreal.service';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 import { userReadFence } from '../auth/user-scope';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * memory_diff — return everything brain learned (and unlearned) between
@@ -370,15 +371,12 @@ function buildScoping(args: MemoryDiffArgs): ScopingClauses {
   const entityParts: string[] = [fence.clause];
 
   if (args.entityIds && args.entityIds.length > 0) {
-    // Bind actual record ids (StringRecordId) and filter with INSIDE —
+    // Bind actual record ids (RecordId) and filter with INSIDE —
     // the same idiom as search's where-builder. The previous
     // `IN (SELECT type::record(id) FROM $entityIds AS id)` form was a
     // PARSE ERROR (`FROM $param AS alias` is not SurrealQL) that only
     // fired when a caller actually passed entityIds.
-    params.entityIds = args.entityIds.map(
-      (id) =>
-        new StringRecordId(id.startsWith('knowledge_entity:') ? id : `knowledge_entity:${id}`),
-    );
+    params.entityIds = args.entityIds.map((id) => recordIdOf('knowledge_entity', id));
     factParts.push(`entityId INSIDE $entityIds`);
     entityParts.push(`id INSIDE $entityIds`);
   }

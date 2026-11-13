@@ -22,6 +22,7 @@ import { traceArtifact } from '../common/debug-trace';
 import { isPronounReference } from '../common/coreference';
 import { entityTypeFields, normalizeEntityType } from '../common/entity-types';
 import type { ParticipantHint } from './participants';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * Leading English articles the extractor inconsistently keeps on coined
@@ -1051,7 +1052,7 @@ export class EntityUpsertService {
   private async stampAlias(db: Surreal, entityId: string, alias: string): Promise<void> {
     try {
       await db.query(`UPDATE $id SET aliases = array::union(aliases ?? [], $add)`, {
-        id: new StringRecordId(`knowledge_entity:${idTailOf(entityId)}`),
+        id: recordIdOf('knowledge_entity', entityId),
         add: [alias],
       });
     } catch (err) {

@@ -22,7 +22,7 @@ Workflow: `.github/workflows/deploy-brain.yml` (manual dispatch)
                        └── NS=inite, DBs=co_<companyId>
                                   ↑ per-tenant; brain creates each on first request via ensureSchema
                                   ↑ knowledge_* tables are brain-owned and don't collide with gateway's tables in the same NS
-                       
+
                        │ JWT
                        ▼
               auth.inite.ai/.well-known/jwks.json (audience=brain)
@@ -46,18 +46,18 @@ any caller-facing read.
 The workflow already references these — wire them once before the first
 deploy:
 
-| Secret | Where it goes | Notes |
-|---|---|---|
-| `DOCKERHUB_USERNAME` | docker login | shared with other inite services |
-| `DOCKERHUB_TOKEN` | docker login | — |
-| `INITE_SHARED_PAT` | `ci.yml` second checkout | optional — CI workflow only, not read by `deploy-brain.yml`; falls back to `github.token` if same-org |
-| `BRAIN_SURREAL_USER` | brain SURREALDB_USERNAME | root user for the shared inite-surrealdb |
-| `BRAIN_SURREAL_PASS` | brain SURREALDB_PASSWORD | — |
-| `BRAIN_SURREAL_SCOPED_PASS` | brain SURREALDB_SCOPED_PASS | password for `brain_caller` user. Brain auto-overwrites the placeholder password from migration 0005 with this secret on each ensureSchema cycle. |
-| `BRAIN_OPENAI_API_KEY` | OPENAI_API_KEY | embeddings + extraction + faithfulness verifier |
-| `BRAIN_FORGET_HMAC_KEY` | FORGET_HMAC_KEY | ≥32 chars; used to mint opaque tombstone markers on GDPR forget |
-| `BRAIN_EVIDENCE_URL_SECRET` | EVIDENCE_SIGNED_URL_SECRET (via the enablement env file) | ≥32 chars; signs evidence raw-serving URLs |
-| `BRAIN_BILLING_API_KEY` | BILLING_SERVICE_API_KEY | marketplace billing client credential |
+| Secret                      | Where it goes                                            | Notes                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DOCKERHUB_USERNAME`        | docker login                                             | shared with other inite services                                                                                                                  |
+| `DOCKERHUB_TOKEN`           | docker login                                             | —                                                                                                                                                 |
+| `INITE_SHARED_PAT`          | `ci.yml` second checkout                                 | optional — CI workflow only, not read by `deploy-brain.yml`; falls back to `github.token` if same-org                                             |
+| `BRAIN_SURREAL_USER`        | brain SURREALDB_USERNAME                                 | root user for the shared inite-surrealdb                                                                                                          |
+| `BRAIN_SURREAL_PASS`        | brain SURREALDB_PASSWORD                                 | —                                                                                                                                                 |
+| `BRAIN_SURREAL_SCOPED_PASS` | brain SURREALDB_SCOPED_PASS                              | password for `brain_caller` user. Brain auto-overwrites the placeholder password from migration 0005 with this secret on each ensureSchema cycle. |
+| `BRAIN_OPENAI_API_KEY`      | OPENAI_API_KEY                                           | embeddings + extraction + faithfulness verifier                                                                                                   |
+| `BRAIN_FORGET_HMAC_KEY`     | FORGET_HMAC_KEY                                          | ≥32 chars; used to mint opaque tombstone markers on GDPR forget                                                                                   |
+| `BRAIN_EVIDENCE_URL_SECRET` | EVIDENCE_SIGNED_URL_SECRET (via the enablement env file) | ≥32 chars; signs evidence raw-serving URLs                                                                                                        |
+| `BRAIN_BILLING_API_KEY`     | BILLING_SERVICE_API_KEY                                  | marketplace billing client credential                                                                                                             |
 
 Optional feature env vars **not currently wired in `deploy-brain.yml`** —
 setting these as repo secrets alone is inert; to enable one, add the
@@ -102,8 +102,13 @@ retries for 2 minutes.
 5. First request to any tenant triggers `ensureSchema` — every numbered
    migration in `src/db/migrations/` (0001 through the current head) applies
    on the per-tenant `co_<companyId>` DB, including 0005 (PII PERMISSIONS +
-   `brain_caller` user). No separate migration step needed; concurrent
-   appliers racing the ledger insert are tolerated.
+   `brain_caller` user). No separate migration step needed. Replicas
+   arbitrate through a per-database lease that is renewed while a file
+   runs. A tenant whose migration fails answers 503 during a backoff
+   (30 s doubling to 15 min) rather than retrying on every request, and
+   shows up in `brain_migration_blocked{migration}` and the
+   `MigrationBlocked` alert. See
+   [operations.md § Schema migrations](operations.md#schema-migrations).
 
 ## Subsequent deploys
 
@@ -203,7 +208,7 @@ and pinning an older image does not reverse them. If the bad deploy
 changed the schema, roll the image back to stop the bleeding and then
 handle the schema deliberately.
 
-See also § *Deploys, and how to undo one* in
+See also § _Deploys, and how to undo one_ in
 [`operations.md`](operations.md).
 
 ## Observability
@@ -222,7 +227,7 @@ see [`monitoring/README.md`](../monitoring/README.md) and
   the landing catch-all. Keep it that way: the endpoint is
   unauthenticated by design and leaks volumes/token-spend if exposed.
 - **Traces**: `OTEL_ENABLED=1` + `OTEL_EXPORTER_OTLP_ENDPOINT=
-  http://inite-monitoring-alloy:4318` (base URL; the exporter appends
+http://inite-monitoring-alloy:4318` (base URL; the exporter appends
   `/v1/traces`). Alloy forwards to Tempo (7d). Per-leg search spans,
   gen_ai.* semconv spans and jobs.enqueue/process spans land there —
   browse via Grafana Explore → Tempo.

@@ -191,5 +191,7 @@
   "0190_safety_layer.surql": "13691d47f75f9546b57ea01c00efbb1686f70bbd76afccd3e520ca0486c2a39d",
   "0191_tenant_residency.surql": "6aeb633ded0aa5214d40be840c4a18aa9ac17b25965bd798725cca1a8d4726bc",
   "0192_voice_affect.surql": "7291f7b91fedb42e38dd70dcf73badbcd6606236beba20a77aae590a53c4bf17",
-  "0195_entity_core_types.surql": "194da3aec11d0deacd2ba64af4c13df6efd18dfb941c6ee7a3cf0828e6f837f8"
+  "0193_episode_per_user_uniqueness.surql": "c244d1a645770fdf1ddb35ab695a16b872419cf82b84b36b24e58d8372dedd67",
+  "0195_entity_core_types.surql": "194da3aec11d0deacd2ba64af4c13df6efd18dfb941c6ee7a3cf0828e6f837f8",
+  "0198_episode_turn_unique.surql": "7d2c8fdeaf4461a3cf6a05d0dbe1757d94872efa378996164b56893498cf0256"
 }

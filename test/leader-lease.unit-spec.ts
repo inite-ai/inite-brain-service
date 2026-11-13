@@ -83,7 +83,7 @@ describe('LeaderLeaseService', () => {
     expect(await svc.isHeld('worker_loop', 2)).toBe(false);
     expect(await svc.isHeld('worker_loop', 2)).toBe(false);
     // A point read on the record id, not a table scan.
-    expect(calls[0]!.sql).toContain("FROM type::record('leader_lease:' + $name)");
+    expect(calls[0]!.sql).toContain("FROM type::record('leader_lease', $name)");
     expect(calls[0]!.sql).not.toContain('WHERE');
   });
 

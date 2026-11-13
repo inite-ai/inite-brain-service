@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { StringRecordId, type Surreal } from 'surrealdb';
+import { RecordId, StringRecordId, type Surreal } from 'surrealdb';
 import { runTransaction } from '../db/surreal.service';
 import type {
   OutcomeCounter,
@@ -8,6 +8,7 @@ import type {
   OutcomeSubjectKind,
   StatDelta,
 } from './memory-outcome.service';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * OUTCOME_TX_WRITES — the transactional/idempotent write branch of
@@ -127,7 +128,7 @@ export function outcomeEventId(dedupeKey: string, requestScope: string, batchSeq
 /** One per-delta stat row: six counters (one signed non-zero), gated by
  *  the raw row that produced it (absent rawId = ungated). */
 export interface OutcomeTxDeltaRow {
-  rawId?: StringRecordId;
+  rawId?: RecordId;
   row: {
     subjectId: StringRecordId;
     subjectKind: OutcomeSubjectKind;
@@ -145,7 +146,7 @@ export interface OutcomeTxDeltaRow {
 
 /** The bound payload of one transactional dispatch. */
 export interface OutcomeTxPayload {
-  rawIds: StringRecordId[];
+  rawIds: RecordId[];
   rows: Array<Record<string, unknown>>;
   deltas: OutcomeTxDeltaRow[];
 }
@@ -183,7 +184,7 @@ function deltaRow(d: StatDelta, now: Date): OutcomeTxDeltaRow['row'] {
 /** One raw memory_outcome row with its explicit deterministic id. */
 function eventRow(
   ev: OutcomeEventInput,
-  rid: StringRecordId,
+  rid: RecordId,
   ctx: { now: Date; requestId: string | undefined },
 ): Record<string, unknown> {
   const { now, requestId } = ctx;
@@ -205,11 +206,7 @@ function eventRow(
 
 /** The 'auto' delta an event maps to, gated on its own raw id (1:1);
  *  null for events with no rollup counter (`retrieved`). */
-function autoDeltaFor(
-  ev: OutcomeEventInput,
-  rid: StringRecordId,
-  now: Date,
-): OutcomeTxDeltaRow | null {
+function autoDeltaFor(ev: OutcomeEventInput, rid: RecordId, now: Date): OutcomeTxDeltaRow | null {
   const spec = AUTO_STAT[ev.event];
   if (!spec) return null;
   return {
@@ -237,13 +234,13 @@ export function buildOutcomeTxPayload(args: {
   requestId?: string | undefined;
 }): OutcomeTxPayload | null {
   const { events, statDeltas, now, requestScope, batchSeq, requestId } = args;
-  const rawIds: StringRecordId[] = [];
+  const rawIds: RecordId[] = [];
   const rows: Array<Record<string, unknown>> = [];
   const deltas: OutcomeTxDeltaRow[] = [];
-  const idBySubject = new Map<string, StringRecordId>();
+  const idBySubject = new Map<string, RecordId>();
   for (const ev of events) {
     const hex = outcomeEventId(outcomeDedupeKey(ev), requestScope, batchSeq);
-    const rid = new StringRecordId(`memory_outcome:${hex}`);
+    const rid = recordIdOf('memory_outcome', hex);
     rawIds.push(rid);
     const subjectKey = `${ev.subjectKind}|${ev.subjectId}`;
     if (!idBySubject.has(subjectKey)) idBySubject.set(subjectKey, rid);

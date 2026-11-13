@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { StringRecordId, Surreal } from 'surrealdb';
+import { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { actingCircleTags, runInCircle, runOutsideCircle } from '../auth/circle-scope';
 import { runWithWriteScope } from '../auth/write-scope';
@@ -25,6 +25,7 @@ import { incomingFactsFor, MergedFact, MergedRelation, MergeResult } from './can
 import { EpisodeStoreService } from '../ingest/episode-store.service';
 import { splitDocumentTurns, turnOfSpan, type DocumentTurn } from './document-turns';
 import { idTailOf } from '../ingest/ingest-utils';
+import { recordIdOf } from '../db/record-key';
 
 export interface FactWriteOutcome {
   fact: MergedFact;
@@ -379,7 +380,7 @@ export class CommitWriterService {
     if (!this.episodes?.isEnabled() || !doc.hasContent) return null;
     if (internalMetaString(doc.meta, 'episodeId')) return null;
     try {
-      const docRef = new StringRecordId(`source_document:${idTailOf(doc.id)}`);
+      const docRef = recordIdOf('source_document', doc.id);
       const [chunks, header] = await db.query<
         [Array<{ seq: number; text: string }>, Array<{ title?: string }>]
       >(

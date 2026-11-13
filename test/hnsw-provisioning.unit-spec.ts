@@ -479,13 +479,13 @@ describe('HnswProvisionService — the hook runs under a per-tenant lease', () =
     delete process.env.HNSW_PROVISION_ENABLED;
   });
 
-  it('one tenant, one lease: hnsw_provision_startup_<tenant> (id folded to a record-id-safe key), 30 min', async () => {
+  it('one tenant, one lease: hnsw_provision_startup_<tenant> (id folded + digest-suffixed by the lease-name sanitiser), 30 min', async () => {
     const { guard, calls } = fakeGuard();
     const { svc, listeners, apply } = provision({ guard });
     svc.onModuleInit();
     listeners[0]!('co-new');
     await flush();
-    expect(calls).toEqual([{ key: 'hnsw_provision_startup_co_new', ttl: 30 * 60 }]);
+    expect(calls).toEqual([{ key: 'hnsw_provision_startup_co_new_53317cf9', ttl: 30 * 60 }]);
     expect(apply).toHaveBeenCalledWith('co-new', 'ensure');
   });
 

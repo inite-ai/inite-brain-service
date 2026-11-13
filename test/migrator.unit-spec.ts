@@ -14,7 +14,8 @@
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { SchemaMigrator } from '../src/db/migrator.service';
+import { analyzerDefinitions, SchemaMigrator } from '../src/db/migrator.service';
+import { MigrationApplyError } from '../src/db/migration-blocked';
 import { migrationLeaseName, type MigrationLock } from '../src/db/migration-lock';
 import { migrationChecksum, migrationDriftSnapshot } from '../src/db/migration-checksum';
 
@@ -456,26 +457,132 @@ describe('SchemaMigrator', () => {
       expect(result.applied).toEqual(['0001']);
     });
 
-    it('stops applying when the lease is lost mid-run', async () => {
+    /**
+     * A conn whose batch for `slowSql` blocks until the test opens the
+     * gate, so a "long file" can be held open while real timers tick.
+     */
+    function withSlowFile(fake: ReturnType<typeof makeFakeConn>, slowSql: string) {
+      let open!: () => void;
+      const gate = new Promise<void>((r) => (open = r));
+      let entered!: () => void;
+      const running = new Promise<void>((r) => (entered = r));
+      const rawQuery = fake.conn.query.bind(fake.conn);
+      fake.conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+        if (sql.includes(slowSql)) {
+          entered();
+          await gate;
+        }
+        return rawQuery<T>(sql, params);
+      };
+      return { open, running };
+    }
+    const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    it('renews the lease while one long file runs, and stops renewing after', async () => {
+      // The defect: renewal happened only BETWEEN files, so a single file
+      // longer than the TTL let the lease lapse under its own transaction.
+      dir = await makeMigrationsDir({ '0001_baseline.surql': 'DEFINE TABLE a;' });
+      const migrator = new SchemaMigrator(dir, { lockTtlSeconds: 30, heartbeatMs: 5 });
+      const fake = makeFakeConn();
+      const slow = withSlowFile(fake, 'DEFINE TABLE a');
+      const lock = makeFakeLock();
+      const run = migrator.migrate(fake.conn as never, { lock, lockName: 'l' });
+      await slow.running;
+      await tick(40);
+      const renewalsDuringFile = lock.events.filter((e) => e === 'acquire:l:30').length - 1;
+      expect(renewalsDuringFile).toBeGreaterThanOrEqual(2);
+      slow.open();
+      await expect(run).resolves.toMatchObject({ applied: ['0001'] });
+      expect(lock.events[lock.events.length - 1]).toBe('release:l');
+      const settled = lock.events.length;
+      await tick(30);
+      expect(lock.events).toHaveLength(settled); // the timer is gone
+    });
+
+    it('stops at the next file boundary when a renewal finds the lease taken over', async () => {
       dir = await makeMigrationsDir({
         '0001_baseline.surql': 'DEFINE TABLE a;',
         '0002_add_b.surql': 'DEFINE TABLE b;',
       });
-      // TTL 0 puts the lease permanently at half-life, so the migrator
-      // re-checks ownership before every file; the third check loses it.
-      const migrator = new SchemaMigrator(dir, { lockTtlSeconds: 0 });
-      const { conn, calls } = makeFakeConn();
+      const migrator = new SchemaMigrator(dir, { heartbeatMs: 5 });
+      const fake = makeFakeConn();
+      const slow = withSlowFile(fake, 'DEFINE TABLE a');
       const lock = makeFakeLock();
       let acquires = 0;
       const acquire = lock.tryAcquire.bind(lock);
-      lock.tryAcquire = async (name, ttl) => (++acquires > 2 ? false : acquire(name, ttl));
+      // First acquire wins; the first renewal finds another holder.
+      lock.tryAcquire = async (name, ttl) => (++acquires > 1 ? false : acquire(name, ttl));
+      const run = migrator.migrate(fake.conn as never, { lock, lockName: 'l' });
+      await slow.running;
+      await tick(30);
+      slow.open();
 
-      await expect(migrator.migrate(conn as never, { lock, lockName: 'l' })).rejects.toThrow(
-        /Lost migration lock l before applying 0002_add_b\.surql/,
+      await expect(run).rejects.toThrow(
+        /Lost migration lock l before applying 0002_add_b\.surql \(another replica took the lease over\)/,
       );
-      expect(calls.some((c) => c.sql.includes('DEFINE TABLE a'))).toBe(true);
-      expect(calls.some((c) => c.sql.includes('DEFINE TABLE b'))).toBe(false);
+      expect(fake.calls.some((c) => c.sql.includes('DEFINE TABLE b'))).toBe(false);
       expect(lock.events).toContain('release:l');
+    });
+
+    it('rides out a transient renewal error while the lease is still valid', async () => {
+      dir = await makeMigrationsDir({
+        '0001_baseline.surql': 'DEFINE TABLE a;',
+        '0002_add_b.surql': 'DEFINE TABLE b;',
+      });
+      const migrator = new SchemaMigrator(dir, { lockTtlSeconds: 30, heartbeatMs: 5 });
+      const fake = makeFakeConn();
+      const slow = withSlowFile(fake, 'DEFINE TABLE a');
+      const lock = makeFakeLock();
+      const acquire = lock.tryAcquire.bind(lock);
+      let acquires = 0;
+      lock.tryAcquire = async (name, ttl) => {
+        if (++acquires === 2) throw new Error('lease store blip');
+        return acquire(name, ttl);
+      };
+      const run = migrator.migrate(fake.conn as never, { lock, lockName: 'l' });
+      await slow.running;
+      await tick(30);
+      slow.open();
+      await expect(run).resolves.toMatchObject({ applied: ['0001', '0002'] });
+    });
+
+    it('gives up when renewals keep failing past the lease deadline', async () => {
+      dir = await makeMigrationsDir({
+        '0001_baseline.surql': 'DEFINE TABLE a;',
+        '0002_add_b.surql': 'DEFINE TABLE b;',
+      });
+      // TTL 0: the held lease is already at its deadline, so a failed
+      // renewal cannot be waited out.
+      const migrator = new SchemaMigrator(dir, { lockTtlSeconds: 0, heartbeatMs: 5 });
+      const fake = makeFakeConn();
+      const slow = withSlowFile(fake, 'DEFINE TABLE a');
+      const lock = makeFakeLock();
+      const acquire = lock.tryAcquire.bind(lock);
+      let acquires = 0;
+      lock.tryAcquire = async (name, ttl) => {
+        if (++acquires > 1) throw new Error('lease store gone');
+        return acquire(name, ttl);
+      };
+      const run = migrator.migrate(fake.conn as never, { lock, lockName: 'l' });
+      await slow.running;
+      await tick(30);
+      slow.open();
+      await expect(run).rejects.toThrow(/Lost migration lock l before applying 0002_add_b/);
+      expect(fake.calls.some((c) => c.sql.includes('DEFINE TABLE b'))).toBe(false);
+    });
+
+    it('labels a failed file with its migration id', async () => {
+      dir = await makeMigrationsDir({ '0003_bad.surql': 'DEFINE TABLE a;' });
+      const migrator = new SchemaMigrator(dir, { sleep: async () => undefined });
+      const { conn } = makeFakeConn();
+      const rawQuery = conn.query.bind(conn);
+      conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+        if (sql.includes('DEFINE TABLE a')) throw new Error('Parse error: nope');
+        return rawQuery<T>(sql, params);
+      };
+      const err: unknown = await migrator.migrate(conn as never).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(MigrationApplyError);
+      expect((err as MigrationApplyError).migrationId).toBe('0003');
     });
   });
 
@@ -571,5 +678,153 @@ describe('SchemaMigrator — checksums', () => {
     await new SchemaMigrator(dir).migrate(conn as never);
     expect(migrationDriftSnapshot().get('0009')).toBeUndefined();
     expect(calls.some((c) => c.sql.startsWith('UPDATE $row'))).toBe(false);
+  });
+
+  /**
+   * One connection, many databases — how SurrealService really migrates:
+   * every tenant goes through the single dedicated migrator connection,
+   * `use()`d to each database in turn. Validation used to be marked per
+   * connection, so only the first database a process touched was ever
+   * checked; the drift on every later tenant went unseen.
+   */
+  function oneConnManyDatabases(ledgers: Record<string, ReturnType<typeof makeFakeConn>>) {
+    let current = Object.keys(ledgers)[0]!;
+    const conn = {
+      use(db: string) {
+        current = db;
+      },
+      async query<T>(sql: string, params?: Record<string, unknown>): Promise<T> {
+        if (sql.startsWith('RETURN [session::ns(), session::db()]')) {
+          return [['brain', current]] as unknown as T;
+        }
+        return ledgers[current]!.conn.query<T>(sql, params);
+      },
+    };
+    return conn;
+  }
+
+  it('validates every database a shared connection migrates, not just the first', async () => {
+    dir = await makeMigrationsDir({ '0011_edited.surql': 'DEFINE TABLE new;' });
+    const old = migrationChecksum('DEFINE TABLE old;');
+    const conn = oneConnManyDatabases({
+      co_a: makeFakeConn(['0011'], { '0011': old }),
+      co_b: makeFakeConn(['0011'], { '0011': old }),
+    });
+    const migrator = new SchemaMigrator(dir);
+    const before = migrationDriftSnapshot().get('0011') ?? 0;
+    conn.use('co_a');
+    await migrator.migrate(conn as never, { target: 'brain/co_a' });
+    conn.use('co_b');
+    await migrator.migrate(conn as never, { target: 'brain/co_b' });
+    // Both tenants carry the drift, so both are counted.
+    expect(migrationDriftSnapshot().get('0011')).toBe(before + 2);
+    // And each database is still validated only once per process.
+    conn.use('co_a');
+    await migrator.migrate(conn as never, { target: 'brain/co_a' });
+    expect(migrationDriftSnapshot().get('0011')).toBe(before + 2);
+  });
+
+  it('asks the session which database it is on when no target is passed', async () => {
+    dir = await makeMigrationsDir({ '0012_legacy.surql': 'DEFINE TABLE l;' });
+    const a = makeFakeConn(['0012']);
+    const b = makeFakeConn(['0012']);
+    const conn = oneConnManyDatabases({ co_a: a, co_b: b });
+    const migrator = new SchemaMigrator(dir);
+    conn.use('co_a');
+    await migrator.migrate(conn as never);
+    conn.use('co_b');
+    await migrator.migrate(conn as never);
+    // Both pre-checksum rows were stamped: the second database was looked at.
+    expect(a.applied[0]!.checksum).toBe(migrationChecksum('DEFINE TABLE l;'));
+    expect(b.applied[0]!.checksum).toBe(migrationChecksum('DEFINE TABLE l;'));
+  });
+});
+
+describe('SchemaMigrator — analyzers go first', () => {
+  // SurrealDB 3.2.4 builds a FULLTEXT index over existing rows inside
+  // DEFINE INDEX and cannot see an analyzer the same transaction defined
+  // (0184, 2026-11-13; on a real database: migration-populated-tenant.e2e-spec).
+  let dir: string | null = null;
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  const FILE = [
+    '-- an analyzer; the index uses it',
+    'DEFINE ANALYZER IF NOT EXISTS words',
+    '  TOKENIZERS blank',
+    '  FILTERS lowercase; -- trailing note; with a semicolon',
+    'DEFINE ANALYZER IF NOT EXISTS stems TOKENIZERS blank;',
+    'DEFINE INDEX IF NOT EXISTS i ON t FIELDS x FULLTEXT ANALYZER words BM25;',
+  ].join('\n');
+
+  it('reads every analyzer of a file, whole, and nothing else', () => {
+    expect(analyzerDefinitions(FILE)).toEqual([
+      'DEFINE ANALYZER IF NOT EXISTS words TOKENIZERS blank FILTERS lowercase;',
+      'DEFINE ANALYZER IF NOT EXISTS stems TOKENIZERS blank;',
+    ]);
+    expect(analyzerDefinitions('-- DEFINE ANALYZER IF NOT EXISTS x TOKENIZERS blank;')).toEqual([]);
+    expect(analyzerDefinitions('DEFINE TABLE a;')).toEqual([]);
+  });
+
+  it('commits the analyzers in their own transaction before the file', async () => {
+    dir = await makeMigrationsDir({ '0001_search.surql': FILE });
+    const { conn, calls, applied } = makeFakeConn();
+    await new SchemaMigrator(dir).migrate(conn as never);
+
+    const first = calls.findIndex((c) => c.sql.includes('DEFINE ANALYZER'));
+    const file = calls.findIndex((c) => c.sql.includes('CREATE schema_migrations CONTENT'));
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(file);
+    expect(calls[first]!.sql).toBe(
+      'BEGIN TRANSACTION;\n' +
+        'DEFINE ANALYZER IF NOT EXISTS words TOKENIZERS blank FILTERS lowercase;\n' +
+        'DEFINE ANALYZER IF NOT EXISTS stems TOKENIZERS blank;\n' +
+        'COMMIT TRANSACTION;',
+    );
+    expect(calls[first]!.sql).not.toContain('DEFINE INDEX');
+    // The file itself still runs whole, analyzers included.
+    expect(calls[file]!.sql).toContain(FILE);
+    expect(applied.map((a) => a.migrationId)).toEqual(['0001']);
+  });
+
+  it('sends no extra batch for a file without analyzers', async () => {
+    dir = await makeMigrationsDir({ '0001_a.surql': 'DEFINE TABLE a;' });
+    const { conn, calls } = makeFakeConn();
+    await new SchemaMigrator(dir).migrate(conn as never);
+    expect(calls.filter((c) => c.sql.startsWith('BEGIN TRANSACTION;'))).toHaveLength(1);
+  });
+
+  it('still applies the file when the analyzers cannot go first', async () => {
+    dir = await makeMigrationsDir({ '0001_search.surql': FILE });
+    const { conn, applied } = makeFakeConn();
+    const rawQuery = conn.query.bind(conn);
+    conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+      if (sql.includes('DEFINE ANALYZER') && !sql.includes('CREATE schema_migrations')) {
+        throw new Error('fn::tokens does not exist');
+      }
+      return rawQuery<T>(sql, params);
+    };
+    await new SchemaMigrator(dir).migrate(conn as never);
+    expect(applied.map((a) => a.migrationId)).toEqual(['0001']);
+  });
+
+  it('names the migration that failed', async () => {
+    dir = await makeMigrationsDir({ '0042_broken.surql': 'DEFINE TABLE a;' });
+    const { conn } = makeFakeConn();
+    const rawQuery = conn.query.bind(conn);
+    conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+      if (sql.includes('DEFINE TABLE a')) throw new Error("The analyzer 'stems' does not exist");
+      return rawQuery<T>(sql, params);
+    };
+    const err = await new SchemaMigrator(dir, { sleep: async () => undefined })
+      .migrate(conn as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MigrationApplyError);
+    expect((err as MigrationApplyError).migrationId).toBe('0042');
+    expect((err as Error).message).toBe(
+      "Migration 0042_broken.surql failed: The analyzer 'stems' does not exist",
+    );
   });
 });
