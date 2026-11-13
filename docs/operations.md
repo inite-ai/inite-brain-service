@@ -736,6 +736,38 @@ forget. Brain never contacts anyone: the agent's protocol acts, and records
 what it showed in the safety-event log, whose identifier-free counts
 (`GET /v1/admin/safety/report`) survive user forget.
 
+## Public demo workspace
+
+The INITE family has one demo tenant in auth.inite.ai: «Atlântica Group
+(demo)», org id `a7a71c00-de00-4000-8000-000000000001` (pinned in
+`src/demo/demo-tenant.ts`). In Brain it is the tenant
+`co_a7a71c00-de00-4000-8000-000000000001`, holding Ana's workspace: a small
+made-up hospitality group, its people, its Lisbon opening, the sources the
+graph was built from.
+
+- **Data.** `dist/demo/demo-seed.cli.js` writes the demo pack
+  (`src/demo/atlantica-pack.ts`) into that tenant and nowhere else: fixed
+  record ids, no model call, no embedding, idempotent. Dry run by default;
+  it writes only with `DEMO_SEED_WRITE=1` and `--apply`, and refuses any
+  `--tenant` other than the demo tenant.
+
+  ```bash
+  docker exec <brain container> node dist/demo/demo-seed.cli.js            # dry run
+  docker exec -e DEMO_SEED_WRITE=1 <brain container> node dist/demo/demo-seed.cli.js --apply
+  ```
+
+- **Reads.** `BRAIN_DEMO_WORKSPACE_ENABLED=1` opens
+  `GET /v1/demo/workspace/graph` and `POST /v1/demo/workspace/chat` to any
+  `brain:read` caller. Both read only the demo tenant, whatever the caller's
+  own tenant. Chat is the operator demo's chat path cut down to its
+  deterministic part: the router's local pre-pass (always an ask) and graph
+  retrieval, no vector leg, no tell, no model call. There is no write route.
+  Off (default), both answer 404.
+- **Who calls it.** brain-landing, for a visitor signed in through its
+  `/api/auth/demo` (auth's demo grant, off unless the landing has
+  `DEMO_ENABLED=1`), over the landing's own service credential with
+  `brain:read` only.
+
 ## Data residency (#916)
 
 A tenant's memory lives — and is processed — in one region. Residency is a

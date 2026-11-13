@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { withSession } from '@/lib/server-auth'
+import { demoEnabled } from '@/lib/demo-tenant'
 
 /**
  * GET /api/auth/me
@@ -12,7 +13,8 @@ import { withSession } from '@/lib/server-auth'
  * distinguishable from an anonymous visitor: anonymous →
  * `{ isAuthenticated: false, isAdmin: false }`, logged-in user →
  * `{ isAuthenticated: true, isAdmin: <bool> }`. Always 200 (never 401)
- * so the hook can branch cleanly.
+ * so the hook can branch cleanly. `demo` marks a demo persona's session;
+ * `demoEnabled` says whether the «Try the demo» button may show.
  *
  * Through `withSession`, not the bare getter: this route is the first
  * thing an open tab calls once the access token has expired, so it is
@@ -23,7 +25,7 @@ import { withSession } from '@/lib/server-auth'
 export const GET = withSession(async (session) => {
   if (!session) {
     return NextResponse.json(
-      { isAuthenticated: false, isAdmin: false },
+      { isAuthenticated: false, isAdmin: false, demo: false, demoEnabled: demoEnabled() },
       { status: 200 },
     )
   }
@@ -32,5 +34,7 @@ export const GET = withSession(async (session) => {
     userId: session.userId,
     email: session.email,
     isAdmin: session.isAdmin,
+    demo: session.demo,
+    demoEnabled: demoEnabled(),
   })
 })

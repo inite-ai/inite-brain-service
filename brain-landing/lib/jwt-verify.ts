@@ -15,6 +15,7 @@
 
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose'
 import { acceptedIssuers } from './auth-issuer'
+import { isDemoOrgId } from './demo-tenant'
 
 const AUTH_DOMAIN =
   process.env.AUTH_SERVICE_URL ||
@@ -36,6 +37,10 @@ export interface VerifiedToken extends JWTPayload {
   name?: string
   roles?: string[]
   metadata?: { isAdmin?: boolean }
+  /** Set by auth's demo grant (`/api/auth/demo`): a read-only demo persona. */
+  demo?: boolean
+  org_id?: string
+  org_role?: string
 }
 
 export async function verifyAccessToken(
@@ -56,7 +61,21 @@ export async function verifyAccessToken(
   }
 }
 
+/**
+ * A demo persona's token: `demo: true` from auth's demo grant. Read-only
+ * everywhere and never an admin, whatever else it carries.
+ */
+export function isDemoToken(decoded: Pick<VerifiedToken, 'demo'>): boolean {
+  return decoded.demo === true
+}
+
+/** A demo token of the family's demo tenant — the only one the demo door accepts. */
+export function isDemoTenantToken(decoded: Pick<VerifiedToken, 'demo' | 'org_id'>): boolean {
+  return isDemoToken(decoded) && isDemoOrgId(decoded.org_id)
+}
+
 export function isAdminFromToken(decoded: VerifiedToken): boolean {
+  if (isDemoToken(decoded)) return false
   return (
     decoded.roles?.includes('admin') === true ||
     decoded.metadata?.isAdmin === true

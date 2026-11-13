@@ -8,6 +8,10 @@ export interface AuthState {
   isAdmin: boolean
   userId: string | null
   email: string | null
+  /** A demo persona's session (`/api/auth/demo`): read-only. */
+  demo: boolean
+  /** The deployment offers the demo (DEMO_ENABLED=1). */
+  demoEnabled: boolean
 }
 
 const INITIAL: AuthState = {
@@ -16,6 +20,8 @@ const INITIAL: AuthState = {
   isAdmin: false,
   userId: null,
   email: null,
+  demo: false,
+  demoEnabled: false,
 }
 
 const ANON: AuthState = { ...INITIAL, loading: false }
@@ -47,6 +53,8 @@ export function useAuth(): AuthState {
           isAdmin: Boolean(data.isAdmin),
           userId: data.userId ?? null,
           email: data.email ?? null,
+          demo: data.demo === true,
+          demoEnabled: data.demoEnabled === true,
         })
       })
       .catch(() => {
