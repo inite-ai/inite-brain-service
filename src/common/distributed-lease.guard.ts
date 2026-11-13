@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { InFlightGuard } from './in-flight-guard';
+import { tenantLeaseName } from './lease-name';
 
 /**
  * Drop-in replacement for InFlightGuard with the same `.run(key, fn)`
@@ -63,12 +64,12 @@ export class DistributedLeaseGuard {
 }
 
 /**
- * A per-tenant lease key. Lease names are record ids in `leader_lease`
- * (`'leader_lease:' + name`), so the tenant id is folded to [A-Za-z0-9_];
- * two ids that fold to the same key merely serialise behind one lease.
+ * A per-tenant lease key, through the shared lease-name sanitiser
+ * (common/lease-name.ts): a companyId outside `[a-z0-9_]` is folded and
+ * digest-suffixed, so two tenants never share one lease.
  */
 export function tenantLeaseKey(prefix: string, companyId: string): string {
-  return `${prefix}${companyId.replace(/[^A-Za-z0-9_]/g, '_')}`;
+  return tenantLeaseName(prefix, companyId);
 }
 
 const unguardedNoted = new Set<string>();

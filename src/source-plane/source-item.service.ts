@@ -5,6 +5,7 @@ import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import type { SourceItem } from '../contracts/source-plane/source-plane.schema';
 import type { ItemDescriptor } from './connector';
+import { recordIdOf } from '../db/record-key';
 
 /** Raw `source_item` row. */
 export interface SourceItemRow {
@@ -340,7 +341,7 @@ function setClauses(fields: Record<string, unknown>): {
 }
 
 function connectionRef(connectionId: string): unknown {
-  return new StringRecordId(`source_connection:${idTailOf(connectionId)}`);
+  return recordIdOf('source_connection', connectionId);
 }
 
 /**

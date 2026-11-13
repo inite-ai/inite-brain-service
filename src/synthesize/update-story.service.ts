@@ -1,6 +1,7 @@
 import { scopeFenceSql } from '../auth/scope-visibility';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
+import { recordIdOf } from '../db/record-key';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { renderUpdateStory, type PreviousValue } from './update-story';
@@ -87,19 +88,23 @@ export class UpdateStoryService {
         let frontier = new Map<string, string>(opts.factIds.map((id) => [id, id]));
         for (let depth = 0; depth < MAX_STORY_DEPTH; depth += 1) {
           if (frontier.size === 0) break;
-          const res = await db.query<[unknown, LoserRow[]]>(
-            `LET $w = $winners.map(|$x| type::record($x));
-             SELECT id, predicate, supersededBy, object, validUntil,
+          // The winners are bound as record ids built from (table, key),
+          // not parsed out of 'knowledge_fact:…' strings server-side.
+          const res = await db.query<[LoserRow[]]>(
+            `SELECT id, predicate, supersededBy, object, validUntil,
                     source, trustSnapshot, corroboration, userId
                FROM knowledge_fact
-              WHERE supersededBy IN $w
+              WHERE supersededBy IN $winners
                 AND status = 'superseded'
                 AND retractedAt IS NONE
                 ${piiGate} ${userGate}
               ORDER BY validUntil DESC`,
-            { winners: [...frontier.keys()], ...userParams },
+            {
+              winners: [...frontier.keys()].map((id) => recordIdOf('knowledge_fact', id)),
+              ...userParams,
+            },
           );
-          const rows = ((res[1] ?? []) as LoserRow[]).filter((r) => rowPolicy.filter(r));
+          const rows = ((res[0] ?? []) as LoserRow[]).filter((r) => rowPolicy.filter(r));
           const next = new Map<string, string>();
           for (const row of rows) {
             const root = frontier.get(String(row.supersededBy));
