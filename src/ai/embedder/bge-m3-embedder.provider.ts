@@ -7,6 +7,10 @@ import type { EmbedderProvider } from './embedder-provider.interface';
 import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
 import { applyTransformersCacheDir } from '../transformers-cache';
 import type { RemoteBgeM3 } from './bge-m3-remote';
+import { recordProviderFailure, recordProviderSuccess } from '../provider-health';
+
+/** The remote runtime's id in the provider-health record (#945). */
+const REMOTE_SOURCE = { capability: 'embed', source: 'remote-bge-m3' } as const;
 
 export interface FeatureExtractionPipeline {
   (
@@ -164,8 +168,9 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
   /** Open the breaker; the local model answers until it closes. */
   private remoteFailed(e: unknown): void {
     this.remoteDownUntil = Date.now() + this.remoteCooldownMs;
+    const cls = recordProviderFailure({ ...REMOTE_SOURCE, err: e });
     this.logger.warn(
-      `remote bge-m3 failed (${(e as Error).message}); local model serves for ${Math.round(this.remoteCooldownMs / 1000)}s`,
+      `remote bge-m3 failed (${cls}: ${(e as Error).message}); local model serves for ${Math.round(this.remoteCooldownMs / 1000)}s`,
     );
   }
 
@@ -188,7 +193,9 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     if (!trimmed) return new Array(this.dimensions).fill(0);
     if (this.remoteUsable()) {
       try {
-        return await this.remote!.embed(trimmed);
+        const vector = await this.remote!.embed(trimmed);
+        recordProviderSuccess(REMOTE_SOURCE);
+        return vector;
       } catch (e) {
         this.remoteFailed(e);
         if (!this.localReady()) throw e;
@@ -208,6 +215,7 @@ export class BgeM3EmbedderProvider implements EmbedderProvider {
     if (live.length > 0 && this.remoteUsable()) {
       try {
         vectors = await this.remote!.embedBatch(live);
+        recordProviderSuccess(REMOTE_SOURCE);
       } catch (e) {
         this.remoteFailed(e);
         if (!this.localReady()) throw e;

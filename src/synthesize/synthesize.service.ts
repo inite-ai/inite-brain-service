@@ -125,8 +125,7 @@ export type {
 } from './synthesize.types';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import type { Asker } from './asker';
-import { HarnessModeRefusal } from '../common/extraction-source';
-import { TenantBudgetExceeded } from '../ai/tenant-llm-budget';
+import { generatorFailureResult } from './model-unavailable';
 
 /**
  * SynthesizeService — orchestrates the corrective-RAG flow:
@@ -505,6 +504,8 @@ export class SynthesizeService {
     // (fragment-zoom-seam.ts), then the revision round on a partial
     // verdict — the pair returned is the answer to serve with the
     // verdict that judged it. The exit matrix is finalizeVerdict's.
+    // #945: `verifierUnavailable` — part of the audit was refused by the
+    // provider and the verdict came back negative (auditAndRevise).
     const audited = await auditAndRevise(this.auditPorts(), {
       ctx: cacheArgs,
       lane,
@@ -518,7 +519,7 @@ export class SynthesizeService {
       decisionCtx,
     });
     if ('failed' in audited) return audited.failed;
-    const { verdict } = audited;
+    const { verdict, verifierUnavailable } = audited;
     ({ generated, citations, decisionLog } = audited);
 
     // G2 L3 escalation — the pre-abstention seam. On a verifier-fail with
@@ -530,6 +531,7 @@ export class SynthesizeService {
     // A + C): on no-flip the primary finalizeAndAdmit runs it, and the L3 flip
     // path runs it too (its raw-transcript answer is the most exposed, so the
     // gate is end-to-end).
+    // L3 is more model calls on the provider that just refused: skipped.
     const escalated = await this.tryL3Escalation({
       ...l3Common,
       verdict,
@@ -542,6 +544,7 @@ export class SynthesizeService {
       promptFactLines,
       dateMathLines,
       asker: collected.asker,
+      skip: verifierUnavailable,
     });
     if (escalated) return escalated;
     // decisionId read AFTER the L3 evaluation: a skip/no-flip escalation
@@ -553,6 +556,7 @@ export class SynthesizeService {
       results,
       guardrails,
       decisionLog,
+      verifierUnavailable,
       abstention: profile.abstentionCalibration,
       // MM-zoom PR2 + BELIEFS_SERVING_LANE: fragment-arm and belief-arm
       // evidence citations through their rendered-set fences, merged —
@@ -637,7 +641,11 @@ export class SynthesizeService {
     return raw ?? result;
   }
 
-  private tryL3Escalation(args: L3SeamArgs): Promise<SynthesizeResult | null> {
+  private tryL3Escalation({
+    skip,
+    ...args
+  }: L3SeamArgs & { skip?: boolean }): Promise<SynthesizeResult | null> {
+    if (skip) return Promise.resolve(null);
     return escalateToL3(
       {
         l3: this.l3,
@@ -858,27 +866,14 @@ export class SynthesizeService {
         { 'synthesize.facts': args.factIndex.size },
       );
     } catch (err) {
-      // Harness mode or a spent tenant budget: no answer is generated here —
-      // the evidence below is what the caller answers from.
-      const reason =
-        err instanceof HarnessModeRefusal
-          ? 'harness_mode'
-          : err instanceof TenantBudgetExceeded
-            ? 'model_budget'
-            : 'generator_error';
-      if (reason === 'generator_error') {
-        this.logger.warn(`Synthesize generator failed: ${(err as Error).message}`);
-      }
-      this.metrics?.countSynthesize(reason);
+      // Harness mode, a spent tenant budget, a provider refusal (#945):
+      // no answer is generated here — the evidence is what the caller
+      // answers from (generatorFailureResult).
+      const decisionLog = args.explain ? buildDecisionLog(args.results, new Set()) : undefined;
       return {
-        failed: attachDecisionLog(
-          {
-            answer: null,
-            reason,
-            citations: [],
-            results: args.results,
-          },
-          args.explain ? buildDecisionLog(args.results, new Set()) : undefined,
+        failed: generatorFailureResult(
+          { metrics: this.metrics, logger: this.logger },
+          { err, guardrails: args.guardrails, results: args.results, decisionLog },
         ),
       };
     }

@@ -86,6 +86,17 @@ export interface SearchResponse {
   linked?: LinkedSourceResult[] | undefined;
   /** `vector_leg`: `results` is a lexical-only ranking; retry later for the full one. */
   degraded?: 'vector_leg'[] | undefined;
+  /** The provider refused the embedder for billing, key or quota reasons: retrying will not help. */
+  notice?: ServerModelsNotice | undefined;
+}
+
+/**
+ * `ServerModelsNoticeSchema`: the server's model provider refused part of
+ * the work; use your own provider key (BYOK) or harness mode.
+ */
+export interface ServerModelsNotice {
+  code: 'server_models_unavailable';
+  message: string;
 }
 
 /** `POST /v1/ingest/mention` — `IngestMentionResponseSchema`. */
@@ -128,7 +139,9 @@ export type SynthesisReason =
   | 'generator_error'
   | 'harness_mode'
   | 'model_budget'
-  | 'verifier_error';
+  | 'verifier_error'
+  /** The server's model provider refused the generator or verifier; see `degraded`, `notice`. */
+  | 'model_unavailable';
 
 /** A claim's reference to the fact it rests on — `CitationSchema`. */
 export interface Citation {
@@ -175,6 +188,12 @@ export interface SynthesizeResponse {
   tokenUsage?: { promptTokens: number; completionTokens: number } | undefined;
   /** Served from the answer cache: citations re-validated, `results` empty. */
   cached?: boolean | undefined;
+  /**
+   * With `model_unavailable`: the stage the provider refused. `verifier`
+   * with an answer means the answer is unchecked; `generator` means none.
+   */
+  degraded?: ('generator' | 'verifier')[] | undefined;
+  notice?: ServerModelsNotice | undefined;
 }
 
 /** `EntityProfileFactSchema`. */

@@ -12,6 +12,7 @@ import { isConclusive, type CapabilityName, type ProbeOutcome } from './capabili
 import { PROCESS_IDENTITY } from '../common/process-identity';
 import { processGauges } from './process-gauges';
 import type { CrossEncoderOutcome } from './cross-encoder-outcome';
+import type { SynthesizeOutcome } from './synthesize-outcome';
 
 /** knowledge_fact.status enum (schema ASSERT) — every value gets a series. */
 export const FACT_STATUSES = [
@@ -47,7 +48,7 @@ export interface MemoryQualitySnapshot {
  *   - search_duration_seconds                 — histogram, buckets tuned for ~ms-to-1s
  *   - search_rerank_total{outcome}            — invoked|error|skipped_disabled|skipped_singleton|skipped_margin
  *   - search_cross_encoder_total{outcome}     — invoked|error|skipped_disabled|skipped_singleton
- *   - synthesize_total{outcome}               — ok|no_results|no_grounded_evidence|verifier_partial|verifier_failed|generator_error|verifier_error
+ *   - synthesize_total{outcome}               — ok|no_results|no_grounded_evidence|verifier_partial|verifier_failed|generator_error|verifier_error|model_unavailable
  *   - multi_hop_total{outcome}                — ok|single_hop|chain_empty|no_results|planner_error|hop_error
  *   - dreams_total{outcome}                   — ok|failed
  *   - dreams_emitted_total{kind}              — identity_link|resolution|summary
@@ -410,6 +411,7 @@ export class MetricsService implements OnModuleInit {
   //   verifier_failed      — verifier flagged unsupported claims
   //   generator_error      — LLM generator call failed (returned closed-fail)
   //   verifier_error       — LLM verifier call failed (strict ⇒ closed-fail)
+  //   model_unavailable    — the provider refused generator/verifier (#945)
   // The error-counter ratio against ok/no_results tells the operator
   // whether the synthesizer is healthy or upstream OpenAI is flaky.
   readonly synthesizeCount = new Counter({
@@ -1054,30 +1056,7 @@ export class MetricsService implements OnModuleInit {
     this.multiHopCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 
-  countSynthesize(
-    outcome:
-      | 'ok'
-      | 'no_results'
-      | 'no_grounded_evidence'
-      // V9 §4: the memory-coverage abstention floor fired.
-      | 'low_coverage'
-      | 'verifier_partial'
-      | 'verifier_failed'
-      | 'generator_error'
-      | 'harness_mode'
-      | 'model_budget'
-      // The generator hit the token cap and the partial answer was
-      // salvaged (audit W5 #24) — distinct from generator_error, which
-      // means we returned nothing at all.
-      | 'generator_truncated'
-      // V13 constrained search loop: the one refine round ran (the
-      // final outcome is still counted separately by the exits above).
-      | 'search_loop_refined'
-      // The revision round ran on a partial verdict (revise-round.ts);
-      // the final outcome is still counted by the exits above.
-      | 'revised'
-      | 'verifier_error',
-  ): void {
+  countSynthesize(outcome: SynthesizeOutcome): void {
     this.synthesizeCount.inc({ outcome } as LabelValues<'outcome'>);
   }
 

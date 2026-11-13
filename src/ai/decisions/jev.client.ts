@@ -6,6 +6,10 @@ import { getAbortSignal } from '../../common/request-context';
 import { MetricsService } from '../../metrics/metrics.service';
 import type { DecisionRequest, DecisionResponse, DecisionAnswer } from './decision.types';
 import { serverModelsRefused } from '../../common/extraction-source';
+import { recordProviderFailure, recordProviderSuccess } from '../provider-health';
+
+/** This client's id in the provider-health record. */
+const JEV_SOURCE = { capability: 'chat', source: 'jev' } as const;
 
 /**
  * TypeSafe Jev — the System One model behind the decision plane.
@@ -100,6 +104,7 @@ export class JevClient {
           },
         ),
       );
+      recordProviderSuccess(JEV_SOURCE);
       return {
         model: decorated.model,
         answers: decorated.answers,
@@ -110,7 +115,10 @@ export class JevClient {
         },
       };
     } catch (err) {
-      this.logger.warn(`[decide.${lane}] ${(err as Error).message}`);
+      // The lane falls back either way; the class is what tells an operator
+      // (and a synthesize audit scope) that the fallback was forced.
+      const cls = recordProviderFailure({ ...JEV_SOURCE, err });
+      this.logger.warn(`[decide.${lane}] ${cls}: ${(err as Error).message}`);
       return null;
     }
   }
@@ -135,7 +143,7 @@ export class JevClient {
         status = res.status;
         if (res.ok) return this.parse(await res.json(), Object.keys(req.questions));
         const body = await res.text().catch(() => '');
-        lastErr = new Error(`jev ${status}: ${body.slice(0, 200)}`);
+        lastErr = Object.assign(new Error(`jev ${status}: ${body.slice(0, 200)}`), { status });
         // 401 invalid key, 422 malformed request — retrying changes nothing.
         if (status !== 429 && status !== 529 && status < 500) throw lastErr;
       } catch (err) {

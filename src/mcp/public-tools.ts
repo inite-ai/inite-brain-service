@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { asStructuredContent } from './structured';
+import { serverModelsStatus } from '../ai/provider-health';
 
 /**
  * The tools an agent can reach BEFORE it has a key.
@@ -48,7 +49,7 @@ export function registerPublicTools(opts: { server: McpServer; options: PublicTo
     {
       title: 'About this memory server',
       description:
-        'What this server is and what it can do, before you connect. Reads nothing and stores nothing.',
+        "What this server is and what it can do, before you connect, and whether the server's own models (embeddings, chat) are currently available. Reads nothing and stores nothing.",
       inputSchema: {},
     },
     () => {
@@ -64,6 +65,8 @@ export function registerPublicTools(opts: { server: McpServer; options: PublicTo
         access:
           'Every tool that touches memory needs a key. Call how_to_connect for the two ways to get one.',
         docs: `${base}/en/docs`,
+        // Process-level provider health (#945) — no tenant, no row.
+        serverModels: serverModelsStatus(),
       };
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],

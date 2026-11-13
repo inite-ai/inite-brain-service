@@ -7,6 +7,8 @@ import type { LinkedSourceResult } from '../contracts/search/search.schema';
 interface SearchOut {
   results: SearchHit[];
   degraded?: unknown;
+  /** The server-models notice (#945), when a provider refusal degraded the search. */
+  notice?: unknown;
   linked?: unknown;
 }
 
@@ -47,12 +49,14 @@ export interface CompactSearchResponse {
   results: CompactSearchHit[];
   /** Passed through: what the search could not do this time, and connector hits (content). */
   degraded?: unknown;
+  notice?: unknown;
   linked?: unknown;
 }
 
 export function compactSearch(out: SearchOut): CompactSearchResponse {
   return {
     ...(out.degraded !== undefined ? { degraded: out.degraded } : {}),
+    ...(out.notice !== undefined ? { notice: out.notice } : {}),
     ...(out.linked !== undefined ? { linked: out.linked } : {}),
     results: out.results.map((hit) => {
       const facts = hit.facts.map((f) => {
@@ -324,7 +328,7 @@ export function renderFocus(p: {
   more?: string | undefined;
 }): string {
   const { kept, beliefs, order, omitted } = focusSelect(p.out, p.opts, p.beliefs);
-  const degraded = degradedNote(p.out.degraded);
+  const degraded = degradedNote(p.out.degraded, p.out.notice);
   const linked = linkedLines(p.out.linked);
   if (order.length === 0) {
     if (linked.length > 0) return [...linked, ...(degraded ? [degraded] : [])].join('\n');
@@ -357,11 +361,14 @@ export function renderFocus(p: {
  * A degraded search (the embedder still warming, a leg down) says so —
  * an empty answer from half a search is not "nothing in memory".
  */
-function degradedNote(degraded: unknown): string | undefined {
+function degradedNote(degraded: unknown, notice?: unknown): string | undefined {
   if (!Array.isArray(degraded) || degraded.length === 0) return undefined;
   const why = degraded.map((d) =>
     typeof d === 'string' ? d : ((d as { reason?: string }).reason ?? 'partial'),
   );
+  // A provider refusal (#945) does not heal on retry: say what does.
+  const message = (notice as { message?: unknown } | undefined)?.message;
+  if (typeof message === 'string') return `(search degraded: ${why.join(', ')} — ${message})`;
   return `(search degraded: ${why.join(', ')} — retry for a full answer)`;
 }
 

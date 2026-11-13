@@ -14,6 +14,9 @@ import type { DecisionService } from '../ai/decisions/decision.service';
 import type { ReasoningEffort } from '../ai/openai-client';
 import { miniCheckVerdict } from './minicheck-client';
 import { verifierErrorResult } from './synthesize.helpers';
+import { modelUnavailableResult } from './model-unavailable';
+import { noteProviderFailureInScope } from '../ai/provider-health';
+import { serverModelsUnavailable } from '../ai/provider-failure';
 import { verifierPasses } from './l3-escalation';
 import { runFragmentZoom, type ZoomCandidate } from './fragment-zoom';
 import { captureZoomDecision, type DecisionContext } from './decision-emit';
@@ -234,7 +237,24 @@ export async function verifyAndZoom(
           { 'synthesize.facts': args.factCount },
         );
   } catch (err) {
-    deps.logger.warn(`Synthesize verifier failed: ${(err as Error).message}`);
+    // #945: a verifier the provider refused (billing, key, quota, outage)
+    // could not judge — `model_unavailable`, never a verdict. The class
+    // also lands in the audit scope, so a revise round's re-verify that
+    // fails this way does not leave the primary verdict looking final.
+    const cls = noteProviderFailureInScope('chat', err);
+    deps.logger.warn(`Synthesize verifier failed (${cls}): ${(err as Error).message}`);
+    if (serverModelsUnavailable(cls)) {
+      return {
+        failed: modelUnavailableResult(deps.metrics, {
+          stage: 'verifier',
+          guardrails,
+          answer: generated.answer,
+          citations: args.citations,
+          results: args.results,
+          decisionLog: args.decisionLog,
+        }),
+      };
+    }
     deps.metrics?.countSynthesize('verifier_error');
     return {
       failed: verifierErrorResult({
@@ -365,7 +385,9 @@ async function tryFragmentZoom(
     });
     return result.verdict ?? null;
   } catch (e) {
-    // Fail-safe to static: zoom must never break the serve/downgrade.
+    // Fail-safe to static: zoom must never break the serve/downgrade —
+    // but a provider refusal is noted in the audit scope (#945).
+    noteProviderFailureInScope('chat', e);
     deps.logger.warn(`fragment zoom seam failed (companyId=${companyId}): ${(e as Error).message}`);
     return null;
   }

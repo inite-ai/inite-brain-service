@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ServerModelsNoticeSchema } from '../common/server-models-notice.schema';
 
 /**
  * Wire contracts for the headline read — POST /v1/search.
@@ -181,6 +182,12 @@ export const SearchResponseSchema = z.object({
    * ones. Retry later for the full ranking.
    */
   degraded: z.array(z.enum(['vector_leg'])).optional(),
+  /**
+   * Present when a degraded stage was refused by the server's model
+   * provider for an account reason (billing, key, quota — #945): retrying
+   * will not restore it; the caller's own key (BYOK) or harness mode will.
+   */
+  notice: ServerModelsNoticeSchema.optional(),
 });
 
 export type SearchRequest = z.infer<typeof SearchRequestSchema>;

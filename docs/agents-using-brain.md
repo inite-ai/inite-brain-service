@@ -172,6 +172,30 @@ call: it returns no answer, with `reason: harness_mode` and the evidence in
 daily model budget (`LLM_TENANT_DAILY_TOKEN_BUDGET`) gets the same shape with
 `reason: model_budget` until the next UTC day.
 
+## When the server's models are unavailable
+
+If the server's model provider refuses a call (no credit, a revoked key, a
+rate limit or an outage), `synthesize` answers `reason: model_unavailable`
+with `degraded` (`generator` or `verifier`) and a `notice` whose `code` is
+`server_models_unavailable`. This is not "the memory does not know":
+
+- Do not tell the user the memory has nothing on the subject.
+- With `degraded: ["generator"]` there is no answer. Answer from the
+  evidence yourself (`evidence` in the default view, or call
+  `search_knowledge`), as in harness mode.
+- With `degraded: ["verifier"]` and an answer (lenient mode), the answer is
+  unchecked. Check it against its citations, or say it is unverified, before
+  you rely on it.
+- `search_knowledge` may carry the same `notice` beside
+  `degraded: ["vector_leg"]`: the results are keyword matches only, and
+  retrying will not bring semantic matches back until the provider is fixed.
+- `about_brain` and `workspace_status` report `serverModels.state`
+  (`ok` or `degraded`), per capability (`embed`, `chat`), and `since`.
+- The fix is on the operator's side: a topped-up or new provider key, the
+  tenant's own provider key (BYOK, planned in #945 phase 3), or connecting
+  your agent in harness mode, which
+  needs no server model at all.
+
 ## Memory semantics you must know
 
 - **Facts vs episodes.** Brain ingests raw conversation/document _episodes_

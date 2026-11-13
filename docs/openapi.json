@@ -7990,6 +7990,23 @@
             },
             "type": "array"
           },
+          "notice": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "server_models_unavailable",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
           "results": {
             "items": {
               "$ref": "#/components/schemas/SearchHit"
@@ -10575,7 +10592,8 @@
           "generator_error",
           "harness_mode",
           "model_budget",
-          "verifier_error"
+          "verifier_error",
+          "model_unavailable"
         ],
         "type": "string"
       },
@@ -10713,11 +10731,38 @@
             },
             "type": "array"
           },
+          "degraded": {
+            "items": {
+              "enum": [
+                "generator",
+                "verifier"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
           "evidenceCitations": {
             "items": {
               "$ref": "#/components/schemas/EvidenceCitation"
             },
             "type": "array"
+          },
+          "notice": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "server_models_unavailable",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
           },
           "reason": {
             "$ref": "#/components/schemas/SynthesisReason"
