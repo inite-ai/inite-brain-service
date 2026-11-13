@@ -87,11 +87,16 @@ export class UpdateStoryService {
         let frontier = new Map<string, string>(opts.factIds.map((id) => [id, id]));
         for (let depth = 0; depth < MAX_STORY_DEPTH; depth += 1) {
           if (frontier.size === 0) break;
+          // WITH INDEX: the reverse lookup is only cheap through
+          // fact_superseded_by_idx. SurrealDB 3.3's planner picks
+          // fact_retracted_idx for `retractedAt IS NONE` instead — an index
+          // that matches nearly every row — turning each story hop into a
+          // near-full scan (pinned by update-story-explain.e2e-spec.ts).
           const res = await db.query<[unknown, LoserRow[]]>(
             `LET $w = $winners.map(|$x| type::record($x));
              SELECT id, predicate, supersededBy, object, validUntil,
                     source, trustSnapshot, corroboration, userId
-               FROM knowledge_fact
+               FROM knowledge_fact WITH INDEX fact_superseded_by_idx
               WHERE supersededBy IN $w
                 AND status = 'superseded'
                 AND retractedAt IS NONE
