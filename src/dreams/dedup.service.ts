@@ -322,11 +322,14 @@ export class DreamsDedupService {
     // Direction: aId → bId. The conventional survivor/loser policy
     // (older entity wins) is enforced by the existing identity-merge
     // path in the search service via mergedInto reattribution; from
-    // dreams we just emit the link with weight 1.0 and source tag.
+    // dreams we just emit the link with weight 1.0 and source tag. The
+    // identity holds from when it was found (0164: a relation that names
+    // no day holds from when it was said); without validFrom the edge read
+    // as "start unknown" (data migration edge_valid_from_created).
     await db.query(
       `RELATE $a->knowledge_edge->$b SET kind = 'identity_of', weight = 1.0,
         source = { vertical: 'dreams', kind: 'auto_dedup' },
-        createdAt = time::now()`,
+        createdAt = time::now(), validFrom = time::now()`,
       {
         a: new StringRecordId(aId),
         b: new StringRecordId(bId),

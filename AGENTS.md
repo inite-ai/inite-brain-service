@@ -31,6 +31,11 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
    checksum is pinned in `test/golden/migration-checksums.json`
    (`test/migration-checksums.unit-spec.ts` fails on an edit), and a tenant
    whose applied file differs logs the id and shows in `brain_migration_drift`.
+   **Schema migrations are DDL only** (from 0197; `test/migration-ddl-only.unit-spec.ts`):
+   a row backfill is a data migration in `src/db/data-migrations/`, never an
+   `UPDATE … WHERE` in a `.surql` file (on SurrealDB 3.2.4 one planned through
+   an index is a silent no-op — 0182 and 0164 shipped that way and left rows
+   unfixed).
 2. **Never weaken tenancy or per-user scope.** Every tenant is its own
    database (`NS=brain`, `DB=co_<companyId>`, reached only through
    `SurrealService.withCompany`). Omitting `userId` must keep returning
@@ -211,7 +216,17 @@ header comment explaining semantics and backfill, idempotent statements; add
 the line `test/migration-checksums.unit-spec.ts` prints to
 `test/golden/migration-checksums.json`.
 `src/db/schema.surql` is reference-only and not applied. Known SurrealDB
-traps live in existing migration headers — read the last few first.
+traps live in existing migration headers — read the last few first. A
+migration defines schema only; to fix existing rows, add a data migration.
+
+**Add a data migration:** a class implementing `DataMigration`
+(`src/db/data-migrations/data-migration.ts`: `id`, `description`,
+`pending(db)`, `step(db, limit)`), usually by extending `IdBatchMigration`
+(ids first, then `UPDATE $ids`), listed in `DataMigrationsModule`'s providers
+and its `DATA_MIGRATIONS` inject (that order is the run order). The
+`data_migrations` job runs it per tenant in batches and marks it done in the
+`data_migration` ledger only when `pending` re-counts 0. Unit-test it with a
+fake db (`test/data-migrations.unit-spec.ts`). The id is permanent.
 
 **Add an extraction lane:** pure module in `src/ai/extractor-internals/`
 (model: `denoise.ts`, switched by `dropSaid`), wired in

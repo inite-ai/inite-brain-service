@@ -140,7 +140,7 @@ overview — one line per flag, plus the orderings that matter.
 | `EVIDENCE_PROCESSOR_BROKER`                                              | `0`      | Trusted platform-owned processor adapters over registered assets, each run an idempotent `processing_run` row (0121). Requires the substrate flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `EVIDENCE_QUARANTINE`                                                    | `0`      | External-ingest quarantine seam (0121): assets get `quarantineStatus` (`clean` internal / `quarantined` external_ingest); the broker refuses non-clean assets. **Off = `origin:'external_ingest'` is rejected 503 outright (fail closed)** — enable BEFORE accepting any externally-sourced media.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `EVIDENCE_DOCUMENT_BRIDGE`                                               | `0`      | Evidence → document bridge: the words a processor run read off an asset (a document's text layer, an image's OCR, every region in reading order) are ingested through the ordinary document pipeline as kind `evidence_text`, with an `evidenceAssetId` provenance hop on every committed fact — an uploaded PDF or screenshot yields facts, not only fragments. One `evidence_document_bridge` job per run; replayed runs enqueue too, so the dispatch sweep is the backfill. Requires the broker, `DOCUMENT_INGEST_ENABLED` and the jobs queue.                                                                                                                                                                                                                                                                                       |
-| `EVIDENCE_ASR_ENABLED`                                                   | `0`      | Local speech to text (#900): the `asr` processor transcribes audio assets and the sound of video ones. The shipped `ffmpeg-static` binary decodes any accepted container to 16 kHz mono; Whisper via transformers.js (`EVIDENCE_ASR_MODEL`, default `Xenova/whisper-small`, downloaded once into the transformers cache, a few hundred MB resident once loaded) transcribes in the tenant's most common turn language, since Whisper here does not detect it and otherwise translates to English. One output per minute of audio with a `timeRange` locator; the words reach memory through `EVIDENCE_DOCUMENT_BRIDGE`. Recordings over two hours are refused. Needs the broker and a pack declaring an audio/video → `asr` processor with current consent. `pnpm eval:media-asr` measures it. |
+| `EVIDENCE_ASR_ENABLED`                                                   | `0`      | Local speech to text (#900): the `asr` processor transcribes audio assets and the sound of video ones. The shipped `ffmpeg-static` binary decodes any accepted container to 16 kHz mono; Whisper via transformers.js (`EVIDENCE_ASR_MODEL`, default `Xenova/whisper-small`, downloaded once into the transformers cache, a few hundred MB resident once loaded) transcribes in the tenant's most common turn language, since Whisper here does not detect it and otherwise translates to English. One output per minute of audio with a `timeRange` locator; the words reach memory through `EVIDENCE_DOCUMENT_BRIDGE`. Recordings over two hours are refused. Needs the broker and a pack declaring an audio/video → `asr` processor with current consent. `pnpm eval:media-asr` measures it.                                          |
 | `SOURCE_PLANE_ENABLED`                                                   | `0`      | Source plane master switch (raw-evidence-sources-2026-09.md, W0): `/v1/admin/source-connections`, the `source_sync` job handler and the 5-minute scheduler. A connection instantiates a pack's declared `sources` entry and runs a platform connector; every fetched item enters the existing door for its shape. Off = 404 / no handler / nothing enqueued. The handler registers at boot — flip, then restart.                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `SOURCE_KIND_FS`                                                         | `1`      | The `fs` source connector: a directory on the brain host (mounted volume, OS-mounted share, a local brain's laptop) walked every run; text-like files become documents, PDFs/images go to the evidence plane. Needs `SOURCE_PLANE_ENABLED` and `SOURCE_FS_ROOTS`. Off = the connector is "not installed".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SOURCE_FS_ROOTS`                                                        | unset    | `:`-separated absolute directories the `fs` connector may read under (realpath jail). Unset = no directory is permitted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -1054,6 +1054,51 @@ boot, so it exists mainly so a duration set by hand on the server is not
 silently discarded on the next deploy. A value at or below the 5-minute
 re-auth margin is honoured but logged at error level: every scoped acquire
 then re-signs, which only the expiry e2e wants.
+
+## Data migrations (0197)
+
+Schema migrations (`src/db/migrations/`) define schema only, from 0197 on.
+Fixes to existing rows are **data migrations** (`src/db/data-migrations/`),
+run in the background by the job `data_migrations`:
+
+- an hourly cron (`:23` UTC) enqueues one job per tenant on the fan-out
+  roster, deduplicated per hour; a tenant this process has seen with every
+  data migration verified done is not enqueued again until a deploy adds a
+  new one;
+- the job runs each data migration not yet done, 500 rows per step, within a
+  20 s budget per tenant; a run cut off by the budget enqueues its own
+  continuation 30 s later;
+- after the steps it re-counts the rows still needing the fix, and the
+  migration is marked done only when that count is 0.
+
+Why: on SurrealDB 3.2.4 an `UPDATE t … WHERE` planned through an index on
+the filtered field is a silent no-op. 0182's backfill left 20 closed edges
+unchecked across 3 tenants and 0164's second backfill left one closed edge
+without `validUntil`, both recorded as applied. A data migration selects ids
+first and updates exactly those records.
+
+Each tenant's ledger is the table `data_migration` (one row per id:
+`status` pending/done, `fixed`, `remaining`, `lastRunAt`, `verifiedAt`):
+
+```sql
+SELECT * FROM data_migration;
+```
+
+`brain_data_migration_remaining{migration}` is the rows a data migration
+still has to fix, summed over the tenants this process ran it for (no tenant
+label). It should fall to 0; a value that stops falling with the log line
+`a step fixed none of N pending rows` is a fix that does not take.
+
+The data migrations shipped so far:
+
+| id                                  | fixes                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `edge_valid_until_from_invalidated` | pre-0164 closed edges with no `validUntil` (re-applies 0164's second fix) |
+| `edge_resolution_checked`           | closed edges never marked `resolutionCheckedAt` (re-applies 0182)         |
+| `edge_valid_from_created`           | open edges written with no `validFrom` (dreams `identity_of` links)       |
+
+They move ids, instants and flags the rows already hold and write no user
+content, so the GDPR forget cascade is unchanged.
 
 ## Request metrics and SLOs
 
