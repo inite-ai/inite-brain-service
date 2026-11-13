@@ -107,6 +107,40 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0] }
 
+      # A schema apply failed on some database and has not succeeded since
+      # on that replica: the tenant answers 503 while its backoff runs (30s
+      # doubling, capped at 15 min) and retries on the first request after.
+      # `for: 10m` rides out a transient blip that the next retry clears;
+      # past that a migration file is genuinely failing there. The failing
+      # migration id is in brain_migration_failures_total and the log.
+      - uid: brain-migration-failed-tenants
+        title: MigrationFailedTenants
+        condition: C
+        for: 10m
+        noDataState: OK # scrape-down alert covers series absence
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: a schema migration keeps failing on one or more tenant databases — those tenants answer 503 (see brain_migration_failures_total for the migration id)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: max(brain_migration_failed_tenants) or vector(0)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
       - uid: brain-no-worker-leader
         title: NoWorkerLeader
         condition: C

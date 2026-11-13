@@ -84,4 +84,29 @@ describe('migration checksums (real SurrealDB)', () => {
     await new SchemaMigrator(dir).migrate(conn);
     expect((await ledger(conn))[0]!.checksum).toBe(migrationChecksum(sql));
   });
+
+  it('one migrator on one connection validates every database it is pointed at', async () => {
+    // How production migrates: ONE dedicated connection, use()d to each
+    // tenant in turn, ONE migrator. Validation used to be marked per
+    // connection, so only the first database was ever checked. Without a
+    // `target`, the migrator asks the session which database it is on.
+    const original = 'DEFINE TABLE IF NOT EXISTS shared_a SCHEMALESS;';
+    await writeFile(join(dir, '0001_a.surql'), original);
+    const conn = await connect('co_shared_1');
+    conns.push(conn);
+    await new SchemaMigrator(dir).migrate(conn);
+    await conn.use({ namespace: NS });
+    await conn.query(`DEFINE DATABASE IF NOT EXISTS co_shared_2`);
+    await conn.use({ namespace: NS, database: 'co_shared_2' });
+    await new SchemaMigrator(dir).migrate(conn);
+
+    await writeFile(join(dir, '0001_a.surql'), `${original}\nDEFINE TABLE shared_b SCHEMALESS;`);
+    const migrator = new SchemaMigrator(dir);
+    const before = migrationDriftSnapshot().get('0001') ?? 0;
+    await conn.use({ namespace: NS, database: 'co_shared_1' });
+    await migrator.migrate(conn);
+    await conn.use({ namespace: NS, database: 'co_shared_2' });
+    await migrator.migrate(conn);
+    expect(migrationDriftSnapshot().get('0001')).toBe(before + 2);
+  });
 });

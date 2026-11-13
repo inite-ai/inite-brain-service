@@ -13,7 +13,9 @@ import { ConfigService } from '@nestjs/config';
 import { runWithTenant } from '../common/tenant-context';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
-import { SchemaMigrator } from './migrator.service';
+import { SchemaMigrator, type MigrationResult } from './migrator.service';
+import { MigrationBackoff } from './migration-failures';
+import { readMigrationLedgerIds } from './migration-ledger-read';
 import { migrationLeaseName, SurrealMigrationLock } from './migration-lock';
 import { SESSION_REAUTH_MARGIN_MS, SurrealSessionKeeper } from './session-keeper';
 import { envFlagNotDisabled } from '../common/env-validation';
@@ -109,6 +111,8 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   // One-shot per process — cheap NS-level DDL but no need to repeat.
   private scopedPasswordSynced = false;
   private readonly knownDatabases = new Set<string>();
+  /** Per-database cooldown after a failed schema apply — see migration-failures.ts. */
+  private readonly migrationBackoff = new MigrationBackoff();
   /**
    * Called once per tenant database, immediately after its schema is
    * created/migrated — the single moment a tenant comes into existence in
@@ -575,6 +579,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       await conn.use({ namespace: this.namespace, database });
       await conn.query(`REMOVE DATABASE ${database};`);
       this.knownDatabases.delete(database);
+      this.migrationBackoff.forget(database);
       this.logger.warn(`Dropped database ${this.namespace}/${database}`);
     } finally {
       this.releaseRoot(conn);
@@ -707,76 +712,136 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    */
   private async ensureSchema(database: string): Promise<void> {
     if (this.knownDatabases.has(database)) return;
+    // A database whose last apply failed answers 503 at once until its
+    // cooldown ends, instead of re-running the failing file on every
+    // request inside the global queue (migration-failures.ts).
+    this.migrationBackoff.assertNotCoolingDown(database);
     const next = this.schemaQueue.then(async () => {
       if (this.knownDatabases.has(database)) return;
-      // Use the dedicated migrator conn rather than acquiring from
-      // the pool. Avoids the deadlock where every pool conn is
-      // currently held in withCompany awaiting THIS migration to
-      // finish. ensureSession may return a rebuilt conn — track
-      // the swap so future migrations use the live reference.
-      this.migratorConn = await this.ensureSession(this.migratorConn, 'root');
-      // SurrealDB 3.x no longer auto-creates a namespace/database on first
-      // DEFINE — `use()` + DDL against a non-existent NS/DB errors ("The
-      // namespace 'brain' does not exist"). 2.x created them implicitly.
-      // Provision both explicitly, idempotently, at root before selecting
-      // the tenant DB. DEFINE NAMESPACE is a root op (no NS selected);
-      // DEFINE DATABASE needs the NS selected. Identifiers can't be
-      // parameterized, so we backtick-quote — companyId is already
-      // validated `^[a-zA-Z0-9_-]+$` in withCompany, and `database` is
-      // `co_<companyId>` / `system`.
-      await this.migratorConn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
-      await this.migratorConn.use({ namespace: this.namespace });
-      await this.migratorConn.query(`DEFINE DATABASE IF NOT EXISTS \`${database}\``);
-      await this.migratorConn.use({ namespace: this.namespace, database });
-      // The in-process queue above orders appliers inside THIS pod only.
-      // Across replicas the arbiter is the lease, keyed per target
-      // database so tenants still migrate in parallel; a replica that
-      // loses the race waits for the holder rather than racing it, and
-      // `knownDatabases` is only marked once the manifest really landed.
-      const result = await this.migrator.migrate(this.migratorConn, {
-        lock: this.migrationLock,
-        lockName: migrationLeaseName(this.namespace, database),
-      });
+      // Requests queued behind the one that failed see its cooldown here.
+      this.migrationBackoff.assertNotCoolingDown(database);
+      const result = await this.applySchemaOrBackOff(database);
       this.knownDatabases.add(database);
-      if (result.applied.length > 0) {
-        this.logger.log(
-          `Migrated ${this.namespace}/${database}: applied [${result.applied.join(', ')}], ` +
-            `already-applied [${result.alreadyApplied.join(', ') || '-'}]`,
-        );
-        if (this.scopedEnabled && result.applied.includes('0005')) {
-          // Migration 0005 hardcodes a placeholder password
-          // ('brain-caller-password-must-be-overridden-via-env'). Brain
-          // owns the real password via SURREALDB_SCOPED_PASS — overwrite
-          // the user immediately after the migration lands so the scoped
-          // pool can sign in with the operator's secret. Idempotent
-          // (DEFINE USER OVERWRITE replaces in place).
-          await this.overwriteScopedUserPassword();
-          await this.resignScopedConns();
-        }
-      } else if (
-        this.scopedEnabled &&
-        result.alreadyApplied.includes('0005') &&
-        !this.scopedPasswordSynced
-      ) {
-        // Existing tenant DBs (0005 already applied) on a brain process
-        // that just rotated its SURREALDB_SCOPED_PASS — the migration
-        // won't re-run, but the secret may have changed since the user
-        // was created. Re-overwrite once per process boot to keep
-        // declared password in sync with what the scoped pool will
-        // sign in as. Cheap idempotent NS-level DDL.
-        await this.overwriteScopedUserPassword();
-        await this.resignScopedConns();
-        this.scopedPasswordSynced = true;
-      } else {
-        this.logger.log(
-          `Schema up-to-date for ${this.namespace}/${database} ` +
-            `(${result.alreadyApplied.length} migration(s) applied)`,
-        );
-      }
+      await this.afterSchemaApplied(database, result);
       this.notifySchemaReady(database);
     });
     this.schemaQueue = next.catch(() => undefined);
     await next;
+  }
+
+  /**
+   * Provision + migrate one database. A failure opens (or extends) that
+   * database's cooldown, counts toward `brain_migration_failures_total`,
+   * and surfaces as a 503 without tenant data; the cause is logged by
+   * migration id and database name only — never row content.
+   */
+  private async applySchemaOrBackOff(database: string): Promise<MigrationResult> {
+    try {
+      const result = await this.applySchema(database);
+      this.migrationBackoff.recordSuccess(database);
+      return result;
+    } catch (err) {
+      const waitMs = this.migrationBackoff.recordFailure(database, err);
+      this.logger.error(
+        `Schema apply failed for ${this.namespace}/${database}; next attempt in ` +
+          `${Math.round(waitMs / 1000)}s: ${(err as Error).message}`,
+      );
+      throw new ServiceUnavailableException(
+        `Workspace schema migration is failing; retrying in ${Math.round(waitMs / 1000)}s`,
+      );
+    }
+  }
+
+  private async applySchema(database: string): Promise<MigrationResult> {
+    // Use the dedicated migrator conn rather than acquiring from
+    // the pool. Avoids the deadlock where every pool conn is
+    // currently held in withCompany awaiting THIS migration to
+    // finish. ensureSession may return a rebuilt conn — track
+    // the swap so future migrations use the live reference.
+    this.migratorConn = await this.ensureSession(this.migratorConn, 'root');
+    // SurrealDB 3.x no longer auto-creates a namespace/database on first
+    // DEFINE — `use()` + DDL against a non-existent NS/DB errors ("The
+    // namespace 'brain' does not exist"). 2.x created them implicitly.
+    // Provision both explicitly, idempotently, at root before selecting
+    // the tenant DB. DEFINE NAMESPACE is a root op (no NS selected);
+    // DEFINE DATABASE needs the NS selected. Identifiers can't be
+    // parameterized, so we backtick-quote — companyId is already
+    // validated `^[a-zA-Z0-9_-]+$` in withCompany, and `database` is
+    // `co_<companyId>` / `system`.
+    await this.migratorConn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
+    await this.migratorConn.use({ namespace: this.namespace });
+    await this.migratorConn.query(`DEFINE DATABASE IF NOT EXISTS \`${database}\``);
+    await this.migratorConn.use({ namespace: this.namespace, database });
+    // The in-process queue above orders appliers inside THIS pod only.
+    // Across replicas the arbiter is the lease, keyed per target
+    // database so tenants still migrate in parallel; a replica that
+    // loses the race waits for the holder rather than racing it, and
+    // `knownDatabases` is only marked once the manifest really landed.
+    return this.migrator.migrate(this.migratorConn, {
+      lock: this.migrationLock,
+      lockName: migrationLeaseName(this.namespace, database),
+      target: `${this.namespace}/${database}`,
+    });
+  }
+
+  private async afterSchemaApplied(database: string, result: MigrationResult): Promise<void> {
+    if (result.applied.length > 0) {
+      this.logger.log(
+        `Migrated ${this.namespace}/${database}: applied [${result.applied.join(', ')}], ` +
+          `already-applied [${result.alreadyApplied.join(', ') || '-'}]`,
+      );
+      if (this.scopedEnabled && result.applied.includes('0005')) {
+        // Migration 0005 hardcodes a placeholder password
+        // ('brain-caller-password-must-be-overridden-via-env'). Brain
+        // owns the real password via SURREALDB_SCOPED_PASS — overwrite
+        // the user immediately after the migration lands so the scoped
+        // pool can sign in with the operator's secret. Idempotent
+        // (DEFINE USER OVERWRITE replaces in place).
+        await this.overwriteScopedUserPassword();
+        await this.resignScopedConns();
+      }
+    } else if (
+      this.scopedEnabled &&
+      result.alreadyApplied.includes('0005') &&
+      !this.scopedPasswordSynced
+    ) {
+      // Existing tenant DBs (0005 already applied) on a brain process
+      // that just rotated its SURREALDB_SCOPED_PASS — the migration
+      // won't re-run, but the secret may have changed since the user
+      // was created. Re-overwrite once per process boot to keep
+      // declared password in sync with what the scoped pool will
+      // sign in as. Cheap idempotent NS-level DDL.
+      await this.overwriteScopedUserPassword();
+      await this.resignScopedConns();
+      this.scopedPasswordSynced = true;
+    } else {
+      this.logger.log(
+        `Schema up-to-date for ${this.namespace}/${database} ` +
+          `(${result.alreadyApplied.length} migration(s) applied)`,
+      );
+    }
+  }
+
+  /**
+   * Applied migration ids of a tenant, read straight from its
+   * `schema_migrations` ledger WITHOUT migrating it first — the admin
+   * migrations view must report what a tenant actually has, so "pending"
+   * and a failing tenant are visible rather than papered over by the read
+   * itself. Root pool, read-only; a database or ledger that does not exist
+   * yet reads as nothing applied.
+   */
+  async readMigrationLedger(companyId: string): Promise<string[]> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) {
+      throw new Error(`Invalid companyId: ${companyId}`);
+    }
+    await this.residency.assert(companyId);
+    let conn = await this.acquireRoot();
+    try {
+      conn = await this.ensureSession(conn, 'root');
+      return await readMigrationLedgerIds(conn, this.namespace, `co_${companyId}`);
+    } finally {
+      this.releaseRoot(conn);
+    }
   }
 
   /**
