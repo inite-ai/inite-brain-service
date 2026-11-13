@@ -682,12 +682,13 @@ jobs:
                 - OPENAI_FALLBACK_BASE_URL=https://openrouter.ai/api/v1
                 - TYPESAFE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
                 - TYPESAFE_BASE_URL=https://openrouter.ai/api
-                # bge-m3 over HTTP from the same OpenRouter account: the
-                # local model's 51 s of queued single embeds per ingest
-                # (2 vCPU) becomes one 0.8 s request. The local model stays
-                # loaded as the fallback. Same key, same account — the
-                # embeddings cost $0.01 per million tokens.
-                - BGE_M3_REMOTE_API_KEY=${BRAIN_TYPESAFE_API_KEY}
+                # Embeddings stay on the in-process bge-m3 only: no key, no
+                # provider bill, nothing leaves the host (#945). The remote
+                # bge-m3 over OpenRouter (BGE_M3_REMOTE_API_KEY) was a speed-up
+                # — one 0.8 s request instead of ~51 s of queued local embeds
+                # per ingest on 2 vCPU — and it is off: on 2026-11-13 the
+                # account ran dry and every ingest paid a failed request
+                # before the local fallback took over.
                 # OpenAI client budget — same as eval. Per-stage budgets
                 # in search.service.ts (SEARCH_STAGE_BUDGET_MS) cap the
                 # end-to-end pipeline regardless of what individual calls
