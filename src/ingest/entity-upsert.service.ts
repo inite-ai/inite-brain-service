@@ -20,6 +20,7 @@ import { analyzeConfusables } from '../common/text-sanitizer';
 import { nameKey, nameKeysFor } from '../common/name-key';
 import { traceArtifact } from '../common/debug-trace';
 import { isPronounReference } from '../common/coreference';
+import { entityTypeFields, normalizeEntityType } from '../common/entity-types';
 import type { ParticipantHint } from './participants';
 
 /**
@@ -145,7 +146,9 @@ export class EntityUpsertService {
       : externalRefKey(ref.vertical, ref.id);
     return this.upsertEntityByExternalRef(db, refKey, {
       factory: () => ({
-        type: 'other',
+        // The user's own node is a person, whatever else the reference
+        // names is unknown here (0195: it used to be `other` too).
+        type: own ? 'person' : 'other',
         canonicalName: ref.id,
         externalRefs: { [refKey]: ref.id },
         // G6 step 1: the user's own node carries the scope as userId +
@@ -249,7 +252,14 @@ export class EntityUpsertService {
     onStep,
   }: {
     db: Surreal;
-    e: { name: string; type: string; canonical?: string | undefined; known?: string | undefined };
+    e: {
+      name: string;
+      type: string;
+      /** The type as extracted, when an upstream normaliser folded it (0195). */
+      typeRaw?: string | undefined;
+      canonical?: string | undefined;
+      known?: string | undefined;
+    };
     hint: ParticipantHint | undefined;
     _contextRef: { vertical: string };
     incomingFacts?: string[];
@@ -276,7 +286,7 @@ export class EntityUpsertService {
       onStep?.(step);
       traceArtifact('ingest.entity.resolution', {
         name: e.name,
-        type: this.normalizeEntityType(e.type),
+        type: normalizeEntityType(e.type),
         step,
         entityId,
       });
@@ -296,7 +306,7 @@ export class EntityUpsertService {
       const named = participantSurfaces(e, hint);
       const id = await this.upsertEntityByExternalRef(db, hintKey, {
         factory: () => ({
-          type: this.normalizeEntityType(e.type),
+          ...entityTypeFields(e.type, e.typeRaw),
           canonicalName: named.canonical,
           aliases: named.aliases,
           nameKeys: nameKeysFor(named.aliases),
@@ -378,7 +388,8 @@ export class EntityUpsertService {
 
     const aliases = this.seedAliases(e);
     const created = await dbCreate<{ id: unknown }>(db, 'knowledge_entity', {
-      type: this.normalizeEntityType(e.type),
+      // The core type, and what was extracted when it is not that (0195).
+      ...entityTypeFields(e.type, e.typeRaw),
       canonicalName: e.canonical ?? e.name,
       aliases,
       // Every spelling this entity is born knowing, keyed by script-folded
@@ -567,7 +578,7 @@ export class EntityUpsertService {
       .resolveByName({
         db: p.db,
         name: p.e.canonical ?? p.e.name,
-        type: this.normalizeEntityType(p.e.type),
+        type: normalizeEntityType(p.e.type),
         incomingFacts: p.incomingFacts ?? [],
       })
       .catch(() => null);
@@ -886,11 +897,6 @@ export class EntityUpsertService {
       // the edge points at a node nothing else references.
       adopt: () => this.adoptByReferenceId(db, r.id),
     });
-  }
-
-  private normalizeEntityType(t: string): string {
-    const allowed = ['customer', 'staff', 'asset', 'project', 'topic', 'location', 'other'];
-    return allowed.includes(t) ? t : 'other';
   }
 
   /**

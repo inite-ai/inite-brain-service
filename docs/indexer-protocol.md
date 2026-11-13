@@ -226,6 +226,10 @@ Caps: 200 items per kind per submission; entity names ≤ 256 chars, fact
 objects ≤ 2000 chars. Submissions are throttled at 10/min per
 credential.
 
+An entity's `type` is one of the core entity types
+([data model](data-model.md#entity-types)); any other value is stored as
+`other`, with what you sent kept on the entity as `typeRaw`.
+
 **Episodic candidates (`scenes` / `stateDeltas`, migration 0110).** When
 the operator enables `PACK_MEMORY_PROJECTIONS_ENABLED` (default off — the
 arrays are rejected 400 otherwise), a pack that declares a manifest

@@ -536,6 +536,9 @@ export class CandidateStoreService {
             entityIndex: e.entityIndex,
             name: e.name,
             type: e.type,
+            // What the extractor / submitter wrote when it was not a core
+            // type (0195) — absent otherwise, so those rows are unchanged.
+            ...(e.typeRaw ? { typeRaw: e.typeRaw } : {}),
             canonical: e.canonical,
             ...(e.externalId ? { externalId: e.externalId } : {}),
             // The memory-context pin (extractor-internals/memory-context):

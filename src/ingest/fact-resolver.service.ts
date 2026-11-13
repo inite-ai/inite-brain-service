@@ -35,6 +35,7 @@ import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory
 import { followNameFact } from './entity-name';
 import { UNKNOWN_START } from './event-time';
 import { stampExpectation } from './fact-expectation';
+import { PERSON_ENTITY_TYPES } from '../common/entity-types';
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -208,13 +209,6 @@ export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * Person-typed extraction subjects (customer | staff — the speaker is
- * also one of these): what "a person's own lifecycle history" means
- * here.
- */
-const PERSON_ENTITY_TYPES: ReadonlySet<string> = new Set(['customer', 'staff']);
-
-/**
  * Alias entries that additionally require a KNOWN non-person subject
  * (guard (b) of the state_change entry above). Membership is per-entry:
  * duration_limit is a service/system predicate by its own seed card and
@@ -384,9 +378,8 @@ export class FactResolverService {
        */
       sourceLang?: string | undefined;
       /**
-       * Extraction type of the subject entity (the closed extractor
-       * vocabulary: customer | staff | asset | project | topic |
-       * location | other), when the caller has it — the mention path
+       * Extraction type of the subject entity (the core list,
+       * src/common/entity-types.ts), when the caller has it — the mention path
        * resolves entities before facts and threads it through. Read
        * ONLY by the slot-canonicalization non-person guard
        * (canonicalSlotFor); absent ⇒ the guarded aliases miss
