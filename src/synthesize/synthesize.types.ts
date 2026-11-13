@@ -2,6 +2,7 @@ import type { SearchHit } from '../search/search.service';
 import type { EvidenceCapability } from '../common/evidence-taxonomy';
 import type { DecisionLogEntry } from './decision-log';
 import type { Citation } from './fact-index';
+import type { ServerModelsNotice } from '../ai/provider-failure';
 
 /**
  * Public result/IO types of the synthesize pipeline. Split out of
@@ -43,7 +44,17 @@ export type SynthesisReason =
   | 'harness_mode'
   /** The tenant's daily model budget is spent; the caller answers from `results`. */
   | 'model_budget'
-  | 'verifier_error';
+  | 'verifier_error'
+  /**
+   * #945: the server's model provider refused the generator or the
+   * verifier (billing, key, quota, outage). Never `low_coverage` or
+   * `verifier_failed`: an unpaid invoice is not an absence of memory.
+   * `degraded` names the stage, `notice` the way around it.
+   */
+  | 'model_unavailable';
+
+/** A synthesize stage the provider refused (#945). */
+export type SynthesisDegradation = 'generator' | 'verifier';
 
 /**
  * Evidence-capability axis (0113): what KIND of evidence a claim can be
@@ -159,6 +170,10 @@ export interface SynthesizeResult {
    * every freshly synthesized answer.
    */
   cached?: boolean;
+  /** #945: the stages a provider refusal kept from running; only with `model_unavailable`. */
+  degraded?: SynthesisDegradation[];
+  /** #945: the server-models notice, present with `degraded`. */
+  notice?: ServerModelsNotice;
 }
 
 /** The generator call's parsed output (strict-JSON schema shape). */

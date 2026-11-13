@@ -252,6 +252,38 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.15] }
 
+      # The 2026-11-13 incident (#945): the provider account answered
+      # 402 for hours while the error ratio above stayed under its bar
+      # (most calls were cheap and still served). Billing and key failures
+      # never heal by waiting, so any of them pages.
+      - uid: brain-provider-billing-or-key
+        title: ProviderBillingOrKeyFailing
+        condition: C
+        for: 0s
+        noDataState: OK # scrape-down alert covers series absence
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: a model provider refused calls for billing (402 / exhausted credit) or key (401/403) reasons in the last 10m — top up or rotate the key; label capability says embed or chat (docs/operations.md § Server model provider health)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: sum(increase(brain_provider_failures_total{class=~"billing|key"}[10m])) or vector(0)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
       # ── Capability probes ────────────────────────────────────────────
       # The active counterpart to /ready. Readiness is polled at DEPLOY
       # time; the scoped pool that went anonymous ~59 minutes after boot

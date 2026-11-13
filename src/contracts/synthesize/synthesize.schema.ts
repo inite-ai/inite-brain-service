@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { EVIDENCE_CAPABILITIES } from '../../common/evidence-taxonomy';
 import { SearchHitSchema, SearchRequestSchema } from '../search/search.schema';
+import {
+  ServerModelsNoticeSchema,
+  SYNTHESIS_DEGRADATIONS,
+} from '../common/server-models-notice.schema';
 
 /**
  * Wire contracts for POST /v1/synthesize — corrective-RAG over the
@@ -67,6 +71,12 @@ export const SynthesisReasonSchema = z.enum([
   /** The workspace spent today's model budget; `results` carry the evidence to answer from. */
   'model_budget',
   'verifier_error',
+  /**
+   * The server's model provider refused the generator or the verifier
+   * (billing, key, quota, outage — #945). Not an absence of memory:
+   * `degraded` names the stage and `notice` the way around it.
+   */
+  'model_unavailable',
 ]);
 
 /**
@@ -117,6 +127,15 @@ export const SynthesizeResponseSchema = z.object({
    * live rows, and `results` is empty because retrieval never ran.
    */
   cached: z.boolean().optional(),
+  /**
+   * Stages that could not run because the server's model provider
+   * refused them (#945): `generator` (no answer was produced) or
+   * `verifier` (the answer, when present, is unchecked). Present only
+   * with reason `model_unavailable`.
+   */
+  degraded: z.array(z.enum(SYNTHESIS_DEGRADATIONS)).optional(),
+  /** Why, and what to do about it (BYOK or harness mode). Present with `degraded`. */
+  notice: ServerModelsNoticeSchema.optional(),
 });
 
 export type SynthesizeRequest = z.infer<typeof SynthesizeRequestSchema>;

@@ -36,6 +36,7 @@ import { selectFactCentric } from './internals/fact-centric';
 import { enrichWithUsage, recordFactUsage } from './internals/usage';
 import { enrichWithOutcomeStats } from './internals/outcome-stats';
 import { assembleHits, applyOutputShaping } from './internals/response-builder';
+import { SERVER_MODELS_NOTICE, type ServerModelsNotice } from '../ai/provider-failure';
 import { assembleGraphHits, type GraphRetrieveHit } from './internals/graph-retrieve';
 import {
   fetchEntitiesByIds,
@@ -394,6 +395,7 @@ export class SearchService {
   ): Promise<{
     results: SearchHit[];
     degraded?: SearchDegradation[];
+    notice?: ServerModelsNotice;
     linked?: LinkedSourceResult[];
   }> {
     // Defence-in-depth clamp. SearchDto.@MaxLength catches caller-direct
@@ -468,6 +470,7 @@ export class SearchService {
       // scoring factor is exactly 1.0.
       queryRange: profile.timeFilter ? parseQueryTimeRange(dto.query) : null,
       degraded: new Set(),
+      providerFailures: new Set(),
     };
     // Audit W4 #20: only the DB-touching stages run inside the scoped
     // connection; the cross-encoder pass and the external LLM rerank —
@@ -785,7 +788,11 @@ export class SearchService {
   private async rankAndAssemble(
     staged: StagedPipeline,
     ctx: PipelineContext,
-  ): Promise<{ results: SearchHit[]; degraded?: SearchDegradation[] }> {
+  ): Promise<{
+    results: SearchHit[];
+    degraded?: SearchDegradation[];
+    notice?: ServerModelsNotice;
+  }> {
     const { byEntity, rowPolicy, neighboursByEntity } = staged;
     // 7. Cross-encoder + LLM rerank, with the fact-level cross-encoder
     // rescoring (July A3, profile-gated) riding beside the LLM call: the
@@ -839,7 +846,10 @@ export class SearchService {
     });
     rowPolicy.finish();
     const results = await applyOutputShaping(hits, ctx.dto, this.workerPool, ctx.tuning);
-    return ctx.degraded?.size ? { results, degraded: [...ctx.degraded] } : { results };
+    if (!ctx.degraded?.size) return { results };
+    // #945: a stage the provider refused for an account reason says so.
+    const notice = ctx.providerFailures?.size ? { notice: SERVER_MODELS_NOTICE } : {};
+    return { results, degraded: [...ctx.degraded], ...notice };
   }
 
   private async runEdgeExpansionStage({

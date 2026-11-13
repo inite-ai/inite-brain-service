@@ -1135,6 +1135,45 @@ so `outcome="internal_error"` is the only place it shows. The SLOs built on
 them, their burn-rate alerts and the error budget policy are in
 [slo.md](slo.md).
 
+## Server model provider health
+
+Every model-provider call records its outcome: the OpenAI chat router, the
+decision plane (Jev), the remote bge-m3 embedder and the OpenAI embedder
+(#945). A failure is classified as `billing` (402, or OpenAI's
+`insufficient_quota` 429), `key` (401/403), `quota` (429), `outage` (5xx,
+network, timeout, an open circuit) or `other`. Harness mode's deliberate
+refusal is not counted.
+
+- **Metric:** `brain_provider_failures_total{capability,class}`, where
+  `capability` is `embed` or `chat`. Counted per call, so a primary refusal
+  the fallback then served still shows.
+- **Alert:** `ProviderBillingOrKeyFailing` (critical) fires when any
+  `billing` or `key` failure happened in the last 10 minutes. Neither class
+  heals by waiting.
+- **Status:** `about_brain` and `workspace_status` report
+  `serverModels: { state, capabilities: { embed, chat }, since? }`. A
+  capability is `degraded` while one of its providers' latest outcome is an
+  unavailability failure, and `ok` again after that provider's next success.
+- **What callers see:** `synthesize` answers `reason: model_unavailable`
+  with `degraded` and a `notice`, never `low_coverage`
+  ([api.md § Server model outages](api.md#server-model-outages)). A hybrid
+  search adds the notice to `degraded: ["vector_leg"]` when the embedder was
+  refused for billing, key or quota reasons.
+
+When the alert fires:
+
+1. Read the `capability` label and the logs. `remote bge-m3 failed (billing: …)`
+   is the embedder; `[decide.<lane>] billing: …` and
+   `Synthesize verifier failed (billing)` are chat.
+2. Top up the provider account, or rotate the key (`OPENAI_API_KEY`,
+   `TYPESAFE_API_KEY`, `BGE_M3_REMOTE_API_KEY`).
+3. For embeddings, the in-process model needs no key: with
+   `EMBEDDER_PROVIDER=bge-m3`, unset `BGE_M3_REMOTE_API_KEY` and the local
+   ONNX model serves in the same 1024-d space. No re-embed is needed. While
+   the remote is failing, the local model already answers when it is warm.
+4. For chat, `EXTRACTION_SOURCE=harness` stops every server-side chat call.
+   Connected agents then read and answer with their own models.
+
 ## Capability probes
 
 The failure class: **the service reports healthy while a whole capability is

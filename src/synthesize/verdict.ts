@@ -5,6 +5,7 @@ import type { SynthesisGuardrails } from './dto/synthesize.dto';
 import { buildDecisionLog, type DecisionLogEntry } from './decision-log';
 import { assessMemoryCoverage, NOT_IN_MEMORY_ANSWER } from './abstention';
 import { attachDecisionLog } from './synthesize.helpers';
+import { modelUnavailableResult } from './model-unavailable';
 import type { Citation } from './fact-index';
 import type {
   EvidenceCitation,
@@ -95,6 +96,7 @@ export function finalizeVerdict(
     evidenceCapabilityUnmet,
     ungroundedOnlySupport,
     evidenceCitations,
+    verifierUnavailable,
   }: {
     verdict: 'supported' | 'partial' | 'unsupported';
     questionAnswered?: boolean | undefined;
@@ -133,8 +135,27 @@ export function finalizeVerdict(
      * non-empty. Abstain/downgrade branches never carry them.
      */
     evidenceCitations?: EvidenceCitation[] | undefined;
+    /**
+     * #945: part of the audit could not run because the server's model
+     * provider refused it (the decision-plane pass, a revise rewrite, the
+     * zoom re-verify — resolved by the service from the audit's provider
+     * scope). A non-supported verdict reached that way is not a judgment
+     * on the memory: it exits `model_unavailable`. Absent/false ⇒
+     * byte-identical to the matrix below.
+     */
+    verifierUnavailable?: boolean | undefined;
   },
 ): SynthesizeResult {
+  if (verdict !== 'supported' && verifierUnavailable) {
+    return modelUnavailableResult(deps.metrics, {
+      stage: 'verifier',
+      guardrails,
+      answer,
+      citations,
+      results,
+      decisionLog,
+    });
+  }
   if (verdict === 'supported') {
     return serveSupported(deps, {
       questionAnswered,

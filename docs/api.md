@@ -154,7 +154,7 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | Endpoint                                   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/search`                          | Hybrid (vector + BM25), router-boosted, listwise rerank w/ self-consistency, per-leg CI, entity-fact backfill. `userId` scopes results to tenant-global + that user's personal memory (fail-closed: omitted → global only); also on `/synthesize` and `/search/multi-hop`. On `/synthesize` the userId also names the asker: the query's "I"/"my" is the user's own entity, and the answer addresses them. When the query cannot be embedded (embedder warming up or down) a hybrid search answers lexical-only and carries `degraded: ["vector_leg"]`; retry later for the full ranking. See [Architecture § Retrieval pipeline](architecture.md#retrieval-pipeline). |
-| `POST /v1/synthesize`                      | Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer. See [Architecture § Synthesize](architecture.md#synthesize-corrective-rag).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `POST /v1/synthesize`                      | Corrective-RAG with strict / lenient / off guardrails + claim-level faithfulness scorer. Provider outage: `model_unavailable` ([below](#server-model-outages)). See [Architecture § Synthesize](architecture.md#synthesize-corrective-rag).                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `POST /v1/search/multi-hop`                | Planner-LLM decomposes the query into ≤N anchored sub-queries; carries supportingFactIds for HotpotQA-style joint-F1 eval. See [Architecture § Multi-hop](architecture.md#multi-hop-search).                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `GET /v1/entities/autocomplete?q=`         | Entity-name typeahead over the edge-ngram `prefix` fulltext index (word-start match, BM25-ranked via `search::score`). `?limit=` 1–25 (default 10); a query under 2 chars returns empty. Live, tenant-global entities only (merged-away redirects and personal-scoped entities excluded).                                                                                                                                                                                                                                                                                                                                                                              |
 | `GET /v1/entities/:id`                     | Entity profile + active facts (PII-gated by scope). `?asOf=` slices world-time; `?recordedAt=` slices transaction-time (what the graph believed at T — a later retract/supersede is ignored).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -172,6 +172,41 @@ Protocol: [indexer-protocol.md](indexer-protocol.md).
 | `GET /v1/communities/search`               | Vector search over community summaries.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `GET /v1/communities/for-entity/:entityId` | Communities an entity belongs to.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `GET /v1/stats/overview`                   | Tenant-level counts (entities / facts / edges) for dashboards.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+### Server model outages
+
+When the server's model provider refuses a call (billing `402`, key
+`401`/`403`, quota `429`, outage `5xx` or timeout), the response says so
+instead of reading as a verdict on the memory (#945):
+
+```json
+{
+  "answer": null,
+  "reason": "model_unavailable",
+  "citations": [],
+  "results": [],
+  "degraded": ["verifier"],
+  "notice": {
+    "code": "server_models_unavailable",
+    "message": "The server's model provider is unavailable, so this answer could not be checked. Use your own provider key (BYOK) or connect an agent in harness mode."
+  }
+}
+```
+
+- `reason: "model_unavailable"` is never `low_coverage`, `verifier_failed`
+  or the "not in memory" text. It is not an answer about what the memory
+  holds.
+- `degraded: ["generator"]`: no answer was generated, in any guardrail mode.
+  `results` still carry the evidence.
+- `degraded: ["verifier"]`: the answer could not be checked. Either the
+  verifier call itself was refused, or part of the audit was (the
+  decision-plane pass, a revision, a re-verify) and the verdict came back
+  negative. `strict` returns `answer: null`. `lenient` returns the generated
+  answer and its citations, tagged with this reason, because it is unchecked
+  rather than refuted. A supported verdict is served as usual.
+- A `model_unavailable` result is never cached.
+- On `/v1/search` the same `notice` rides beside `degraded: ["vector_leg"]`
+  when the embedder was refused for billing, key or quota reasons.
 
 ## Raw-substrate driver (episodes + projections)
 

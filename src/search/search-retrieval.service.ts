@@ -16,6 +16,7 @@ import { runSegmentLegs } from './internals/segment-leg';
 import { runRelationLeg } from './internals/relation-leg';
 import { PipelineContext } from './pipeline-context';
 import { resolveSearchTuning, type SearchTuning } from './retrieval-profile';
+import { classifyProviderFailure } from '../ai/provider-failure';
 
 /** Minimum gap between two "vector leg degraded" warnings. */
 const DEGRADE_WARN_THROTTLE_MS = 10_000;
@@ -147,6 +148,11 @@ export class SearchRetrievalService {
 
   private noteVectorLegDegraded(ctx: PipelineContext, err: Error): void {
     ctx.degraded?.add('vector_leg');
+    // An embedder the provider refused for an account reason (billing,
+    // key, quota) is announced, not just retried (#945): retrying will not
+    // bring the vector leg back until someone acts.
+    const cls = classifyProviderFailure(err);
+    if (cls === 'billing' || cls === 'key' || cls === 'quota') ctx.providerFailures?.add(cls);
     const reason =
       err instanceof ServiceUnavailableException || /not ready|worker/i.test(err.message)
         ? 'embedder_unavailable'

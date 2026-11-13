@@ -17,6 +17,7 @@ import {
 import { buildDecisionLog } from './decision-log';
 import { buildGeneratorArgs, resolveCitations, resolveLaneDateContext } from './synthesize.helpers';
 import type { DecisionContext } from './decision-emit';
+import { noteProviderFailureInScope, withProviderFailureScope } from '../ai/provider-health';
 
 /**
  * The revision round: when the grounding audit returns `partial`, the
@@ -106,6 +107,9 @@ async function reviseUnsupported(
     deps.metrics?.countSynthesize('revised');
     return { generated: revised, verdict: reverified.verdict };
   } catch (err) {
+    // A rewrite the provider refused leaves the partial verdict standing;
+    // the audit scope learns why (#945), so it is not served as final.
+    noteProviderFailureInScope('chat', err);
     deps.logger.warn(
       `revision round failed (${(err as Error).message}) — keeping the audited answer`,
     );
@@ -161,6 +165,38 @@ export interface AuditedAnswer {
   decisionLog: DecisionLogEntry[] | undefined;
 }
 
+/** The audited answer, plus whether a provider refusal undermines its verdict. */
+export interface AuditOutcome extends AuditedAnswer {
+  /**
+   * #945: part of the audit (the decision-plane pass, the rewrite, a
+   * re-verify, the zoom) was refused by the model provider AND the verdict
+   * is not `supported` — a negative reached that way is not a judgment on
+   * the memory; finalizeVerdict exits `model_unavailable`.
+   */
+  verifierUnavailable: boolean;
+}
+
+/**
+ * auditAndRevise inside a provider-failure scope (provider-health.ts): the
+ * scope collects every unavailability failure a provider call inside the
+ * audit ran into, which is what tells "the auditor judged this answer
+ * unsupported" from "the audit could not run in full". On 2026-11-13 the
+ * decision plane answered 402 — its catch returned null, the stricter full
+ * auditor judged alone, and its negative verdict was served as
+ * `verifier_failed` / "not in memory".
+ */
+export async function auditAndRevise(
+  ports: AuditPorts,
+  args: AuditArgs,
+): Promise<AuditOutcome | { failed: SynthesizeResult }> {
+  const { value, failures } = await withProviderFailureScope(() => auditStage(ports, args));
+  if ('failed' in value) return value;
+  return {
+    ...value,
+    verifierUnavailable: failures.length > 0 && value.verdict.verdict !== 'supported',
+  };
+}
+
 /**
  * The audit stage of the primary serve: the verifier (plus the MM-zoom
  * step, fragment-zoom-seam.ts) over the generated answer, then the
@@ -170,7 +206,7 @@ export interface AuditedAnswer {
  * reads the same "today" the generator was given (dateContext), so
  * calendar placement is judged, not flagged.
  */
-export async function auditAndRevise(
+async function auditStage(
   ports: AuditPorts,
   args: AuditArgs,
 ): Promise<AuditedAnswer | { failed: SynthesizeResult }> {

@@ -14,6 +14,7 @@ import {
 import type { SearchDto } from '../src/search/dto/search.dto';
 import type { SearchHit } from '../src/search/search.types';
 import type { ScoreBreakdown } from '../src/search/internals/types';
+import { SERVER_MODELS_NOTICE } from '../src/ai/provider-failure';
 
 const expectKeys = (shape: Record<string, unknown>, sample: Record<string, unknown>) =>
   expect(Object.keys(shape).sort()).toEqual(Object.keys(sample).sort());
@@ -94,6 +95,14 @@ describe('search wire contracts', () => {
     expect(() =>
       SearchResponseSchema.parse({ results: [fullSearchHit], degraded: ['rerank'] }),
     ).toThrow();
+    // #945: an embedder the provider refused for an account reason says so.
+    expect(() =>
+      SearchResponseSchema.parse({
+        results: [fullSearchHit],
+        degraded: ['vector_leg'],
+        notice: SERVER_MODELS_NOTICE,
+      }),
+    ).not.toThrow();
   });
 
   it('pins every request/response key on both sides', () => {
@@ -103,7 +112,12 @@ describe('search wire contracts', () => {
     // `linked` (W7) is another system's answer, offered BESIDE the
     // ranking and never inside it — present only when a linked
     // connection answered.
-    expect(Object.keys(SearchResponseSchema.shape)).toEqual(['results', 'linked', 'degraded']);
+    expect(Object.keys(SearchResponseSchema.shape)).toEqual([
+      'results',
+      'linked',
+      'degraded',
+      'notice',
+    ]);
   });
 
   it('rejects an unknown request key (the pipe forbids non-whitelisted)', () => {
