@@ -4,11 +4,7 @@ import type { EmbedderService } from '../../ai/embedder.service';
 import type { FactRow } from './types';
 import type { SearchTuning } from '../retrieval-profile';
 import { buildEdgeFence, type EdgeFence } from './edge-fence';
-import {
-  knnIndexKnownUnusable,
-  knnOperatorDropped,
-  noteKnnOperatorDropped,
-} from '../../db/knn-index';
+import { knnIndexUsable, knnOperatorDropped, noteKnnOperatorDropped } from '../../db/knn-index';
 
 /** The index the fact vector leg rides; named here for the diagnostic. */
 const FACT_HNSW = { table: 'knowledge_fact', index: 'fact_embedding_hnsw' } as const;
@@ -79,18 +75,16 @@ export async function runVectorLeg({
 }: RunVectorLegOptions): Promise<FactRow[]> {
   const queryEmbedding = await embedder.embed(query);
   // HNSW path (opt-in): approximate KNN over the per-tenant indexes
-  // created by POST /v1/admin/maintenance/hnsw. Two ways it can miss, and
-  // only one of them is an exception:
-  //
-  //   - the statement throws → the legacy catch below;
-  //   - the statement SUCCEEDS with the KNN operator silently dropped from
-  //     the plan, because the tenant has no (or a still-building) index —
-  //     unranked table-order rows with a NULL distance (src/db/knn-index.ts).
-  //
-  // Both fall back to the exact scan below, byte-identical to what the
-  // tenant is served with the flag off. A tenant observed un-indexed within
-  // the memo TTL skips the KNN attempt outright — one scan, no diagnostics.
-  if (tuning.hnswEnabled && !knnIndexKnownUnusable(db, FACT_HNSW)) {
+  // created by POST /v1/admin/maintenance/hnsw. The index state is asked of
+  // the catalogue first (knnIndexUsable, memoized per tenant): what a KNN
+  // statement over a missing index RETURNS changed across engine versions
+  // (3.2: rows with a null distance; 3.3: no rows; 4.0.1: an error), so it
+  // cannot be the detector. The result checks stay as a second guard:
+  //   - the statement throws → the catch below;
+  //   - the operator was dropped (3.2 shape) → noted, exact scan.
+  // Every miss falls back to the exact scan below, byte-identical to what
+  // the tenant is served with the flag off.
+  if (tuning.hnswEnabled && (await knnIndexUsable(db, FACT_HNSW, { logger }))) {
     try {
       const knnRows = await runVectorLegKnn({ db, queryEmbedding, k, baseWhere, tuning });
       if (knnRows !== null) return knnRows;
