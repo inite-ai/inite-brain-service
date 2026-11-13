@@ -1,4 +1,5 @@
 import type { RecordEnvelope } from '../connector';
+import type { EntityType } from '../../common/entity-types';
 
 /**
  * The records door's contract (docs/roadmap/crm-sources-2026-09.md
@@ -15,9 +16,8 @@ import type { RecordEnvelope } from '../connector';
  * vendor whose data needs more shapes it in its connector.
  */
 
-/** The entity classes the pipeline knows (extractor-internals/types.ts). */
-export type CoreEntityType =
-  'customer' | 'staff' | 'asset' | 'project' | 'topic' | 'location' | 'other';
+/** The entity classes the pipeline knows (src/common/entity-types.ts). */
+export type CoreEntityType = EntityType;
 
 export interface EntityMapping {
   /** Attribute key → predicate: a pack `localId` (bare), or a core predicate name (`email`). */

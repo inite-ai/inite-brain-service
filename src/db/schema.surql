@@ -22,8 +22,12 @@
 -- ─── KnowledgeEntity ─────────────────────────────────────────────────────
 DEFINE TABLE IF NOT EXISTS knowledge_entity SCHEMAFULL;
 
+-- The list is src/common/entity-types.ts (widened in 0195).
 DEFINE FIELD IF NOT EXISTS type            ON knowledge_entity TYPE string
-  ASSERT $value INSIDE ['customer','staff','asset','project','topic','location','other'];
+  ASSERT $value INSIDE ['customer','staff','person','organization','asset','project','document','topic','location','other'];
+-- The type as extracted, when it was normalised away from it (0195).
+DEFINE FIELD IF NOT EXISTS typeRaw         ON knowledge_entity TYPE option<string>
+  ASSERT $value = NONE OR string::len($value) <= 64;
 DEFINE FIELD IF NOT EXISTS canonicalName   ON knowledge_entity TYPE string;
 DEFINE FIELD IF NOT EXISTS aliases         ON knowledge_entity TYPE option<array<string>>;
 -- FLEXIBLE keeps arbitrary dynamic keys (vertical.entityId pairs) on a

@@ -6,6 +6,7 @@ import {
   type RawExtractedFact,
 } from './types';
 import type { ExtractionPipelineProfile } from '../extraction-profile';
+import { classifyEntityType } from '../../common/entity-types';
 
 /**
  * Whitespace-collapsed, lower-cased view of a string used for
@@ -146,22 +147,12 @@ export function groundEntities(
   });
 }
 
-const ALLOWED_ENTITY_TYPES = new Set([
-  'customer',
-  'staff',
-  'asset',
-  'project',
-  'topic',
-  'location',
-  'other',
-]);
-
-export function normalizeEntityType(t: unknown): ExtractedEntity['type'] {
-  if (typeof t === 'string' && ALLOWED_ENTITY_TYPES.has(t)) {
-    return t as ExtractedEntity['type'];
-  }
-  return 'other';
-}
+/**
+ * The core entity type a written type folds onto — the list lives in
+ * src/common/entity-types.ts; re-exported here for the extractor's
+ * callers. `classifyEntityType` also returns what was written.
+ */
+export { classifyEntityType, normalizeEntityType } from '../../common/entity-types';
 
 /** Parse the entities[] array from the raw LLM JSON. */
 export function parseEntities(parsed: unknown, memory?: MemoryContext): ExtractedEntity[] {
@@ -175,7 +166,7 @@ export function parseEntities(parsed: unknown, memory?: MemoryContext): Extracte
     const known = knownEntityId(memory, e.known);
     out.push({
       name: e.name.trim(),
-      type: normalizeEntityType(e.type),
+      ...classifyEntityType(e.type),
       canonical: typeof e.canonical === 'string' ? e.canonical.trim() : undefined,
       ...(known ? { known } : {}),
     });
