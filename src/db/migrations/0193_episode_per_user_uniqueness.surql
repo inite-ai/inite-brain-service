@@ -19,12 +19,17 @@
 -- writing rows without them during a rolling deploy; the VALUE clause
 -- fills them in.
 --
--- BACKFILL. Every row gets its keys. A row that duplicates an earlier
--- row's (user, conversation, message) — possible where the old index let
--- a NONE through — gets its own id appended to conversationKey, so the
--- UNIQUE index (0198, its own transaction) always builds; no row is
--- deleted. No WHERE on an indexed field (the 3.2.4 silent no-op class):
--- the UPDATE walks the table.
+-- BACKFILL. Every row gets its keys. Rows that would still collide on
+-- (user, conversation, message) — possible where the old index let a NONE
+-- through — keep one row as is and get their own id appended to
+-- conversationKey, so the UNIQUE index (0198, its own transaction) always
+-- builds; no row is deleted. Found by applying this file to a copy of a
+-- production tenant before release: the first draft picked "the first row
+-- of its group" with a correlated subquery on `$parent`, which does not
+-- reach the updated row inside UPDATE … SET on 3.2.4 — every row read as a
+-- duplicate. So the keys are written first and the collisions found with a
+-- GROUP BY afterwards. No WHERE on an indexed field (the 3.2.4 silent no-op
+-- class): the first UPDATE walks the table, the second addresses ids.
 
 REMOVE INDEX IF EXISTS episode_msg_uq ON episode;
 
@@ -35,14 +40,16 @@ DEFINE FIELD IF NOT EXISTS conversationKey ON episode TYPE string
 
 UPDATE episode SET
   ownerKey = userId ?? '',
-  conversationKey = IF (
-    SELECT VALUE id FROM episode
-     WHERE userId = $parent.userId
-       AND conversationId = $parent.conversationId
-       AND messageId = $parent.messageId
-     ORDER BY recordedAt, id
-     LIMIT 1
-  )[0] = id
-    THEN conversationId ?? ''
-    ELSE string::concat(conversationId ?? '', '#', <string>id)
-  END;
+  conversationKey = conversationId ?? '';
+
+LET $dupGroups = (
+  SELECT ownerKey, conversationKey, messageId, array::group(id) AS ids, count() AS n
+    FROM episode
+   GROUP BY ownerKey, conversationKey, messageId
+).filter(|$g| $g.n > 1);
+
+FOR $g IN $dupGroups {
+  FOR $rid IN array::slice($g.ids, 1) {
+    UPDATE $rid SET conversationKey = string::concat(conversationKey, '#', <string>id);
+  };
+};
