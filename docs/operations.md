@@ -1255,6 +1255,57 @@ A 25s deadline forces `exit(1)` if any of that hangs, inside compose's
 `stop_grace_period: 30s`, so docker / fly / k8s never `SIGKILL` you with
 no log line.
 
+## Schema migrations
+
+Every database (each tenant's `co_<companyId>`, and the platform's
+`system`) is migrated lazily: the first request that enters it runs
+`SurrealService.ensureSchema`, which applies every pending file in
+`src/db/migrations/` in order on a dedicated root connection. Each file
+lands together with its `schema_migrations` row in one transaction.
+
+**Across replicas** a per-database lease (`leader_lease` in `system`, TTL
+30 s) decides who applies. A replica that loses the race waits up to 60 s
+for the holder, then re-reads the ledger and applies only what is left. The
+holder renews the lease on a timer every 10 s **while a file runs**, not
+only between files, so a single long data leg keeps the lease. If a
+renewal finds another holder, or keeps failing until the lease would
+expire, the run stops at the next file boundary with `Lost migration lock`.
+A transaction already in flight cannot be cancelled, but no new file starts.
+
+**Checksums** are validated once per database per process (not once per
+connection): a ledger row whose recorded checksum differs from the shipped
+file is counted in `brain_migration_drift` and logged by migration id, and
+is never re-applied.
+
+**A failing migration does not storm.** When a schema apply fails for a
+database, that database enters a cooldown of 30 s, doubling with each
+consecutive failure up to 15 min. During the cooldown every request for
+that tenant answers **503** at once (`Workspace schema migration is
+failing; retrying in Ns`, with no tenant data) instead of re-running the
+failing file inside the global schema queue. The first request after the
+cooldown retries once; a success clears the state. The cooldown is per
+replica, held in memory. A restart clears it. `/ready` is unchanged: one
+failing tenant does not take a replica out of rotation.
+
+| Metric                                      | Meaning                                                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `brain_migration_failures_total{migration}` | Failed schema applies since boot, by migration id. `none` = not attributable to one file (lease wait timeout, dropped connection). Never labelled by tenant. |
+| `brain_migration_blocked{migration}`        | Tenants whose next migration fails to apply, by the file that fails. They answer 503 while their backoff runs.                                               |
+| `brain_migration_drift{migration}`          | Tenants whose applied file differs from the shipped one (an edited shipped migration).                                                                       |
+
+The **`MigrationBlocked`** alert (critical) fires when
+`brain_migration_blocked` stays above 0 for 5 minutes. To act on it: find the
+migration id in `brain_migration_failures_total` and the cause in the log
+line `Schema apply failed for <ns>/<db>`. Fix the file's problem by shipping
+a NEW migration (never edit a shipped one), or repair the tenant's data by
+hand, then wait for the next retry or restart the replica.
+
+`GET /v1/admin/migrations` reads each tenant's ledger **as it is**, without
+migrating it first. A tenant behind the manifest shows its pending files. A
+tenant whose ledger cannot be read is listed with `error: "ledger read
+failed"` and empty `applied`/`pending` (the cause is in the server log).
+Either case sets `driftDetected`.
+
 ## Deploys, and how to undo one
 
 The engine deploy does not build. CI builds the image once, pushes it,

@@ -7,7 +7,7 @@ import {
   Logger,
   Optional,
 } from '@nestjs/common';
-import { StringRecordId, Surreal } from 'surrealdb';
+import { Surreal } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
@@ -33,6 +33,7 @@ import {
 } from './document-meta';
 import { markFactsProvenancePurged, purgeDocumentChunks } from './document-purge.util';
 import { IngestDocumentDto } from './dto/ingest-document.dto';
+import { recordIdOf } from '../db/record-key';
 
 /** Header row of a stored document, as the rest of the pipeline sees it. */
 export interface StoredDocument {
@@ -218,7 +219,7 @@ export class DocumentStoreService {
           // DOC_MAX_CHARS cap).
           await db.query(`INSERT INTO source_chunk $rows`, {
             rows: chunks.map((c) => ({
-              docId: new StringRecordId(`source_document:${idTailOf(docId)}`),
+              docId: recordIdOf('source_document', docId),
               seq: c.seq,
               text: c.text,
               charStart: c.charStart,
@@ -358,7 +359,7 @@ export class DocumentStoreService {
     if (docIds.length === 0) return;
     await this.surreal.withCompany(companyId, async (db) => {
       await db.query(`UPDATE $ids SET triage = $stamp RETURN NONE`, {
-        ids: docIds.map((id) => new StringRecordId(`source_document:${idTailOf(id)}`)),
+        ids: docIds.map((id) => recordIdOf('source_document', id)),
         stamp,
       });
     });

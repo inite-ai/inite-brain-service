@@ -20,6 +20,7 @@ import { JobRunService, JobRunRow } from '../jobs/job-run.service';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService, type JobContext } from '../jobs/worker-loop.service';
 import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
+import { tenantLeaseName } from '../common/lease-name';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { ReadPinService } from '../episodes/read-pin.service';
 
@@ -321,7 +322,7 @@ export class DreamsService implements OnModuleInit {
     },
   ): Promise<DreamsTenantStats> {
     const guarded = this.guard
-      ? await this.guard.run(`dreams_tenant_${companyId}`, () =>
+      ? await this.guard.run(tenantLeaseName('dreams_tenant_', companyId), () =>
           this.runForTenantInner({ companyId, operations, triggered }),
         )
       : await this.runForTenantInner({ companyId, operations, triggered });

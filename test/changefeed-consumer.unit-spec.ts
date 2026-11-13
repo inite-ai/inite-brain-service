@@ -21,7 +21,7 @@
  * tenant walk and the walk stops when the renewal fails or a drain finds
  * another drainer ahead.
  */
-import { StringRecordId } from 'surrealdb';
+import { RecordId } from 'surrealdb';
 import { ChangefeedDrainService } from '../src/audit/changefeed-drain.service';
 import { ChangefeedConsumerService } from '../src/audit/changefeed-consumer.service';
 
@@ -138,8 +138,8 @@ describe('ChangefeedDrainService', () => {
     const events = (tx!.params?.events ?? []) as Array<Record<string, unknown>>;
     expect(events).toHaveLength(2);
     // DETERMINISTIC id: <source>_<versionstamp>_<ordinal>, as the record id
-    // (StringRecordId), so a re-drain collides and INSERT IGNORE no-ops it.
-    expect(events[0]!.id).toBeInstanceOf(StringRecordId);
+    // (RecordId), so a re-drain collides and INSERT IGNORE no-ops it.
+    expect(events[0]!.id).toBeInstanceOf(RecordId);
     expect(String(events[0]!.id)).toBe('audit_event:knowledge_entity_10_0');
     expect(String(events[1]!.id)).toBe('audit_event:knowledge_entity_12_0');
 

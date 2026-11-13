@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { StringRecordId, type Surreal } from 'surrealdb';
+import { RecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { redactAfterImage } from './changefeed-redaction';
@@ -278,7 +278,7 @@ export class ChangefeedDrainService {
           // A full record id (`audit_event:<key>`) makes the id the primary
           // key, so INSERT IGNORE dedupes on re-drain. Key parts are numeric /
           // table-name tokens → a plain, unquoted-safe id tail.
-          id: new StringRecordId(`audit_event:${source}_${versionstamp}_${ordinal}`),
+          id: new RecordId('audit_event', `${source}_${versionstamp}_${ordinal}`),
           source,
           recordId,
           op,

@@ -1,5 +1,6 @@
 import { Surreal, StringRecordId } from 'surrealdb';
 import { buildEdgeFence } from './edge-fence';
+import { recordIdOf } from '../../db/record-key';
 
 export type Neighbour = {
   /** The peer entity's record id — what a caller compares identities by. */
@@ -142,10 +143,7 @@ export async function expandEntityIdsViaEdges({
   asOf?: string | undefined;
 }): Promise<string[]> {
   if (entityIds.length === 0) return entityIds;
-  const rids = entityIds.map((raw) => {
-    const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
-    return new StringRecordId(`knowledge_entity:${id}`);
-  });
+  const rids = entityIds.map((raw) => recordIdOf('knowledge_entity', raw));
   const fence = buildEdgeFence(userId, asOf);
   type Row = {
     id: unknown;

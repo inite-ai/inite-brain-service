@@ -85,3 +85,9 @@ export function uploadMediaTypeError(modality: EvidenceModality, mediaType: stri
   }
   return `mediaType '${normalized}' is not accepted by the evidence blob upload surface`;
 }
+
+/** The modality a media type is accepted under, first match. */
+export function modalityOf(mediaType: string): EvidenceModality | undefined {
+  const type = normalizeUploadMediaType(mediaType);
+  return EVIDENCE_MODALITIES.find((m) => EVIDENCE_UPLOAD_MEDIA_TYPES[m].includes(type));
+}

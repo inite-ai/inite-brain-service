@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { StringRecordId } from 'surrealdb';
+import { RecordId, StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
 import { sameWidthGate } from '../db/vector-width';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * CommunityService — read surface over the topic communities that
@@ -139,8 +140,8 @@ export class CommunityService {
   }
 }
 
-function toRecordId(raw: string): StringRecordId {
-  return new StringRecordId(raw.startsWith('knowledge_entity:') ? raw : `knowledge_entity:${raw}`);
+function toRecordId(raw: string): RecordId {
+  return recordIdOf('knowledge_entity', raw);
 }
 
 function mapCommunity(r: RawCommunity): CommunityRecord {
