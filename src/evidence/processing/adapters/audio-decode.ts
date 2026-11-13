@@ -36,27 +36,45 @@ export function ffmpegPath(): string | null {
 }
 
 export async function decodeToPcm(bytes: Buffer, limits: DecodeLimits): Promise<Float32Array> {
+  const pcm = await runFfmpeg(
+    ['-vn', '-ac', '1', '-ar', String(ASR_SAMPLE_RATE), '-f', 'f32le'],
+    bytes,
+    {
+      maxOutBytes: limits.maxSeconds * ASR_SAMPLE_RATE * 4,
+      deadlineMs: limits.deadlineMs,
+      overflow: `recording is longer than ${String(limits.maxSeconds)} s — refusing a partial transcript`,
+    },
+  );
+  // Copy into an aligned buffer: Float32Array needs a 4-byte offset.
+  const out = new Float32Array(Math.floor(pcm.byteLength / 4));
+  Buffer.from(out.buffer).set(pcm.subarray(0, out.length * 4));
+  return out;
+}
+
+export interface FfmpegRun {
+  /** Output larger than this kills the process: refused, never truncated. */
+  maxOutBytes: number;
+  deadlineMs: number;
+  /** The refusal message when the output overflows. */
+  overflow: string;
+}
+
+/**
+ * One ffmpeg pass, stdin → stdout: `-i pipe:0`, then `outputArgs`, then
+ * `pipe:1`. Bounded by an output cap and a wall-clock deadline that kills
+ * the process; nothing touches the filesystem.
+ */
+export async function runFfmpeg(
+  outputArgs: readonly string[],
+  bytes: Buffer,
+  run: FfmpegRun,
+): Promise<Buffer> {
   const bin = ffmpegPath();
   if (!bin) throw new Error('no ffmpeg binary ships with this build');
-  const maxBytes = limits.maxSeconds * ASR_SAMPLE_RATE * 4;
-  return new Promise<Float32Array>((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     const child = spawn(
       bin,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        'pipe:0',
-        '-vn',
-        '-ac',
-        '1',
-        '-ar',
-        String(ASR_SAMPLE_RATE),
-        '-f',
-        'f32le',
-        'pipe:1',
-      ],
+      ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', ...outputArgs, 'pipe:1'],
       { stdio: ['pipe', 'pipe', 'pipe'] },
     );
     const chunks: Buffer[] = [];
@@ -69,17 +87,13 @@ export async function decodeToPcm(bytes: Buffer, limits: DecodeLimits): Promise<
       child.kill('SIGKILL');
     };
     const timer = setTimeout(
-      () => fail(new Error(`audio decode exceeded ${String(limits.deadlineMs)} ms`)),
-      limits.deadlineMs,
+      () => fail(new Error(`ffmpeg exceeded ${String(run.deadlineMs)} ms`)),
+      run.deadlineMs,
     );
     child.stdout.on('data', (chunk: Buffer) => {
       size += chunk.byteLength;
-      if (size > maxBytes) {
-        fail(
-          new Error(
-            `recording is longer than ${String(limits.maxSeconds)} s — refusing a partial transcript`,
-          ),
-        );
+      if (size > run.maxOutBytes) {
+        fail(new Error(run.overflow));
         return;
       }
       chunks.push(chunk);
@@ -94,14 +108,10 @@ export async function decodeToPcm(bytes: Buffer, limits: DecodeLimits): Promise<
       if (code !== 0)
         return reject(
           new Error(
-            `audio decode failed: ${stderr.trim().slice(0, 300) || `exit ${String(code)}`}`,
+            `ffmpeg decode failed: ${stderr.trim().slice(0, 300) || `exit ${String(code)}`}`,
           ),
         );
-      const pcm = Buffer.concat(chunks);
-      // Copy into an aligned buffer: Float32Array needs a 4-byte offset.
-      const out = new Float32Array(Math.floor(pcm.byteLength / 4));
-      Buffer.from(out.buffer).set(pcm.subarray(0, out.length * 4));
-      resolve(out);
+      resolve(Buffer.concat(chunks));
     });
     child.stdin.on('error', () => undefined);
     child.stdin.end(bytes);
