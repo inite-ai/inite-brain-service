@@ -673,6 +673,28 @@ change.
 | `COMPACTION_HOT_RETENTION_DAYS`     | `90`    | Days kept in the searchable hot tier before compaction strips embedding + indexes.                                                                                                                   | Storage cost vs historical-search depth.                                                                                                         |
 | `COMPACTION_SUMMARIES`              | `1`     | Roll up compacted facts into one summary per `(entityId, predicate)` cluster. The summary keeps a fresh embedding and is searchable.                                                                 | Long-history tenants where the warm tier needs to stay queryable.                                                                                |
 
+## Which embedding space a row is in
+
+Every table that stores a vector also has an `embeddingSpaceId` column
+(migration 0101): the canonical `provider:model:dim:norm` of the embedder
+that produced the vector, e.g. `bge-m3:Xenova/bge-m3:1024:l2`. **Rows written
+from this release on declare their space.** Each vector write sets it
+together with the vector: facts, entities, predicates, episode segments,
+scene gists, strategy and procedural memory, community summaries,
+representations, composed rows (arcs, aggregates, promotion summaries) and
+every reindex rewrite. There is no flag for it: the `EMBEDDING_SPACE_TRACKING`
+switch that used to gate the stamp on the reindex rewrite and scene gists is
+gone. A leftover `EMBEDDING_SPACE_TRACKING` in an env file has no effect.
+
+**Older rows are `NONE`.** `NONE` means the space is legacy or unknown. No
+backfill runs, because the vector's width does not prove which model
+produced it. Readers treat `NONE` exactly as before: the vector-corpus
+census and repair judge conformance by width, and the strict serving guard
+(`EMBEDDING_SPACE_STRICT`) compares the query's space against the
+configured primary, not against row stamps. When the embedder model changes,
+stamped rows can be re-embedded by their declared space. `NONE` rows can only
+be re-embedded wholesale, because their space is unknown.
+
 ## Language stems (0184)
 
 The lexical (BM25) legs over facts and conversation turns also match a

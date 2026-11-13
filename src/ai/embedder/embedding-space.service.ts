@@ -17,7 +17,7 @@ import { envFlagEnabled } from '../../common/env-validation';
  *      the target is kept warm while the reindex backfills history.
  *   2. reindex — POST /v1/admin/reindex/embeddings?allTables=true rewrites
  *      every historical vector into the target space (stamping
- *      embeddingSpaceId under EMBEDDING_SPACE_TRACKING).
+ *      embeddingSpaceId on every rewritten row).
  *   3. cutover (EMBEDDING_SPACE_ACTIVE) — an ATOMIC single-statement flip of
  *      the tenant's active space to the target, after the reindex completes.
  *      Reads switch wholly to the target space; there is never a window where

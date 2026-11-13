@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from './embedder.service';
+import { spaceStamp } from './embedder/embedding-space';
 import { PredicateSemanticsJudgeService } from './predicate-semantics-judge.service';
 import { cosineSimilarity } from '../common/vector-math';
 import { LRUCache } from '../common/lru-cache';
@@ -209,7 +210,7 @@ export class PredicateRegistryService {
           await db.query(`CREATE knowledge_predicate CONTENT $content`, {
             content: {
               ...serializeForInsert(def),
-              ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
+              ...(embeddings[i] ? { embedding: embeddings[i], ...spaceStamp(this.embedder) } : {}),
             },
           });
         }
@@ -242,9 +243,10 @@ export class PredicateRegistryService {
           try {
             await db.query(
               `UPDATE knowledge_predicate
-                 SET embedding = $emb, updatedAt = time::now()
+                 SET embedding = $emb, embeddingSpaceId = $embeddingSpaceId,
+                     updatedAt = time::now()
                WHERE predicateId = $pid`,
-              { emb, pid: def.predicateId },
+              { emb, pid: def.predicateId, ...spaceStamp(this.embedder) },
             );
           } catch (e) {
             this.logger.warn(
@@ -447,7 +449,7 @@ export class PredicateRegistryService {
       await db.query(`CREATE knowledge_predicate CONTENT $content`, {
         content: {
           ...serializeForInsert(def),
-          ...(embedding ? { embedding } : {}),
+          ...(embedding ? { embedding, ...spaceStamp(this.embedder) } : {}),
         },
       });
     });
@@ -511,7 +513,10 @@ export class PredicateRegistryService {
         addNullableSet('requiresScope', next.requiresScope, 'requiresScope');
       if (patch.status !== undefined) addSet('status', next.status, 'status');
       if (patch.aliasedTo !== undefined) addNullableSet('aliasedTo', next.aliasedTo, 'aliasedTo');
-      if (embedding) addSet('embedding', embedding, 'embedding');
+      if (embedding) {
+        addSet('embedding', embedding, 'embedding');
+        addSet('embeddingSpaceId', spaceStamp(this.embedder).embeddingSpaceId, 'embeddingSpaceId');
+      }
       if (setFields.length === 0) return current;
       setFields.push(`updatedAt = time::now()`);
       setFields.push(`version = version + 1`);
@@ -814,7 +819,7 @@ export class PredicateRegistryService {
                 ? { decayHalfLifeDays: canonical.decayHalfLifeDays }
                 : {}),
               piiClass: canonical.piiClass,
-              ...(queryEmb ? { embedding: queryEmb } : {}),
+              ...(queryEmb ? { embedding: queryEmb, ...spaceStamp(this.embedder) } : {}),
               status: 'aliased',
               aliasedTo: adjudicated.predicateId,
               createdBy: 'llm_auto',
@@ -910,7 +915,7 @@ export class PredicateRegistryService {
               ? { decayHalfLifeDays: DEFAULT_FALLBACK.decayHalfLifeDays }
               : {}),
             piiClass: DEFAULT_FALLBACK.piiClass,
-            ...(queryEmb ? { embedding: queryEmb } : {}),
+            ...(queryEmb ? { embedding: queryEmb, ...spaceStamp(this.embedder) } : {}),
             status: 'proposed',
             createdBy: 'llm_auto',
           },

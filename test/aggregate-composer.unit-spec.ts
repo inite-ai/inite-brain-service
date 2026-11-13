@@ -42,6 +42,7 @@ function makeSvc(opts: {
   } as unknown as ConfigService;
   const embedding = {
     embedMany: async (texts: string[]) => texts.map(() => [1, 0]),
+    activeSpaceId: () => 'stub:test:2:l2',
   } as unknown as FactEmbeddingService;
   const svc = new AggregateComposerService(surreal, config, embedding);
   (svc as unknown as { openai: unknown }).openai = {

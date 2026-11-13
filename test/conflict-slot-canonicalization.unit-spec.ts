@@ -66,6 +66,7 @@ describe('FactResolverService — CONFLICT_SLOT_CANONICALIZATION', () => {
     };
     const factEmbedding = {
       embed: jest.fn(async () => [0.5]),
+      activeSpaceId: () => 'stub:test:2:l2',
       writeAltEmbeddingIfHype: jest.fn(async () => {}),
     };
     // Mirrors PredicateRegistryService.policyFor over the CORE seed: the

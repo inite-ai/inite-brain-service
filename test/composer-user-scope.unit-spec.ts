@@ -70,6 +70,7 @@ function makeHarness(proposals: StubProposal[]): {
   } as unknown as SurrealService;
   const embedding = {
     embedMany: async (t: string[]) => t.map(() => [1, 0]),
+    activeSpaceId: () => 'stub:test:2:l2',
   } as unknown as FactEmbeddingService;
   const warnings: string[] = [];
   const logger = {

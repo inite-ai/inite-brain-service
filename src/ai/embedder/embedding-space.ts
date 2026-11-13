@@ -14,10 +14,10 @@
  *   e.g. `openai:text-embedding-3-small:1536:l2`
  *        `bge-m3:Xenova/bge-m3:1024:l2`
  *
- * The id is stamped on rows behind EMBEDDING_SPACE_TRACKING (default off);
- * a NONE column is interpreted as "the current provider's space" (the
- * legacy / implicit space), which keeps serving byte-identical when the
- * flag is off.
+ * Every write of a vector column stamps the id beside it ({@link spaceStamp}).
+ * A NONE column is a row written before the stamp existed: its space is
+ * legacy / unknown, and the read path treats it as "the current provider's
+ * space" exactly as it always has.
  */
 
 /** How a provider normalizes its output vectors. Both shipped providers
@@ -194,6 +194,24 @@ export function describeSpaceIncompatibility(a: string, b: string): string | nul
  *  embedding-bearing table (migration 0101). One name everywhere so the
  *  stamping SET clauses and read filters stay in lockstep. */
 export const EMBEDDING_SPACE_FIELD = 'embeddingSpaceId';
+
+/** Anything that can name the space its write-guarded embeds land in —
+ *  EmbedderService and the FactEmbeddingService facade both qualify. */
+export interface EmbeddingSpaceSource {
+  activeSpaceId(): string;
+}
+
+/**
+ * The one way a writer stamps the space of the vector it persists: spread
+ * `...spaceStamp(embedder)` into the row (or bind it beside the vector) at
+ * every write of an embedding column, unconditionally. A row written
+ * without it reads NONE — legacy / unknown space — which is what every
+ * pre-stamp row is, so space migration can only ever re-embed it whole;
+ * a stamped row can be migrated by its declared space.
+ */
+export function spaceStamp(source: EmbeddingSpaceSource): { embeddingSpaceId: string } {
+  return { embeddingSpaceId: source.activeSpaceId() };
+}
 
 /**
  * EVERY column in the schema that holds a vector in an embedding space —

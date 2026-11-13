@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { StringRecordId, Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { ConcatSummaryGenerator, FactToSummarize, SummaryGenerator } from './summary-generator';
 import { SUMMARY_GENERATOR } from './compaction.types';
@@ -379,7 +380,7 @@ export class PromotionRunnerService {
       derivedFrom: members.map((m) => m.id),
       status: 'active',
       ...(group.userId ? { userId: group.userId } : {}),
-      ...(embedding ? { embedding } : {}),
+      ...(embedding ? { embedding, ...spaceStamp(this.embedder) } : {}),
     };
 
     // One transaction: the replacement lands and the originals close

@@ -158,7 +158,10 @@ function mkBuilder(pool?: JobWorkerPool): CommunityBuilderService {
       // Tiny threshold so the 6-edge fixture graph qualifies for offload.
       COMMUNITIES_LP_OFFLOAD_MIN_EDGES: '1',
     }),
-    { embedForWrite: jest.fn(async () => [0.1, 0.2]) } as never,
+    {
+      embedForWrite: jest.fn(async () => [0.1, 0.2]),
+      activeSpaceId: () => 'stub:test:2:l2',
+    } as never,
     { generate: jest.fn(async () => 'summary') } as never,
     pool,
   );
@@ -172,6 +175,20 @@ async function runBuild(pool?: JobWorkerPool): Promise<CapturedBuild> {
 }
 
 describe('CommunityBuilderService worker-pool offload', () => {
+  it('every community summary vector is written with its space', async () => {
+    const { db } = mkDb();
+    await mkBuilder(undefined).run(db as never);
+    const creates = db.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('CREATE community_node'),
+    );
+    expect(creates.length).toBeGreaterThan(0);
+    for (const [sql, params] of creates) {
+      expect(sql).toContain('summaryEmbedding: $embedding,');
+      expect(sql).toContain('embeddingSpaceId: $embeddingSpaceId,');
+      expect(params).toMatchObject({ embedding: [0.1, 0.2], embeddingSpaceId: 'stub:test:2:l2' });
+    }
+  });
+
   it('falls back in-thread on pool failure with an identical result', async () => {
     const rejectingPool = {
       enabled: () => true,
@@ -222,7 +239,10 @@ describe('CommunityBuilderService worker-pool offload', () => {
         DREAMS_COMMUNITIES_ENABLED: '1',
         COMMUNITIES_LP_OFFLOAD_MIN_EDGES: '0',
       }),
-      { embedForWrite: jest.fn(async () => [0.1, 0.2]) } as never,
+      {
+        embedForWrite: jest.fn(async () => [0.1, 0.2]),
+        activeSpaceId: () => 'stub:test:2:l2',
+      } as never,
       { generate: jest.fn(async () => 'summary') } as never,
       pool,
     );

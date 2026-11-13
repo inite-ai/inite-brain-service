@@ -93,6 +93,7 @@ function makeResolver(outcome = 'INSERTED') {
   };
   const factEmbedding = {
     embed: jest.fn(async () => [0.1]),
+    activeSpaceId: () => 'stub:test:2:l2',
     writeAltEmbeddingIfHype: jest.fn(async () => {}),
   };
   const predicateRegistry = {
@@ -129,12 +130,15 @@ describe('FactResolverService — grounding stamp (EVIDENCE_GROUNDING_STAMP)', (
     jest.restoreAllMocks();
   });
 
-  it('flag OFF (default): the db.query sequence is EXACTLY the resolver call — no stamp UPDATE', async () => {
+  it('flag OFF (default): the db.query sequence is the resolver call + the space stamp — no grounding UPDATE', async () => {
     process.env.EVIDENCE_GROUNDING_STAMP = '0';
     const { svc, db, queries } = makeResolver();
     await svc.resolveMany(db as never, [input('preference', 'a', {})]);
-    // Byte-identity pin: one batched resolve, nothing else.
-    expect(queries.map((q) => q.sql)).toEqual(['RETURN fn::settle_facts($facts, $cfg)']);
+    // One batched resolve, then the unconditional embedding-space stamp.
+    expect(queries.map((q) => q.sql)).toEqual([
+      'RETURN fn::settle_facts($facts, $cfg)',
+      'UPDATE knowledge_fact SET embeddingSpaceId = $space WHERE id IN $ids',
+    ]);
     expect(stampQ(queries)).toHaveLength(0);
   });
 

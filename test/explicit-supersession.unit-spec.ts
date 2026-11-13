@@ -36,7 +36,11 @@ describe('FactResolverService — explicit supersession', () => {
         return [{ factId: 'knowledge_fact:new', outcome: 'INSERTED' }];
       }),
     };
-    const factEmbedding = { embed: jest.fn(async () => [0.1]), writeAltEmbeddingIfHype: jest.fn() };
+    const factEmbedding = {
+      embed: jest.fn(async () => [0.1]),
+      activeSpaceId: () => 'stub:test:2:l2',
+      writeAltEmbeddingIfHype: jest.fn(),
+    };
     const registry = {
       getSnapshot: jest.fn(async () => ({})),
       policyFor: jest.fn(() => ({ semantics: 'append_only' })),
