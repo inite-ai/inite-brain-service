@@ -29,7 +29,9 @@
 -- reach the updated row inside UPDATE … SET on 3.2.4 — every row read as a
 -- duplicate. So the keys are written first and the collisions found with a
 -- GROUP BY afterwards. No WHERE on an indexed field (the 3.2.4 silent no-op
--- class): the first UPDATE walks the table, the second addresses ids.
+-- class): the key fields carry no index until 0198, and the second UPDATE
+-- addresses ids. A second run is a no-op: every key is set and no group
+-- collides any more.
 
 REMOVE INDEX IF EXISTS episode_msg_uq ON episode;
 
@@ -40,11 +42,13 @@ DEFINE FIELD IF NOT EXISTS conversationKey ON episode TYPE string
 
 UPDATE episode SET
   ownerKey = userId ?? '',
-  conversationKey = conversationId ?? '';
+  conversationKey = conversationId ?? ''
+WHERE ownerKey IS NONE OR conversationKey IS NONE;
 
 LET $dupGroups = (
   SELECT ownerKey, conversationKey, messageId, array::group(id) AS ids, count() AS n
     FROM episode
+   WHERE ownerKey IS NOT NONE
    GROUP BY ownerKey, conversationKey, messageId
 ).filter(|$g| $g.n > 1);
 
