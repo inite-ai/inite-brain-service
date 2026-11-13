@@ -100,6 +100,7 @@ Symptoms: `POST /v1/ingest/fact` returns 500, or 4xx with a validation error.
 3. **Surreal is unreachable** — `/health` returns `db: false`. Look at the Surreal container logs (`docker logs <surreal>` or your hosting provider's equivalent). Most common: pod evicted, restart pending.
 4. **Pool exhausted** — request log shows ingest calls hanging at high concurrency. Bump `SURREALDB_POOL_SIZE`. Default is 8; we've run 32 comfortably on a 4-vCPU node.
 5. **Embedder errors** — `OpenAI` errors in stderr. Check `OPENAI_API_KEY` quota in the OpenAI dashboard. The `OPENAI_MAX_RETRIES` knob (default 3) governs retry behaviour.
+6. **A migration does not apply to the tenant** — the `MigrationBlocked` alert, `brain_migration_blocked{migration="NNNN"} > 0`, and log lines `Migration NNNN_….surql failed …` / `claimNext(<tenant>, …) failed: Migration …`. Every request and every job claim for that tenant migrates first, so the whole tenant is refused (reads, writes, jobs) while `/health` stays ok. Read the tenant's ledger (`SELECT migrationId FROM schema_migrations` in `co_<tenant>`), reproduce on a copy of the tenant's state, and ship the fix as a migrator change or a new migration — never by editing the shipped file. The tenant recovers by itself on the next request after the fix is deployed.
 
 ## Troubleshoot: search returns nothing
 
