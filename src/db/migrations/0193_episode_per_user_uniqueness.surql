@@ -9,17 +9,40 @@
 -- FIRST user's episode — cross-user provenance that the second user's
 -- forget does not reach. The identity of a turn includes whose turn it is.
 --
--- The new key is strictly finer than the old one, so the existing rows
--- already satisfy it: no data changes, no backfill. userId is NONE for a
--- tenant-global turn, and NONE takes part in the key like a value (the
--- same way 0073's optional conversationId always has), so tenant-global
--- turns keep deduplicating among themselves.
+-- WHY KEY FIELDS. userId (a tenant-global turn) and conversationId are
+-- optional, and a UNIQUE index does not enforce uniqueness over NONE
+-- (measured on 3.2.4: two tenant-global turns with the same ids both
+-- inserted). So the key is carried by two never-NONE fields, ownerKey =
+-- userId ?? '' and conversationKey = conversationId ?? '', computed on
+-- every write that does not set them (`$value ??` keeps an explicit
+-- value, so the backfill below can disambiguate). The old image keeps
+-- writing rows without them during a rolling deploy; the VALUE clause
+-- fills them in.
 --
--- Rolling deploy: the old image's duplicate lookup (conversationId +
--- messageId) still finds its row through episode_conv_idx; removing the
--- coarser index only relaxes a constraint the old image relied on for
--- deduplication within one user, which the new index keeps. Idempotent.
+-- BACKFILL. Every row gets its keys. A row that duplicates an earlier
+-- row's (user, conversation, message) — possible where the old index let
+-- a NONE through — gets its own id appended to conversationKey, so the
+-- UNIQUE index (0198, its own transaction) always builds; no row is
+-- deleted. No WHERE on an indexed field (the 3.2.4 silent no-op class):
+-- the UPDATE walks the table.
 
 REMOVE INDEX IF EXISTS episode_msg_uq ON episode;
-DEFINE INDEX IF NOT EXISTS episode_user_msg_uq ON episode
-  FIELDS userId, conversationId, messageId UNIQUE;
+
+DEFINE FIELD IF NOT EXISTS ownerKey ON episode TYPE string
+  VALUE $value ?? ($this.userId ?? '');
+DEFINE FIELD IF NOT EXISTS conversationKey ON episode TYPE string
+  VALUE $value ?? ($this.conversationId ?? '');
+
+UPDATE episode SET
+  ownerKey = userId ?? '',
+  conversationKey = IF (
+    SELECT VALUE id FROM episode
+     WHERE userId = $parent.userId
+       AND conversationId = $parent.conversationId
+       AND messageId = $parent.messageId
+     ORDER BY recordedAt, id
+     LIMIT 1
+  )[0] = id
+    THEN conversationId ?? ''
+    ELSE string::concat(conversationId ?? '', '#', <string>id)
+  END;
