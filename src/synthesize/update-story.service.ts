@@ -90,10 +90,15 @@ export class UpdateStoryService {
           if (frontier.size === 0) break;
           // The winners are bound as record ids built from (table, key),
           // not parsed out of 'knowledge_fact:…' strings server-side.
+          // WITH INDEX: the reverse lookup is only cheap through
+          // fact_superseded_by_idx. SurrealDB 3.3's planner picks
+          // fact_retracted_idx for `retractedAt IS NONE` instead — an index
+          // that matches nearly every row — turning each story hop into a
+          // near-full scan (pinned by update-story-explain.e2e-spec.ts).
           const res = await db.query<[LoserRow[]]>(
             `SELECT id, predicate, supersededBy, object, validUntil,
                     source, trustSnapshot, corroboration, userId
-               FROM knowledge_fact
+               FROM knowledge_fact WITH INDEX fact_superseded_by_idx
               WHERE supersededBy IN $winners
                 AND status = 'superseded'
                 AND retractedAt IS NONE

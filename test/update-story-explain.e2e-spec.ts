@@ -26,7 +26,7 @@ describe('update-story reverse lookup plan (real SurrealDB)', () => {
     const plan = await surreal.withCompany(f.companyId, async (db) => {
       const res = await db.query(
         `LET $w = $winners.map(|$x| type::record($x));
-         SELECT id, supersededBy, object, validUntil FROM knowledge_fact
+         SELECT id, supersededBy, object, validUntil FROM knowledge_fact WITH INDEX fact_superseded_by_idx
           WHERE supersededBy IN $w
             AND status = 'superseded'
             AND retractedAt IS NONE

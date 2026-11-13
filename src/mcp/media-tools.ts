@@ -8,7 +8,6 @@ import {
   evidenceMaxBytes,
   evidenceRawReadEnabled,
 } from '../common/evidence-flags';
-import { EVIDENCE_MODALITIES, type EvidenceModality } from '../common/evidence-taxonomy';
 import type { EvidenceReadService } from '../evidence/evidence-read.service';
 import type { EvidenceUploadService } from '../evidence/evidence-upload.service';
 import { readBoundedStream } from '../evidence/processing/adapters/adapter-io';
@@ -16,10 +15,8 @@ import {
   type EvidenceStorageRegistry,
   storageRefScheme,
 } from '../evidence/storage/storage-adapter';
-import {
-  EVIDENCE_UPLOAD_MEDIA_TYPES,
-  normalizeUploadMediaType,
-} from '../evidence/upload-media-types';
+import { canCrop, cropFragment } from '../evidence/fragment-crop';
+import { modalityOf, normalizeUploadMediaType } from '../evidence/upload-media-types';
 import { isoDateTime } from './iso-datetime';
 import { asStructuredContent } from './structured';
 
@@ -39,6 +36,8 @@ const MAX_EDGE_PX = 1568;
 
 /** Audio is returned as stored, up to this size; longer recordings go over REST. */
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+/** Wall-clock bound on cutting a fragment out of its parent. */
+const CROP_DEADLINE_MS = 60_000;
 
 /**
  * Base64 an upload may carry. The JSON body cap (MAX_BODY_SIZE, 1 MB by
@@ -46,11 +45,7 @@ const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
  */
 const MAX_UPLOAD_BASE64 = 16 * 1024 * 1024;
 
-/** The modality a media type is accepted under (upload-media-types.ts), first match. */
-export function modalityOf(mediaType: string): EvidenceModality | undefined {
-  const type = normalizeUploadMediaType(mediaType);
-  return EVIDENCE_MODALITIES.find((m) => EVIDENCE_UPLOAD_MEDIA_TYPES[m].includes(type));
-}
+export { modalityOf };
 
 /**
  * read_media (#900 step 3): the bytes of a stored image or recording, as an
@@ -109,18 +104,33 @@ export function registerMediaReadTools(p: {
           `read_media returns images and audio; this asset is ${type}. Its text is in memory`,
         );
       }
-      if (kind === 'audio' && blob.byteLength > MAX_AUDIO_BYTES) {
+      // A fragment is served as its part of the parent (fragment-crop.ts):
+      // the 10 MB audio bound then applies to the cut, not the whole.
+      const cropping = canCrop(type, blob.locator);
+      if (kind === 'audio' && !cropping && blob.byteLength > MAX_AUDIO_BYTES) {
         throw new BadRequestException(
           'this recording is larger than read_media returns (10 MB); fetch it over REST',
         );
       }
       const adapter = storage.get(storageRefScheme(blob.storageRef) ?? '');
       if (!adapter) throw new BadRequestException('media reads are not available here');
-      const bytes = await readBoundedStream(
+      const stored = await readBoundedStream(
         await adapter.get(blob.storageRef),
-        kind === 'audio' ? MAX_AUDIO_BYTES : evidenceMaxBytes(),
+        kind === 'audio' && !cropping ? MAX_AUDIO_BYTES : evidenceMaxBytes(),
       );
-      const meta = { assetId: blob.assetIdStr, mediaType: type, byteLength: blob.byteLength };
+      const part = cropping
+        ? await cropFragment(stored, blob, {
+            maxBytes: MAX_AUDIO_BYTES,
+            deadlineMs: CROP_DEADLINE_MS,
+          })
+        : null;
+      const bytes = part?.bytes ?? stored;
+      const meta = {
+        assetId: blob.assetIdStr,
+        mediaType: part?.mediaType ?? type,
+        byteLength: bytes.byteLength,
+        ...(part ? { cut: part.cut, locator: blob.locator } : {}),
+      };
       const block =
         kind === 'image'
           ? {
@@ -139,7 +149,7 @@ export function registerMediaReadTools(p: {
                   .toBuffer()
               ).toString('base64'),
             }
-          : { type: 'audio' as const, mimeType: type, data: bytes.toString('base64') };
+          : { type: 'audio' as const, mimeType: meta.mediaType, data: bytes.toString('base64') };
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(meta) }, block],
         structuredContent: asStructuredContent(meta),
