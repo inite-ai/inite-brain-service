@@ -16,6 +16,11 @@ import { join } from 'node:path';
 import { SchemaMigrator, type MigrationResult } from './migrator.service';
 import { MigrationBackoff } from './migration-failures';
 import { readMigrationLedgerIds } from './migration-ledger-read';
+import {
+  clearMigrationBlocked,
+  MigrationApplyError,
+  recordMigrationBlocked,
+} from './migration-blocked';
 import { migrationLeaseName, SurrealMigrationLock } from './migration-lock';
 import { SESSION_REAUTH_MARGIN_MS, SurrealSessionKeeper } from './session-keeper';
 import { envFlagNotDisabled } from '../common/env-validation';
@@ -739,8 +744,12 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     try {
       const result = await this.applySchema(database);
       this.migrationBackoff.recordSuccess(database);
+      clearMigrationBlocked(database);
       return result;
     } catch (err) {
+      // The blocked ledger (MigrationBlocked alert) names the file; the
+      // backoff keeps the failing tenant from re-running it per request.
+      if (err instanceof MigrationApplyError) recordMigrationBlocked(database, err.migrationId);
       const waitMs = this.migrationBackoff.recordFailure(database, err);
       this.logger.error(
         `Schema apply failed for ${this.namespace}/${database}; next attempt in ` +

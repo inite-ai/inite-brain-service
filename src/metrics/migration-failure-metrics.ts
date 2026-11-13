@@ -1,4 +1,4 @@
-import { Counter, Gauge, type Registry } from 'prom-client';
+import { Counter, type Registry } from 'prom-client';
 import { migrationFailureSnapshot } from '../db/migration-failures';
 
 /**
@@ -17,22 +17,6 @@ export function migrationFailuresCounter(registry: Registry): Counter<'migration
     collect() {
       this.reset();
       for (const [migration, n] of migrationFailureSnapshot().failures) this.inc({ migration }, n);
-    },
-  });
-}
-
-/**
- * Databases (tenants, plus the platform's `system` database) whose last
- * schema apply on this replica failed and has not succeeded since. Above
- * zero, those tenants answer 503 while their backoff runs.
- */
-export function migrationFailedTenantsGauge(registry: Registry): Gauge {
-  return new Gauge({
-    name: 'brain_migration_failed_tenants',
-    help: 'Databases whose last schema apply on this replica failed (they answer 503 during backoff)',
-    registers: [registry],
-    collect() {
-      this.set(migrationFailureSnapshot().failingDatabases);
     },
   });
 }

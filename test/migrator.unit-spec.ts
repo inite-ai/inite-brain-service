@@ -14,7 +14,8 @@
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { MigrationFailedError, SchemaMigrator } from '../src/db/migrator.service';
+import { analyzerDefinitions, SchemaMigrator } from '../src/db/migrator.service';
+import { MigrationApplyError } from '../src/db/migration-blocked';
 import { migrationLeaseName, type MigrationLock } from '../src/db/migration-lock';
 import { migrationChecksum, migrationDriftSnapshot } from '../src/db/migration-checksum';
 
@@ -580,8 +581,8 @@ describe('SchemaMigrator', () => {
         return rawQuery<T>(sql, params);
       };
       const err: unknown = await migrator.migrate(conn as never).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(MigrationFailedError);
-      expect((err as MigrationFailedError).migrationId).toBe('0003');
+      expect(err).toBeInstanceOf(MigrationApplyError);
+      expect((err as MigrationApplyError).migrationId).toBe('0003');
     });
   });
 
@@ -736,5 +737,94 @@ describe('SchemaMigrator — checksums', () => {
     // Both pre-checksum rows were stamped: the second database was looked at.
     expect(a.applied[0]!.checksum).toBe(migrationChecksum('DEFINE TABLE l;'));
     expect(b.applied[0]!.checksum).toBe(migrationChecksum('DEFINE TABLE l;'));
+  });
+});
+
+describe('SchemaMigrator — analyzers go first', () => {
+  // SurrealDB 3.2.4 builds a FULLTEXT index over existing rows inside
+  // DEFINE INDEX and cannot see an analyzer the same transaction defined
+  // (0184, 2026-11-13; on a real database: migration-populated-tenant.e2e-spec).
+  let dir: string | null = null;
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  const FILE = [
+    '-- an analyzer; the index uses it',
+    'DEFINE ANALYZER IF NOT EXISTS words',
+    '  TOKENIZERS blank',
+    '  FILTERS lowercase; -- trailing note; with a semicolon',
+    'DEFINE ANALYZER IF NOT EXISTS stems TOKENIZERS blank;',
+    'DEFINE INDEX IF NOT EXISTS i ON t FIELDS x FULLTEXT ANALYZER words BM25;',
+  ].join('\n');
+
+  it('reads every analyzer of a file, whole, and nothing else', () => {
+    expect(analyzerDefinitions(FILE)).toEqual([
+      'DEFINE ANALYZER IF NOT EXISTS words TOKENIZERS blank FILTERS lowercase;',
+      'DEFINE ANALYZER IF NOT EXISTS stems TOKENIZERS blank;',
+    ]);
+    expect(analyzerDefinitions('-- DEFINE ANALYZER IF NOT EXISTS x TOKENIZERS blank;')).toEqual([]);
+    expect(analyzerDefinitions('DEFINE TABLE a;')).toEqual([]);
+  });
+
+  it('commits the analyzers in their own transaction before the file', async () => {
+    dir = await makeMigrationsDir({ '0001_search.surql': FILE });
+    const { conn, calls, applied } = makeFakeConn();
+    await new SchemaMigrator(dir).migrate(conn as never);
+
+    const first = calls.findIndex((c) => c.sql.includes('DEFINE ANALYZER'));
+    const file = calls.findIndex((c) => c.sql.includes('CREATE schema_migrations CONTENT'));
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(file);
+    expect(calls[first]!.sql).toBe(
+      'BEGIN TRANSACTION;\n' +
+        'DEFINE ANALYZER IF NOT EXISTS words TOKENIZERS blank FILTERS lowercase;\n' +
+        'DEFINE ANALYZER IF NOT EXISTS stems TOKENIZERS blank;\n' +
+        'COMMIT TRANSACTION;',
+    );
+    expect(calls[first]!.sql).not.toContain('DEFINE INDEX');
+    // The file itself still runs whole, analyzers included.
+    expect(calls[file]!.sql).toContain(FILE);
+    expect(applied.map((a) => a.migrationId)).toEqual(['0001']);
+  });
+
+  it('sends no extra batch for a file without analyzers', async () => {
+    dir = await makeMigrationsDir({ '0001_a.surql': 'DEFINE TABLE a;' });
+    const { conn, calls } = makeFakeConn();
+    await new SchemaMigrator(dir).migrate(conn as never);
+    expect(calls.filter((c) => c.sql.startsWith('BEGIN TRANSACTION;'))).toHaveLength(1);
+  });
+
+  it('still applies the file when the analyzers cannot go first', async () => {
+    dir = await makeMigrationsDir({ '0001_search.surql': FILE });
+    const { conn, applied } = makeFakeConn();
+    const rawQuery = conn.query.bind(conn);
+    conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+      if (sql.includes('DEFINE ANALYZER') && !sql.includes('CREATE schema_migrations')) {
+        throw new Error('fn::tokens does not exist');
+      }
+      return rawQuery<T>(sql, params);
+    };
+    await new SchemaMigrator(dir).migrate(conn as never);
+    expect(applied.map((a) => a.migrationId)).toEqual(['0001']);
+  });
+
+  it('names the migration that failed', async () => {
+    dir = await makeMigrationsDir({ '0042_broken.surql': 'DEFINE TABLE a;' });
+    const { conn } = makeFakeConn();
+    const rawQuery = conn.query.bind(conn);
+    conn.query = async <T>(sql: string, params?: Record<string, unknown>): Promise<T> => {
+      if (sql.includes('DEFINE TABLE a')) throw new Error("The analyzer 'stems' does not exist");
+      return rawQuery<T>(sql, params);
+    };
+    const err = await new SchemaMigrator(dir, { sleep: async () => undefined })
+      .migrate(conn as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MigrationApplyError);
+    expect((err as MigrationApplyError).migrationId).toBe('0042');
+    expect((err as Error).message).toBe(
+      "Migration 0042_broken.surql failed: The analyzer 'stems' does not exist",
+    );
   });
 });

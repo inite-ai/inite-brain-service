@@ -106,8 +106,8 @@ retries for 2 minutes.
    arbitrate through a per-database lease that is renewed while a file
    runs. A tenant whose migration fails answers 503 during a backoff
    (30 s doubling to 15 min) rather than retrying on every request, and
-   shows up in `brain_migration_failed_tenants` and the
-   `MigrationFailedTenants` alert. See
+   shows up in `brain_migration_blocked{migration}` and the
+   `MigrationBlocked` alert. See
    [operations.md § Schema migrations](operations.md#schema-migrations).
 
 ## Subsequent deploys

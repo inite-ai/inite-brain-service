@@ -12,17 +12,14 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Registry } from 'prom-client';
 import { SurrealService } from '../src/db/surreal.service';
-import { MigrationFailedError } from '../src/db/migrator.service';
+import { MigrationApplyError } from '../src/db/migrator.service';
 import {
   MigrationBackoff,
   migrationBackoffMs,
   migrationFailureSnapshot,
   UNATTRIBUTED_MIGRATION,
 } from '../src/db/migration-failures';
-import {
-  migrationFailedTenantsGauge,
-  migrationFailuresCounter,
-} from '../src/metrics/migration-failure-metrics';
+import { migrationFailuresCounter } from '../src/metrics/migration-failure-metrics';
 
 describe('migrationBackoffMs', () => {
   it('starts at 30 s, doubles, and caps at 15 min', () => {
@@ -40,7 +37,9 @@ describe('MigrationBackoff', () => {
     let clock = 1_000_000;
     const b = new MigrationBackoff(() => clock);
     expect(() => b.assertNotCoolingDown('co_x')).not.toThrow();
-    expect(b.recordFailure('co_x', new MigrationFailedError('0042', 'boom'))).toBe(30_000);
+    expect(
+      b.recordFailure('co_x', new MigrationApplyError('0042', '0042_x.surql', new Error('boom'))),
+    ).toBe(30_000);
     expect(() => b.assertNotCoolingDown('co_x')).toThrow(ServiceUnavailableException);
     clock += 30_000;
     expect(() => b.assertNotCoolingDown('co_x')).not.toThrow();
@@ -74,7 +73,7 @@ describe('MigrationBackoff', () => {
     const f77 = before.failures.get('0077') ?? 0;
     const fNone = before.failures.get(UNATTRIBUTED_MIGRATION) ?? 0;
     const failing = before.failingDatabases;
-    b.recordFailure('co_m1', new MigrationFailedError('0077', 'x'));
+    b.recordFailure('co_m1', new MigrationApplyError('0077', '0077_x.surql', new Error('x')));
     b.recordFailure('co_m2', new Error('lease wait timed out'));
     const after = migrationFailureSnapshot();
     expect(after.failures.get('0077')).toBe(f77 + 1);
@@ -87,16 +86,17 @@ describe('MigrationBackoff', () => {
 });
 
 describe('migration failure metrics', () => {
-  it('exports the counter by migration id and the failing-database gauge, never a tenant', async () => {
+  it('exports the counter by migration id, never a tenant', async () => {
     const registry = new Registry();
     migrationFailuresCounter(registry);
-    migrationFailedTenantsGauge(registry);
     const b = new MigrationBackoff(() => 0);
-    b.recordFailure('co_metric-tenant', new MigrationFailedError('0099', 'x'));
+    b.recordFailure(
+      'co_metric-tenant',
+      new MigrationApplyError('0099', '0099_x.surql', new Error('x')),
+    );
     try {
       const body = await registry.metrics();
       expect(body).toMatch(/brain_migration_failures_total\{migration="0099"\} \d+/);
-      expect(body).toMatch(/brain_migration_failed_tenants [1-9]/);
       expect(body).not.toMatch(/metric-tenant/);
     } finally {
       b.recordSuccess('co_metric-tenant');
@@ -119,7 +119,7 @@ describe('SurrealService.ensureSchema after a failed migration', () => {
     state.migrationBackoff = new MigrationBackoff(() => clock);
     let fail = true;
     const migrate = jest.fn(async () => {
-      if (fail) throw new MigrationFailedError('0123', 'Migration 0123_x.surql failed: boom');
+      if (fail) throw new MigrationApplyError('0123', '0123_x.surql', new Error('boom'));
       return { applied: ['0123'], alreadyApplied: [] };
     });
     state.migrator = { migrate };

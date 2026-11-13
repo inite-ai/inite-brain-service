@@ -10,10 +10,12 @@ import {
   ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
+import type { Readable } from 'node:stream';
 import type { Response } from 'express';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import {
+  evidenceMaxBytes,
   evidenceRawReadEnabled,
   evidenceSignedUrlSecret,
   evidenceSignedUrlTtlSeconds,
@@ -21,6 +23,8 @@ import {
 import type { EvidenceRawUrlResponse } from '../contracts/evidence/raw.schema';
 import { PolicyAction } from '../policy/action-registry';
 import { EvidenceReadService, type SubjectBlob } from './evidence-read.service';
+import { canCrop, cropFragment } from './fragment-crop';
+import { readBoundedStream } from './processing/adapters/adapter-io';
 import { mintEvidenceToken, verifyEvidenceToken } from './raw-url-token';
 import {
   EVIDENCE_STORAGE_ADAPTERS,
@@ -30,6 +34,8 @@ import {
 
 /** Minimum secret length — mirrored by the boot rule in env-validation. */
 const SECRET_MIN = 32;
+/** Wall-clock bound on cutting a fragment out of its parent. */
+const CROP_DEADLINE_MS = 60_000;
 
 /**
  * EvidenceReadController (Brain v2.1 MM-3) — the ONE raw-read gateway:
@@ -45,8 +51,10 @@ const SECRET_MIN = 32;
  *   GET /v1/evidence/fragments/:fragmentId/raw      — fragment twin
  *   GET /v1/evidence/fragments/:fragmentId/raw-url  — fragment twin
  *   GET /v1/evidence/redeem/:token              — redeem a signed URL
- * The fragment twins serve WHOLE parent-asset bytes in v1 (no locator
- * cropping yet) under the STRICTEST union of fragment+asset piiClasses.
+ * The fragment twins serve the fragment's PART of the parent where its
+ * locator can be cut (an image region, a recording's time span —
+ * fragment-crop.ts; `X-Evidence-Crop` names the cut), else the whole
+ * parent, under the STRICTEST union of fragment+asset piiClasses.
  *
  * Gate ladder — deny-overrides, first failure wins, every controller-
  * observable step lands in the content-free evidence_access audit row
@@ -195,7 +203,7 @@ export class EvidenceReadController {
     const scheme = storageRefScheme(blob.storageRef);
     const adapter = scheme ? this.adapters.get(scheme) : undefined;
     if (!adapter) throw new NotFoundException();
-    let stream: NodeJS.ReadableStream;
+    let stream: Readable;
     try {
       stream = await adapter.get(blob.storageRef);
     } catch (e) {
@@ -205,12 +213,36 @@ export class EvidenceReadController {
       this.logger.warn(`raw-evidence blob get failed: ${(e as Error).message}`);
       throw new NotFoundException();
     }
-    res.setHeader('Content-Type', blob.mediaType);
-    res.setHeader('Content-Length', String(blob.byteLength));
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Disposition', 'attachment');
+    if (canCrop(blob.mediaType, blob.locator)) {
+      const part = await this.cut(stream, blob);
+      res.setHeader('Content-Type', part.mediaType);
+      res.setHeader('Content-Length', String(part.bytes.byteLength));
+      res.setHeader('X-Evidence-Crop', part.cut);
+      res.end(part.bytes);
+      return;
+    }
+    res.setHeader('Content-Type', blob.mediaType);
+    res.setHeader('Content-Length', String(blob.byteLength));
     stream.pipe(res);
+  }
+
+  /** The fragment's part; a cut that fails is a 404, never the whole parent. */
+  private async cut(stream: Readable, blob: SubjectBlob) {
+    try {
+      const max = evidenceMaxBytes();
+      const part = await cropFragment(await readBoundedStream(stream, max), blob, {
+        maxBytes: max,
+        deadlineMs: CROP_DEADLINE_MS,
+      });
+      if (!part) throw new Error('no cutter applies');
+      return part;
+    } catch (e) {
+      this.logger.warn(`raw-evidence fragment cut failed: ${(e as Error).message}`);
+      throw new NotFoundException();
+    }
   }
 }
 

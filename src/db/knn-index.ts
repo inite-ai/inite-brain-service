@@ -218,6 +218,70 @@ export async function noteKnnOperatorDropped(
   return state;
 }
 
+/**
+ * Whether a KNN statement can be trusted on this tenant, ASKED of the
+ * engine before the statement runs rather than read from its result.
+ *
+ * WHY. On 3.2.x a KNN statement over a missing index succeeded with the
+ * operator dropped and a null distance on every row, so "no index" could
+ * be read off the result (knnOperatorDropped). 3.3 answers the same
+ * statement with ZERO rows — indistinguishable from "nothing passed the
+ * filters" — and 4.0.1 refuses it outright. A result-shape detector is
+ * therefore version-bound; the catalogue is not. One INFO probe per
+ * tenant per memo TTL decides; `unknown` (the probe itself failed) still
+ * lets the statement run, guarded by the result checks as before.
+ *
+ * A connection with no selected namespace/database (unit fakes, admin
+ * paths) has no memo key and is not probed: it keeps the result-based
+ * behaviour, so a fake's queued answers are not consumed by the probe.
+ */
+export async function knnIndexUsable(
+  db: MemoDb,
+  spec: HnswIndexSpec,
+  opts: { logger?: KnnDiagnosticLogger | undefined; now?: number | undefined } = {},
+): Promise<boolean> {
+  const key = knnIndexKey(db, spec);
+  if (!key) return true;
+  const now = opts.now ?? Date.now();
+  const prev = memo.get(key);
+  if (prev && now - prev.at < KNN_INDEX_MEMO_TTL_MS) return usableState(prev.state);
+  const state = await hnswIndexState(db, spec);
+  const usable = usableState(state);
+  const warnedAt = prev?.warnedAt ?? 0;
+  const shout = !usable && now - warnedAt >= KNN_INDEX_WARN_EVERY_MS;
+  memo.set(key, { state, at: now, warnedAt: shout ? now : warnedAt });
+  if (!usable) {
+    const message = knnUnusableMessage(spec, state);
+    if (shout) {
+      if (opts.logger?.error) opts.logger.error(message);
+      else opts.logger?.warn(message);
+    } else {
+      opts.logger?.debug?.(message);
+    }
+  }
+  return usable;
+}
+
+const usableState = (state: HnswIndexState): boolean => state === 'ready' || state === 'unknown';
+
+/** The operator-facing sentence for an index found unusable before the query ran. */
+export function knnUnusableMessage(spec: HnswIndexSpec, state: HnswIndexState): string {
+  return (
+    `hnsw index '${spec.index}' on ${spec.table} is ${state}: ${knnStateWhy(spec, state)}. ` +
+    `Serving the exact scan (re-checked every ${KNN_INDEX_MEMO_TTL_MS / 1000}s).`
+  );
+}
+
+function knnStateWhy(spec: HnswIndexSpec, state: HnswIndexState): string {
+  return state === 'absent'
+    ? `it does not exist on this tenant — build it with POST /v1/admin/maintenance/hnsw`
+    : state === 'building'
+      ? `it is still building and not usable until it reports ready`
+      : state === 'failed'
+        ? `its build FAILED and never becomes usable on its own; the next reconcile (or POST /v1/admin/maintenance/hnsw) rebuilds it`
+        : `its state could not be determined`;
+}
+
 /** Forget every observation — after an index build, or between tests. */
 export function resetKnnIndexMemo(): void {
   memo.clear();

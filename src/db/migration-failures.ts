@@ -1,5 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { MigrationFailedError } from './migration-failed.error';
+import { MigrationApplyError } from './migration-blocked';
 
 /**
  * Per-database backoff after a failed schema apply.
@@ -66,8 +66,7 @@ export class MigrationBackoff {
 
   /** Record a failed apply; returns the cooldown it opened (ms). */
   recordFailure(database: string, err: unknown): number {
-    const migration =
-      err instanceof MigrationFailedError ? err.migrationId : UNATTRIBUTED_MIGRATION;
+    const migration = err instanceof MigrationApplyError ? err.migrationId : UNATTRIBUTED_MIGRATION;
     failuresByMigration.set(migration, (failuresByMigration.get(migration) ?? 0) + 1);
     failingDatabases.add(database);
     const consecutive = (this.state.get(database)?.consecutive ?? 0) + 1;

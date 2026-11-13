@@ -1245,12 +1245,11 @@ failing tenant does not take a replica out of rotation.
 | Metric                                      | Meaning                                                                                                                                                      |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `brain_migration_failures_total{migration}` | Failed schema applies since boot, by migration id. `none` = not attributable to one file (lease wait timeout, dropped connection). Never labelled by tenant. |
-| `brain_migration_failed_tenants`            | Databases whose last apply on this replica failed and has not succeeded since. They answer 503 while their backoff runs.                                     |
+| `brain_migration_blocked{migration}`        | Tenants whose next migration fails to apply, by the file that fails. They answer 503 while their backoff runs.                                               |
 | `brain_migration_drift{migration}`          | Tenants whose applied file differs from the shipped one (an edited shipped migration).                                                                       |
 
-The **`MigrationFailedTenants`** alert (critical) fires when
-`brain_migration_failed_tenants` stays above 0 for 10 minutes, long enough
-for a transient blip to be cleared by the next retry. To act on it: find the
+The **`MigrationBlocked`** alert (critical) fires when
+`brain_migration_blocked` stays above 0 for 5 minutes. To act on it: find the
 migration id in `brain_migration_failures_total` and the cause in the log
 line `Schema apply failed for <ns>/<db>`. Fix the file's problem by shipping
 a NEW migration (never edit a shipped one), or repair the tenant's data by
