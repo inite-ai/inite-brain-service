@@ -15,6 +15,8 @@ const TenantStateSchema = z.object({
   companyId: z.string(),
   applied: z.array(z.string()),
   pending: z.array(z.string()),
+  /** Set when the tenant's ledger could not be read; applied/pending are then empty. */
+  error: z.string().optional(),
 });
 
 export const MigrationsResponseSchema = z.object({
