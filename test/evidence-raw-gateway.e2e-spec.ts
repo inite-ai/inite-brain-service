@@ -18,6 +18,7 @@ import { SurrealService } from '../src/db/surreal.service';
 import { EvidenceStoreService } from '../src/evidence/evidence-store.service';
 import { FsEvidenceStorageAdapter } from '../src/evidence/storage/fs-storage.adapter';
 import { mintEvidenceToken } from '../src/evidence/raw-url-token';
+import sharp from 'sharp';
 
 const COMPANY = 'co_evidence_raw_e2e';
 const OTHER_COMPANY = 'co_evidence_raw_other';
@@ -314,9 +315,14 @@ describe('evidence raw-read gateway (e2e)', () => {
     expect(outcomes).toEqual(expect.arrayContaining(['denied_availability', 'ok']));
   });
 
-  it('fragment twins serve parent bytes under the STRICTEST piiClasses union', async () => {
-    const data = randomBytes(1024);
-    const created = await registerFsAsset(data, { userId: 'raw_frag_u' });
+  it("fragment twins serve the fragment's part under the STRICTEST piiClasses union", async () => {
+    // A 100×50 PNG: the region (0.1,0.1)+(0.4×0.4) is a 40×20 cut.
+    const data = await sharp({
+      create: { width: 100, height: 50, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .png()
+      .toBuffer();
+    const created = await registerFsAsset(data, { userId: 'raw_frag_u', mediaType: 'image/png' });
     const clean = await store.addFragment(COMPANY, {
       assetId: created.assetId,
       locator: { kind: 'pageRegion', page: 0, x: 0.1, y: 0.1, w: 0.4, h: 0.4 },
@@ -324,7 +330,38 @@ describe('evidence raw-read gateway (e2e)', () => {
     });
     const res = await f.http.get(`/v1/evidence/fragments/${clean.fragmentId}/raw`).set(auth());
     expect(res.status).toBe(200);
-    expect(Buffer.from(res.body as Buffer).equals(data)).toBe(true);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.headers['x-evidence-crop']).toBe('pageRegion');
+    expect(res.headers['cache-control']).toBe('no-store');
+    const cut = await sharp(Buffer.from(res.body as Buffer)).metadata();
+    expect([cut.width, cut.height]).toEqual([40, 20]);
+    // The signed-URL twin of a fragment redeems to the same part, not the whole.
+    const mint = await f.http.get(`/v1/evidence/fragments/${clean.fragmentId}/raw-url`).set(auth());
+    expect(mint.status).toBe(200);
+    const redeemed = await f.http.get((mint.body as { url: string }).url);
+    expect(redeemed.status).toBe(200);
+    expect(redeemed.headers['x-evidence-crop']).toBe('pageRegion');
+    const redeemedCut = await sharp(Buffer.from(redeemed.body as Buffer)).metadata();
+    expect([redeemedCut.width, redeemedCut.height]).toEqual([40, 20]);
+    // A locator no cutter serves (a PDF page region) still serves the parent.
+    const pdf = randomBytes(700);
+    const pdfAsset = await registerFsAsset(pdf, {
+      userId: 'raw_frag_u',
+      modality: 'document',
+      mediaType: 'application/pdf',
+    });
+    const page = await store.addFragment(COMPANY, {
+      assetId: pdfAsset.assetId,
+      locator: { kind: 'pageRegion', page: 2, x: 0, y: 0, w: 1, h: 0.5 },
+      piiClasses: [],
+    });
+    const whole = await f.http
+      .get(`/v1/evidence/fragments/${page.fragmentId}/raw`)
+      .set(auth())
+      .responseType('blob');
+    expect(whole.status).toBe(200);
+    expect(whole.headers['x-evidence-crop']).toBeUndefined();
+    expect(Buffer.from(whole.body as Buffer).equals(pdf)).toBe(true);
     // Fragment classified 'face' + clean asset → union non-empty → scope-gated.
     const faced = await store.addFragment(COMPANY, {
       assetId: created.assetId,
