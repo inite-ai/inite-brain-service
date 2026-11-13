@@ -2,11 +2,16 @@ import type { ExtractionPatternService } from '../extraction-pattern.service';
 import type { ExtractedEdge, ExtractedEntity, ExtractedFact, ExtractionResult } from './types';
 import { normalizeForGrounding } from './grounding';
 
-/** Map a HuggingFace NER label to our closed entity-type vocabulary. */
+/**
+ * Map a HuggingFace NER label to our closed entity-type vocabulary. ORG
+ * lands on `organization` (it was folded into `other` before 0195); PER
+ * keeps its long-standing `staff` — moving it is a classification change
+ * for the recipe's consumers, not a fold.
+ */
 export function mapNerTypeToEntityType(t: string): ExtractedEntity['type'] {
   const upper = (t ?? '').toUpperCase();
   if (upper === 'PER' || upper === 'PERSON') return 'staff';
-  if (upper === 'ORG' || upper === 'ORGANIZATION') return 'other';
+  if (upper === 'ORG' || upper === 'ORGANIZATION') return 'organization';
   if (upper === 'LOC' || upper === 'LOCATION') return 'location';
   return 'other';
 }

@@ -20,6 +20,8 @@ export interface MergedEntity {
   key: string;
   name: string;
   type: string;
+  /** The type as extracted, when it was normalised away from it (0195) — first one seen. */
+  typeRaw?: string | undefined;
   canonical?: string | undefined;
   /** The system-of-record's id, when an external submission named one — the commit files the entity under it. */
   externalId?: string | undefined;
@@ -168,17 +170,22 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
     const key = dsu.find(it.nameKey);
     ctx.scopeToKey.set(scopeRef(it.row.runId, it.row.chunkSeq, it.row.payload.entityIndex), key);
     const known = typeof it.row.payload.known === 'string' ? it.row.payload.known : undefined;
+    const typeRaw = nonEmptyString(it.row.payload.typeRaw);
     const existing = entities.get(key);
     if (existing) {
       existing.candidateIds.push(it.row.id);
-      if (!existing.canonical && it.canonical) existing.canonical = it.canonical;
-      if (!existing.externalId && it.externalId) existing.externalId = it.externalId;
-      if (!existing.known && known) existing.known = known;
+      fillFirstSeen(existing, {
+        canonical: it.canonical,
+        externalId: it.externalId,
+        known,
+        typeRaw,
+      });
     } else {
       entities.set(key, {
         key,
         name: it.name,
         type: normalizeType(it.row.payload.type),
+        ...(typeRaw ? { typeRaw } : {}),
         canonical: it.canonical,
         externalId: it.externalId,
         ...(known ? { known } : {}),
@@ -187,6 +194,21 @@ function mergeEntities(rows: CandidateRow[], ctx: MergeContext): MergedEntity[] 
     }
   }
   return [...entities.values()];
+}
+
+function nonEmptyString(v: unknown): string | undefined {
+  return typeof v === 'string' && v ? v : undefined;
+}
+
+/** The optional fields a merged entity takes from the first candidate that has them. */
+function fillFirstSeen(
+  into: MergedEntity,
+  from: Pick<MergedEntity, 'canonical' | 'externalId' | 'known' | 'typeRaw'>,
+): void {
+  if (!into.canonical && from.canonical) into.canonical = from.canonical;
+  if (!into.externalId && from.externalId) into.externalId = from.externalId;
+  if (!into.known && from.known) into.known = from.known;
+  if (!into.typeRaw && from.typeRaw) into.typeRaw = from.typeRaw;
 }
 
 /** Minimal union-find over alias strings — folds entities that share a name

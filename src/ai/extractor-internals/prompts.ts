@@ -1,7 +1,18 @@
 import type { PredicateDefinition } from '../predicate-registry.service';
 import type { PackExtractionProfile } from '../predicate-registry-internals/types';
+import { ENTITY_TYPE_GLOSS } from '../../common/entity-types';
 import { ENTITY_TYPE_VOCABULARY } from './types';
 import { renderMemoryContext, type MemoryContext } from './memory-context';
+
+/**
+ * The entity-type card both headers carry: the closed enum with what each
+ * value means. customer / staff are ROLES — without the gloss a model
+ * reading "my sister Ana" had to pick between a role the text never
+ * stated and `other`; person / organization exist for exactly that.
+ */
+const ENTITY_TYPE_CARD = `type — closed enum; pick by what the text says the entity IS, and a role
+     (customer, staff) only when the text places it in that role:
+${ENTITY_TYPE_VOCABULARY.map((t) => `       ${t} — ${ENTITY_TYPE_GLOSS[t]}`).join('\n')}`;
 
 /**
  * Static header — the structural / verbatim-rule / decompose-then-extract
@@ -21,7 +32,7 @@ You output JSON with four top-level fields, in this order:
      summarise or rephrase.
 
   2. entities[] — actors named in the input. Each entry has name (verbatim
-     mention), type (closed enum: ${ENTITY_TYPE_VOCABULARY.join(', ')}), and
+     mention), type (see below), and
      canonical: the form the entity is KNOWN by, when the mention is not it —
      the dictionary form of an inflected mention (nominative, singular:
      "Марией Петровой" → "Мария Петрова", "Лиссабона" → "Лиссабон"), the full
@@ -29,6 +40,7 @@ You output JSON with four top-level fields, in this order:
      legal/registered form when the text states it; null when the mention
      already is that form. name stays verbatim — canonical is what the
      graph will file the entity under.
+     ${ENTITY_TYPE_CARD}
 
   3. facts[] — assertions about the entities. Each fact has:
        entityIndex   — 0-based index into entities[]
@@ -150,7 +162,7 @@ OUTPUT CONTRACT — JSON with four top-level fields, in this order:
      to (a KNOWN ENTITY, one the turn names, or the speaker). Only when the
      turn names nothing and no speaker is known does the described thing
      itself become the entity ("pilot launch" as a project), so the fact is
-     never lost. type (closed enum: ${ENTITY_TYPE_VOCABULARY.join(', ')}).
+     never lost. ${ENTITY_TYPE_CARD}
      canonical = the form the entity is known by when the mention is not it:
      the dictionary form of an inflected mention (nominative singular —
      "Марией" → "Мария"), the full name when the turn gives it, or the stated

@@ -6,7 +6,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { IndexerRouterService } from '../indexers/indexer-router.service';
-import { normalizeEntityType, parseEventTime } from '../ai/extractor-internals/grounding';
+import { classifyEntityType, parseEventTime } from '../ai/extractor-internals/grounding';
 import { PACK_NAMESPACE_SEP } from '../ai/domain-packs/manifest';
 import { policyFor } from '../ingest/conflict-resolver';
 import { RETRACT_ADMIN_PREDICATES } from '../facts/facts.service';
@@ -298,7 +298,9 @@ export class ExternalCandidatesService {
     const entities: CandidateEntity[] = dto.entities.map((e, i) => ({
       entityIndex: i,
       name: clean ? sanitizeIngestText(e.name) : e.name,
-      type: normalizeEntityType(e.type),
+      // The core type, plus what the submitter wrote when it is not one
+      // ("vendor" → other, typeRaw "vendor") — kept on the entity (0195).
+      ...classifyEntityType(e.type),
       canonical: clean ? sanitizeIngestText(e.canonical) : e.canonical,
       ...(typeof e.externalId === 'string' && e.externalId.trim()
         ? { externalId: e.externalId.trim() }
