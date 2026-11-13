@@ -137,7 +137,7 @@ describe('FactResolverService — grounding stamp (EVIDENCE_GROUNDING_STAMP)', (
     // One batched resolve, then the unconditional embedding-space stamp.
     expect(queries.map((q) => q.sql)).toEqual([
       'RETURN fn::settle_facts($facts, $cfg)',
-      'UPDATE knowledge_fact SET embeddingSpaceId = $space WHERE id IN $ids',
+      'UPDATE $ids SET embeddingSpaceId = $space',
     ]);
     expect(stampQ(queries)).toHaveLength(0);
   });

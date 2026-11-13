@@ -41,10 +41,7 @@ export async function stampFactEmbeddingSpace(args: {
   }
   for (const [space, ids] of bySpace) {
     try {
-      await args.db.query(
-        `UPDATE knowledge_fact SET ${EMBEDDING_SPACE_FIELD} = $space WHERE id IN $ids`,
-        { space, ids },
-      );
+      await args.db.query(`UPDATE $ids SET ${EMBEDDING_SPACE_FIELD} = $space`, { space, ids });
     } catch (e) {
       args.logger.warn(
         `embedding-space stamp failed for ${ids.length} fact(s) (non-fatal, rows read as ` +

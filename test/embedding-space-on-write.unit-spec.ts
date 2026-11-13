@@ -105,7 +105,7 @@ describe('facts — stamped right after fn::settle_fact, keyed by the returned i
     await svc.resolve(db as never, factInput('status', 'active'));
     const settle = calls.findIndex((c) => c.sql.includes('fn::settle_fact('));
     const [stamp] = stamps(calls);
-    expect(stamp!.sql).toBe('UPDATE knowledge_fact SET embeddingSpaceId = $space WHERE id IN $ids');
+    expect(stamp!.sql).toBe('UPDATE $ids SET embeddingSpaceId = $space');
     expect(stamp!.params?.space).toBe(SPACE);
     expect(idsOf(stamp!)).toEqual(['knowledge_fact:s_active']);
     // Never passed to the stored function — its signature is untouched.
