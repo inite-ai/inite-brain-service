@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.8.0](https://github.com/inite-ai/inite-brain-service/compare/v2.7.0...v2.8.0) (2026-11-12)
+
+
+### Features
+
+* **affect:** infer how a consenting person seemed to feel from their own words — observations that quote them, never a trait ([#913](https://github.com/inite-ai/inite-brain-service/issues/913)) ([5bc9c2f](https://github.com/inite-ai/inite-brain-service/commit/5bc9c2f737119eab45f980c98fb3d7346b0a3246))
+* **affect:** relationship_context serves how a person has seemed to feel — signals against their own baseline, never their state ([#914](https://github.com/inite-ai/inite-brain-service/issues/914)) ([6d7a2c0](https://github.com/inite-ai/inite-brain-service/commit/6d7a2c05a29774c49598b16511c41a4f2268a5ab))
+* **affect:** voice affect behind every gate the AI Act asks for — allowed deployment context, the person's consent and notice, their own voice, the operator's model ([#920](https://github.com/inite-ai/inite-brain-service/issues/920)) ([f612892](https://github.com/inite-ai/inite-brain-service/commit/f61289223fe6f21fbb2d18454bf93d0a9b296111))
+* **evidence:** OCR reads in the tenant's own language — Portuguese, Spanish, French and German models ship ([#904](https://github.com/inite-ai/inite-brain-service/issues/904)) ([648527d](https://github.com/inite-ai/inite-brain-service/commit/648527d33ce3f96fd050ad35dfd77756573c36eb))
+* **evidence:** speech becomes memory — local speech to text for audio and the sound of video ([#908](https://github.com/inite-ai/inite-brain-service/issues/908)) ([11752d2](https://github.com/inite-ai/inite-brain-service/commit/11752d27af761790f2f13a7a283a9d3632bece5b))
+* **evidence:** the words an image yields become memory — OCR runs bridge to the document pipeline ([#903](https://github.com/inite-ai/inite-brain-service/issues/903)) ([03284c1](https://github.com/inite-ai/inite-brain-service/commit/03284c18b8b2e5585a6b09da6f42a9b254e2b3ad))
+* **harness:** the connected agent reads images the keyless server cannot see ([#906](https://github.com/inite-ai/inite-brain-service/issues/906)) ([6bfbd35](https://github.com/inite-ai/inite-brain-service/commit/6bfbd357d6100fe1a9ffe4b56c9e4640bd46f528))
+* **mcp:** read_media and upload_media — an agent sees the images memory cites and hands memory its files ([#907](https://github.com/inite-ai/inite-brain-service/issues/907)) ([cd370db](https://github.com/inite-ai/inite-brain-service/commit/cd370db2e9052b280e058ac57d4e74df55c08e61))
+* **privacy:** a minor's own consent to inference does not count — the operator records age and guardians, and only a guardian's grant does ([#917](https://github.com/inite-ai/inite-brain-service/issues/917)) ([2397372](https://github.com/inite-ai/inite-brain-service/commit/239737296e081f046bd4bfdc469693222bc90596))
+* **privacy:** a person sees, erases and contests their emotional data, and gives and withdraws consent to inference ([#912](https://github.com/inite-ai/inite-brain-service/issues/912)) ([6c71308](https://github.com/inite-ai/inite-brain-service/commit/6c713083ccb66843901a3a023408d6822393cb68))
+* **privacy:** a predicate's sensitivity class fences its reads — affect and health need brain:read_pii ([#910](https://github.com/inite-ai/inite-brain-service/issues/910)) ([be51624](https://github.com/inite-ai/inite-brain-service/commit/be51624536c99cb566350fc3df1b7b9a255030f7))
+* **provenance:** every fact says where its claim came from — stated, inferred, a hypothesis, or confirmed ([#911](https://github.com/inite-ai/inite-brain-service/issues/911)) ([eed5cd0](https://github.com/inite-ai/inite-brain-service/commit/eed5cd0c340abc4a2f07216819fc268678f1474e))
+* **residency:** a tenant's memory lives in one region — each deployment serves only its region's tenants and refuses the rest with 421 ([#919](https://github.com/inite-ai/inite-brain-service/issues/919)) ([9a22b22](https://github.com/inite-ai/inite-brain-service/commit/9a22b2290bf537bd24be1f48ffcaa8c3a1544abc))
+* **safety:** read a person's words for a risk of suicide or self-harm, keep the operator's protocol record, report it without identifiers ([#918](https://github.com/inite-ai/inite-brain-service/issues/918)) ([7686aa3](https://github.com/inite-ai/inite-brain-service/commit/7686aa3e334b63e7135b10219c5ed2cbda06ea6f))
+* **search:** the lexical legs match words by their stems in the row's own language ([#901](https://github.com/inite-ai/inite-brain-service/issues/901)) ([cf518c2](https://github.com/inite-ai/inite-brain-service/commit/cf518c2bbebb75ae279aea850dff16e91c8fd07c))
+
 ## [2.7.0](https://github.com/inite-ai/inite-brain-service/compare/v2.6.0...v2.7.0) (2026-11-03)
 
 
