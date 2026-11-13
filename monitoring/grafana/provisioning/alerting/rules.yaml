@@ -107,6 +107,34 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0] }
 
+      - uid: brain-migration-blocked
+        title: MigrationBlocked
+        condition: C
+        for: 5m
+        noDataState: OK # scrape-down alert covers series absence
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: a tenant's next migration fails to apply — Brain refuses that tenant's reads, writes and jobs until it does (label migration names the file; logs say why)
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: vm
+            model:
+              refId: A
+              expr: sum(brain_migration_blocked) or vector(0)
+              instant: true
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
       - uid: brain-no-worker-leader
         title: NoWorkerLeader
         condition: C

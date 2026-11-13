@@ -13,7 +13,12 @@ import { ConfigService } from '@nestjs/config';
 import { runWithTenant } from '../common/tenant-context';
 import { Surreal } from 'surrealdb';
 import { join } from 'node:path';
-import { SchemaMigrator } from './migrator.service';
+import { SchemaMigrator, type MigrationResult } from './migrator.service';
+import {
+  clearMigrationBlocked,
+  MigrationApplyError,
+  recordMigrationBlocked,
+} from './migration-blocked';
 import { migrationLeaseName, SurrealMigrationLock } from './migration-lock';
 import { SESSION_REAUTH_MARGIN_MS, SurrealSessionKeeper } from './session-keeper';
 import { envFlagNotDisabled } from '../common/env-validation';
@@ -733,10 +738,17 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
       // database so tenants still migrate in parallel; a replica that
       // loses the race waits for the holder rather than racing it, and
       // `knownDatabases` is only marked once the manifest really landed.
-      const result = await this.migrator.migrate(this.migratorConn, {
-        lock: this.migrationLock,
-        lockName: migrationLeaseName(this.namespace, database),
-      });
+      let result: MigrationResult;
+      try {
+        result = await this.migrator.migrate(this.migratorConn, {
+          lock: this.migrationLock,
+          lockName: migrationLeaseName(this.namespace, database),
+        });
+      } catch (err) {
+        if (err instanceof MigrationApplyError) recordMigrationBlocked(database, err.migrationId);
+        throw err;
+      }
+      clearMigrationBlocked(database);
       this.knownDatabases.add(database);
       if (result.applied.length > 0) {
         this.logger.log(
