@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { Surreal } from 'surrealdb';
 import { runTransaction } from '../db/surreal.service';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import type { LeaderLeaseService } from '../jobs/leader-lease.service';
+import { leaseName } from '../common/lease-name';
 
 /**
  * Derive atomicity (external audit 2026-08-19 P1).
@@ -86,19 +87,13 @@ const LEASE_HEARTBEAT_MS = 200_000;
 const inFlight = new Set<string>();
 
 /**
- * leader_lease record ids are string-composed (`'leader_lease:' + $name`),
- * so the name must stay in the unescaped id charset `[a-z0-9_]`.
- * companyId / version are sanitized into a readable slug and the raw
- * pair is hashed so two tenants that sanitize identically cannot
- * collide into one lease.
+ * The lease name of one (tenant, version) derive, through the shared
+ * lease-name sanitiser (common/lease-name.ts). The NUL separator is never
+ * plain, so the name is always a readable slug plus a digest of the raw
+ * pair: `co_a`+`b` and `co`+`a_b` stay two leases.
  */
 export function deriveLeaseName(companyId: string, version: string): string {
-  const hash = createHash('sha1').update(`${companyId}\u0000${version}`).digest('hex').slice(0, 8);
-  const slug = `${companyId}_${version}`
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .slice(0, 40);
-  return `derive_${slug}_${hash}`;
+  return leaseName(`derive_${companyId}\u0000${version}`);
 }
 
 export interface DeriveLease {

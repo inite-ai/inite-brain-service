@@ -134,10 +134,10 @@ describe('UpdateStoryService', () => {
     const surreal = {
       withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({
-          query: async (sql: string, params: { winners: string[] }) => {
+          query: async (sql: string, params: { winners: unknown[] }) => {
             capture?.push(sql);
-            const rows = params.winners.flatMap((w) => byWinner[w] ?? []);
-            return [null, rows];
+            const rows = params.winners.flatMap((w) => byWinner[String(w)] ?? []);
+            return [rows];
           },
         }),
     } as unknown as SurrealService;

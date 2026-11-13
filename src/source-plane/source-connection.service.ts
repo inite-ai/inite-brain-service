@@ -5,7 +5,6 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { StringRecordId } from 'surrealdb';
 import {
   BUILTIN_PACKS,
   sourcesChecksum,
@@ -41,6 +40,7 @@ import {
   SOURCE_CONNECTORS,
 } from './connector';
 import { Inject } from '@nestjs/common';
+import { recordIdOf } from '../db/record-key';
 
 /** Raw `source_connection` row (SurrealDB record id in `id`). */
 export interface SourceConnectionRow {
@@ -771,7 +771,7 @@ export function toView(row: SourceConnectionRow): SourceConnection {
 
 /** Bound-var-safe record link (the candidate-store idiom). */
 export function connectionRef(connectionId: string): unknown {
-  return new StringRecordId(`source_connection:${idTailOf(connectionId)}`);
+  return recordIdOf('source_connection', connectionId);
 }
 
 /**

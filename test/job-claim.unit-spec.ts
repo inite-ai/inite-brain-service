@@ -83,11 +83,11 @@ describe('JobClaimService', () => {
     expect(select.sql).toContain('LIMIT 1');
     // The CAS is a point write on the candidate's id, guarded on the
     // state the candidate was read in, and stamps the lease epoch.
-    expect(cas.sql).toContain('UPDATE type::record($rid)');
+    expect(cas.sql).toContain("UPDATE type::record('job_run', $rid)");
     expect(cas.sql).toContain("WHERE status = 'pending' AND visibleAfter <= time::now()");
     expect(cas.sql).toContain('claimEpoch = $epoch');
     expect(cas.sql).not.toContain('BEGIN');
-    expect(cas.params).toMatchObject({ rid: 'job_run:abc', me: PROCESS_IDENTITY, epoch: 7 });
+    expect(cas.params).toMatchObject({ rid: 'abc', me: PROCESS_IDENTITY, epoch: 7 });
   });
 
   it('claimNext without a lease epoch stamps claimEpoch = NONE', async () => {
@@ -110,12 +110,7 @@ describe('JobClaimService', () => {
     const got = await svc.claimNext({ companyId: 'co_x', jobType: 'dreams', ttlSeconds: 300 });
     expect(got?.recordId).toBe('job_run:b');
     expect(got?.runId).toBe('run-b');
-    expect(calls.map((c) => c.params?.rid)).toEqual([
-      undefined,
-      'job_run:a',
-      undefined,
-      'job_run:b',
-    ]);
+    expect(calls.map((c) => c.params?.rid)).toEqual([undefined, 'a', undefined, 'b']);
   });
 
   it('claimNext gives up after three lost races', async () => {

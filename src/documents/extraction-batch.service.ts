@@ -29,6 +29,7 @@ import {
 import { ExtractionMetrics } from './extraction.metrics';
 import { LeaderLeaseService } from '../jobs/leader-lease.service';
 import { Semaphore } from '../common/semaphore';
+import { tenantLeaseName } from '../common/lease-name';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 import { halvingCanHelp } from './read-failure';
@@ -252,7 +253,7 @@ export class ExtractionBatchService implements OnModuleInit {
     const chained = previous.then(() => mine);
     this.running.set(companyId, chained);
     await previous;
-    const name = `extract_documents:${companyId}`;
+    const name = tenantLeaseName('extract_documents_', companyId);
     try {
       const deadline = Date.now() + LEASE_WAIT_MS;
       while (this.lease && !(await this.lease.tryAcquire(name, LEASE_TTL_SECONDS))) {
@@ -278,7 +279,7 @@ export class ExtractionBatchService implements OnModuleInit {
     // A drain reads until nothing is left; a scheduled pass stops within
     // its job lease and a fresh pass continues.
     const deadline = opts.force ? Number.POSITIVE_INFINITY : Date.now() + PASS_BUDGET_MS;
-    const name = `extract_documents:${companyId}`;
+    const name = tenantLeaseName('extract_documents_', companyId);
     const ctx = {
       companyId,
       abortSignal: opts.abortSignal,

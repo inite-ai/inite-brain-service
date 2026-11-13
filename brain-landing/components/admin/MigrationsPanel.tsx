@@ -141,14 +141,20 @@ export function MigrationsPanel() {
               </div>
               <ul className="mt-2 text-xs font-mono space-y-1">
                 {data.perTenant
-                  .filter((t) => t.pending.length > 0)
+                  .filter((t) => t.pending.length > 0 || t.error)
                   .map((t) => (
                     <li key={t.companyId}>
                       <span className="text-[var(--text-muted)]">
                         {t.companyId}:
                       </span>{' '}
-                      <span className="text-[var(--warning)]">
-                        {t.pending.join(', ')}
+                      <span
+                        className={
+                          t.error
+                            ? 'text-[var(--danger)]'
+                            : 'text-[var(--warning)]'
+                        }
+                      >
+                        {t.error ?? t.pending.join(', ')}
                       </span>
                     </li>
                   ))}
