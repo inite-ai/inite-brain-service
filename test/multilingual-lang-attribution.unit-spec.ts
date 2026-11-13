@@ -231,7 +231,10 @@ describe('FactResolverService — attribution stamp', () => {
         return [];
       }),
     };
-    const factEmbedding = { embed: jest.fn(async () => [0.1]) };
+    const factEmbedding = {
+      embed: jest.fn(async () => [0.1]),
+      activeSpaceId: () => 'stub:test:2:l2',
+    };
     const predicateRegistry = {
       getSnapshot: jest.fn(async () => ({})),
       policyFor: jest.fn(() => ({ semantics: 'append_only' })),

@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SurrealService } from '../db/surreal.service';
 import { EmbedderService } from '../ai/embedder.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { cosineSimilarity } from '../common/vector-math';
 import {
@@ -322,6 +323,7 @@ export class StrategyMemoryService {
             status: $status,
             evidence: $evidence,
             embedding: $embedding,
+            embeddingSpaceId: $embeddingSpaceId,
             scope: $scope,
             createdAt: time::now(),
             updatedAt: time::now()${revisionContent}${traj.content}
@@ -335,6 +337,7 @@ export class StrategyMemoryService {
           status: args.status ?? 'candidate',
           evidence: args.evidence ?? {},
           embedding,
+          ...spaceStamp(this.embedder),
           scope: args.scope ?? 'tenant',
           ...(args.supersedesId ? { supersedesId: args.supersedesId } : {}),
           ...traj.params,

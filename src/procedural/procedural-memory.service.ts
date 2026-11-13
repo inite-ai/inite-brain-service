@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SurrealService, queryRows, queryFirst } from '../db/surreal.service';
 import { sameWidthGate } from '../db/vector-width';
 import { EmbedderService } from '../ai/embedder.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 
 /**
  * ProceduralMemoryService — third tier alongside facts (semantic) and
@@ -43,6 +44,7 @@ export class ProceduralMemoryService {
         `CREATE ONLY procedural_memory CONTENT {
             trigger: $trigger,
             triggerEmbedding: $embedding,
+            embeddingSpaceId: $embeddingSpaceId,
             action: $action,
             priority: $priority,
             decayHalfLifeDays: $decayHalfLifeDays,
@@ -52,6 +54,7 @@ export class ProceduralMemoryService {
         {
           trigger: args.trigger,
           embedding,
+          ...spaceStamp(this.embedder),
           action: args.action,
           priority: args.priority ?? 100,
           decayHalfLifeDays: args.decayHalfLifeDays,

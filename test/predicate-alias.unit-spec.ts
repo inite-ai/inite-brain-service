@@ -148,6 +148,7 @@ describe('predicate alias (W3 0082)', () => {
       const svc = new FactResolverService(
         {
           embed: jest.fn(async () => [0.1]),
+          activeSpaceId: () => 'stub:test:2:l2',
           writeAltEmbeddingIfHype: jest.fn(async () => {}),
         } as never,
         {
@@ -213,6 +214,7 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
     const embedder = {
       embed: jest.fn(async () => [1, 0]),
       embedMany: jest.fn(async (t: string[]) => t.map(() => [1, 0])),
+      activeSpaceId: () => 'stub:test:2:l2',
     };
     const svc = new PredicateRegistryService(
       surreal as never,
@@ -231,6 +233,14 @@ describe('canonicalize repeat-coinage short-circuit (registry storm fix)', () =>
       db.query.mock.calls.filter(([sql]) => String(sql).includes('CREATE knowledge_predicate'))
         .length;
     expect(inserts()).toBe(1);
+    // The auto-proposed row carries its context vector AND that vector's space.
+    const insert = db.query.mock.calls.find(([sql]) =>
+      String(sql).includes('CREATE knowledge_predicate'),
+    ) as unknown as [string, { content: Record<string, unknown> }];
+    expect(insert[1].content).toMatchObject({
+      embedding: [1, 0],
+      embeddingSpaceId: 'stub:test:2:l2',
+    });
     const embedsAfterFirst = embedder.embed.mock.calls.length;
 
     const second = await svc.canonicalize('co_x', 'painted_seascape', { text: 'ctx' });

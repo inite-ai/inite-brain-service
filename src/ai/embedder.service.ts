@@ -563,9 +563,8 @@ export class EmbedderService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * The canonical space id of the provider that would serve RIGHT NOW.
-   * Used by the reindex sweep to stamp `embeddingSpaceId` on rewritten
-   * rows (behind EMBEDDING_SPACE_TRACKING) so a row declares the space it
-   * was embedded in.
+   * Every vector writer stamps it as `embeddingSpaceId` beside the vector
+   * (via `spaceStamp`) so a row declares the space it was embedded in.
    */
   activeSpaceId(): string {
     return this.spaceIdOf(this.servingProvider());

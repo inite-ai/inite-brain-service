@@ -66,6 +66,7 @@ describe('derivedSemanticsFor (aspect classes)', () => {
 function makeResolver(): FactResolverService {
   const embedding = {
     embed: async () => [1, 0],
+    activeSpaceId: () => 'stub:test:2:l2',
   } as unknown as FactEmbeddingService;
   const registry = {
     getSnapshot: async () => ({}),

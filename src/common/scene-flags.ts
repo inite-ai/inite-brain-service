@@ -86,9 +86,8 @@ export function sceneLlmEnrichmentEnabled(): boolean {
  * triggerable standalone via POST /v1/admin/maintenance/scenes/embed-gists)
  * embeds the CANONICAL gist TEXT of scenes in the current effective
  * segmenter world that carry no vector yet, in ONE bounded batch per run,
- * and writes `gistEmbedding` by primary-key-addressed UPDATE — plus, when
- * EMBEDDING_SPACE_TRACKING is on, the `embeddingSpaceId` stamp, exactly
- * the fact-side convention (the reindex engine's spaceStampId).
+ * and writes `gistEmbedding` by primary-key-addressed UPDATE together with
+ * its `embeddingSpaceId` stamp, the convention every vector writer follows.
  *
  * WHY `gist` AND NOT `enrichedGist`: `gist` is the ONE canonical gist text
  * column — immutable post-compose, the column the 0106 BM25 FULLTEXT index

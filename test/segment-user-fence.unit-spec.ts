@@ -239,6 +239,7 @@ describe('segment composer persists the sorted member set (0117 write side)', ()
     } as unknown as SurrealService;
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
+      activeSpaceId: () => 'stub:test:2:l2',
     } as unknown as FactEmbeddingService;
     const svc = new SegmentComposerService(
       surreal,
@@ -312,6 +313,7 @@ describe('scene composer persists fold.userIds (0117 write side)', () => {
     } as unknown as SurrealService;
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
+      activeSpaceId: () => 'stub:test:2:l2',
     } as unknown as FactEmbeddingService;
     const registry = {
       begin: async () => undefined,

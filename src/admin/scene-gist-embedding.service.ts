@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SurrealService } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
-import { EMBEDDING_SPACE_FIELD } from '../ai/embedder/embedding-space';
-import { envFlagEnabled } from '../common/env-validation';
+import { EMBEDDING_SPACE_FIELD, spaceStamp } from '../ai/embedder/embedding-space';
 import { sceneGistEmbeddingEnabled } from '../common/scene-flags';
 import { SceneVersionService } from './scene-version';
 
@@ -36,13 +35,10 @@ import { SceneVersionService } from './scene-version';
  * why the pass lives here (post-swap, composer-side) rather than inside
  * the enricher's UPDATE, which would cover neither.
  *
- * SPACE STAMP — the fact-side convention, verbatim. `embeddingSpaceId` is
- * written ONLY under EMBEDDING_SPACE_TRACKING and always TOGETHER with the
- * vector (the reindex engine's `spaceStampId` / `writeVector` idiom): a
- * NONE column means "the current provider's space" (embedding-space.ts),
- * so with tracking off the row is exactly what a knowledge_fact row looks
- * like, and with it on the reindex/space-migration machinery treats scenes
- * like every other embedded surface.
+ * SPACE STAMP — the convention every vector writer follows. `embeddingSpaceId`
+ * is written always, and always TOGETHER with the vector (`spaceStamp`, the
+ * reindex engine's `writeVector` idiom), so the reindex / space-migration
+ * machinery treats scenes like every other embedded surface.
  *
  * IDEMPOTENT + BOUNDED. Only scenes of the CURRENT effective segmenter
  * world (SceneVersionService, resolved ONCE per run — the Drift-3
@@ -121,7 +117,7 @@ export class SceneGistEmbeddingService {
     const { version } = this.versions.resolve();
     // The space stamp is resolved ONCE per run, before any write, exactly
     // like the reindex engine resolves it once per tenant.
-    const spaceId = this.spaceStampId();
+    const spaceId = spaceStamp(this.embedding).embeddingSpaceId;
     await this.surreal.withCompany(companyId, async (db) => {
       // Plain WHERE SELECT over indexed fields — safe on 3.2.4 (only
       // DELETE/UPDATE trip the planner bug; see the composer's swap note).
@@ -188,32 +184,16 @@ export class SceneGistEmbeddingService {
   }
 
   /**
-   * Whether to stamp `embeddingSpaceId` alongside the vector — the reindex
-   * engine's rule, read per-call so an operator flip takes effect without a
-   * restart. Off (default) ⇒ the UPDATE is exactly
-   * `SET gistEmbedding = $embedding`, and the NONE space column means "the
-   * current provider's space" (the legacy/implicit space).
-   */
-  private spaceStampId(): string | null {
-    if (!envFlagEnabled(process.env.EMBEDDING_SPACE_TRACKING)) return null;
-    return this.embedding.activeSpaceId();
-  }
-
-  /**
    * One scene's vector, by BOUND ID — primary-key addressed, so the 3.2.4
    * secondary-index planner bug cannot silently no-op it. Vector and space
-   * id are written TOGETHER or not at all (the 0101 idiom: a vector whose
-   * space is unknown cannot be compared to anything).
+   * id are written TOGETHER (the 0101 idiom: a vector whose space is
+   * unknown cannot be migrated by its space).
    */
   private async writeVector(
     db: { query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T> },
-    entry: { id: unknown; embedding: number[]; spaceId: string | null },
+    entry: { id: unknown; embedding: number[]; spaceId: string },
   ): Promise<void> {
     const { id, embedding, spaceId } = entry;
-    if (spaceId === null) {
-      await db.query(`UPDATE $id SET gistEmbedding = $embedding`, { id, embedding });
-      return;
-    }
     await db.query(`UPDATE $id SET gistEmbedding = $embedding, ${EMBEDDING_SPACE_FIELD} = $space`, {
       id,
       embedding,

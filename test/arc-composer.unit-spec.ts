@@ -56,6 +56,7 @@ function makeSvc(opts: {
   } as unknown as ConfigService;
   const embedding = {
     embedMany: async (texts: string[]) => texts.map(() => [1, 0]),
+    activeSpaceId: () => 'stub:test:2:l2',
   } as unknown as FactEmbeddingService;
   const svc = new ArcComposerService(surreal, config, embedding);
   (svc as unknown as { openai: unknown }).openai = {
@@ -153,6 +154,8 @@ describe('ArcComposerService (V9 §3)', () => {
     expect(rows[1]!.predicate).toBe('summary_arc_running');
     expect((rows[0]!.derivedFrom as unknown[]).length).toBe(3);
     expect(rows[0]!.embedding).toEqual([1, 0]);
+    // Kernel-central: every composed row declares the space of its vector.
+    for (const r of rows) expect(r.embeddingSpaceId).toBe('stub:test:2:l2');
     expect((rows[0]!.validFrom as Date).toISOString().slice(0, 10)).toBe('2024-06-12');
     expect(rows[0]!.source).toMatchObject({ recorder: ARC_RECORDER });
   });

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StringRecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { EpisodeReadStoreService } from '../episodes/episode-read-store.service';
 import { scopeForUser, withSourceScope } from '../auth/scope-tags';
 import { segmentSessions, type EpisodeRow } from './window-deriver.service';
@@ -179,6 +180,7 @@ export class SegmentComposerService {
           w.turns,
         ),
         embedding: vectors[i],
+        ...spaceStamp(this.embedding),
         recorder: SEGMENT_RECORDER,
         generation,
       };

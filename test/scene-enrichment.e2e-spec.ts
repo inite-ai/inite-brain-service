@@ -73,7 +73,6 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
       // PR3 legs, both start OFF so each `it` proves its own gate first.
       'SCENES_GIST_EMBEDDING',
       'SCENES_ENTITY_LINKS',
-      'EMBEDDING_SPACE_TRACKING',
       // The two sessions are cut by the time gap; a topic cut would follow
       // the stub embedder, not the text.
       'SCENES_TOPIC_BOUNDARY',
@@ -313,9 +312,9 @@ describe('scene enrichment + fact backlink + version purge (e2e)', () => {
       // which these rows also carry from the earlier `it`s.
       expect(scene.enrichedGist).toBeDefined();
       expect(scene.gist).toContain('opens:');
-      // EMBEDDING_SPACE_TRACKING is off: no stamp, exactly like a
-      // knowledge_fact row on the fact-side write path.
-      expect(scene.embeddingSpaceId).toBeUndefined();
+      // Written together with its space, like every vector write
+      // (StubEmbedder emulates the default OpenAI 1536 space).
+      expect(scene.embeddingSpaceId).toBe('openai:text-embedding-3-small:1536:l2');
     }
 
     // Idempotent: every scene now carries a vector, so the second run

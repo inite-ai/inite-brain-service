@@ -1,5 +1,6 @@
 import type { Surreal } from 'surrealdb';
 import type { EmbedderService } from '../embedder.service';
+import { spaceStamp } from '../embedder/embedding-space';
 import type { PredicateDefinition } from './types';
 import { embeddingTextFor, serializeForInsert } from './db-mapping';
 
@@ -43,7 +44,7 @@ export async function seedMissingPredicates(opts: {
     await db.query(`CREATE knowledge_predicate CONTENT $content`, {
       content: {
         ...serializeForInsert(item),
-        ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
+        ...(embeddings[i] ? { embedding: embeddings[i], ...spaceStamp(embedder) } : {}),
       },
     });
   }

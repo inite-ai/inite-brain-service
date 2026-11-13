@@ -29,6 +29,8 @@ import { traceArtifact } from '../common/debug-trace';
 import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { stampGroundingStatus } from './grounding-stamp';
+import { stampFactEmbeddingSpace } from './fact-space-stamp';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
@@ -692,6 +694,9 @@ export class FactResolverService {
       object: p.object,
       objectMeta: p.objectMeta,
       embedding,
+      // Every vector on this path (precomputed or embedded here) came from
+      // the write-guarded embedder in this request ⇒ the active space.
+      ...spaceStamp(this.factEmbedding),
       confidence: p.confidence,
       validFrom: p.validFrom,
       validUntil: p.validUntil,
@@ -1060,6 +1065,14 @@ export class FactResolverService {
       db,
       prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
     );
+    await stampFactEmbeddingSpace({
+      db,
+      items: prepared.map((c, k) => ({
+        factId: out[k]?.factId,
+        embeddingSpaceId: c.embeddingSpaceId,
+      })),
+      logger: this.logger,
+    });
     // Multilingual Tier 1: per-fact attribution stamp (0100). No-op for
     // every fact whose langMeta is undefined (attribution off, or the
     // derived-batch path which builds no attribution meta) — byte-identical.
@@ -1119,6 +1132,9 @@ export class FactResolverService {
       lang?: string;
       script?: string;
       derivedVersion: string;
+      /** Space of `embedding`; absent ⇒ the active space (every producer
+       *  embeds through the write-guarded FactEmbeddingService). */
+      embeddingSpaceId?: string;
       /** Per-user scope of the grounding turns (audit 2026-08-21 P0) —
        *  absent = tenant-global. Conflict resolution is scope-local
        *  (0055: fn::resolve_fact scopes candidates by $user_id). */
@@ -1133,6 +1149,7 @@ export class FactResolverService {
       predicate: r.predicate,
       object: r.object,
       embedding: r.embedding,
+      embeddingSpaceId: r.embeddingSpaceId ?? spaceStamp(this.factEmbedding).embeddingSpaceId,
       confidence: r.confidence,
       validFrom: r.validFrom,
       source: r.source,
@@ -1196,6 +1213,9 @@ export class FactResolverService {
       object: string;
       objectMeta?: object | undefined;
       embedding: number[];
+      /** Space of `embedding` (0101), stamped by a follow-up UPDATE keyed by
+       *  the returned factId; not passed to fn::settle_fact. */
+      embeddingSpaceId?: string | undefined;
       confidence: number;
       validFrom: Date;
       validUntil?: Date | undefined;
@@ -1269,6 +1289,11 @@ export class FactResolverService {
     // Outside the retry closure so a stamp hiccup never re-runs the
     // resolver (which would double-create the fact).
     await this.stampFactScope(db, [{ userId: p.userId, factId: r?.factId }]);
+    await stampFactEmbeddingSpace({
+      db,
+      items: [{ factId: r?.factId, embeddingSpaceId: p.embeddingSpaceId }],
+      logger: this.logger,
+    });
     // Multilingual Tier 1: stamp attribution metadata (0100). No-op when
     // langMeta is undefined (attribution off) — byte-identical.
     await this.stampLangAttribution(db, [{ factId: r?.factId, meta: p.langMeta }]);

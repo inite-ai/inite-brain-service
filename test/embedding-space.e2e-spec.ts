@@ -3,7 +3,9 @@
  *   - migration 0101 applies on the tenant DB;
  *   - the `embeddingSpaceId` column round-trips on knowledge_fact;
  *   - the per-tenant embedding_space_state + ATOMIC cutover round-trip;
- *   - the reindex sweep stamps `embeddingSpaceId` under EMBEDDING_SPACE_TRACKING.
+ *   - an ingested fact is written WITH its `embeddingSpaceId` (stamped right
+ *     after fn::settle_fact, keyed by the returned id), and the reindex
+ *     sweep stamps every row it rewrites — both unconditionally.
  *
  * The strict-space guard is a property of the REAL EmbedderService, which the
  * app-fixture replaces with StubEmbedder — so it is proven at the unit level
@@ -27,7 +29,6 @@ describe('Multilingual Tier 2 — embedding-space e2e (migration 0101)', () => {
   beforeAll(async () => {
     for (const k of [
       'EMBEDDING_SPACE_STRICT',
-      'EMBEDDING_SPACE_TRACKING',
       'EMBEDDING_SPACE_ACTIVE',
       'EMBEDDING_SPACE_DUAL_WRITE',
     ]) {
@@ -49,7 +50,6 @@ describe('Multilingual Tier 2 — embedding-space e2e (migration 0101)', () => {
   afterAll(async () => {
     for (const k of [
       'EMBEDDING_SPACE_STRICT',
-      'EMBEDDING_SPACE_TRACKING',
       'EMBEDDING_SPACE_ACTIVE',
       'EMBEDDING_SPACE_DUAL_WRITE',
     ]) {
@@ -67,6 +67,19 @@ describe('Multilingual Tier 2 — embedding-space e2e (migration 0101)', () => {
       return ((rows as Array<{ migrationId: string }>) ?? []).length;
     });
     expect(count).toBe(1);
+  });
+
+  it('an ingested fact declares its space from the first write', async () => {
+    const surreal = f.app.get(SurrealService);
+    const spaces = await surreal.withCompany(f.companyId, async (db) => {
+      const [rows] = await db.query<[Array<{ embeddingSpaceId?: string }>]>(
+        `SELECT embeddingSpaceId FROM knowledge_fact WHERE embedding != NONE`,
+      );
+      return ((rows as Array<{ embeddingSpaceId?: string }>) ?? []).map((r) => r.embeddingSpaceId);
+    });
+    expect(spaces.length).toBeGreaterThanOrEqual(1);
+    // StubEmbedder emulates the default OpenAI 1536 space.
+    for (const s of spaces) expect(s).toBe(OPENAI_SPACE);
   });
 
   it('embeddingSpaceId column round-trips on knowledge_fact', async () => {
@@ -109,21 +122,16 @@ describe('Multilingual Tier 2 — embedding-space e2e (migration 0101)', () => {
     }
   });
 
-  it('reindex sweep stamps embeddingSpaceId under EMBEDDING_SPACE_TRACKING', async () => {
+  it('reindex sweep stamps embeddingSpaceId on every rewrite', async () => {
     const surreal = f.app.get(SurrealService);
     // Clear any stamp left by an earlier test so we observe the reindex write.
     await surreal.withCompany(f.companyId, async (db) => {
       await db.query(`UPDATE knowledge_fact SET embeddingSpaceId = NONE`);
     });
 
-    process.env.EMBEDDING_SPACE_TRACKING = '1';
-    try {
-      const reindex = f.app.get(ReindexEmbeddingsService);
-      const res = await reindex.run({ tenant: f.companyId });
-      expect(res.factsUpdated).toBeGreaterThanOrEqual(1);
-    } finally {
-      delete process.env.EMBEDDING_SPACE_TRACKING;
-    }
+    const reindex = f.app.get(ReindexEmbeddingsService);
+    const res = await reindex.run({ tenant: f.companyId });
+    expect(res.factsUpdated).toBeGreaterThanOrEqual(1);
 
     const stamped = await surreal.withCompany(f.companyId, async (db) => {
       const [rows] = await db.query<[Array<{ embeddingSpaceId?: string }>]>(

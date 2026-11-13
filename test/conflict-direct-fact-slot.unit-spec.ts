@@ -38,6 +38,7 @@ describe('FactResolverService — CONFLICT_DIRECT_FACT_SLOT promotion', () => {
     };
     const factEmbedding = {
       embed: jest.fn(async () => [0.1]),
+      activeSpaceId: () => 'stub:test:2:l2',
       writeAltEmbeddingIfHype: jest.fn(async () => {}),
     };
     // Mirrors PredicateRegistryService.policyFor: a known predicate

@@ -3,6 +3,7 @@ import { StringRecordId, type Surreal } from 'surrealdb';
 import { inferredStamp } from '../common/assertion';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { FactEmbeddingService } from '../ingest/fact-embedding.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { scopeForUser, withSourceScope } from '../auth/scope-tags';
 import { privacyComposerUserScopeEnabled } from '../common/privacy-flags';
 import { emptyBatchOutcome, foldBatchOutcome, type BatchOutcome } from '../common/batch-outcome';
@@ -264,6 +265,9 @@ async function composeEntity<P>(
     // anything a source said — stamped where every composer passes.
     const row = {
       ...built,
+      // Space of `vector` — kernel-central like the stamp below, so every
+      // composer's row declares it without touching its spec.
+      ...spaceStamp(deps.embedding),
       source: {
         ...((built.source as Record<string, unknown> | undefined) ?? {}),
         ...inferredStamp({ recorder: spec.recorder, version }),
