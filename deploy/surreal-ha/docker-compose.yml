@@ -14,7 +14,7 @@
 # Host ports: 8030 = the balanced address, 8031/8032 = each node directly
 # (the verification talks to both to prove they share state).
 x-surreal: &surreal
-  image: surrealdb/surrealdb:v3.2.4
+  image: surrealdb/surrealdb:v3.3.5
   command: [start, --user=root, --pass=root, --bind=0.0.0.0:8000, 'tikv://pd:2379']
   depends_on:
     tikv1: { condition: service_started }

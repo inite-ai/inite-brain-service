@@ -23,7 +23,7 @@ DST=${DST:?DST endpoint, e.g. http://127.0.0.1:8030}
 NS=${NS:-brain}
 SURREAL_USER=${SURREAL_USER:-root}
 SURREAL_PASS=${SURREAL_PASS:?SURREAL_PASS}
-IMAGE=${IMAGE:-surrealdb/surrealdb:v3.2.4}
+IMAGE=${IMAGE:-surrealdb/surrealdb:v3.3.5}
 OUT=${1:-$(mktemp -d -t surreal-ha-migrate)}
 mkdir -p "$OUT"
 

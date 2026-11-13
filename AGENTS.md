@@ -104,7 +104,7 @@ the e2e suites.
 ```bash
 pnpm install --frozen-lockfile
 cp .env.example .env              # set OPENAI_API_KEY for ingest/search
-docker compose up -d surrealdb    # SurrealDB v3.2.4 on localhost:8000
+docker compose up -d surrealdb    # SurrealDB v3.3.5 on localhost:8000
 pnpm start:dev                    # http://localhost:3000/health
 ```
 
