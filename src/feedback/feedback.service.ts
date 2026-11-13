@@ -1,17 +1,17 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { BrainScope } from '../auth/api-key.types';
 import { FactsService } from '../facts/facts.service';
-import { StringRecordId, type Surreal } from 'surrealdb';
+import { RecordId, type Surreal } from 'surrealdb';
 import { SurrealService, runTransaction } from '../db/surreal.service';
 import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { MetricsService } from '../metrics/metrics.service';
-import { idTailOf } from '../ingest/ingest-utils';
 import {
   MemoryOutcomeService,
   type OutcomeCounter,
   type OutcomeEventInput,
   type StatDelta,
 } from '../outcomes/memory-outcome.service';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * FeedbackService — the write side of the retrieval feedback loop
@@ -80,7 +80,7 @@ interface CastVoteRow {
 export async function castVote(
   db: Surreal,
   v: {
-    fact: StringRecordId;
+    fact: RecordId;
     verdict: FeedbackVerdict;
     actor: string;
     reason: string | undefined;
@@ -149,7 +149,7 @@ export class FeedbackService {
       userId: p.userId,
     });
     return this.surreal.withCompany(p.companyId, async (db) => {
-      const fact = new StringRecordId(`knowledge_fact:${idTailOf(p.factId)}`);
+      const fact = recordIdOf('knowledge_fact', p.factId);
       const prior = await castVote(db, {
         fact,
         verdict: p.verdict,

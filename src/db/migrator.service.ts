@@ -3,8 +3,12 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Surreal } from 'surrealdb';
 import type { MigrationLock } from './migration-lock';
+import { LeaseHeartbeat } from './lease-heartbeat';
 import { enrichTransactionError, isReadConflict, isUniqueViolation } from './surreal-retry';
 import { migrationChecksum, recordMigrationDrift } from './migration-checksum';
+import { MigrationApplyError } from './migration-blocked';
+
+export { MigrationApplyError };
 
 /**
  * Schema migrator — versioned, append-only DDL applied per tenant DB.
@@ -59,12 +63,20 @@ export interface MigrateOptions {
   lock?: MigrationLock;
   /** Lease name for `lock` — see `migrationLeaseName`. */
   lockName?: string;
+  /**
+   * The database `conn` points at, as `namespace/database`. Checksum
+   * validation runs once per target; without it the migrator asks the
+   * session (`session::ns()`/`session::db()`).
+   */
+  target?: string;
 }
 
 /** Tunables, injected by tests; production takes the defaults. */
 export interface MigratorTiming {
   lockTtlSeconds?: number;
   lockWaitMs?: number;
+  /** Lease renewal period while a run holds the lock (default: a third of the TTL). */
+  heartbeatMs?: number;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -72,8 +84,10 @@ export interface MigratorTiming {
  * Lease TTL for the migration lock. A cold apply of the whole manifest
  * measures under 4s against SurrealDB 3.2.4, so 30s leaves an order of
  * magnitude of headroom while bounding how long a hard-killed holder can
- * block the rest of the fleet; the holder renews at half-life anyway, so
- * a slow data leg does not lose the lock.
+ * block the rest of the fleet. The holder renews on a heartbeat timer
+ * (lease-heartbeat.ts) every third of the TTL WHILE a file runs, not only
+ * between files — so one data leg longer than the TTL keeps the lease, and
+ * a renewal that fails stops the run at the next file boundary.
  */
 const LOCK_TTL_SECONDS = 30;
 
@@ -97,6 +111,28 @@ DEFINE INDEX IF NOT EXISTS schema_migrations_id_idx ON schema_migrations FIELDS 
 
 const FILE_NAME = /^(\d{4})_.+\.surql$/;
 
+/**
+ * A connection plus the database it points at — the checksum-validation
+ * key. Resolved lazily (first validation check) when the caller passed none.
+ */
+interface LedgerTarget {
+  conn: Surreal;
+  key?: string | undefined;
+}
+
+/**
+ * The `DEFINE ANALYZER IF NOT EXISTS …;` statements of a migration file, in
+ * order (see SchemaMigrator.defineAnalyzersFirst). Comments are dropped
+ * first so a `;` inside one cannot cut a statement short; an analyzer
+ * definition holds no string literal, so `--` is never data there.
+ */
+export function analyzerDefinitions(sql: string): string[] {
+  const code = sql.replace(/--[^\n]*/g, '');
+  return (code.match(/\bDEFINE\s+ANALYZER\s+IF\s+NOT\s+EXISTS\b[^;]*;/gi) ?? []).map((s) =>
+    s.replace(/\s+/g, ' ').trim(),
+  );
+}
+
 interface LedgerRow {
   id: unknown;
   migrationId: string;
@@ -106,10 +142,19 @@ interface LedgerRow {
 export class SchemaMigrator {
   private readonly logger = new Logger(SchemaMigrator.name);
   private cached: Migration[] | null = null;
-  /** Connections whose ledger checksums were validated — once per connection, not per request. */
-  private readonly validated = new WeakSet<Surreal>();
+  /**
+   * Databases (`namespace/database`) whose ledger checksums were validated —
+   * once per database per process, not per request. Keyed by database and
+   * NOT by connection: SurrealService migrates every tenant through ONE
+   * dedicated connection, so a per-connection mark validated only the first
+   * database a process touched and never looked at the rest.
+   */
+  private readonly validated = new Set<string>();
+  /** Fallback target keys for connections whose session cannot name its database. */
+  private readonly anonymousTargets = new WeakMap<Surreal, string>();
   private readonly lockTtlSeconds: number;
   private readonly lockWaitMs: number;
+  private readonly heartbeatMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(
@@ -118,6 +163,7 @@ export class SchemaMigrator {
   ) {
     this.lockTtlSeconds = timing.lockTtlSeconds ?? LOCK_TTL_SECONDS;
     this.lockWaitMs = timing.lockWaitMs ?? LOCK_WAIT_MS;
+    this.heartbeatMs = timing.heartbeatMs ?? (this.lockTtlSeconds * 1000) / 3;
     this.sleep = timing.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
@@ -134,19 +180,49 @@ export class SchemaMigrator {
    */
   async migrate(conn: Surreal, opts: MigrateOptions = {}): Promise<MigrationResult> {
     const { lock, lockName } = opts;
-    const upToDate = await this.readLedger(conn);
+    const target: LedgerTarget = { conn, key: opts.target };
+    const upToDate = await this.readLedger(target);
     if (upToDate.pending.length === 0) return upToDate.result;
-    if (!lock || !lockName) return this.applyPending(conn);
+    if (!lock || !lockName) return this.applyPending(target);
 
-    if (!(await this.acquireOrWait(lock, lockName, conn))) {
+    if (!(await this.acquireOrWait(lock, lockName, target))) {
       // The holder finished what we were waiting for: nothing left to do.
-      return (await this.readLedger(conn)).result;
+      return (await this.readLedger(target)).result;
     }
+    const heartbeat = new LeaseHeartbeat(
+      { lock, name: lockName, ttlSeconds: this.lockTtlSeconds },
+      this.heartbeatMs,
+    );
+    heartbeat.start();
     try {
-      return await this.applyPending(conn, lock, lockName);
+      return await this.applyPending(target, heartbeat);
     } finally {
+      await heartbeat.stop();
       await lock.release(lockName);
     }
+  }
+
+  /**
+   * `namespace/database` the connection's session points at, for callers
+   * that did not pass `target`. A session that cannot say (a stub, an old
+   * server) gets a key private to that connection — the old behaviour,
+   * never worse.
+   */
+  private async sessionTarget(conn: Surreal): Promise<string> {
+    try {
+      const [pair] = await conn.query<[unknown]>(`RETURN [session::ns(), session::db()]`);
+      if (Array.isArray(pair) && pair.every((p) => typeof p === 'string') && pair.length === 2) {
+        return `${pair[0] as string}/${pair[1] as string}`;
+      }
+    } catch {
+      // fall through to the per-connection key
+    }
+    let key = this.anonymousTargets.get(conn);
+    if (!key) {
+      key = `conn#${Math.random().toString(36).slice(2)}`;
+      this.anonymousTargets.set(conn, key);
+    }
+    return key;
   }
 
   /**
@@ -162,7 +238,11 @@ export class SchemaMigrator {
    * we cannot reach must never turn a request against an already-migrated
    * database into a 500.
    */
-  private async acquireOrWait(lock: MigrationLock, name: string, conn: Surreal): Promise<boolean> {
+  private async acquireOrWait(
+    lock: MigrationLock,
+    name: string,
+    target: LedgerTarget,
+  ): Promise<boolean> {
     const deadline = Date.now() + this.lockWaitMs;
     let delayMs = 50;
     let lastErr: unknown;
@@ -180,7 +260,7 @@ export class SchemaMigrator {
       waited = true;
       // Whoever holds it may have finished while we backed off, and an
       // unreachable lease store is only fatal if schema is still missing.
-      if ((await this.readLedger(conn)).pending.length === 0) {
+      if ((await this.readLedger(target)).pending.length === 0) {
         this.logger.log(`Migration lock ${name} not needed — the manifest is already complete`);
         return false;
       }
@@ -204,8 +284,9 @@ export class SchemaMigrator {
    * surfaced — this runs before any lease is held, by construction.
    */
   private async readLedger(
-    conn: Surreal,
+    target: LedgerTarget,
   ): Promise<{ pending: Migration[]; result: MigrationResult }> {
+    const { conn } = target;
     const manifest = await this.loadManifest();
     let attempts = 0;
     for (;;) {
@@ -219,8 +300,9 @@ export class SchemaMigrator {
     }
     const rows = await this.fetchLedger(conn);
     const applied = new Set(rows.map((r) => r.migrationId));
-    if (!this.validated.has(conn)) {
-      this.validated.add(conn);
+    const key = (target.key ??= await this.sessionTarget(conn));
+    if (!this.validated.has(key)) {
+      this.validated.add(key);
       await this.validateChecksums(conn, manifest, rows);
     }
     const pending = manifest.filter((m) => !applied.has(m.id));
@@ -234,26 +316,18 @@ export class SchemaMigrator {
   }
 
   private async applyPending(
-    conn: Surreal,
-    lock?: MigrationLock,
-    lockName?: string,
+    target: LedgerTarget,
+    heartbeat?: LeaseHeartbeat,
   ): Promise<MigrationResult> {
-    const { pending, result } = await this.readLedger(conn);
+    const { pending, result } = await this.readLedger(target);
     if (pending.length === 0) return result;
     const applied = result.alreadyApplied;
 
-    let renewAt = Date.now() + (this.lockTtlSeconds * 1000) / 2;
     for (const m of pending) {
-      if (lock && lockName && Date.now() >= renewAt) {
-        if (!(await lock.tryAcquire(lockName, this.lockTtlSeconds))) {
-          throw new Error(
-            `Lost migration lock ${lockName} before applying ${m.name} — another replica ` +
-              `took over; refusing to write schema behind its back`,
-          );
-        }
-        renewAt = Date.now() + (this.lockTtlSeconds * 1000) / 2;
-      }
-      await this.applyOne(conn, m);
+      // The heartbeat renews while a file runs; a loss it saw stops the run
+      // here, before the next file, never in the middle of one.
+      heartbeat?.assertHeld(m.name);
+      await this.applyOne(target.conn, m);
     }
 
     return {
@@ -273,6 +347,7 @@ export class SchemaMigrator {
    */
   private async applyOne(conn: Surreal, m: Migration): Promise<void> {
     this.logger.log(`Applying ${m.name}`);
+    await this.defineAnalyzersFirst(conn, m);
     const batch =
       `BEGIN TRANSACTION;\n${m.sql}\n` +
       `CREATE schema_migrations CONTENT { migrationId: $mig_id, name: $mig_name, checksum: $mig_sum };\n` +
@@ -301,11 +376,41 @@ export class SchemaMigrator {
           this.logger.error(
             `Migration ${m.name} failed after ${attempts} attempt(s): ${(err as Error).message}`,
           );
-          throw new Error(`Migration ${m.name} failed: ${(err as Error).message}`);
+          throw new MigrationApplyError(m.id, m.name, err);
         }
         const baseMs = 20 * Math.pow(2, attempts - 1);
         await this.sleep(baseMs + Math.random() * baseMs);
       }
+    }
+  }
+
+  /**
+   * Commit the file's `DEFINE ANALYZER IF NOT EXISTS` statements before the
+   * file's own transaction. SurrealDB 3.2.4 builds a FULLTEXT index over the
+   * rows a table already holds right in `DEFINE INDEX`, and that build looks
+   * the analyzer up in the COMMITTED catalogue: an analyzer defined earlier
+   * in the same transaction is invisible to it ("The analyzer 'x' does not
+   * exist"). On an empty table nothing is built and the file passes, which
+   * is why 0184 applied on every fresh database and on empty prod tenants
+   * and failed on every tenant with a fact or a turn (incident 2026-11-13,
+   * test/migration-populated-tenant.e2e-spec.ts). The statements stay in the
+   * file's batch too, where IF NOT EXISTS makes them no-ops. An analyzer is
+   * inert on its own, so one left behind by a file that then fails changes
+   * nothing, and the retry defines it again as a no-op.
+   */
+  private async defineAnalyzersFirst(conn: Surreal, m: Migration): Promise<void> {
+    const analyzers = analyzerDefinitions(m.sql);
+    if (analyzers.length === 0) return;
+    try {
+      await conn.query(`BEGIN TRANSACTION;\n${analyzers.join('\n')}\nCOMMIT TRANSACTION;`);
+    } catch (err) {
+      // Not fatal: an analyzer that leans on something the file defines
+      // later (a function) cannot go first; the file's own batch still
+      // defines it in order and is the one whose outcome counts.
+      this.logger.warn(
+        `Migration ${m.name}: analyzers could not be committed ahead of the file: ` +
+          (err as Error).message,
+      );
     }
   }
 

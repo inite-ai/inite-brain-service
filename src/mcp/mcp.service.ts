@@ -76,7 +76,15 @@ import { CrossEncoderService } from '../ai/cross-encoder.service';
 import { BeliefStatementWorkService } from '../admin/belief-statement-work.service';
 import { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 
-const MCP_SERVER_VERSION = '0.3.0';
+/**
+ * What `initialize` reports as serverInfo.version: the release itself.
+ * It was a hand-kept '0.3.0' that nobody bumped while the product went
+ * to 2.x, so a client logging serverInfo could not tell one deployed
+ * brain from another. The tool surface is versioned with the release
+ * (breaking changes ride a major, see AGENTS.md "Evolving data and
+ * contracts"), so the release number is the honest one.
+ */
+export const MCP_SERVER_VERSION = SERVICE_VERSION;
 
 /**
  * Registration methods whose surface the resource/prompt gates patch.
@@ -626,10 +634,10 @@ export class McpService {
    * Write- and admin-scoped tools are NOT listed; callers verify those
    * exist by hitting the authenticated endpoint with the right scope.
    *
-   * Two version numbers, because there are two: `version` is the MCP
-   * server's own (what `initialize` reports to a client), while
-   * `serviceVersion` is the deployed brain release that /health names.
-   * They differ, and reading one as the other has cost debugging time.
+   * `version` is what `initialize` reports to a client and
+   * `serviceVersion` the release /health names. They are the same number
+   * now (MCP_SERVER_VERSION is the release); both fields stay because
+   * setup scripts read either.
    */
   health(profile?: ToolProfile): {
     ok: boolean;

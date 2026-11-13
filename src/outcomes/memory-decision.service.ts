@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
-import { StringRecordId } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { outcomeDecisionCaptureEnabled } from '../common/outcome-flags';
 import {
@@ -8,6 +7,7 @@ import {
   getRequestContext,
   type RequestContext,
 } from '../common/request-context';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * MemoryDecisionService — the ONE write seam for memory_decision rows
@@ -159,7 +159,7 @@ export class MemoryDecisionService {
     void this.surreal
       .withCompany(companyId, async (db) => {
         await db.query('INSERT IGNORE INTO memory_decision $row', {
-          row: { id: new StringRecordId(`memory_decision:${decisionId}`), ...row },
+          row: { id: recordIdOf('memory_decision', decisionId), ...row },
         });
       })
       .catch((e: Error) => {

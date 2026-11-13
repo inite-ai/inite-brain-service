@@ -140,7 +140,7 @@ overview — one line per flag, plus the orderings that matter.
 | `EVIDENCE_PROCESSOR_BROKER`                                              | `0`      | Trusted platform-owned processor adapters over registered assets, each run an idempotent `processing_run` row (0121). Requires the substrate flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `EVIDENCE_QUARANTINE`                                                    | `0`      | External-ingest quarantine seam (0121): assets get `quarantineStatus` (`clean` internal / `quarantined` external_ingest); the broker refuses non-clean assets. **Off = `origin:'external_ingest'` is rejected 503 outright (fail closed)** — enable BEFORE accepting any externally-sourced media.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `EVIDENCE_DOCUMENT_BRIDGE`                                               | `0`      | Evidence → document bridge: the words a processor run read off an asset (a document's text layer, an image's OCR, every region in reading order) are ingested through the ordinary document pipeline as kind `evidence_text`, with an `evidenceAssetId` provenance hop on every committed fact — an uploaded PDF or screenshot yields facts, not only fragments. One `evidence_document_bridge` job per run; replayed runs enqueue too, so the dispatch sweep is the backfill. Requires the broker, `DOCUMENT_INGEST_ENABLED` and the jobs queue.                                                                                                                                                                                                                                                                                       |
-| `EVIDENCE_ASR_ENABLED`                                                   | `0`      | Local speech to text (#900): the `asr` processor transcribes audio assets and the sound of video ones. The shipped `ffmpeg-static` binary decodes any accepted container to 16 kHz mono; Whisper via transformers.js (`EVIDENCE_ASR_MODEL`, default `Xenova/whisper-small`, downloaded once into the transformers cache, a few hundred MB resident once loaded) transcribes in the tenant's most common turn language, since Whisper here does not detect it and otherwise translates to English. One output per minute of audio with a `timeRange` locator; the words reach memory through `EVIDENCE_DOCUMENT_BRIDGE`. Recordings over two hours are refused. Needs the broker and a pack declaring an audio/video → `asr` processor with current consent. `pnpm eval:media-asr` measures it. |
+| `EVIDENCE_ASR_ENABLED`                                                   | `0`      | Local speech to text (#900): the `asr` processor transcribes audio assets and the sound of video ones. The shipped `ffmpeg-static` binary decodes any accepted container to 16 kHz mono; Whisper via transformers.js (`EVIDENCE_ASR_MODEL`, default `Xenova/whisper-small`, downloaded once into the transformers cache, a few hundred MB resident once loaded) transcribes in the tenant's most common turn language, since Whisper here does not detect it and otherwise translates to English. One output per minute of audio with a `timeRange` locator; the words reach memory through `EVIDENCE_DOCUMENT_BRIDGE`. Recordings over two hours are refused. Needs the broker and a pack declaring an audio/video → `asr` processor with current consent. `pnpm eval:media-asr` measures it.                                          |
 | `SOURCE_PLANE_ENABLED`                                                   | `0`      | Source plane master switch (raw-evidence-sources-2026-09.md, W0): `/v1/admin/source-connections`, the `source_sync` job handler and the 5-minute scheduler. A connection instantiates a pack's declared `sources` entry and runs a platform connector; every fetched item enters the existing door for its shape. Off = 404 / no handler / nothing enqueued. The handler registers at boot — flip, then restart.                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `SOURCE_KIND_FS`                                                         | `1`      | The `fs` source connector: a directory on the brain host (mounted volume, OS-mounted share, a local brain's laptop) walked every run; text-like files become documents, PDFs/images go to the evidence plane. Needs `SOURCE_PLANE_ENABLED` and `SOURCE_FS_ROOTS`. Off = the connector is "not installed".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SOURCE_FS_ROOTS`                                                        | unset    | `:`-separated absolute directories the `fs` connector may read under (realpath jail). Unset = no directory is permitted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -1231,6 +1231,57 @@ with itself. `GracefulShutdownService` owns the sequence:
 A 25s deadline forces `exit(1)` if any of that hangs, inside compose's
 `stop_grace_period: 30s`, so docker / fly / k8s never `SIGKILL` you with
 no log line.
+
+## Schema migrations
+
+Every database (each tenant's `co_<companyId>`, and the platform's
+`system`) is migrated lazily: the first request that enters it runs
+`SurrealService.ensureSchema`, which applies every pending file in
+`src/db/migrations/` in order on a dedicated root connection. Each file
+lands together with its `schema_migrations` row in one transaction.
+
+**Across replicas** a per-database lease (`leader_lease` in `system`, TTL
+30 s) decides who applies. A replica that loses the race waits up to 60 s
+for the holder, then re-reads the ledger and applies only what is left. The
+holder renews the lease on a timer every 10 s **while a file runs**, not
+only between files, so a single long data leg keeps the lease. If a
+renewal finds another holder, or keeps failing until the lease would
+expire, the run stops at the next file boundary with `Lost migration lock`.
+A transaction already in flight cannot be cancelled, but no new file starts.
+
+**Checksums** are validated once per database per process (not once per
+connection): a ledger row whose recorded checksum differs from the shipped
+file is counted in `brain_migration_drift` and logged by migration id, and
+is never re-applied.
+
+**A failing migration does not storm.** When a schema apply fails for a
+database, that database enters a cooldown of 30 s, doubling with each
+consecutive failure up to 15 min. During the cooldown every request for
+that tenant answers **503** at once (`Workspace schema migration is
+failing; retrying in Ns`, with no tenant data) instead of re-running the
+failing file inside the global schema queue. The first request after the
+cooldown retries once; a success clears the state. The cooldown is per
+replica, held in memory. A restart clears it. `/ready` is unchanged: one
+failing tenant does not take a replica out of rotation.
+
+| Metric                                      | Meaning                                                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `brain_migration_failures_total{migration}` | Failed schema applies since boot, by migration id. `none` = not attributable to one file (lease wait timeout, dropped connection). Never labelled by tenant. |
+| `brain_migration_blocked{migration}`        | Tenants whose next migration fails to apply, by the file that fails. They answer 503 while their backoff runs.                                               |
+| `brain_migration_drift{migration}`          | Tenants whose applied file differs from the shipped one (an edited shipped migration).                                                                       |
+
+The **`MigrationBlocked`** alert (critical) fires when
+`brain_migration_blocked` stays above 0 for 5 minutes. To act on it: find the
+migration id in `brain_migration_failures_total` and the cause in the log
+line `Schema apply failed for <ns>/<db>`. Fix the file's problem by shipping
+a NEW migration (never edit a shipped one), or repair the tenant's data by
+hand, then wait for the next retry or restart the replica.
+
+`GET /v1/admin/migrations` reads each tenant's ledger **as it is**, without
+migrating it first. A tenant behind the manifest shows its pending files. A
+tenant whose ledger cannot be read is listed with `error: "ledger read
+failed"` and empty `applied`/`pending` (the cause is in the server log).
+Either case sets `driftDetected`.
 
 ## Deploys, and how to undo one
 

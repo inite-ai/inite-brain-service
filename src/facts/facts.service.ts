@@ -1164,7 +1164,7 @@ export class FactsService {
       const params: Record<string, unknown> = { predicate, ...activeParams };
       if (entityIdRaw) {
         const ref = this.normalizeEntityId(entityIdRaw);
-        clauses.push(`entityId = type::record('knowledge_entity:' + $rid)`);
+        clauses.push(`entityId = type::record('knowledge_entity', $rid)`);
         params.rid = ref.id;
       }
       // ×2 headroom so the scope/ABAC row fence doesn't starve the page.

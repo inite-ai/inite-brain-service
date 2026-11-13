@@ -1,0 +1,1264 @@
+{
+  "detect_contradiction": {
+    "type": "object",
+    "properties": {
+      "entityRef": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "vertical": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "vertical",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "entityId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "entityId"
+            ]
+          }
+        ]
+      },
+      "predicate": {
+        "type": "string"
+      },
+      "object": {
+        "type": "string"
+      },
+      "validFrom": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "validUntil": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "sourceVertical": {
+        "type": "string",
+        "description": "Vertical attributed as source (matches record_fact)"
+      },
+      "userId": {
+        "description": "Per-user memory scope: preflight a user-scoped record_fact against tenant-global priors PLUS this user's personal ones. Omit for tenant-global candidates (matches record_fact's userId)",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "entityRef",
+      "predicate",
+      "object",
+      "validFrom",
+      "sourceVertical"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "find_entity_communities": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string",
+        "description": "knowledge_entity id"
+      }
+    },
+    "required": [
+      "entityId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "find_related_entities": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string"
+      },
+      "kind": {
+        "description": "Edge kind filter (e.g. \"paid_for\", \"mentioned_in\")",
+        "type": "string"
+      },
+      "asOf": {
+        "description": "Bitemporal edge cutoff — connections as they were believed at this ISO 8601 moment (mirrors GET /v1/entities/:id/connections?asOf=)",
+        "type": "string",
+        "format": "date-time"
+      },
+      "userId": {
+        "description": "Per-user memory scope: results include tenant-global relations plus this user's personal ones; omit for tenant-global only (fail-closed)",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "entityId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "forget_entity": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string",
+        "description": "Brain entity id (knowledge_entity:...) or short id"
+      },
+      "reason": {
+        "type": "string",
+        "enum": [
+          "gdpr_request",
+          "tenant_offboarding",
+          "operator_request"
+        ],
+        "description": "Audit-grade reason. gdpr_request for Art. 17 DSARs; tenant_offboarding for full deprovision; operator_request for one-off cleanup"
+      },
+      "requestId": {
+        "type": "string",
+        "description": "Ticket / DSAR id — surfaces in the forgotten_entity audit row. Required for traceability."
+      }
+    },
+    "required": [
+      "entityId",
+      "reason",
+      "requestId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_competing_facts": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string",
+        "description": "Brain entity id (knowledge_entity:...) or short id"
+      },
+      "predicate": {
+        "description": "Filter to one predicate (e.g. \"status\", \"address\")",
+        "type": "string"
+      },
+      "asOf": {
+        "description": "Show what was competing at this ISO 8601 moment",
+        "type": "string",
+        "format": "date-time"
+      },
+      "userId": {
+        "description": "Per-user memory scope: preflight a user-scoped record_fact against tenant-global priors PLUS this user's personal ones. Omit for tenant-global candidates (matches record_fact's userId)",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "entityId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_entity_profile": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string",
+        "description": "Brain entity id (knowledge_entity:...) or short id"
+      },
+      "asOf": {
+        "description": "Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)",
+        "type": "string",
+        "format": "date-time"
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      },
+      "detail": {
+        "description": "text (default): with userId, current state as beliefs, disputes and an attribute index. compact: every current fact. full: JSON with ids",
+        "type": "string",
+        "enum": [
+          "text",
+          "compact",
+          "full"
+        ]
+      }
+    },
+    "required": [
+      "entityId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_entity_timeline": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string"
+      },
+      "since": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "until": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      },
+      "detail": {
+        "description": "text (default): the scenes its facts came from and the state changes in each, then the rest. compact: JSON events with ids. full: adds sources",
+        "type": "string",
+        "enum": [
+          "text",
+          "compact",
+          "full"
+        ]
+      }
+    },
+    "required": [
+      "entityId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_fact": {
+    "type": "object",
+    "properties": {
+      "factId": {
+        "type": "string",
+        "description": "Fact id (knowledge_fact:...) or short id"
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "factId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_fact_provenance": {
+    "type": "object",
+    "properties": {
+      "factId": {
+        "type": "string",
+        "description": "Fact id (knowledge_fact:...) or short id"
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "factId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_source_reputation": {
+    "type": "object",
+    "properties": {
+      "sourceKey": {
+        "type": "string",
+        "maxLength": 512,
+        "description": "Source key, e.g. \"rent:tenant_bot\" or \"code:_\""
+      }
+    },
+    "required": [
+      "sourceKey"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "graph_retrieve": {
+    "type": "object",
+    "properties": {
+      "entityNames": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Canonical names of the entities to anchor on"
+      },
+      "query": {
+        "description": "Free-text fallback used to resolve seeds when a name does not match exactly",
+        "type": "string"
+      },
+      "predicateHints": {
+        "description": "Prefer facts with these predicates (non-matching neighbour facts are dropped, seed facts kept at lower score)",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "asOf": {
+        "description": "Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)",
+        "type": "string",
+        "format": "date-time"
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "entityNames"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "ingest_document": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string",
+        "maxLength": 64,
+        "description": "Container kind: chat | email | markdown | pdf | …"
+      },
+      "text": {
+        "type": "string",
+        "maxLength": 512000,
+        "description": "Normalized document text"
+      },
+      "title": {
+        "type": "string",
+        "maxLength": 512
+      },
+      "originUri": {
+        "description": "Pointer back to the raw container",
+        "type": "string",
+        "maxLength": 512
+      },
+      "occurredAt": {
+        "type": "string",
+        "format": "date-time",
+        "description": "The document's own timestamp — becomes facts' validFrom"
+      },
+      "vertical": {
+        "type": "string",
+        "description": "Vertical attributed as source"
+      },
+      "storeContent": {
+        "description": "false keeps only the content hash (no re-indexing later)",
+        "type": "boolean"
+      },
+      "indexers": {
+        "description": "'general' (default), or 'auto' to also route matching installed domain packs (DOCUMENT_MULTI_INDEXER_ENABLED)",
+        "type": "string",
+        "enum": [
+          "general",
+          "auto"
+        ]
+      },
+      "toolObservationRef": {
+        "description": "tool_observation:<id> of the tool result this document came from; its facts then cite it (TOOL_OBSERVATIONS_ENABLED)",
+        "type": "string",
+        "maxLength": 160
+      }
+    },
+    "required": [
+      "kind",
+      "text",
+      "occurredAt",
+      "vertical"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "link_entities": {
+    "type": "object",
+    "properties": {
+      "from": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "vertical": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "vertical",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "entityId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "entityId"
+            ]
+          }
+        ]
+      },
+      "to": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "vertical": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "vertical",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "entityId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "entityId"
+            ]
+          }
+        ]
+      },
+      "kind": {
+        "type": "string",
+        "description": "Edge type (identity_of | paid_for | mentioned_in | worked_with | …)"
+      },
+      "weight": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "sourceVertical": {
+        "type": "string",
+        "description": "Vertical attributed as source (e.g. \"rent\")"
+      }
+    },
+    "required": [
+      "from",
+      "to",
+      "kind",
+      "sourceVertical"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "list_communities": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "list_procedures": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200
+      },
+      "includeRetired": {
+        "type": "boolean"
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "match_procedure": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language context"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20
+      },
+      "minSimilarity": {
+        "description": "Floor (default 0.4); rows below are dropped",
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "memory_diff": {
+    "type": "object",
+    "properties": {
+      "from": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Inclusive lower bound (ISO 8601)"
+      },
+      "to": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Exclusive upper bound (ISO 8601)"
+      },
+      "entityIds": {
+        "description": "Scope to these entities (short or full ids)",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "predicates": {
+        "description": "Scope to these predicates",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      },
+      "detail": {
+        "description": "text (default): the changes per entity, one line each. full: JSON with ids",
+        "type": "string",
+        "enum": [
+          "text",
+          "full"
+        ]
+      }
+    },
+    "required": [
+      "from",
+      "to"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "read_media": {
+    "type": "object",
+    "properties": {
+      "assetId": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "fragmentId": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "recall_decisions": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language topic to recall the \"why\" for"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      },
+      "userId": {
+        "description": "Per-user memory scope: tenant-global decisions plus this user's own; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "record_decision": {
+    "type": "object",
+    "properties": {
+      "symbol": {
+        "type": "string",
+        "description": "Code anchor — SCIP-style symbol or file path"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "decided",
+          "because",
+          "invariant",
+          "gotcha"
+        ],
+        "description": "decided = a design decision (supersedes prior); because = rationale; invariant = a constraint that must hold (supersedes prior); gotcha = a non-obvious trap (accumulates)"
+      },
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "description": "The decision / rationale / invariant / gotcha text"
+      },
+      "commit": {
+        "description": "Commit SHA this was decided in (provenance)",
+        "type": "string"
+      },
+      "location": {
+        "description": "file:line provenance, e.g. src/x.ts:42",
+        "type": "string"
+      },
+      "validFrom": {
+        "description": "When the decision took effect — defaults to now",
+        "type": "string",
+        "format": "date-time"
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "required": [
+      "symbol",
+      "kind",
+      "text"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "record_fact": {
+    "type": "object",
+    "properties": {
+      "entityRef": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "vertical": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "vertical",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "entityId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "entityId"
+            ]
+          }
+        ]
+      },
+      "predicate": {
+        "type": "string"
+      },
+      "object": {
+        "type": "string"
+      },
+      "validFrom": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "validUntil": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "expectedUntil": {
+        "description": "When a temporary state with no stated end (ill, away) should be over; not an end: the fact stays current",
+        "type": "string",
+        "format": "date-time"
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "sourceVertical": {
+        "type": "string",
+        "description": "Vertical name attributed as source (e.g. \"rent\")"
+      },
+      "userId": {
+        "description": "Per-user scope: the fact (and a vertical+id entity) belongs to this user only",
+        "type": "string",
+        "maxLength": 200
+      },
+      "conversationId": {
+        "description": "Conversation the fact was observed in; marks it grounded",
+        "type": "string",
+        "maxLength": 512
+      },
+      "evidence": {
+        "description": "Up to 10 pointers to observations behind the claim; marks it grounded",
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "event",
+                "message",
+                "conversation",
+                "url",
+                "document",
+                "commit",
+                "other"
+              ]
+            },
+            "ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "description": "The pointer itself — id, URL, path, sha…"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ]
+        }
+      }
+    },
+    "required": [
+      "entityRef",
+      "predicate",
+      "object",
+      "validFrom",
+      "sourceVertical"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "record_feedback": {
+    "type": "object",
+    "properties": {
+      "factId": {
+        "type": "string"
+      },
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "helpful",
+          "not_helpful",
+          "incorrect"
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "maxLength": 1000
+      },
+      "userId": {
+        "description": "The user a personal fact belongs to",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "factId",
+      "verdict"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "record_procedure": {
+    "type": "object",
+    "properties": {
+      "trigger": {
+        "type": "string",
+        "minLength": 1
+      },
+      "action": {
+        "type": "string",
+        "minLength": 1
+      },
+      "priority": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000
+      },
+      "decayHalfLifeDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650
+      },
+      "sourceKind": {
+        "description": "Audit tag for who recorded this — default operator",
+        "type": "string",
+        "enum": [
+          "operator",
+          "agent",
+          "dreams_loop"
+        ]
+      }
+    },
+    "required": [
+      "trigger",
+      "action"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "relationship_context": {
+    "type": "object",
+    "properties": {
+      "userId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "The person — their per-user memory scope"
+      }
+    },
+    "required": [
+      "userId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "rename_workspace": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "What to call this workspace, 1-80 characters (e.g. \"Acme support memory\")"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "retire_procedure": {
+    "type": "object",
+    "properties": {
+      "procedureId": {
+        "type": "string",
+        "description": "procedural_memory:<tail> or just the tail"
+      }
+    },
+    "required": [
+      "procedureId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "retract_fact": {
+    "type": "object",
+    "properties": {
+      "factId": {
+        "type": "string"
+      },
+      "reason": {
+        "type": "string"
+      },
+      "retractedBy": {
+        "description": "Who initiated the retraction — mirrors the REST RetractFactDto. Omit for the pre-existing default ({source: 'system'}); pass {source: 'human', userId} when relaying an operator/user decision so the audit trail records the real initiator",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "human",
+              "system"
+            ]
+          }
+        },
+        "required": [
+          "source"
+        ]
+      }
+    },
+    "required": [
+      "factId",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "search_communities": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language topic / domain"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20
+      },
+      "minSimilarity": {
+        "description": "Floor (default 0.3); rows below are dropped",
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "search_knowledge": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language query"
+      },
+      "limit": {
+        "description": "Max results (default 10)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "predicates": {
+        "description": "Filter to these predicates only",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "asOf": {
+        "description": "Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)",
+        "type": "string",
+        "format": "date-time"
+      },
+      "minConfidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      },
+      "detail": {
+        "description": "focus (default): only what the query is about, as facts or the source turn, whichever is shorter. compact: every fact of the matched entities, with entity ids. full: adds ids, scores, trust keys",
+        "type": "string",
+        "enum": [
+          "focus",
+          "compact",
+          "full"
+        ]
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "search_multi_hop": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language query"
+      },
+      "maxHops": {
+        "description": "Hard cap on planner hops (default 3, capped at 5 — beyond that latency dominates)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5
+      },
+      "synthesize": {
+        "description": "Run the synthesizer over the final entity set and return a grounded answer with citations",
+        "type": "boolean"
+      },
+      "synthesisGuardrails": {
+        "description": "Override guardrails when synthesize=true: strict closes to null on partial; lenient returns the answer with the verifier verdict; off skips the verifier",
+        "type": "string",
+        "enum": [
+          "strict",
+          "lenient",
+          "off"
+        ]
+      },
+      "asOf": {
+        "description": "Valid-time as-of: facts true at this ISO 8601 moment (a retraction dated before it hides the fact; a fact learned after it still shows — not a knowledge snapshot)",
+        "type": "string",
+        "format": "date-time"
+      },
+      "predicates": {
+        "description": "Filter to these predicates only",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "detail": {
+        "description": "answer (default): the answer and its citations, or the evidence when there is none. full: adds every hit with scores and ids",
+        "type": "string",
+        "enum": [
+          "answer",
+          "full"
+        ]
+      },
+      "userId": {
+        "description": "Per-user memory scope: tenant-global plus this user's personal facts; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "submit_memory_work": {
+    "type": "object",
+    "properties": {
+      "token": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32768
+      },
+      "result": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {},
+        "description": "The reply object, matching the schema"
+      }
+    },
+    "required": [
+      "token",
+      "result"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "summarize_entity": {
+    "type": "object",
+    "properties": {
+      "entityId": {
+        "type": "string",
+        "description": "Brain entity id (knowledge_entity:...) or short id"
+      },
+      "asOf": {
+        "description": "Summarize what was known at this ISO 8601 moment",
+        "type": "string",
+        "format": "date-time"
+      },
+      "styleHint": {
+        "description": "Phrasing register — 'neutral' (default), 'sales', 'support', or 'client_llm' (delegate to client-side LLM via MCP sampling; falls back to neutral template if client doesn't support sampling)",
+        "type": "string",
+        "enum": [
+          "neutral",
+          "sales",
+          "support",
+          "client_llm"
+        ]
+      },
+      "userId": {
+        "description": "Whose memory: this user's personal facts beside the tenant-global ones; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "entityId"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "synthesize": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language question"
+      },
+      "limit": {
+        "description": "Top-K facts fed to the generator (default 10)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "predicates": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "asOf": {
+        "description": "Valid-time as-of: facts true at this ISO 8601 moment (not a knowledge snapshot)",
+        "type": "string",
+        "format": "date-time"
+      },
+      "minConfidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "synthesisGuardrails": {
+        "description": "Guardrail mode (default = SYNTHESIZE_DEFAULT_GUARDRAILS env)",
+        "type": "string",
+        "enum": [
+          "strict",
+          "lenient",
+          "off"
+        ]
+      },
+      "detail": {
+        "description": "answer (default): the answer and its citations, or the evidence when there is none. full: adds every hit with scores and ids",
+        "type": "string",
+        "enum": [
+          "answer",
+          "full"
+        ]
+      },
+      "userId": {
+        "description": "Per-user memory scope: tenant-global plus this user's personal facts; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "take_memory_work": {
+    "type": "object",
+    "properties": {
+      "userId": {
+        "description": "Per-user memory scope: only this user's memory. Omit for tenant-global",
+        "type": "string",
+        "maxLength": 200
+      },
+      "kinds": {
+        "description": "Only these kinds; all by default",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "predicate_semantics",
+            "media_reading",
+            "extraction",
+            "fact_resolution",
+            "entity_match",
+            "fact_conflict",
+            "fact_corroboration",
+            "scene_summary",
+            "safety_reading",
+            "affect_reading",
+            "belief_statement"
+          ]
+        }
+      },
+      "maxItems": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 64
+      }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "upload_media": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 16777216,
+        "description": "The file, base64"
+      },
+      "mediaType": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 120,
+        "description": "e.g. image/png"
+      },
+      "occurredAt": {
+        "description": "When the file was made or the event it records happened; now by default",
+        "type": "string",
+        "format": "date-time"
+      },
+      "vertical": {
+        "description": "Source label; \"media\" by default",
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "userId": {
+        "description": "Per-user memory scope: only this user's memory. Omit for tenant-global",
+        "type": "string",
+        "maxLength": 200
+      },
+      "packId": {
+        "description": "Pack whose processors read it first",
+        "type": "string",
+        "maxLength": 64
+      }
+    },
+    "required": [
+      "data",
+      "mediaType"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "why": {
+    "type": "object",
+    "properties": {
+      "symbol": {
+        "type": "string",
+        "description": "Code anchor — SCIP-style symbol or file path"
+      },
+      "asOf": {
+        "description": "Bitemporal cursor — recall what was known as of this instant",
+        "type": "string",
+        "format": "date-time"
+      },
+      "userId": {
+        "description": "Per-user memory scope: tenant-global decisions plus this user's own; omit for tenant-global only",
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "required": [
+      "symbol"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "workspace_status": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

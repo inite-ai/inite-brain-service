@@ -10,6 +10,7 @@ import {
 } from '../db/surreal.service';
 import { withSpan } from '../common/tracing';
 import { PROCESS_IDENTITY } from '../common/process-identity';
+import { recordKey } from '../db/record-key';
 import type { JobType, JobStatus } from './job-run.service';
 
 /** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
@@ -246,7 +247,7 @@ export class JobClaimService {
             if (!rid) return null;
             const rows = await queryRows<Record<string, unknown>>(
               db,
-              `UPDATE type::record($rid) SET
+              `UPDATE type::record('job_run', $rid) SET
                   status = 'running',
                   claimedBy = $me,
                   claimedAt = time::now(),
@@ -257,7 +258,7 @@ export class JobClaimService {
                 WHERE status = 'pending' AND visibleAfter <= time::now()
                 RETURN AFTER`,
               {
-                rid,
+                rid: recordKey(rid),
                 me: this.workerId,
                 until,
                 ...(claimEpoch === null ? {} : { epoch: claimEpoch }),
@@ -294,13 +295,13 @@ export class JobClaimService {
       return await this.surreal.withCompany(input.companyId, async (db) => {
         const rows = await queryRows<{ cancelRequested?: boolean }>(
           db,
-          `UPDATE type::record($rid) SET
+          `UPDATE type::record('job_run', $rid) SET
               leaseUntil = type::datetime($until),
               heartbeatAt = time::now()
             WHERE ${guard.where}
             RETURN cancelRequested`,
           {
-            rid: input.recordId,
+            rid: recordKey(input.recordId),
             until: new Date(Date.now() + input.ttlSeconds * 1000).toISOString(),
             ...guard.params,
           },
@@ -356,7 +357,7 @@ export class JobClaimService {
           // corrupt status and double-count execution. 0 rows affected
           // ⇒ claim lost; skip silently (the dup-work cost is already
           // paid by the time we get here).
-          `UPDATE type::record($rid) SET
+          `UPDATE type::record('job_run', $rid) SET
               status = 'succeeded',
               finishedAt = time::now(),
               result = $result,
@@ -364,7 +365,7 @@ export class JobClaimService {
             WHERE ${guard.where}
             RETURN id`,
           {
-            rid: input.recordId,
+            rid: recordKey(input.recordId),
             result: input.result ?? null,
             ...guard.params,
           },
@@ -417,7 +418,7 @@ export class JobClaimService {
           const visibleAfter = new Date(Date.now() + backoffMs).toISOString();
           const rows = await queryRows<IdRow>(
             db,
-            `UPDATE type::record($rid) SET
+            `UPDATE type::record('job_run', $rid) SET
                   status = 'pending',
                   error = $err,
                   claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE,
@@ -425,7 +426,7 @@ export class JobClaimService {
                 WHERE ${guard.where}
                 RETURN id`,
             {
-              rid: input.recordId,
+              rid: recordKey(input.recordId),
               err: input.error,
               visibleAfter,
               ...guard.params,
@@ -435,7 +436,7 @@ export class JobClaimService {
         }
         const rows = await queryRows<IdRow>(
           db,
-          `UPDATE type::record($rid) SET
+          `UPDATE type::record('job_run', $rid) SET
                 status = 'failed',
                 finishedAt = time::now(),
                 error = $err,
@@ -444,7 +445,7 @@ export class JobClaimService {
               WHERE ${guard.where}
               RETURN id`,
           {
-            rid: input.recordId,
+            rid: recordKey(input.recordId),
             err: input.error,
             result: input.result ?? null,
             ...guard.params,
@@ -483,14 +484,14 @@ export class JobClaimService {
         const rows = await queryRows<IdRow>(
           db,
           // Ownership guard — same rationale as complete()/fail().
-          `UPDATE type::record($rid) SET
+          `UPDATE type::record('job_run', $rid) SET
               status = 'cancelled',
               finishedAt = time::now(),
               result = $result,
               claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE
             WHERE ${guard.where}
             RETURN id`,
-          { rid: input.recordId, result: input.result ?? null, ...guard.params },
+          { rid: recordKey(input.recordId), result: input.result ?? null, ...guard.params },
         );
         if (rows.length === 0) {
           this.logger.warn(
@@ -521,7 +522,7 @@ export class JobClaimService {
       const rows = await this.surreal.withCompany(input.companyId, (db) =>
         queryRows<IdRow>(
           db,
-          `UPDATE type::record($rid) SET
+          `UPDATE type::record('job_run', $rid) SET
               status = 'pending',
               error = $err,
               claimedBy = NONE, leaseUntil = NONE, claimEpoch = NONE,
@@ -529,7 +530,7 @@ export class JobClaimService {
             WHERE ${guard.where}
             RETURN id`,
           {
-            rid: input.recordId,
+            rid: recordKey(input.recordId),
             err: { name: 'PodShutdown', message: input.reason },
             ...guard.params,
           },

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { StringRecordId, type Surreal } from 'surrealdb';
+import { type Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 import { ProjectionRegistryService } from '../episodes/projection-registry.service';
 import {
@@ -16,10 +16,10 @@ import {
   type PackStateModelIndex,
 } from '../episodes/pack-scene-projection';
 import { packMemoryProjectionsEnabled } from '../common/pack-projection-flags';
-import { idTailOf } from '../ingest/ingest-utils';
 import { MemoryModelReaderService } from '../ai/memory-model-reader.service';
 import { CandidateStoreService, type CandidateRow } from './candidate-store.service';
 import type { StoredDocument } from './document-store.service';
+import { recordIdOf } from '../db/record-key';
 
 // The projector stamp, its version mold, the row builder and the
 // stateModelId -> belief-field mapping are SHARED with the capture-path
@@ -222,7 +222,7 @@ export class SceneCandidateWriterService {
           version,
           generation,
           origin: {
-            docId: new StringRecordId(`source_document:${idTailOf(doc.id)}`),
+            docId: recordIdOf('source_document', doc.id),
             packId: group.packId,
             packVersion: group.packVersion,
             schemaId: row.payload.schemaId,
@@ -277,7 +277,7 @@ export class SceneCandidateWriterService {
         key: {
           by: 'source',
           field: 'docId',
-          value: new StringRecordId(`source_document:${idTailOf(docId)}`),
+          value: recordIdOf('source_document', docId),
         },
         sceneRows: episodeRows,
       }),

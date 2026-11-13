@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { SurrealService, queryRows } from '../db/surreal.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { SurrealService } from '../db/surreal.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { resolvePlatformTenantScope } from '../auth/tenant-scope';
@@ -13,6 +13,8 @@ import type { MigrationsResponse } from '../contracts/admin/migrations.schema';
  */
 @Injectable()
 export class AdminInfraService {
+  private readonly logger = new Logger(AdminInfraService.name);
+
   constructor(
     private readonly surreal: SurrealService,
     private readonly apiKeys: ApiKeyService,
@@ -30,8 +32,13 @@ export class AdminInfraService {
   /**
    * Per-tenant migration audit: every migration in the manifest + which
    * tenants applied each, with drift detection (a tenant missing a
-   * migration the others have). A tenant whose schema_migrations read
-   * throws is reported as fully pending rather than failing the audit.
+   * migration the others have). Reads each tenant's ledger as it IS —
+   * `readMigrationLedger` does not migrate first, unlike `withCompany`, so
+   * a tenant behind the manifest shows its pending files and a failing
+   * tenant shows them too instead of being re-migrated by the audit. A
+   * tenant whose ledger cannot be read is reported with `error` (and
+   * nothing applied or pending claimed) rather than failing the audit; the
+   * error text is generic — the cause is in the server log.
    */
   async migrationsAudit(req: AuthenticatedRequest): Promise<MigrationsResponse> {
     const manifest = await this.surreal.migrator.loadManifest();
@@ -42,33 +49,19 @@ export class AdminInfraService {
       knownTenants: () => this.apiKeys.knownCompanyIds(),
       fanOutTenants: () => this.apiKeys.fanOutRoster(),
     });
-    const perTenant: Array<{
-      companyId: string;
-      applied: string[];
-      pending: string[];
-    }> = [];
+    const perTenant: MigrationsResponse['perTenant'] = [];
     for (const companyId of tenants) {
       try {
-        const applied = await this.surreal.withCompany(companyId, async (db) => {
-          const rows = await queryRows<{ migrationId: string }>(
-            db,
-            `SELECT migrationId FROM schema_migrations`,
-          );
-          return rows.map((r) => r.migrationId).sort();
-        });
+        const applied = await this.surreal.readMigrationLedger(companyId);
         const appliedSet = new Set(applied);
         const pending = manifest.filter((m) => !appliedSet.has(m.id)).map((m) => m.id);
         perTenant.push({ companyId, applied, pending });
       } catch (e) {
-        perTenant.push({
-          companyId,
-          applied: [],
-          pending: manifest.map((m) => m.id),
-        });
-        void e;
+        this.logger.warn(`Migration ledger read failed for a tenant: ${(e as Error).message}`);
+        perTenant.push({ companyId, applied: [], pending: [], error: 'ledger read failed' });
       }
     }
-    const driftDetected = perTenant.some((t) => t.pending.length > 0);
+    const driftDetected = perTenant.some((t) => t.pending.length > 0 || t.error !== undefined);
     return {
       manifest: manifest.map((m) => ({ id: m.id, name: m.name })),
       perTenant,

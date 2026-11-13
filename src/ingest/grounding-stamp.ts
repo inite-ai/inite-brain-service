@@ -1,7 +1,6 @@
-import { StringRecordId } from 'surrealdb';
 import { groundingStampEnabled } from '../common/evidence-flags';
 import { groundingStatusOf } from '../common/grounding-status';
-import { idTailOf } from './ingest-utils';
+import { recordIdOf } from '../db/record-key';
 
 /**
  * Post-resolve grounding-status stamp (Drift-1, migration 0115) — the
@@ -55,7 +54,7 @@ export async function stampGroundingStatus(args: {
   if (rows.length === 0) return;
   try {
     for (const it of rows) {
-      const id = new StringRecordId(`knowledge_fact:${idTailOf(String(it.factId))}`);
+      const id = recordIdOf('knowledge_fact', String(it.factId));
       await args.db.query(`UPDATE $id SET groundingStatus = $status`, {
         id,
         status: groundingStatusOf(it.source),
