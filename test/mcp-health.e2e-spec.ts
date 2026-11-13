@@ -23,9 +23,10 @@ describe('MCP /health probe', () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(typeof res.body.version).toBe('string');
-    // Two distinct numbers: the MCP server's own version and the brain
-    // release /health reports. Conflating them has cost debugging time.
+    // The MCP server reports the release itself (was a stale hard-coded
+    // 0.3.0); both fields stay for the setup scripts that read either.
     expect(typeof res.body.serviceVersion).toBe('string');
+    expect(res.body.version).toBe(res.body.serviceVersion);
     expect(res.body.serviceVersion).toMatch(/^\d+\.\d+\.\d+/);
     expect(Array.isArray(res.body.tools)).toBe(true);
     expect(res.body.tools).toContain('search_knowledge');

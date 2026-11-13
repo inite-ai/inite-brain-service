@@ -1,0 +1,83 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "fixture", "version": "2.0.0" },
+  "paths": {
+    "/v1/things": {
+      "get": {
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "region", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ThingList" } }
+            }
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/NewThing" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Thing" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/things/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Thing" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Thing": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["a", "b", "c"] },
+          "score": { "type": "integer" }
+        },
+        "required": ["id", "kind", "score"]
+      },
+      "ThingList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Thing" } }
+        },
+        "required": ["items"]
+      },
+      "NewThing": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["a"] },
+          "weight": { "type": "integer" },
+          "tag": { "type": "string" }
+        },
+        "required": ["kind", "weight"]
+      }
+    }
+  }
+}
