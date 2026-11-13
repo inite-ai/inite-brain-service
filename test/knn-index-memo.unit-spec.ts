@@ -170,15 +170,14 @@ describe('search vector leg with the memo', () => {
     logger: logger as never,
   });
 
-  it('pays the KNN scan and the probe once, then goes straight to the exact scan', async () => {
+  it('asks the catalogue once, then goes straight to the exact scan — no KNN statement on an un-indexed tenant', async () => {
     const { logger, errors } = recordingLogger();
-    const first = tenantDb([
-      [[{ id: 'f1', knnDist: null }]],
-      INFO_TABLE_NO_INDEX,
-      [[{ id: 'f9', simScore: 0.91 }]],
-    ]);
+    // 3.3 answers a KNN over a missing index with NO rows, which reads as
+    // "nothing matched"; the probe runs first so that shape never decides.
+    const first = tenantDb([INFO_TABLE_NO_INDEX, [[{ id: 'f9', simScore: 0.91 }]]]);
     expect(await runVectorLeg(legArgs(first, logger))).toEqual([{ id: 'f9', simScore: 0.91 }]);
-    expect(first.calls).toHaveLength(3);
+    expect(first.calls).toHaveLength(2);
+    expect(first.calls[1]).toContain('vector::similarity::cosine');
     expect(errors).toHaveLength(1);
 
     // Same tenant, another pooled connection: one statement, no diagnostics.
@@ -187,6 +186,15 @@ describe('search vector leg with the memo', () => {
     expect(second.calls).toHaveLength(1);
     expect(second.calls[0]).toContain('vector::similarity::cosine');
     expect(errors).toHaveLength(1);
+  });
+
+  it('a ready index runs the KNN statement, and its empty answer is an answer', async () => {
+    const { logger, errors } = recordingLogger();
+    const db = tenantDb([INFO_TABLE_WITH_INDEX, [{}], [[]]]);
+    expect(await runVectorLeg(legArgs(db, logger))).toEqual([]);
+    expect(db.calls).toHaveLength(3);
+    expect(db.calls[2]).toContain('vector::distance::knn()');
+    expect(errors).toHaveLength(0);
   });
 });
 
