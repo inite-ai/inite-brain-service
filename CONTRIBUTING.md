@@ -21,8 +21,8 @@ AGENTS.md matches CI (the stale test commands below are tracked in #745).
 - **New here?** Browse [`good first issue`](https://github.com/inite-ai/inite-brain-service/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
   and skim the [Code of Conduct](CODE_OF_CONDUCT.md). PRs of any size are welcome.
 - **Read the README** — § Why Brain, then the [architecture](docs/architecture.md)
-  and [bitemporal](docs/bitemporal-semantics.md) docs. Brain is a *system of
-  insight, not a system of record*. Understanding that distinction prevents 90%
+  and [bitemporal](docs/bitemporal-semantics.md) docs. Brain is a _system of
+  insight, not a system of record_. Understanding that distinction prevents 90%
   of "why did you reject my PR" exchanges.
 - **Read the operator playbook** in `docs/operator-playbook.md`. The runbook
   is the lens through which prod issues get triaged; new features that
@@ -30,7 +30,7 @@ AGENTS.md matches CI (the stale test commands below are tracked in #745).
 - **Skim the migrations** in `src/db/migrations/`. Numbered, append-only,
   every change to schema lands as a new file. They're a real-time diary of
   what we've shipped.
-- **Look at the recent commit log**. Commit messages explain the *why* —
+- **Look at the recent commit log**. Commit messages explain the _why_ —
   they're the closest thing this repo has to ADRs.
 
 ## Setting up locally
@@ -107,6 +107,7 @@ Cold-start budget is tight — BGE-M3 already lugs ~150MB of ONNX, and
   glibc / musl assumptions in the runtime image.
 
 Prefer:
+
 - Reimplementing 10-20 lines locally over a new dep that ships 200KB.
 - Extending an existing dep's API surface over a "lighter alternative"
   that doubles the dep count.
@@ -141,9 +142,14 @@ expected — we keep the trail honest.
 
 ## What we don't accept
 
-- **Backward-compatibility for hypothetical callers.** If you remove a
-  field, remove it. Brain's API is versioned (`/v1/...`); we cut a `v2`
-  if we need to evolve incompatibly.
+- **Breaking a contract in one step.** REST and MCP changes are
+  additive. To remove a field, route or tool, deprecate it first (OpenAPI
+  `deprecated: true` or a "Deprecated" note in the description), keep it
+  for at least one minor release, then remove it in a release whose PR
+  title carries `!` (`feat(api)!: …`). Schema changes follow
+  expand → migrate → contract, because a rollback runs the previous
+  release on the new schema. CI enforces both; see AGENTS.md § Evolving
+  data and contracts.
 - **Re-export shims for removed code.** Delete the import, delete the
   call site, delete the implementation. No `// removed in vN` comments.
 - **Feature flags as a way to avoid making a decision.** If the new code
@@ -178,7 +184,7 @@ expected — we keep the trail honest.
   capture "I had to figure this out the hard way" knowledge. PRs that
   add a missing troubleshooting section are unconditional yes.
 - **Type-narrowing PRs.** If you find an `as any` or a `Record<string,
-  unknown>` that shouldn't be there, tightening it is welcome.
+unknown>` that shouldn't be there, tightening it is welcome.
 
 ## Building a Domain Pack
 
@@ -218,7 +224,7 @@ through a PR, and the recipe is fixed:
 4. **Tests** — `test/industry-packs.unit-spec.ts` covers every entry in
    `FIRST_PARTY_PACKS` automatically (validity, profile, fixtures,
    not-a-builtin, JSON/TS drift guard), but its `first-party pack
-   library` block hardcodes the expected sorted id list — add your id
+library` block hardcodes the expected sorted id list — add your id
    there. Run `pnpm test -- industry-packs`.
 
 ## Releasing
