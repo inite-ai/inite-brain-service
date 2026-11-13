@@ -1,7 +1,7 @@
-import { StringRecordId } from 'surrealdb';
 import type { SearchDto } from '../dto/search.dto';
 import { ReadPinService, derivedVersionFence, type ReadPin } from '../../episodes/read-pin.service';
 import { scopeFenceSql } from '../../auth/scope-visibility';
+import { recordIdOf } from '../../db/record-key';
 
 /**
  * Compose the WHERE-clause fragment that every leg query shares.
@@ -147,13 +147,10 @@ export function buildBaseWhere({
   }
   if (dto.entityIds && dto.entityIds.length > 0) {
     // Multi-hop anchoring. Accept both short and fully-qualified ids;
-    // SurrealDB record-link parsing tolerates both via the
-    // `type::record` cast at query time.
+    // each is bound as a RecordId built from (table, key), so a key with
+    // `-` or `:` is never parsed server-side (db/record-key.ts).
     clauses.push(`AND entityId INSIDE $entityIds`);
-    params.entityIds = dto.entityIds.map((raw) => {
-      const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
-      return new StringRecordId(`knowledge_entity:${id}`);
-    });
+    params.entityIds = dto.entityIds.map((raw) => recordIdOf('knowledge_entity', raw));
   }
   if (opts.langFilter && !dto.disableLangFilter && !opts.langBoost) {
     // Pre-Phase-4 facts have lang IS NONE — keep them visible so

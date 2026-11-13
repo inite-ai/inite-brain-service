@@ -4,6 +4,7 @@ import { StringRecordId, Surreal } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
 import type { JudgeContext } from '../ai/entity-judge.service';
 import { nameKey, nameKeyInitials, nameKeyWords } from '../common/name-key';
+import { recordKey } from '../db/record-key';
 
 /**
  * The string-side candidate generation for entity resolution: which
@@ -63,8 +64,13 @@ export interface NameScanQuery {
 function fence(excludeId: string | undefined): string {
   return (
     'AND userId IS NONE AND mergedInto IS NONE' +
-    (excludeId ? ' AND id != type::record($excludeId)' : '')
+    (excludeId ? " AND id != type::record('knowledge_entity', $excludeKey)" : '')
   );
+}
+
+/** The bound key `fence` compares against (two-arg type::record, see db/record-key.ts). */
+function excludeKeyOf(excludeId: string | undefined): string | number | undefined {
+  return excludeId ? recordKey(excludeId) : undefined;
 }
 
 @Injectable()
@@ -238,7 +244,7 @@ export class EntityCandidateService {
             AND array::len(nameKeys) > 0
           ORDER BY dist ASC
           LIMIT 1`,
-        { key, type, excludeId },
+        { key, type, excludeKey: excludeKeyOf(excludeId) },
       );
       const best = (rows ?? [])[0];
       if (!best || typeof best.dist !== 'number') return null;
@@ -299,7 +305,14 @@ export class EntityCandidateService {
                   OR string::starts_with($key, $k + ' ') OR string::ends_with($key, ' ' + $k)
                 ))) > 0
           LIMIT 3`,
-        { key, type, excludeId, pre: `${key} `, suf: ` ${key}`, mid: ` ${key} ` },
+        {
+          key,
+          type,
+          excludeKey: excludeKeyOf(excludeId),
+          pre: `${key} `,
+          suf: ` ${key}`,
+          mid: ` ${key} `,
+        },
       );
       const hits = (rows ?? [])
         .map((r) => ({
@@ -354,7 +367,7 @@ export class EntityCandidateService {
                       AND array::join(string::split($k, ' ').map(|$w| string::slice($w, 0, 1)), '') = $key)
                 )) > 0
           LIMIT 2`,
-        { key, initials, type, excludeId },
+        { key, initials, type, excludeKey: excludeKeyOf(excludeId) },
       );
       const hit = await this.oneIdentity(db, rows ?? []);
       if (!hit) return null;
@@ -394,7 +407,7 @@ export class EntityCandidateService {
               AND nameKeys != NONE
               AND array::len(nameKeys.filter(|$k| string::split($k, ' ') CONTAINS $word)) > 0
             LIMIT 2`,
-          { word, type, excludeId },
+          { word, type, excludeKey: excludeKeyOf(excludeId) },
         );
         const hit = await this.oneIdentity(db, rows ?? []);
         if (!hit) continue;
@@ -500,7 +513,7 @@ export class EntityCandidateService {
           ${fence(excludeId)}
         ORDER BY sim DESC
         LIMIT $k`,
-      { q, type, excludeId, k: this.candidateK },
+      { q, type, excludeKey: excludeKeyOf(excludeId), k: this.candidateK },
     );
     return (rows as Array<{ entityId: unknown; ename?: string; sim: number }>) ?? [];
   }

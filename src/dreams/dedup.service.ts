@@ -7,6 +7,7 @@ import { envFlagNotDisabled } from '../common/env-validation';
 import { sameWidthGate } from '../db/vector-width';
 import { EntityCandidateService, judgeSimilarity } from '../ingest/entity-candidates.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
+import { recordKey } from '../db/record-key';
 
 /** The index the entity-dedup seed KNN rides — for the diagnostic. */
 
@@ -289,17 +290,17 @@ export class DreamsDedupService {
   ): Promise<Array<{ entityId: unknown; canonicalName?: string; sim: number }>> {
     type Row = { entityId: unknown; canonicalName?: string; sim: number };
     const res = await db.query<[unknown, Row[]]>(
-      `LET $q = (SELECT VALUE embedding FROM ONLY type::record($eid));
+      `LET $q = (SELECT VALUE embedding FROM ONLY type::record('knowledge_entity', $eid));
        SELECT id AS entityId, canonicalName, vector::similarity::cosine(embedding, $q) AS sim
          FROM knowledge_entity
         WHERE ${sameWidthGate('embedding')}
           AND type = $type
           AND userId IS NONE
           AND mergedInto IS NONE
-          AND id != type::record($eid)
+          AND id != type::record('knowledge_entity', $eid)
         ORDER BY sim DESC
         LIMIT 5;`,
-      { eid: seedEntityId, type },
+      { eid: recordKey(seedEntityId), type },
     );
     return (res[1] as Row[]) ?? [];
   }
