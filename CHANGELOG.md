@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.8.1](https://github.com/inite-ai/inite-brain-service/compare/v2.8.0...v2.8.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **db:** commit a migration's analyzers before its indexes, and alert on a tenant blocked by a migration ([#934](https://github.com/inite-ai/inite-brain-service/issues/934)) ([a03eba5](https://github.com/inite-ai/inite-brain-service/commit/a03eba5e1a0a7c2073e86c2ebae8a77f2dc85def))
+
 ## [2.8.0](https://github.com/inite-ai/inite-brain-service/compare/v2.7.0...v2.8.0) (2026-11-12)
 
 
