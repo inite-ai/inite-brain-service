@@ -176,7 +176,7 @@ describe('EpisodeStoreService (P1)', () => {
     expect(await svc.captureTurn('co_x', dto())).toBe('episode:dup1');
     expect(queries).toHaveLength(2);
     expect(queries[1]!.sql).toContain(
-      'SELECT VALUE id FROM episode WHERE conversationId = $conv AND messageId = $mid',
+      'SELECT VALUE id FROM episode WHERE userId IS NONE AND conversationId = $conv AND messageId = $mid',
     );
     expect(queries[1]!.params).toEqual({ conv: 'conv-1', mid: 'm-42' });
   });
@@ -187,9 +187,19 @@ describe('EpisodeStoreService (P1)', () => {
     const noConv = dto({ contextRef: { vertical: 'locomo', messageId: 'm-9' } });
     expect(await svc.captureTurn('co_x', noConv)).toBe('episode:dup2');
     expect(queries[1]!.sql).toContain(
-      'SELECT VALUE id FROM episode WHERE conversationId IS NONE AND messageId = $mid',
+      'SELECT VALUE id FROM episode WHERE userId IS NONE AND conversationId IS NONE AND messageId = $mid',
     );
     expect(queries[1]!.params).toEqual({ mid: 'm-9' });
+  });
+
+  it("a user's duplicate is recovered within that user only — never another user's row (0193)", async () => {
+    process.env.EPISODE_SUBSTRATE_ENABLED = '1';
+    const { svc, queries } = makeStore({ insertRows: [], selectIds: ['episode:dup3'] });
+    expect(await svc.captureTurn('co_x', dto({ userId: 'user_b' }))).toBe('episode:dup3');
+    expect(queries[1]!.sql).toContain(
+      'SELECT VALUE id FROM episode WHERE userId = $uid AND conversationId = $conv AND messageId = $mid',
+    );
+    expect(queries[1]!.params).toEqual({ uid: 'user_b', conv: 'conv-1', mid: 'm-42' });
   });
 
   it('duplicate whose fallback SELECT also finds nothing → null (never throws)', async () => {

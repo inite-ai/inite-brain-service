@@ -53,7 +53,7 @@ export class EpisodeStoreService {
    * EVIDENCE_FAIL_CLOSED_CAPTURE); this store stays advisory.
    *
    * Duplicate handling: INSERT IGNORE against the UNIQUE
-   * (conversationId, messageId) index returns no row for an ignored
+   * (userId, conversationId, messageId) index (0193) returns no row for an ignored
    * duplicate (the row id is server-generated, not derivable), so the
    * existing row is recovered by a fallback SELECT on the same unique
    * key. The INSERT statement itself is byte-identical to before.
@@ -139,18 +139,22 @@ export class EpisodeStoreService {
           return String(created);
         }
         // Duplicate (INSERT IGNORE returned no row): recover the existing
-        // row via the unique (conversationId, messageId) key. contextRef
-        // .conversationId is OPTIONAL — an absent value is stored as NONE,
-        // so the WHERE must say IS NONE, not `= $conv` (which never
-        // matches NONE).
-        const where =
-          row.conversationId === undefined
-            ? 'conversationId IS NONE AND messageId = $mid'
-            : 'conversationId = $conv AND messageId = $mid';
+        // row via the unique (userId, conversationId, messageId) key
+        // (0193). The user is part of the key: another user's turn with
+        // the same client ids is a different turn and must never be
+        // returned here. userId and conversationId are OPTIONAL — an
+        // absent value is stored as NONE, so the WHERE must say IS NONE,
+        // not `= $x` (which never matches NONE).
+        const where = [
+          row.userId === undefined ? 'userId IS NONE' : 'userId = $uid',
+          row.conversationId === undefined ? 'conversationId IS NONE' : 'conversationId = $conv',
+          'messageId = $mid',
+        ].join(' AND ');
         const [found] = await db.query<[Array<unknown>]>(
           `SELECT VALUE id FROM episode WHERE ${where} LIMIT 1`,
           {
             mid: row.messageId,
+            ...(row.userId !== undefined ? { uid: row.userId } : {}),
             ...(row.conversationId !== undefined ? { conv: row.conversationId } : {}),
           },
         );
