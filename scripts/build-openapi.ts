@@ -689,11 +689,19 @@ interface OperationSpec {
   tag: string;
   summary: string;
   description: string;
-  /** Bearer-key scope the route's @RequireScopes guard demands. */
-  scope: string;
+  /**
+   * Bearer-key scope the route's @RequireScopes guard demands; a list is
+   * the any-of of @RequireAnyScope (any one of them is enough).
+   */
+  scope: string | readonly string[];
   parameters?: Json[];
   requestBody?: Json;
   responses: Json;
+}
+
+function scopeText(scope: string | readonly string[]): string {
+  const list = typeof scope === 'string' ? [scope] : scope;
+  return list.map((s) => `\`${s}\``).join(' or ');
 }
 
 function operation(spec: OperationSpec): Json {
@@ -701,7 +709,7 @@ function operation(spec: OperationSpec): Json {
     operationId: spec.operationId,
     tags: [spec.tag],
     summary: spec.summary,
-    description: `${spec.description}\n\nRequired scope: \`${spec.scope}\`.`,
+    description: `${spec.description}\n\nRequired scope: ${scopeText(spec.scope)}.`,
     ...(spec.parameters ? { parameters: spec.parameters } : {}),
     ...(spec.requestBody ? { requestBody: spec.requestBody } : {}),
     responses: spec.responses,
@@ -2974,7 +2982,7 @@ function affectPaths(): Json {
           'rest of the person’s memory is untouched. ' +
           pin +
           'Source: src/affect/affect.controller.ts.',
-        scope: 'brain:write',
+        scope: ['brain:write', 'brain:erase'],
         parameters: [
           user,
           queryParam('scope', "'all' (default) or 'inferred'.", {
@@ -3179,7 +3187,7 @@ function affectPaths(): Json {
           'it produced (for `affect_inference`: every inference about how they feel). ' +
           pin +
           'Source: src/affect/affect.controller.ts.',
-        scope: 'brain:write',
+        scope: ['brain:write', 'brain:erase'],
         parameters: [user, pathParam('purpose', 'The purpose, e.g. `affect_inference`.')],
         responses: {
           '200': jsonResponse('The withdrawal.', ref('ConsentRevokeResponse')),
@@ -4077,7 +4085,7 @@ export function buildOpenApiDocument(): Json {
           description:
             'API key (`Authorization: Bearer <key>`); its SHA-256 must be ' +
             'registered in BRAIN_API_KEYS. Keys carry scopes ' +
-            '(`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, ' +
+            '(`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `brain:erase`, ' +
             '`registry:publish`, `registry:curate`, `indexer:write`) — ' +
             'each operation states the scope it requires. Not an OAuth flow.',
         },

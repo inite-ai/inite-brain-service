@@ -51,7 +51,17 @@ function resolveTenantOverride(
 }
 
 const REQUIRED_SCOPES_KEY = 'requiredScopes';
+const ANY_OF_SCOPES_KEY = 'anyOfScopes';
+/** All-of: the credential must hold EVERY listed scope. */
 export const RequireScopes = (...scopes: BrainScope[]) => SetMetadata(REQUIRED_SCOPES_KEY, scopes);
+/**
+ * Any-of: the credential must hold AT LEAST ONE listed scope. For a route
+ * that a narrow scope opens next to the broad one (user forget takes
+ * brain:admin or brain:erase), so the narrow scope never needs an
+ * implication rule ("admin implies erase") inside the guard. Combines
+ * with RequireScopes: both gates must pass.
+ */
+export const RequireAnyScope = (...scopes: BrainScope[]) => SetMetadata(ANY_OF_SCOPES_KEY, scopes);
 
 /**
  * 401 with RFC 9728 discovery: WWW-Authenticate names the protected-
@@ -110,6 +120,14 @@ export class ApiKeyGuard implements CanActivate {
       if (!record.scopes.includes(s)) {
         throw new ForbiddenException(`Scope ${s} required`);
       }
+    }
+    const anyOf =
+      this.reflector.getAllAndOverride<BrainScope[]>(ANY_OF_SCOPES_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? [];
+    if (anyOf.length > 0 && !anyOf.some((s) => record.scopes.includes(s))) {
+      throw new ForbiddenException(`One of scopes ${anyOf.join(', ')} required`);
     }
 
     // ABAC action gate, after the scope gate. Decorated handlers carry

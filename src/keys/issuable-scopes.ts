@@ -15,7 +15,18 @@ export const ISSUABLE_SCOPES: readonly BrainScope[] = [
   'brain:write',
   'brain:admin',
   'brain:read_pii',
+  'brain:erase',
 ] as const;
+
+/**
+ * Scopes a holder may grant without holding them itself, because what
+ * they open is a strict subset of what the holder already can do. Only
+ * for minting: the guard has no implication rule, the routes brain:erase
+ * opens name brain:admin (or brain:write) next to it (RequireAnyScope).
+ */
+const GRANTABLE_BY: Readonly<Partial<Record<BrainScope, BrainScope>>> = {
+  'brain:erase': 'brain:admin',
+};
 
 /**
  * What this caller is allowed to grant: the issuable set intersected
@@ -24,5 +35,8 @@ export const ISSUABLE_SCOPES: readonly BrainScope[] = [
  */
 export function issuableFor(callerScopes: readonly BrainScope[]): BrainScope[] {
   const held = new Set<string>(callerScopes);
-  return ISSUABLE_SCOPES.filter((scope) => held.has(scope));
+  return ISSUABLE_SCOPES.filter((scope) => {
+    const via = GRANTABLE_BY[scope];
+    return held.has(scope) || (via !== undefined && held.has(via));
+  });
 }

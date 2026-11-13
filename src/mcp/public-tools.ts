@@ -100,7 +100,7 @@ export function registerPublicTools(opts: { server: McpServer; options: PublicTo
           how: 'Issue a key in the dashboard and send it as `Authorization: Bearer <key>`.',
           dashboard: `${base}/en/app`,
           bestFor: 'Scripts, servers and clients without an OAuth flow.',
-          scopes: ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii'],
+          scopes: ['brain:read', 'brain:write', 'brain:admin', 'brain:read_pii', 'brain:erase'],
         },
         tenantInUrl: {
           note: 'The tenant-less URL takes the tenant from the credential, which is the form to prefer. The `/mcp/<companyId>` form exists for callers that pin it explicitly, and the path must then match the key.',

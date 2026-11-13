@@ -4746,7 +4746,8 @@
                 "brain:read",
                 "brain:write",
                 "brain:admin",
-                "brain:read_pii"
+                "brain:read_pii",
+                "brain:erase"
               ],
               "type": "string"
             },
@@ -11373,7 +11374,7 @@
     },
     "securitySchemes": {
       "bearerAuth": {
-        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `registry:publish`, `registry:curate`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
+        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `brain:erase`, `registry:publish`, `registry:curate`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -16828,7 +16829,7 @@
     },
     "/v1/users/{userId}/affect": {
       "delete": {
-        "description": "Hard-deletes the category — `scope=all` (default) or only the inferences (`scope=inferred`) — with every row composed from it and its audit mirror; the rest of the person’s memory is untouched. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "description": "Hard-deletes the category — `scope=all` (default) or only the inferences (`scope=inferred`) — with every row composed from it and its audit mirror; the rest of the person’s memory is untouched. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write` or `brain:erase`.",
         "operationId": "eraseAffect",
         "parameters": [
           {
@@ -17155,7 +17156,7 @@
     },
     "/v1/users/{userId}/consents/{purpose}": {
       "delete": {
-        "description": "Withdraws the person’s consent for the purpose and erases what processing for it produced (for `affect_inference`: every inference about how they feel). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "description": "Withdraws the person’s consent for the purpose and erases what processing for it produced (for `affect_inference`: every inference about how they feel). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write` or `brain:erase`.",
         "operationId": "revokeConsent",
         "parameters": [
           {

@@ -35,6 +35,7 @@ const INTROSPECTED_SCOPES: ReadonlySet<BrainScope> = new Set([
   'brain:write',
   'brain:admin',
   'brain:read_pii',
+  'brain:erase',
   'registry:publish',
   'registry:curate',
   'indexer:write',
