@@ -39,6 +39,7 @@ export const SETTINGS_ENV_ONLY: ReadonlySet<string> = new Set([
   'SURREALDB_USERNAME',
   'SURREALDB_PASSWORD',
   'SURREALDB_NAMESPACE',
+  'SURREALDB_AUTH_LEVEL',
   'SURREALDB_SCOPED_USER',
   'SURREALDB_SCOPED_PASS',
   'SOURCE_CREDENTIAL_ENCRYPTION_KEY',
@@ -164,7 +165,13 @@ export async function loadStoredSettings(
     await withDeadline(
       (async () => {
         await db.connect(url);
-        await db.signin({ username, password });
+        // The same level the service signs in at (SURREALDB_AUTH_LEVEL):
+        // a namespace owner must name its namespace, a root user must not.
+        await db.signin(
+          env.SURREALDB_AUTH_LEVEL?.trim().toLowerCase() === 'namespace'
+            ? { namespace, username, password }
+            : { username, password },
+        );
         await db.use({ namespace, database: 'system' });
       })(),
       timeoutMs,
