@@ -30,13 +30,9 @@ export function extractionSource(env: NodeJS.ProcessEnv = process.env): Extracti
  */
 export class HarnessModeRefusal extends Error {
   readonly status = 403;
-  readonly code = 'harness_mode';
+  readonly code: string = 'harness_mode';
   constructor() {
     super('harness mode: the server spends no model key; the connected agent reads and answers');
     this.name = 'HarnessModeRefusal';
   }
-}
-
-export function serverModelsRefused(env: NodeJS.ProcessEnv = process.env): boolean {
-  return extractionSource(env) === 'harness';
 }

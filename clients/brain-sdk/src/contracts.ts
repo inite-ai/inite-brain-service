@@ -95,7 +95,7 @@ export interface SearchResponse {
  * the work; use your own provider key (BYOK) or harness mode.
  */
 export interface ServerModelsNotice {
-  code: 'server_models_unavailable';
+  code: 'server_models_unavailable' | 'platform_models_not_included';
   message: string;
 }
 

@@ -197,8 +197,11 @@ export class ApiKeyService implements OnModuleInit {
    * roster. Kept here so CredentialResolverService needs no extra injected
    * dependency (its DI list is capped at 3).
    */
-  noteResolvedTenant(companyId: string): void {
+  noteResolvedTenant(companyId: string, entitlements?: readonly string[]): void {
     this.tenantRegistry?.touch(companyId);
+    // A verified user credential's plan, remembered for background work
+    // (#945 phase 2). undefined = an M2M or static key: says nothing.
+    if (entitlements) this.tenantRegistry?.noteEntitlements(companyId, entitlements);
   }
 
   /**

@@ -7995,7 +7995,10 @@
             "additionalProperties": false,
             "properties": {
               "code": {
-                "const": "server_models_unavailable",
+                "enum": [
+                  "server_models_unavailable",
+                  "platform_models_not_included"
+                ],
                 "type": "string"
               },
               "message": {
@@ -10752,7 +10755,10 @@
             "additionalProperties": false,
             "properties": {
               "code": {
-                "const": "server_models_unavailable",
+                "enum": [
+                  "server_models_unavailable",
+                  "platform_models_not_included"
+                ],
                 "type": "string"
               },
               "message": {

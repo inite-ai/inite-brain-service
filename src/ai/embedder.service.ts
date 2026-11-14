@@ -28,7 +28,7 @@ import {
   type EmbedderProviderName,
   type EmbeddingNorm,
 } from './embedder/embedding-space';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /** Minimum gap between two "serving on fallback" warnings. */
 const FALLBACK_WARN_THROTTLE_MS = 10_000;

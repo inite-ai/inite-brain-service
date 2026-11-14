@@ -8,7 +8,7 @@ import {
   createOpenAiClient,
   offlineServiceTier,
 } from '../ai/openai-client';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 import { currentAffectInference } from '../ai/domain-packs/modality-consent';
 import type { PackAffectInference } from '../ai/domain-packs/manifest';
 import { USER_ENTITY_VERTICAL, userEntityKey } from '../ingest/user-entity';

@@ -10,7 +10,7 @@ import type { AffectReadingWorkService } from '../affect/affect-reading-work.ser
 import type { PredicateSemanticsWorkService } from '../ai/predicate-semantics-work.service';
 import type { MediaReadingWorkService } from '../evidence/media-reading-work.service';
 import { pinUserScope } from '../auth/user-scope';
-import { extractionSource } from '../common/extraction-source';
+import { harnessServesTenant } from '../common/model-source';
 import type { HarnessWork } from '../common/harness-work';
 import {
   HARNESS_WORK_KINDS,
@@ -49,7 +49,10 @@ export function registerHarnessWorkTools(p: {
   companyId: string;
   deps: HarnessWorkToolDeps;
 }): void {
-  if (extractionSource() !== 'harness') return;
+  // Offered when this tenant's reading belongs to its agent: harness mode
+  // (server-wide or the tenant's own) or a plan without platform models
+  // (#945 phase 2). The catalogue (companyId '') always records them.
+  if (p.companyId && !harnessServesTenant(p.companyId)) return;
   const { server, companyId, deps } = p;
 
   server.registerTool(

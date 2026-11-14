@@ -13,7 +13,7 @@
  * Process-global on purpose: the client is built outside Nest's container,
  * and `/metrics` reads it through a collect-time gauge.
  */
-import { HarnessModeRefusal, serverModelsRefused } from '../common/extraction-source';
+import { serverModelRefusal } from '../common/model-source';
 import { currentTenant } from '../common/tenant-context';
 import {
   TenantBudgetExceeded,
@@ -133,6 +133,7 @@ type Create = (body: { model?: unknown }, opts?: unknown) => Promise<unknown>;
  * A stream has no usage on its return value and is counted as a call only.
  * Harness mode refuses every chat call here, before the network — the one
  * place all clients pass through (serverModelsRefused). So does a tenant
+ * whose plan has no platform models (PlatformModelsNotIncluded, model-source.ts), and a tenant
  * past its daily model budget (tenant-llm-budget.ts), and a chat call's
  * tokens are charged to the tenant of the work that made it.
  */
@@ -149,9 +150,10 @@ export function withUsageLedger(
     h.create = async (body, opts) => {
       const site = callSite(new Error().stack);
       const model = typeof body?.model === 'string' ? body.model : 'unknown';
-      if (kind === 'chat' && serverModelsRefused()) {
+      const refusal = kind === 'chat' ? serverModelRefusal() : null;
+      if (refusal) {
         recordLlmError({ kind, model, site });
-        throw new HarnessModeRefusal();
+        throw refusal;
       }
       const tenant = kind === 'chat' ? currentTenant() : undefined;
       if (tenant && tenantOverBudget(tenant, dailyBudget())) {

@@ -31,6 +31,24 @@ export const CATALOG_PART_01: ConfigCatalogSpec[] = [
       'Who does the reading the server models would do. `server` (default): the server calls them. `harness`: no model call — background reading (extraction, attribute cardinality, entity, conflict and corroboration judgements, scene summaries, belief sentences) is handed to the connected agent in batches through the MCP tools take_memory_work / submit_memory_work and applied by the server own writes; every other server-side chat call, Jev decisions and the Cohere reranker are refused before the network, and OPENAI_API_KEY may be unset with EMBEDDER_PROVIDER=bge-m3.',
   },
   {
+    key: 'MODEL_PLATFORM_ENTITLEMENTS',
+    category: 'extractor',
+    defaultValue: 'plan:pro,plan:team',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Comma list of credential entitlements whose tenants may use the server models billed to the operator (platform). Read from the verified user token on each request and remembered on the tenant registry row for background passes. A tenant with none of them (or never seen) is not included: under MODEL_PLATFORM_GATE=enforce its server-side chat calls are refused and its reading waits for its agent in take_memory_work. `*` = every tenant (self-hosting with static keys).',
+  },
+  {
+    key: 'MODEL_PLATFORM_GATE',
+    category: 'extractor',
+    defaultValue: 'observe',
+    runtimeMutable: true,
+    isBooleanFlag: false,
+    description:
+      'Rollout of the plan gate on platform models. `observe` (default): nothing is refused; a chat call the gate would refuse is counted per tenant (GET /v1/admin/model-source/:companyId observedRefusals) and logged once. `enforce`: tenants without a platform entitlement are refused, unless the operator set their modelSource to `platform`.',
+  },
+  {
     key: 'EXTRACTION_CONVERSATION_SETTLE_SECONDS',
     category: 'extractor',
     defaultValue: '120',
