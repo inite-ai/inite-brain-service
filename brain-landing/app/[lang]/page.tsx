@@ -20,9 +20,7 @@ import { JsonLd } from '../../components/StructuredData'
 import { normalizeLang, getMessages, LANGS } from '../../lib/i18n'
 import {
   SITE_URL,
-  organizationSchema,
-  websiteSchema,
-  softwareApplicationSchema,
+  familySchema,
   ogImage,
 } from '../../lib/seo'
 import type { Metadata } from 'next'
@@ -58,9 +56,7 @@ export default async function LandingPage({ params }: Props) {
   const t = getMessages(lang)
   return (
     <div className="lab-root landing-refresh min-h-screen" lang={lang}>
-      <JsonLd
-        data={[organizationSchema(), websiteSchema(), softwareApplicationSchema()]}
-      />
+      <JsonLd data={familySchema(lang)} />
       <a href="#main-content" className="landing-skip">{t.nav.skip}</a>
       <Header lang={lang} landing />
       <main id="main-content" className="max-w-6xl mx-auto px-5 sm:px-6">
