@@ -1,5 +1,5 @@
 import { Controller, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { ApiKeyGuard, RequireAnyScope } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { UserForgetService, UserForgetResult } from './user-forget.service';
 import { AuthenticatedRequest } from '../auth/api-key.types';
@@ -12,11 +12,13 @@ export class UserForgetController {
   constructor(private readonly userForget: UserForgetService) {}
 
   /**
-   * GDPR erasure of one end-user's personal memory scope. Same guard
-   * tier as entity forget (brain:admin) — hard destructive cascade.
+   * GDPR erasure of one end-user's personal memory scope — hard
+   * destructive cascade. brain:admin (same tier as entity forget) or the
+   * narrow brain:erase, which a product backend holds to answer an
+   * erasure request without operating the tenant.
    */
   @Post(':userId/forget')
-  @RequireScopes('brain:admin')
+  @RequireAnyScope('brain:admin', 'brain:erase')
   @PolicyAction('rest.users.forget')
   async forget(
     @Req() req: AuthenticatedRequest,

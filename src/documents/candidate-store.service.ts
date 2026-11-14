@@ -1,5 +1,5 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { Surreal, StringRecordId } from 'surrealdb';
+import { Surreal } from 'surrealdb';
 import {
   SurrealService,
   dbCreate,
@@ -9,6 +9,7 @@ import {
 } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { idTailOf } from '../ingest/ingest-utils';
+import { recordIdOf, recordKey } from '../db/record-key';
 import {
   GENERAL_INDEXER_ID,
   type CandidateBatch,
@@ -536,6 +537,9 @@ export class CandidateStoreService {
             entityIndex: e.entityIndex,
             name: e.name,
             type: e.type,
+            // What the extractor / submitter wrote when it was not a core
+            // type (0195) — absent otherwise, so those rows are unchanged.
+            ...(e.typeRaw ? { typeRaw: e.typeRaw } : {}),
             canonical: e.canonical,
             ...(e.externalId ? { externalId: e.externalId } : {}),
             // The memory-context pin (extractor-internals/memory-context):
@@ -773,7 +777,7 @@ export class CandidateStoreService {
       // accumulation" SurrealQL limitation doesn't apply.)
       await db.query(
         `FOR $u IN $updates {
-           UPDATE type::record($u.id) SET
+           UPDATE type::record('candidate', $u.key) SET
              status = $u.status,
              statusReason = $u.reason ?? NONE,
              commitRef = $u.ref ?? NONE,
@@ -781,7 +785,7 @@ export class CandidateStoreService {
          };`,
         {
           updates: updates.map((u) => ({
-            id: `candidate:${idTailOf(u.id)}`,
+            key: recordKey(u.id),
             status: u.status,
             reason: u.statusReason ?? null,
             ref: u.commitRef ?? null,
@@ -822,7 +826,7 @@ export class CandidateStoreService {
  * and a record<> field needs a RecordId, not a plain string.
  */
 function recordRef(table: string, rid: string): unknown {
-  return new StringRecordId(`${table}:${idTailOf(rid)}`);
+  return recordIdOf(table, rid);
 }
 
 /**

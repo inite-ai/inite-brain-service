@@ -1,6 +1,6 @@
 {
   "name": "inite-brain-service",
-  "version": "2.8.1",
+  "version": "2.9.0",
   "description": "INITE Brain Service - Cross-vertical knowledge layer (system of insight, not record). Implements the inite.service.brain contract.",
   "author": "INITE",
   "license": "AGPL-3.0-or-later",
@@ -59,6 +59,7 @@
     "eval:conveyor": "ts-node -T test/eval/conveyor/runner.ts",
     "eval:halumem": "ts-node -T test/eval/halumem/runner.ts",
     "openapi:build": "ts-node -T scripts/build-openapi.ts",
+    "mcp:schemas": "ts-node -T scripts/mcp-schemas.ts",
     "migrations:flexible": "ts-node -T scripts/generate-flexible-reconcile.ts",
     "mri:report": "ts-node -T scripts/mri-report.ts",
     "mri:record-suite": "ts-node -T scripts/mri-record-suite.ts",

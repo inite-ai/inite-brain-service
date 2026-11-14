@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { WorkspaceStatusService } from './workspace-status.service';
 import { asStructuredContent } from './structured';
+import { serverModelsStatus } from '../ai/provider-health';
 
 export interface OnboardingToolDeps {
   workspaceStatus: WorkspaceStatusService;
@@ -42,7 +43,7 @@ export function registerOnboardingTools(opts: {
     {
       title: 'What this connection is attached to, and what is left to set up',
       description:
-        'The tenant this credential writes to (companyId, its display name, whether it is a personal workspace), what is already in its memory (entities, active facts, facts recorded in the last 7 days), how many Domain Packs are installed, for a user-bound connection who the user is in this memory (`user.name` — the name the memory has learned from them, null until it has), and `nextSteps` — the setup actions that would actually change something, derived from that state rather than a stored checklist (including asking the user how to address them, once, and recording it). Answers "which workspace am I writing to?" and explains why memory answers may look emptier than expected.',
+        'The tenant this credential writes to (companyId, its display name, whether it is a personal workspace), what is already in its memory (entities, active facts, facts recorded in the last 7 days), how many Domain Packs are installed, for a user-bound connection who the user is in this memory (`user.name` — the name the memory has learned from them, null until it has), and `nextSteps` — the setup actions that would actually change something, derived from that state rather than a stored checklist (including asking the user how to address them, once, and recording it). Also `serverModels`: whether the server\'s own models (embeddings, chat) are available right now, with a notice when they are not. Answers "which workspace am I writing to?" and explains why memory answers may look emptier than expected.',
       inputSchema: {},
     },
     async () => {
@@ -51,7 +52,13 @@ export function registerOnboardingTools(opts: {
         scopes: ctx.scopes,
       };
       if (ctx.userId !== undefined) input.userId = ctx.userId;
-      const out = await deps.workspaceStatus.status(input);
+      // #945: whether the server's own models answer right now, beside
+      // the tenant's state — a memory that looks empty may be an embedder
+      // the provider refused.
+      const out = {
+        ...(await deps.workspaceStatus.status(input)),
+        serverModels: serverModelsStatus(),
+      };
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],
         structuredContent: asStructuredContent(out),

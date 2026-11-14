@@ -673,6 +673,28 @@ change.
 | `COMPACTION_HOT_RETENTION_DAYS`     | `90`    | Days kept in the searchable hot tier before compaction strips embedding + indexes.                                                                                                                   | Storage cost vs historical-search depth.                                                                                                         |
 | `COMPACTION_SUMMARIES`              | `1`     | Roll up compacted facts into one summary per `(entityId, predicate)` cluster. The summary keeps a fresh embedding and is searchable.                                                                 | Long-history tenants where the warm tier needs to stay queryable.                                                                                |
 
+## Which embedding space a row is in
+
+Every table that stores a vector also has an `embeddingSpaceId` column
+(migration 0101): the canonical `provider:model:dim:norm` of the embedder
+that produced the vector, e.g. `bge-m3:Xenova/bge-m3:1024:l2`. **Rows written
+from this release on declare their space.** Each vector write sets it
+together with the vector: facts, entities, predicates, episode segments,
+scene gists, strategy and procedural memory, community summaries,
+representations, composed rows (arcs, aggregates, promotion summaries) and
+every reindex rewrite. There is no flag for it: the `EMBEDDING_SPACE_TRACKING`
+switch that used to gate the stamp on the reindex rewrite and scene gists is
+gone. A leftover `EMBEDDING_SPACE_TRACKING` in an env file has no effect.
+
+**Older rows are `NONE`.** `NONE` means the space is legacy or unknown. No
+backfill runs, because the vector's width does not prove which model
+produced it. Readers treat `NONE` exactly as before: the vector-corpus
+census and repair judge conformance by width, and the strict serving guard
+(`EMBEDDING_SPACE_STRICT`) compares the query's space against the
+configured primary, not against row stamps. When the embedder model changes,
+stamped rows can be re-embedded by their declared space. `NONE` rows can only
+be re-embedded wholesale, because their space is unknown.
+
 ## Language stems (0184)
 
 The lexical (BM25) legs over facts and conversation turns also match a
@@ -1055,6 +1077,51 @@ silently discarded on the next deploy. A value at or below the 5-minute
 re-auth margin is honoured but logged at error level: every scoped acquire
 then re-signs, which only the expiry e2e wants.
 
+## Data migrations (0197)
+
+Schema migrations (`src/db/migrations/`) define schema only, from 0197 on.
+Fixes to existing rows are **data migrations** (`src/db/data-migrations/`),
+run in the background by the job `data_migrations`:
+
+- an hourly cron (`:23` UTC) enqueues one job per tenant on the fan-out
+  roster, deduplicated per hour; a tenant this process has seen with every
+  data migration verified done is not enqueued again until a deploy adds a
+  new one;
+- the job runs each data migration not yet done, 500 rows per step, within a
+  20 s budget per tenant; a run cut off by the budget enqueues its own
+  continuation 30 s later;
+- after the steps it re-counts the rows still needing the fix, and the
+  migration is marked done only when that count is 0.
+
+Why: on SurrealDB 3.2.4 an `UPDATE t … WHERE` planned through an index on
+the filtered field is a silent no-op. 0182's backfill left 20 closed edges
+unchecked across 3 tenants and 0164's second backfill left one closed edge
+without `validUntil`, both recorded as applied. A data migration selects ids
+first and updates exactly those records.
+
+Each tenant's ledger is the table `data_migration` (one row per id:
+`status` pending/done, `fixed`, `remaining`, `lastRunAt`, `verifiedAt`):
+
+```sql
+SELECT * FROM data_migration;
+```
+
+`brain_data_migration_remaining{migration}` is the rows a data migration
+still has to fix, summed over the tenants this process ran it for (no tenant
+label). It should fall to 0; a value that stops falling with the log line
+`a step fixed none of N pending rows` is a fix that does not take.
+
+The data migrations shipped so far:
+
+| id                                  | fixes                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `edge_valid_until_from_invalidated` | pre-0164 closed edges with no `validUntil` (re-applies 0164's second fix) |
+| `edge_resolution_checked`           | closed edges never marked `resolutionCheckedAt` (re-applies 0182)         |
+| `edge_valid_from_created`           | open edges written with no `validFrom` (dreams `identity_of` links)       |
+
+They move ids, instants and flags the rows already hold and write no user
+content, so the GDPR forget cascade is unchanged.
+
 ## Request metrics and SLOs
 
 `/metrics` exports request RED metrics for every route and every MCP tool:
@@ -1067,6 +1134,45 @@ then re-signs, which only the expiry e2e wants.
 so `outcome="internal_error"` is the only place it shows. The SLOs built on
 them, their burn-rate alerts and the error budget policy are in
 [slo.md](slo.md).
+
+## Server model provider health
+
+Every model-provider call records its outcome: the OpenAI chat router, the
+decision plane (Jev), the remote bge-m3 embedder and the OpenAI embedder
+(#945). A failure is classified as `billing` (402, or OpenAI's
+`insufficient_quota` 429), `key` (401/403), `quota` (429), `outage` (5xx,
+network, timeout, an open circuit) or `other`. Harness mode's deliberate
+refusal is not counted.
+
+- **Metric:** `brain_provider_failures_total{capability,class}`, where
+  `capability` is `embed` or `chat`. Counted per call, so a primary refusal
+  the fallback then served still shows.
+- **Alert:** `ProviderBillingOrKeyFailing` (critical) fires when any
+  `billing` or `key` failure happened in the last 10 minutes. Neither class
+  heals by waiting.
+- **Status:** `about_brain` and `workspace_status` report
+  `serverModels: { state, capabilities: { embed, chat }, since? }`. A
+  capability is `degraded` while one of its providers' latest outcome is an
+  unavailability failure, and `ok` again after that provider's next success.
+- **What callers see:** `synthesize` answers `reason: model_unavailable`
+  with `degraded` and a `notice`, never `low_coverage`
+  ([api.md § Server model outages](api.md#server-model-outages)). A hybrid
+  search adds the notice to `degraded: ["vector_leg"]` when the embedder was
+  refused for billing, key or quota reasons.
+
+When the alert fires:
+
+1. Read the `capability` label and the logs. `remote bge-m3 failed (billing: …)`
+   is the embedder; `[decide.<lane>] billing: …` and
+   `Synthesize verifier failed (billing)` are chat.
+2. Top up the provider account, or rotate the key (`OPENAI_API_KEY`,
+   `TYPESAFE_API_KEY`, `BGE_M3_REMOTE_API_KEY`).
+3. For embeddings, the in-process model needs no key: with
+   `EMBEDDER_PROVIDER=bge-m3`, unset `BGE_M3_REMOTE_API_KEY` and the local
+   ONNX model serves in the same 1024-d space. No re-embed is needed. While
+   the remote is failing, the local model already answers when it is warm.
+4. For chat, `EXTRACTION_SOURCE=harness` stops every server-side chat call.
+   Connected agents then read and answer with their own models.
 
 ## Capability probes
 

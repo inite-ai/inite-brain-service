@@ -2,6 +2,7 @@ import { SearchDto, SearchMode } from './dto/search.dto';
 import type { RetrievalProfile, SearchTuning } from './retrieval-profile';
 import type { QueryTimeRange } from './internals/scoring';
 import type { ReadPin } from '../episodes/read-pin.service';
+import type { ProviderFailureClass } from '../ai/provider-failure';
 
 /**
  * A retrieval stage that could not run and was skipped rather than failing
@@ -53,4 +54,10 @@ export interface PipelineContext {
    * expansion, lang-filter backoff) share it by reference.
    */
   degraded?: Set<SearchDegradation>;
+  /**
+   * Why a degraded stage could not run, when a model provider refused it
+   * for billing, key or quota reasons (#945): the response then carries
+   * the server-models notice. Shared by reference like `degraded`.
+   */
+  providerFailures?: Set<ProviderFailureClass>;
 }

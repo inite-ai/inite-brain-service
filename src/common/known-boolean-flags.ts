@@ -371,8 +371,8 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // `gistEmbedding` column never had. A post-swap encoder pass (+ POST
   // /v1/admin/maintenance/scenes/embed-gists) embeds the CANONICAL `gist`
   // text of vector-less scenes in the current world, one bounded batch per
-  // run, writing the vector by primary-key UPDATE plus the fact-side
-  // `embeddingSpaceId` stamp under EMBEDDING_SPACE_TRACKING. Unblocks both
+  // run, writing the vector by primary-key UPDATE plus its
+  // `embeddingSpaceId` stamp. Unblocks both
   // waiting consumers: the reindex sweep (which only MOVES existing
   // vectors between spaces) and the scene lane's dense leg. Default off ⇒
   // the embedder is never called, no scene row is touched and the route
@@ -865,15 +865,13 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // (multilingualConflict). Default off ⇒ byte-identical string-equality.
   // MULTILINGUAL_ family, off the ENGINE flag budget.
   'MULTILINGUAL_CONFLICT',
-  // Multilingual Tier 2 (migration 0101). The embedding-space family stamps
-  // + guards the (model, dim, norm) space a vector lives in so flipping the
-  // embedder can't silently mix vector spaces. All default off; each is a
-  // cross-cutting embedding concern (EMBEDDING_ prefix), so — like the
-  // MULTILINGUAL_ / FOVEA_ families — it sits OFF the ENGINE flag budget.
+  // Multilingual Tier 2 (migration 0101). The embedding-space family
+  // guards the (model, dim, norm) space a vector lives in so flipping the
+  // embedder can't silently mix vector spaces. Each is a cross-cutting
+  // embedding concern (EMBEDDING_ prefix), so — like the MULTILINGUAL_ /
+  // FOVEA_ families — it sits OFF the ENGINE flag budget. (The stamp
+  // itself, once EMBEDDING_SPACE_TRACKING, is unconditional now.)
   //
-  // Stamp `embeddingSpaceId` on rewrite (reindex sweep). Off ⇒ no column
-  // written, serving byte-identical.
-  'EMBEDDING_SPACE_TRACKING',
   // Default-ON strict-space serving guard: refuse a query embedded in a space
   // incompatible with the target rows (no cross-space cosine, no warmup
   // failover across incompatible dims). Explicit 0/false opts into unsafe

@@ -21,6 +21,8 @@ import type {
 import type { Citation } from '../src/synthesize/fact-index';
 import type { DecisionLogEntry } from '../src/synthesize/decision-log';
 import type { SearchHit } from '../src/search/search.types';
+import { ServerModelsNoticeSchema } from '../src/contracts/common/server-models-notice.schema';
+import { SERVER_MODELS_NOTICE, type ServerModelsNotice } from '../src/ai/provider-failure';
 
 const expectKeys = (shape: Record<string, unknown>, sample: Record<string, unknown>) =>
   expect(Object.keys(shape).sort()).toEqual(Object.keys(sample).sort());
@@ -97,6 +99,8 @@ const fullResponse: Required<SynthesizeResult> = {
   decisionLog: [debugPayload<DecisionLogEntry>()],
   tokenUsage: fullUsage,
   cached: false,
+  degraded: ['verifier'],
+  notice: SERVER_MODELS_NOTICE,
 };
 
 describe('synthesize wire contracts', () => {
@@ -116,6 +120,25 @@ describe('synthesize wire contracts', () => {
       results: [],
     };
     expect(() => SynthesizeResponseSchema.parse(abstained)).not.toThrow();
+  });
+
+  it('a provider outage is model_unavailable with degraded + notice, never an abstention (#945)', () => {
+    const outage: SynthesizeResult = {
+      answer: null,
+      reason: 'model_unavailable',
+      citations: [],
+      results: [],
+      degraded: ['generator'],
+      notice: SERVER_MODELS_NOTICE,
+    };
+    expect(() => SynthesizeResponseSchema.parse(outage)).not.toThrow();
+    expect(() => SynthesizeResponseSchema.parse({ ...outage, degraded: ['embedder'] })).toThrow();
+    expect(() =>
+      SynthesizeResponseSchema.parse({ ...outage, notice: { code: 'other', message: 'x' } }),
+    ).toThrow();
+    const notice: ServerModelsNotice = SERVER_MODELS_NOTICE;
+    expectKeys(ServerModelsNoticeSchema.shape, notice as unknown as Record<string, unknown>);
+    expect(ServerModelsNoticeSchema.parse(notice)).toEqual(notice);
   });
 
   it('pins every request/response key on both sides', () => {

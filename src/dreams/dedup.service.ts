@@ -7,6 +7,7 @@ import { envFlagNotDisabled } from '../common/env-validation';
 import { sameWidthGate } from '../db/vector-width';
 import { EntityCandidateService, judgeSimilarity } from '../ingest/entity-candidates.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
+import { recordKey } from '../db/record-key';
 
 /** The index the entity-dedup seed KNN rides — for the diagnostic. */
 
@@ -289,17 +290,17 @@ export class DreamsDedupService {
   ): Promise<Array<{ entityId: unknown; canonicalName?: string; sim: number }>> {
     type Row = { entityId: unknown; canonicalName?: string; sim: number };
     const res = await db.query<[unknown, Row[]]>(
-      `LET $q = (SELECT VALUE embedding FROM ONLY type::record($eid));
+      `LET $q = (SELECT VALUE embedding FROM ONLY type::record('knowledge_entity', $eid));
        SELECT id AS entityId, canonicalName, vector::similarity::cosine(embedding, $q) AS sim
          FROM knowledge_entity
         WHERE ${sameWidthGate('embedding')}
           AND type = $type
           AND userId IS NONE
           AND mergedInto IS NONE
-          AND id != type::record($eid)
+          AND id != type::record('knowledge_entity', $eid)
         ORDER BY sim DESC
         LIMIT 5;`,
-      { eid: seedEntityId, type },
+      { eid: recordKey(seedEntityId), type },
     );
     return (res[1] as Row[]) ?? [];
   }
@@ -322,11 +323,14 @@ export class DreamsDedupService {
     // Direction: aId → bId. The conventional survivor/loser policy
     // (older entity wins) is enforced by the existing identity-merge
     // path in the search service via mergedInto reattribution; from
-    // dreams we just emit the link with weight 1.0 and source tag.
+    // dreams we just emit the link with weight 1.0 and source tag. The
+    // identity holds from when it was found (0164: a relation that names
+    // no day holds from when it was said); without validFrom the edge read
+    // as "start unknown" (data migration edge_valid_from_created).
     await db.query(
       `RELATE $a->knowledge_edge->$b SET kind = 'identity_of', weight = 1.0,
         source = { vertical: 'dreams', kind: 'auto_dedup' },
-        createdAt = time::now()`,
+        createdAt = time::now(), validFrom = time::now()`,
       {
         a: new StringRecordId(aId),
         b: new StringRecordId(bId),

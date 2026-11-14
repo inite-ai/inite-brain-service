@@ -10,7 +10,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
+import { ApiKeyGuard, RequireAnyScope, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { pinUserScope } from '../auth/user-scope';
@@ -36,6 +36,8 @@ import { operatorOnly } from './age.controller';
  *
  * Emotional data is classed `affect`, so reading it needs brain:read_pii
  * like every other read of the class; erasing and contesting are writes.
+ * Erasing and withdrawing a consent also accept brain:erase, which opens
+ * nothing else here (not export, contest, list or record).
  */
 @Controller('v1/users')
 @UseGuards(ApiKeyGuard)
@@ -55,8 +57,10 @@ export class AffectController {
     return this.affect.export({ companyId: req.brainAuth.companyId, userId: pinned(userId) });
   }
 
+  // Erasing and withdrawing take brain:erase too: a product backend that
+  // answers a person's erasure or withdrawal holds only that (api-key.types.ts).
   @Delete(':userId/affect')
-  @RequireScopes('brain:write')
+  @RequireAnyScope('brain:write', 'brain:erase')
   @PolicyAction('rest.users.affect.erase')
   async eraseAffect(
     @Req() req: AuthenticatedRequest,
@@ -123,7 +127,7 @@ export class AffectController {
   }
 
   @Delete(':userId/consents/:purpose')
-  @RequireScopes('brain:write')
+  @RequireAnyScope('brain:write', 'brain:erase')
   @PolicyAction('rest.users.consents.revoke')
   async revokeConsent(
     @Req() req: AuthenticatedRequest,

@@ -4,6 +4,7 @@ import { hostname } from 'node:os';
 import type { Surreal } from 'surrealdb';
 import { runTransaction } from './run-transaction';
 import { retryOnUniqueViolation } from './surreal-retry';
+import { leaseName } from '../common/lease-name';
 
 /**
  * Cross-replica lock the migrator holds while it applies schema.
@@ -19,33 +20,15 @@ export interface MigrationLock {
 }
 
 /**
- * 32-bit FNV-1a. A collision guard for a readable slug, NOT a security
- * primitive — deliberately not a crypto digest, because nothing about a
- * lease name needs to resist an adversary.
- */
-function fnv1a32(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
-}
-
-/**
- * Lease name for one target database. Lease names are composed into the
- * record id `leader_lease:<name>`, so a `:` or `/` in the name breaks id
- * parsing: everything outside [a-z0-9_] folds to `_`, and a digest of the
- * raw pair is appended so two targets that fold alike cannot collide
- * into one lease.
+ * Lease name for one target database, through the shared lease-name
+ * sanitiser: `migrate:<ns>/<db>` always folds (it carries `:` and `/`), so
+ * the name is a readable slug plus a digest of the raw pair, and two
+ * targets that fold alike cannot collide into one lease. The output is
+ * byte-identical to the pre-sanitiser form, so replicas of both versions
+ * contend for the same row during a rolling deploy.
  */
 export function migrationLeaseName(namespace: string, database: string): string {
-  const raw = `migrate:${namespace}/${database}`;
-  const slug = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .slice(0, 48);
-  return `${slug}_${fnv1a32(raw)}`;
+  return leaseName(`migrate:${namespace}/${database}`);
 }
 
 /**
@@ -112,10 +95,10 @@ export class SurrealMigrationLock implements MigrationLock {
           tx.bind('name', name)
             .bind('me', this.leaderId)
             .bind('until', until)
-            .add(`LET $row = (SELECT * FROM type::record('leader_lease:' + $name))[0]`)
+            .add(`LET $row = (SELECT * FROM type::record('leader_lease', $name))[0]`)
             .add(
               `IF $row IS NONE OR $row.leaseUntil < time::now() OR $row.leaderId = $me {
-                 UPSERT type::record('leader_lease:' + $name) SET
+                 UPSERT type::record('leader_lease', $name) SET
                    name = $name,
                    leaderId = $me,
                    leaseUntil = type::datetime($until),
@@ -139,7 +122,7 @@ export class SurrealMigrationLock implements MigrationLock {
   async release(name: string): Promise<void> {
     try {
       await this.withLeaseDb(async (db) => {
-        await db.query(`DELETE type::record('leader_lease:' + $name) WHERE leaderId = $me`, {
+        await db.query(`DELETE type::record('leader_lease', $name) WHERE leaderId = $me`, {
           name,
           me: this.leaderId,
         });

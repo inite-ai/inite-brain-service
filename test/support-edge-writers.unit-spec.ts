@@ -141,6 +141,7 @@ describe('FactResolverService — contradicted_by edges at the postResolve seam'
     };
     const factEmbedding = {
       embed: jest.fn(async () => [0.1]),
+      activeSpaceId: () => 'stub:test:2:l2',
       writeAltEmbeddingIfHype: jest.fn(async () => {}),
     };
     const predicateRegistry = {

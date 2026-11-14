@@ -15,8 +15,9 @@
  *   - ONE embedMany batch per run (never one call per scene);
  *   - the write is a BOUND-ID UPDATE (never a WHERE over an indexed
  *     field — the 3.2.4 planner bug);
- *   - space stamp = the fact-side convention: written ONLY under
- *     EMBEDDING_SPACE_TRACKING, and always together with the vector;
+ *   - space stamp = the convention every vector writer follows: written
+ *     always, and always together with the vector (a leftover
+ *     EMBEDDING_SPACE_TRACKING value changes nothing — the flag is retired);
  *   - a blank gist is never embedded (no zero vector enters the space);
  *   - an embed failure SOFT-fails the run: warn, count, no write, no throw;
  *   - the composer's post-swap hook is skipped with the flag off (pinned
@@ -39,13 +40,11 @@ import { SEGMENTER_VERSION } from '../src/admin/scene-segmentation';
 
 const SAVED = {
   gistEmbedding: process.env.SCENES_GIST_EMBEDDING,
-  spaceTracking: process.env.EMBEDDING_SPACE_TRACKING,
   segmentation: process.env.SCENES_SEGMENTATION_ENABLED,
 };
 const restore = () => {
   for (const [k, v] of [
     ['SCENES_GIST_EMBEDDING', SAVED.gistEmbedding],
-    ['EMBEDDING_SPACE_TRACKING', SAVED.spaceTracking],
     ['SCENES_SEGMENTATION_ENABLED', SAVED.segmentation],
   ] as const) {
     if (v === undefined) delete process.env[k];
@@ -158,7 +157,6 @@ describe('SceneGistEmbeddingService — the flag-off pin', () => {
 describe('SceneGistEmbeddingService — selection, batching and the write', () => {
   beforeAll(() => {
     process.env.SCENES_GIST_EMBEDDING = '1';
-    delete process.env.EMBEDDING_SPACE_TRACKING;
   });
   afterAll(restore);
 
@@ -212,15 +210,20 @@ describe('SceneGistEmbeddingService — selection, batching and the write', () =
     expect(captured.batches[0]!.join(' ')).not.toContain('abstractive');
   });
 
-  it('writes each vector by BOUND ID, with no space column while tracking is off', async () => {
+  it('writes each vector by BOUND ID, together with its space', async () => {
     const { svc, captured } = build({ rows: [scene('memory_episode:s1')] });
     await svc.run('co_test');
     const [update] = updates(captured);
-    expect(update!.sql).toBe('UPDATE $id SET gistEmbedding = $embedding');
+    expect(update!.sql).toBe(
+      'UPDATE $id SET gistEmbedding = $embedding, embeddingSpaceId = $space',
+    );
     // Primary-key addressed — never a WHERE over an indexed field.
     expect(update!.sql).not.toContain('WHERE');
-    expect(update!.params).toEqual({ id: 'memory_episode:s1', embedding: [1, 0, 0] });
-    expect(update!.params).not.toHaveProperty('space');
+    expect(update!.params).toEqual({
+      id: 'memory_episode:s1',
+      embedding: [1, 0, 0],
+      space: SPACE_ID,
+    });
   });
 
   it('a blank gist is skipped — never embedded, never written', async () => {
@@ -242,12 +245,30 @@ describe('SceneGistEmbeddingService — selection, batching and the write', () =
   });
 });
 
-describe('SceneGistEmbeddingService — the space stamp (the fact-side convention)', () => {
-  afterAll(restore);
+describe('SceneGistEmbeddingService — the space stamp (every vector writer)', () => {
+  afterAll(() => {
+    delete process.env.EMBEDDING_SPACE_TRACKING;
+    restore();
+  });
 
-  it('EMBEDDING_SPACE_TRACKING on ⇒ vector and space id are written TOGETHER', async () => {
+  it.each(['0', '1'])(
+    'a leftover EMBEDDING_SPACE_TRACKING=%s changes nothing: vector and space id together',
+    async (tracking) => {
+      process.env.SCENES_GIST_EMBEDDING = '1';
+      process.env.EMBEDDING_SPACE_TRACKING = tracking;
+      const { svc, captured } = build({ rows: [scene('memory_episode:s1')] });
+      await svc.run('co_test');
+      const [update] = updates(captured);
+      expect(update!.sql).toBe(
+        'UPDATE $id SET gistEmbedding = $embedding, embeddingSpaceId = $space',
+      );
+      expect(update!.params).toMatchObject({ space: SPACE_ID });
+    },
+  );
+
+  it('vector and space id are written TOGETHER', async () => {
     process.env.SCENES_GIST_EMBEDDING = '1';
-    process.env.EMBEDDING_SPACE_TRACKING = '1';
+    delete process.env.EMBEDDING_SPACE_TRACKING;
     const { svc, captured } = build({ rows: [scene('memory_episode:s1')] });
     await svc.run('co_test');
     const [update] = updates(captured);
@@ -259,42 +280,11 @@ describe('SceneGistEmbeddingService — the space stamp (the fact-side conventio
     );
     expect(update!.params).toMatchObject({ space: SPACE_ID });
   });
-
-  it('tracking off ⇒ the space is never even resolved', async () => {
-    process.env.SCENES_GIST_EMBEDDING = '1';
-    delete process.env.EMBEDDING_SPACE_TRACKING;
-    const { captured } = build({ rows: [scene('memory_episode:s1')] });
-    const surreal = {
-      withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
-        fn({
-          query: async (sql: string, params?: Record<string, unknown>) => {
-            captured.queries.push({ sql, params });
-            return [sql.includes('UPDATE') ? [] : [scene('memory_episode:s1')]];
-          },
-        }),
-    } as unknown as SurrealService;
-    const embedding = {
-      embedMany: async (t: string[]) => t.map(() => [1, 0, 0]),
-      activeSpaceId: () => {
-        throw new Error('activeSpaceId must not be called with tracking off');
-      },
-    } as unknown as FactEmbeddingService;
-    const versions = {
-      resolve: () => ({
-        version: SEGMENTER_VERSION,
-        cfg: { topicBoundary: false, minCosine: 0.55, maxTurns: 40, embeddingSpaceId: null },
-      }),
-    } as unknown as SceneVersionService;
-    await expect(
-      new SceneGistEmbeddingService(surreal, embedding, versions).run('co_test'),
-    ).resolves.toMatchObject({ embedded: 1 });
-  });
 });
 
 describe('SceneGistEmbeddingService — degrade, never fail', () => {
   beforeAll(() => {
     process.env.SCENES_GIST_EMBEDDING = '1';
-    delete process.env.EMBEDDING_SPACE_TRACKING;
   });
   afterAll(restore);
 

@@ -3,6 +3,15 @@ export type BrainScope =
   | 'brain:write'
   | 'brain:admin'
   | 'brain:read_pii'
+  // Erase ONE end-user's personal memory and nothing else: user forget
+  // (POST /v1/users/:userId/forget), affect erase (DELETE
+  // /v1/users/:userId/affect) and consent withdrawal (DELETE
+  // /v1/users/:userId/consents/:purpose). Lets a product backend answer a
+  // GDPR erasure request without holding brain:admin. Grants no read, no
+  // write and no admin: those routes accept it through RequireAnyScope
+  // next to their usual scope, and no other route names it. A user-bound
+  // token holding it still erases only its own user (pinUserScope).
+  | 'brain:erase'
   // Media/biometric evidence access (faces, voices, ID documents — see
   // src/common/media-pii.ts). A STRICTER regime than brain:read_pii, not
   // an extension of it: read_pii opens text rows whose piiClass is set,

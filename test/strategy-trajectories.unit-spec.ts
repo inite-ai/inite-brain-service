@@ -39,6 +39,7 @@ function stubEmbedder(vectors: Record<string, number[]>): EmbedderService {
     // the query side still uses embed().
     embed: async (text: string) => vectors[text] ?? [0, 0],
     embedForWrite: async (text: string) => vectors[text] ?? [0, 0],
+    activeSpaceId: () => 'stub:test:2:l2',
   } as unknown as EmbedderService;
 }
 

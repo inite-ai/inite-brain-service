@@ -3116,8 +3116,11 @@
                     "enum": [
                       "customer",
                       "staff",
+                      "person",
+                      "organization",
                       "asset",
                       "project",
+                      "document",
                       "topic",
                       "location",
                       "other"
@@ -4743,7 +4746,8 @@
                 "brain:read",
                 "brain:write",
                 "brain:admin",
-                "brain:read_pii"
+                "brain:read_pii",
+                "brain:erase"
               ],
               "type": "string"
             },
@@ -5433,8 +5437,11 @@
                   "enum": [
                     "customer",
                     "staff",
+                    "person",
+                    "organization",
                     "asset",
                     "project",
+                    "document",
                     "topic",
                     "location",
                     "other"
@@ -7983,6 +7990,23 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "notice": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "server_models_unavailable",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
           },
           "results": {
             "items": {
@@ -10569,7 +10593,8 @@
           "generator_error",
           "harness_mode",
           "model_budget",
-          "verifier_error"
+          "verifier_error",
+          "model_unavailable"
         ],
         "type": "string"
       },
@@ -10707,11 +10732,38 @@
             },
             "type": "array"
           },
+          "degraded": {
+            "items": {
+              "enum": [
+                "generator",
+                "verifier"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
           "evidenceCitations": {
             "items": {
               "$ref": "#/components/schemas/EvidenceCitation"
             },
             "type": "array"
+          },
+          "notice": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "server_models_unavailable",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
           },
           "reason": {
             "$ref": "#/components/schemas/SynthesisReason"
@@ -11322,7 +11374,7 @@
     },
     "securitySchemes": {
       "bearerAuth": {
-        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `registry:publish`, `registry:curate`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
+        "description": "API key (`Authorization: Bearer <key>`); its SHA-256 must be registered in BRAIN_API_KEYS. Keys carry scopes (`brain:read`, `brain:write`, `brain:admin`, `brain:read_pii`, `brain:erase`, `registry:publish`, `registry:curate`, `indexer:write`) — each operation states the scope it requires. Not an OAuth flow.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -11336,7 +11388,7 @@
     },
     "summary": "The community-facing platform surface: the memory core (fact ingest, search, multi-hop, synthesize, entity and fact reads), the Domain Pack registry and tenant pack admin, the document pipeline, the external-indexer work protocol, the raw-substrate driver, the evidence substrate, and source reputation reads.",
     "title": "INITE Brain — Platform API",
-    "version": "2.8.1"
+    "version": "2.9.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -16777,7 +16829,7 @@
     },
     "/v1/users/{userId}/affect": {
       "delete": {
-        "description": "Hard-deletes the category — `scope=all` (default) or only the inferences (`scope=inferred`) — with every row composed from it and its audit mirror; the rest of the person’s memory is untouched. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "description": "Hard-deletes the category — `scope=all` (default) or only the inferences (`scope=inferred`) — with every row composed from it and its audit mirror; the rest of the person’s memory is untouched. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write` or `brain:erase`.",
         "operationId": "eraseAffect",
         "parameters": [
           {
@@ -17104,7 +17156,7 @@
     },
     "/v1/users/{userId}/consents/{purpose}": {
       "delete": {
-        "description": "Withdraws the person’s consent for the purpose and erases what processing for it produced (for `affect_inference`: every inference about how they feel). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write`.",
+        "description": "Withdraws the person’s consent for the purpose and erases what processing for it produced (for `affect_inference`: every inference about how they feel). A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/affect.controller.ts.\n\nRequired scope: `brain:write` or `brain:erase`.",
         "operationId": "revokeConsent",
         "parameters": [
           {

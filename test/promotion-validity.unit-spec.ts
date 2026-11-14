@@ -108,7 +108,10 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
     const surreal = {
       withCompany: async <T>(_c: string, fn: (db: unknown) => Promise<T>) => fn(fakeDb),
     } as unknown as SurrealService;
-    const embedder = { embedForWrite: async () => [1, 0] } as unknown as EmbedderService;
+    const embedder = {
+      embedForWrite: async () => [1, 0],
+      activeSpaceId: () => 'stub:test:2:l2',
+    } as unknown as EmbedderService;
     const runner = new PromotionRunnerService(
       surreal,
       new StubConfig({
@@ -166,6 +169,8 @@ describe('PromotionRunnerService — the replace is one transaction', () => {
       inferredBy: { recorder: 'compaction-promotion', modality: 'text' },
     });
     expect(doc.embedding).toEqual([1, 0]);
+    // The summary declares the space its vector was embedded in.
+    expect(doc.embeddingSpaceId).toBe('stub:test:2:l2');
   });
 
   it('closed originals give the replacement their latest close', async () => {

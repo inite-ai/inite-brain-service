@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Surreal, StringRecordId } from 'surrealdb';
 import { EmbedderService } from '../ai/embedder.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { JobWorkerPool } from '../jobs/job-worker-pool.service';
 import { withSpan } from '../common/tracing';
 import { SUMMARY_GENERATOR } from '../compaction/compaction.service';
@@ -362,8 +363,10 @@ export class CommunityBuilderService {
     // (NONE), never bound as NULL.
     let embeddingClause = '';
     if (Array.isArray(summaryEmbedding)) {
-      embeddingClause = '\n         summaryEmbedding: $embedding,';
+      embeddingClause =
+        '\n         summaryEmbedding: $embedding,\n         embeddingSpaceId: $embeddingSpaceId,';
       params.embedding = summaryEmbedding;
+      Object.assign(params, spaceStamp(this.embedder));
     }
     let edgeClause = '';
     if (maxEdgeAt) {

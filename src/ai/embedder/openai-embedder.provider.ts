@@ -4,6 +4,22 @@ import { Semaphore } from '../../common/semaphore';
 import { getAbortSignal } from '../../common/request-context';
 import type { EmbedderProvider } from './embedder-provider.interface';
 import { providerIdOf, type EmbeddingSpaceConfig } from './embedding-space';
+import { recordProviderFailure, recordProviderSuccess } from '../provider-health';
+
+/** This provider's id in the provider-health record (#945). */
+const OPENAI_EMBED_SOURCE = { capability: 'embed', source: 'openai-embed' } as const;
+
+/** One embeddings call, its outcome recorded; the error still reaches the caller. */
+async function tracked<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    const res = await call();
+    recordProviderSuccess(OPENAI_EMBED_SOURCE);
+    return res;
+  } catch (err) {
+    recordProviderFailure({ ...OPENAI_EMBED_SOURCE, err });
+    throw err;
+  }
+}
 
 export interface OpenAIEmbedderConfig {
   /** Pre-built SDK client (see `createOpenAiClient` in src/ai/openai-client.ts). */
@@ -64,13 +80,15 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
     const trimmed = text.trim();
     if (!trimmed) return { vector: new Array(this.dimensions).fill(0) };
     return this.limiter.run(async () => {
-      const res = await this.openai.embeddings.create(
-        {
-          model: this.model,
-          input: trimmed,
-          dimensions: this.dimensions,
-        },
-        { signal: getAbortSignal() },
+      const res = await tracked(() =>
+        this.openai.embeddings.create(
+          {
+            model: this.model,
+            input: trimmed,
+            dimensions: this.dimensions,
+          },
+          { signal: getAbortSignal() },
+        ),
       );
       const first = res.data[0];
       if (!first) throw new Error('openai embeddings returned no data');
@@ -106,13 +124,15 @@ export class OpenAIEmbedderProvider implements EmbedderProvider {
       const slice = inputs.slice(start, start + CHUNK);
       const sliceIdx = indices.slice(start, start + CHUNK);
       const res = await this.limiter.run(() =>
-        this.openai.embeddings.create(
-          {
-            model: this.model,
-            input: slice,
-            dimensions: this.dimensions,
-          },
-          { signal: getAbortSignal() },
+        tracked(() =>
+          this.openai.embeddings.create(
+            {
+              model: this.model,
+              input: slice,
+              dimensions: this.dimensions,
+            },
+            { signal: getAbortSignal() },
+          ),
         ),
       );
       // Index by the API-provided `.index`, NOT array position. The

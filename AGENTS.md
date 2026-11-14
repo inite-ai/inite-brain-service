@@ -31,6 +31,11 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
    checksum is pinned in `test/golden/migration-checksums.json`
    (`test/migration-checksums.unit-spec.ts` fails on an edit), and a tenant
    whose applied file differs logs the id and shows in `brain_migration_drift`.
+   **Schema migrations are DDL only** (from 0197; `test/migration-ddl-only.unit-spec.ts`):
+   a row backfill is a data migration in `src/db/data-migrations/`, never an
+   `UPDATE … WHERE` in a `.surql` file (on SurrealDB 3.2.4 one planned through
+   an index is a silent no-op — 0182 and 0164 shipped that way and left rows
+   unfixed).
 2. **Never weaken tenancy or per-user scope.** Every tenant is its own
    database (`NS=brain`, `DB=co_<companyId>`, reached only through
    `SurrealService.withCompany`). Omitting `userId` must keep returning
@@ -38,7 +43,7 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
    path may skip the scope fences (`src/auth/user-scope.ts`,
    `src/auth/tenant-scope.ts`, `src/search/internals/where-builder.ts`).
 3. **Never change the token contract** (accepted `iss`/`aud`, claim shapes,
-   scope names `brain:read|write|admin|read_pii|read_media|platform_admin`)
+   scope names `brain:read|write|admin|read_pii|erase|read_media|platform_admin`)
    without a Triad-level change agreed first.
 4. **GDPR forget stays complete and synchronous.** `forget_entity` / user
    forget must keep cascading every derived row and leaving only tombstones.
@@ -58,7 +63,8 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
    `plugins/inite-brain/skills/` (`pnpm plugin:sync`),
    `src/data/skill-versions.json` + `src/data/skill-changelog.ts`
    (`pnpm skills:build`), `src/db/migrations/0135_flexible_reconcile.surql`
-   (`pnpm migrations:flexible`), `CHANGELOG.md` and version numbers
+   (`pnpm migrations:flexible`), `test/golden/mcp-tool-schemas.json`
+   (`pnpm mcp:schemas`), `CHANGELOG.md` and version numbers
    (release-please).
 8. **Never skip or weaken a gate** — no `.skip`, no lowered coverage
    threshold, no raised lint warning cap, no deleted assertion to get green.
@@ -135,9 +141,11 @@ Mirrors [.github/workflows/ci.yml](.github/workflows/ci.yml) (CI installs with
 | Jobs e2e (Docker)            | `pnpm test:e2e:jobs`                                                                    |
 | Landing (`brain-landing/`)   | `pnpm lint:i18n && pnpm lint:ci && pnpm typecheck && pnpm test && pnpm build`           |
 | Regenerate OpenAPI           | `pnpm openapi:build`                                                                    |
+| Regenerate MCP schema golden | `pnpm mcp:schemas` (`test/golden/mcp-tool-schemas.json`)                                |
 | Sync plugin skills           | `pnpm plugin:sync` (`--check` reports drift)                                            |
 
-CI jobs: `engine-checks` = `lint:ci` + `format:check` + `typecheck` + `build`;
+CI jobs: `engine-checks` = `lint:ci` + `format:check` + `typecheck` + `build`
+(+ on a PR, the contract breaking-change check, see Evolving data and contracts);
 `engine-unit`; `engine-socket`; `engine-e2e` (4 shards); `engine-jobs-e2e`;
 `web` (landing); `docker`; `build-test` judges those; `supply-chain`
 (`pnpm audit --audit-level=high`) is its own required check. The real-LLM
@@ -192,8 +200,9 @@ tests: add the name to the expected lists in `test/mcp-tools.unit-spec.ts`;
 `test/mcp-tool-descriptions.unit-spec.ts` (a description says what the tool
 does, not what the model should do) and
 `test/mcp-tool-schema-cost.unit-spec.ts` (use `isoDateTime()` from
-`src/mcp/iso-datetime.ts`, not `z.string().datetime()`) must stay green; an
-e2e like `test/mcp-fact-tools.e2e-spec.ts` → list it in
+`src/mcp/iso-datetime.ts`, not `z.string().datetime()`) must stay green; run
+`pnpm mcp:schemas` (`test/mcp-tool-schemas.unit-spec.ts` pins every tool's
+input schema); an e2e like `test/mcp-fact-tools.e2e-spec.ts` → list it in
 [docs/agents-using-brain.md](docs/agents-using-brain.md).
 
 **Add a REST route:** controller in the feature dir with
@@ -211,7 +220,17 @@ header comment explaining semantics and backfill, idempotent statements; add
 the line `test/migration-checksums.unit-spec.ts` prints to
 `test/golden/migration-checksums.json`.
 `src/db/schema.surql` is reference-only and not applied. Known SurrealDB
-traps live in existing migration headers — read the last few first.
+traps live in existing migration headers — read the last few first. A
+migration defines schema only; to fix existing rows, add a data migration.
+
+**Add a data migration:** a class implementing `DataMigration`
+(`src/db/data-migrations/data-migration.ts`: `id`, `description`,
+`pending(db)`, `step(db, limit)`), usually by extending `IdBatchMigration`
+(ids first, then `UPDATE $ids`), listed in `DataMigrationsModule`'s providers
+and its `DATA_MIGRATIONS` inject (that order is the run order). The
+`data_migrations` job runs it per tenant in batches and marks it done in the
+`data_migration` ledger only when `pending` re-counts 0. Unit-test it with a
+fake db (`test/data-migrations.unit-spec.ts`). The id is permanent.
 
 **Add an extraction lane:** pure module in `src/ai/extractor-internals/`
 (model: `denoise.ts`, switched by `dropSaid`), wired in
@@ -230,6 +249,32 @@ Retrieval/answer lanes: `LaneId` in `src/search/retrieval-profile.ts` and
 
 **Add a UI page:** `brain-landing/app/[lang]/…` (Next app router); admin
 strings go through `getMessages()`, never JSX literals (`pnpm lint:i18n`).
+
+## Evolving data and contracts
+
+Every release deploys to prod, and old clients and old code meet new shapes.
+
+- **Schema: expand → migrate → contract.** A release's schema must be
+  readable and writable by the PREVIOUS release's code: a failed deploy is
+  rolled back automatically by re-pinning the old image, and migrations
+  only run forward, so the old code wakes up on the new schema
+  ([docs/DEPLOY.md](docs/DEPLOY.md) § Rollback). Add the new field/table
+  first (old code ignores it), move reads and writes over in a later
+  release, drop the old one only after no deployed code needs it.
+- **REST and MCP: additive only.** New optional fields, new enum values in
+  requests, new routes and tools are fine. Removal goes through
+  deprecation: mark the field or tool deprecated (OpenAPI
+  `deprecated: true` / "Deprecated: use X" in the description and the MCP
+  tool description), keep it working for at least one minor release, then
+  remove it in a `!` release (`feat(api)!: …`), which release-please cuts
+  as a major.
+- **The gates.** `test/mcp-tool-schemas.unit-spec.ts` fails on a breaking
+  MCP schema change (tool removed or renamed, property removed or newly
+  required, type narrowed, enum value removed); additive changes only need
+  `pnpm mcp:schemas`. On every PR, CI compares the base branch's
+  `docs/openapi.json` and MCP golden with the PR's
+  (`scripts/ci/openapi-breaking.ts`) and fails on a breaking change unless
+  the PR title carries `!:`.
 
 ## From idea to PR
 

@@ -127,7 +127,10 @@ export class RemoteBgeM3 {
     });
     if (!res.ok) {
       const detail = (await res.text().catch(() => '')).slice(0, 200);
-      throw new Error(`remote bge-m3 answered ${res.status}: ${detail}`);
+      // The status rides on the error so provider-failure.ts can classify it.
+      throw Object.assign(new Error(`remote bge-m3 answered ${res.status}: ${detail}`), {
+        status: res.status,
+      });
     }
     const body = (await res.json()) as {
       data?: { index?: number; embedding?: unknown }[];

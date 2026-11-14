@@ -3,8 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../../db/surreal.service';
 import { EmbedderService } from '../embedder.service';
-import { envFlagEnabled } from '../../common/env-validation';
-import { EMBEDDING_SPACE_FIELD } from './embedding-space';
+import { EMBEDDING_SPACE_FIELD, spaceStamp } from './embedding-space';
 import {
   errorMessage,
   foldBatchOutcome,
@@ -214,12 +213,12 @@ function tableFailure(table: string, f: TableFailures): BatchFailure | null {
 }
 
 /** Per-tenant reindex context — the open DB handle, the tenant id (for log
- *  lines), and the space stamp (null ⇒ EMBEDDING_SPACE_TRACKING off). Bundled
- *  so the helpers stay ≤3 params. */
+ *  lines), and the space every rewritten row is stamped with. Bundled so the
+ *  helpers stay ≤3 params. */
 interface ReindexCtx {
   db: Surreal;
   companyId: string;
-  spaceId: string | null;
+  spaceId: string;
 }
 
 /**
@@ -232,11 +231,13 @@ interface ReindexCtx {
  * injected-dep list ≤3 and isolates the DB/embedder machinery from the
  * "which tenants" policy.
  *
- * Space-tracking (Tier 2): with EMBEDDING_SPACE_TRACKING on, every rewrite
- * ALSO stamps `embeddingSpaceId` with the active provider's canonical space
- * so the row declares which space its vector lives in. With the flag off
- * (default) NO stamp is written and the DEFAULT reindex covers knowledge_fact
- * ONLY — byte-identical to pre-Tier-2.
+ * Space-tracking (Tier 2): every rewrite ALSO stamps `embeddingSpaceId`
+ * with the active provider's canonical space, unconditionally, so the row
+ * declares which space its vector lives in — the same stamp every other
+ * vector writer sets (the EMBEDDING_SPACE_TRACKING flag that once gated it
+ * is retired: a vector written without its space is exactly the mixed-space
+ * corpus the first embedder switch cannot untangle). The DEFAULT reindex
+ * covers knowledge_fact only.
  */
 @Injectable()
 export class ReindexEngineService {
@@ -262,19 +263,13 @@ export class ReindexEngineService {
       : 'unknown';
   }
 
-  /**
-   * Whether to stamp `embeddingSpaceId` on rewrite. Read per-call so an
-   * operator flip takes effect without a restart. Off (default) ⇒ the
-   * UPDATE clause is exactly the pre-Tier-2 `SET embedding = $embedding`.
-   */
-  private spaceStampId(): string | null {
-    if (!envFlagEnabled(this.config.get<string>('EMBEDDING_SPACE_TRACKING'))) return null;
-    return this.embedder.activeSpaceId();
-  }
-
   async reindexTenant(companyId: string, opts: ReindexTenantOptions): Promise<ReindexTenantResult> {
     return this.surreal.withCompany(companyId, async (db) => {
-      const ctx: ReindexCtx = { db, companyId, spaceId: this.spaceStampId() };
+      const ctx: ReindexCtx = {
+        db,
+        companyId,
+        spaceId: spaceStamp(this.embedder).embeddingSpaceId,
+      };
       const plan = sweepPlan(opts);
       const failed: BatchFailure[] = [];
       let total = 0;
@@ -308,9 +303,7 @@ export class ReindexEngineService {
   }
 
   /**
-   * Rewrite one row's vector. Byte-identical to pre-Tier-2 when
-   * `ctx.spaceId` is null (EMBEDDING_SPACE_TRACKING off): the UPDATE is
-   * `SET <vectorField> = $embedding`, no extra column touched. `vectorField`
+   * Rewrite one row's vector together with its space stamp. `vectorField`
    * is a fixed literal, never caller input.
    */
   private async writeVector(
@@ -318,17 +311,10 @@ export class ReindexEngineService {
     vectorField: string,
     entry: { id: unknown; vector: number[] | undefined },
   ): Promise<void> {
-    if (ctx.spaceId) {
-      await ctx.db.query(
-        `UPDATE $id SET ${vectorField} = $embedding, ${EMBEDDING_SPACE_FIELD} = $space`,
-        { id: entry.id, embedding: entry.vector, space: ctx.spaceId },
-      );
-    } else {
-      await ctx.db.query(`UPDATE $id SET ${vectorField} = $embedding`, {
-        id: entry.id,
-        embedding: entry.vector,
-      });
-    }
+    await ctx.db.query(
+      `UPDATE $id SET ${vectorField} = $embedding, ${EMBEDDING_SPACE_FIELD} = $space`,
+      { id: entry.id, embedding: entry.vector, space: ctx.spaceId },
+    );
   }
 
   /**

@@ -13,6 +13,7 @@ import { retryOnUniqueViolation } from '../db/surreal-retry';
 import { JobClaimService } from '../jobs/job-claim.service';
 import { envFlagEnabled, envFlagNotDisabled } from '../common/env-validation';
 import { EmbedderService } from '../ai/embedder.service';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { seedMissingPredicates } from '../ai/predicate-registry-internals/seed-predicates';
 import {
@@ -677,7 +678,7 @@ export class DomainPackInstallService {
           pid: def.predicateId,
           content: {
             ...serializeForInsert(def),
-            ...(embeddings[i] ? { embedding: embeddings[i] } : {}),
+            ...(embeddings[i] ? { embedding: embeddings[i], ...spaceStamp(this.embedder) } : {}),
           },
         },
       );

@@ -29,12 +29,15 @@ import { traceArtifact } from '../common/debug-trace';
 import { ConflictConfig, type DerivedSemantics, type ResolveOutcome } from './conflict-resolver';
 import { idTailOf, sourceTrustFor } from './ingest-utils';
 import { stampGroundingStatus } from './grounding-stamp';
+import { stampFactEmbeddingSpace } from './fact-space-stamp';
+import { spaceStamp } from '../ai/embedder/embedding-space';
 import { FactEmbeddingService } from './fact-embedding.service';
 import { factIndexText } from './fact-index-text';
 import { MemoryOutcomeService, type OutcomeEventInput } from '../outcomes/memory-outcome.service';
 import { followNameFact } from './entity-name';
 import { UNKNOWN_START } from './event-time';
 import { stampExpectation } from './fact-expectation';
+import { PERSON_ENTITY_TYPES } from '../common/entity-types';
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -208,13 +211,6 @@ export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * Person-typed extraction subjects (customer | staff — the speaker is
- * also one of these): what "a person's own lifecycle history" means
- * here.
- */
-const PERSON_ENTITY_TYPES: ReadonlySet<string> = new Set(['customer', 'staff']);
-
-/**
  * Alias entries that additionally require a KNOWN non-person subject
  * (guard (b) of the state_change entry above). Membership is per-entry:
  * duration_limit is a service/system predicate by its own seed card and
@@ -384,9 +380,8 @@ export class FactResolverService {
        */
       sourceLang?: string | undefined;
       /**
-       * Extraction type of the subject entity (the closed extractor
-       * vocabulary: customer | staff | asset | project | topic |
-       * location | other), when the caller has it — the mention path
+       * Extraction type of the subject entity (the core list,
+       * src/common/entity-types.ts), when the caller has it — the mention path
        * resolves entities before facts and threads it through. Read
        * ONLY by the slot-canonicalization non-person guard
        * (canonicalSlotFor); absent ⇒ the guarded aliases miss
@@ -699,6 +694,9 @@ export class FactResolverService {
       object: p.object,
       objectMeta: p.objectMeta,
       embedding,
+      // Every vector on this path (precomputed or embedded here) came from
+      // the write-guarded embedder in this request ⇒ the active space.
+      ...spaceStamp(this.factEmbedding),
       confidence: p.confidence,
       validFrom: p.validFrom,
       validUntil: p.validUntil,
@@ -1067,6 +1065,14 @@ export class FactResolverService {
       db,
       prepared.map((c, k) => ({ userId: c.userId, factId: out[k]?.factId })),
     );
+    await stampFactEmbeddingSpace({
+      db,
+      items: prepared.map((c, k) => ({
+        factId: out[k]?.factId,
+        embeddingSpaceId: c.embeddingSpaceId,
+      })),
+      logger: this.logger,
+    });
     // Multilingual Tier 1: per-fact attribution stamp (0100). No-op for
     // every fact whose langMeta is undefined (attribution off, or the
     // derived-batch path which builds no attribution meta) — byte-identical.
@@ -1126,6 +1132,9 @@ export class FactResolverService {
       lang?: string;
       script?: string;
       derivedVersion: string;
+      /** Space of `embedding`; absent ⇒ the active space (every producer
+       *  embeds through the write-guarded FactEmbeddingService). */
+      embeddingSpaceId?: string;
       /** Per-user scope of the grounding turns (audit 2026-08-21 P0) —
        *  absent = tenant-global. Conflict resolution is scope-local
        *  (0055: fn::resolve_fact scopes candidates by $user_id). */
@@ -1140,6 +1149,7 @@ export class FactResolverService {
       predicate: r.predicate,
       object: r.object,
       embedding: r.embedding,
+      embeddingSpaceId: r.embeddingSpaceId ?? spaceStamp(this.factEmbedding).embeddingSpaceId,
       confidence: r.confidence,
       validFrom: r.validFrom,
       source: r.source,
@@ -1203,6 +1213,9 @@ export class FactResolverService {
       object: string;
       objectMeta?: object | undefined;
       embedding: number[];
+      /** Space of `embedding` (0101), stamped by a follow-up UPDATE keyed by
+       *  the returned factId; not passed to fn::settle_fact. */
+      embeddingSpaceId?: string | undefined;
       confidence: number;
       validFrom: Date;
       validUntil?: Date | undefined;
@@ -1276,6 +1289,11 @@ export class FactResolverService {
     // Outside the retry closure so a stamp hiccup never re-runs the
     // resolver (which would double-create the fact).
     await this.stampFactScope(db, [{ userId: p.userId, factId: r?.factId }]);
+    await stampFactEmbeddingSpace({
+      db,
+      items: [{ factId: r?.factId, embeddingSpaceId: p.embeddingSpaceId }],
+      logger: this.logger,
+    });
     // Multilingual Tier 1: stamp attribution metadata (0100). No-op when
     // langMeta is undefined (attribution off) — byte-identical.
     await this.stampLangAttribution(db, [{ factId: r?.factId, meta: p.langMeta }]);

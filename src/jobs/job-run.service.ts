@@ -27,7 +27,8 @@ export type JobType =
   | 'source_sync'
   | 'read_affect'
   | 'read_safety'
-  | 'read_voice_affect';
+  | 'read_voice_affect'
+  | 'data_migrations';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

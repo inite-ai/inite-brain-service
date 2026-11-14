@@ -5,6 +5,7 @@ import { withUsageLedger } from './llm-usage-ledger';
 import { tenantDailyTokenBudget } from './tenant-llm-budget';
 import { breakerFor, breakerSettings, type BreakerSettings } from './circuit-breaker';
 import { ProviderCircuitOpen } from './provider-circuit-open';
+import { recordProviderFailure, recordProviderSuccess } from './provider-health';
 
 /**
  * The chat model every LLM call runs on unless OPENAI_CHAT_MODEL says
@@ -163,11 +164,14 @@ function routeChat(
     sdkCreate.get(route)!(namespaced(body, route.modelPrefix, route !== primary), opts);
   const call = async (route: ChatRoute, body: ChatBody, opts: unknown) => {
     const key = routeKey(route, body.model);
+    // Provider health (#945): one source per provider host, never per model.
+    const health = { capability: 'chat', source: key.split('|')[0]! } as const;
     const breaker = breakerFor(key, breakers);
     if (!breaker.allow()) throw new ProviderCircuitOpen(key);
     try {
       const res = await send(route, body, opts);
       breaker.onSuccess();
+      recordProviderSuccess(health);
       return res;
     } catch (err) {
       // Flex "no capacity" is not the provider failing: it must not open
@@ -175,6 +179,9 @@ function routeChat(
       const flexShortage = body.service_tier === 'flex' && statusOf(err) === 429;
       if (providerSideFailure(err) && !flexShortage) breaker.onFailure();
       else breaker.onNeutral();
+      // Out of the request scope: the fallback may still serve this call,
+      // and the caller sees the error itself when it does not.
+      if (!flexShortage) recordProviderFailure({ ...health, err, scoped: false });
       throw err;
     }
   };

@@ -287,7 +287,7 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
     runtimeMutable: true,
     isBooleanFlag: true,
     description:
-      'Scene gist embeddings (Brain v2 PR3): the producer the 0106 `gistEmbedding` column never had. After the composer swap (and via POST /v1/admin/maintenance/scenes/embed-gists) an encoder pass embeds the CANONICAL `gist` text of scenes in the current effective world that carry no vector yet — ONE bounded embedMany batch per run, capped at 200 scenes — and writes the vector by primary-key-addressed UPDATE, plus the `embeddingSpaceId` stamp when EMBEDDING_SPACE_TRACKING is on (exactly the fact-side reindex convention, so space migration treats scenes like every other embedded surface). `gist` and NOT `enrichedGist`: it is the one canonical, post-compose-immutable gist column, the one the 0106 BM25 index covers, the one the scene lane renders and the one the reindex engine already declares as this table’s embed source — so the single seam covers deterministic AND LLM-enriched worlds. Unblocks the scene lane’s dense leg (RETRIEVAL_SCENE_LANE), which is BM25-only while no vector exists. Off = the embedder is never called, no scene row is touched, the route 404s and the composer hook is skipped — byte-identical prod. An embed failure is soft: the run reports it and never fails the compose that spawned it.',
+      'Scene gist embeddings (Brain v2 PR3): the producer the 0106 `gistEmbedding` column never had. After the composer swap (and via POST /v1/admin/maintenance/scenes/embed-gists) an encoder pass embeds the CANONICAL `gist` text of scenes in the current effective world that carry no vector yet — ONE bounded embedMany batch per run, capped at 200 scenes — and writes the vector by primary-key-addressed UPDATE, together with its `embeddingSpaceId` stamp (the convention every vector writer follows, so space migration treats scenes like every other embedded surface). `gist` and NOT `enrichedGist`: it is the one canonical, post-compose-immutable gist column, the one the 0106 BM25 index covers, the one the scene lane renders and the one the reindex engine already declares as this table’s embed source — so the single seam covers deterministic AND LLM-enriched worlds. Unblocks the scene lane’s dense leg (RETRIEVAL_SCENE_LANE), which is BM25-only while no vector exists. Off = the embedder is never called, no scene row is touched, the route 404s and the composer hook is skipped — byte-identical prod. An embed failure is soft: the run reports it and never fails the compose that spawned it.',
   },
   {
     key: 'SCENES_ENTITY_LINKS',
@@ -570,17 +570,8 @@ export const CATALOG_PART_02: ConfigCatalogSpec[] = [
       'Article-insensitive entity reuse (the state-transitions s07 entity-split class): the extractor coins one referent with and without a leading English article across turns ("the office lease" vs "office lease"), splitting it into two entities — every slot-keyed consumer (conflict formation, timelines, competing pairs) then goes blind to the collision. On, the canonical-name lookup is widened to the leading-article VARIANTS of the name (stripped + the/a/an re-prefixed) after the exact match misses; only a UNIQUE variant match is reused, stored canonicalName is never rewritten, and the same tenant-global userId IS NONE fence applies. Off (default) → byte-identical, per-article twins form as before.',
   },
   // ── Embedding space (Tier 2, migration 0101) ────────
-  {
-    key: 'EMBEDDING_SPACE_TRACKING',
-    category: 'embedder',
-    // Read at call time inside the reindex engine (spaceStampId), never
-    // constructor-captured — a flip takes effect without restart.
-    defaultValue: '0',
-    runtimeMutable: true,
-    isBooleanFlag: true,
-    description:
-      'Stamp `embeddingSpaceId` (canonical `provider:model:dim:norm`, e.g. openai:text-embedding-3-small:1536:l2) on the active reindex rewrite so each row declares which vector space it lives in. Off (default) → the reindex UPDATE is the pre-Tier-2 `SET embedding = $embedding` and the column is never written — byte-identical.',
-  },
+  // EMBEDDING_SPACE_TRACKING is retired: every vector write stamps
+  // `embeddingSpaceId` unconditionally (spaceStamp, embedding-space.ts).
   {
     key: 'EMBEDDING_SPACE_STRICT',
     category: 'embedder',

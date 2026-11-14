@@ -1,0 +1,87 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "fixture", "version": "1.0.0" },
+  "paths": {
+    "/v1/things": {
+      "get": {
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ThingList" } }
+            }
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/NewThing" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Thing" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/things/{id}": {
+      "parameters": [
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "get": {
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Thing" } }
+            }
+          }
+        }
+      },
+      "delete": { "responses": { "204": { "description": "gone" } } }
+    },
+    "/v1/legacy": {
+      "get": { "responses": { "200": { "description": "ok" } } }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Thing": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["a", "b"] },
+          "score": { "type": "integer" },
+          "note": { "type": "string" }
+        },
+        "required": ["id", "kind", "score", "note"]
+      },
+      "ThingList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Thing" } }
+        },
+        "required": ["items"]
+      },
+      "NewThing": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["a", "b"] },
+          "weight": { "type": "number" },
+          "tag": { "type": "string" }
+        },
+        "required": ["kind"]
+      }
+    }
+  }
+}

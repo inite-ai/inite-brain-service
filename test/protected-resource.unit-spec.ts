@@ -86,6 +86,7 @@ describe('ProtectedResourceController', () => {
     expect(doc.resource_name).toBe('INITE Brain');
     expect(doc.authorization_servers).toEqual(['https://auth.inite.ai']);
     expect(doc.scopes_supported).toContain('brain:read');
+    expect(doc.scopes_supported).toContain('brain:erase');
     expect(doc.scopes_supported).not.toContain('indexer:write');
     expect(doc.bearer_methods_supported).toEqual(['header']);
     // The landing app serves docs under a language prefix; /docs 404s.

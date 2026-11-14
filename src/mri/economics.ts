@@ -126,6 +126,7 @@ export const TERMINAL_SYNTHESIZE_OUTCOMES = [
   'generator_error',
   'harness_mode',
   'verifier_error',
+  'model_unavailable',
 ] as const;
 
 const TERMINAL_SYNTHESIZE_SET: ReadonlySet<string> = new Set(TERMINAL_SYNTHESIZE_OUTCOMES);

@@ -96,6 +96,7 @@ describe('SegmentComposerService', () => {
     } as unknown as SurrealService;
     const embedding = {
       embedMany: async (t: string[]) => t.map(() => [1, 0]),
+      activeSpaceId: () => 'stub:test:2:l2',
     } as unknown as FactEmbeddingService;
     const svc = new SegmentComposerService(
       surreal,
@@ -112,6 +113,9 @@ describe('SegmentComposerService', () => {
     const rows = swap?.params?.rows as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.recorder).toBe(SEGMENT_RECORDER);
+    // The window's vector and the space it was embedded in, together.
+    expect(rows[0]!.embedding).toEqual([1, 0]);
+    expect(rows[0]!.embeddingSpaceId).toBe('stub:test:2:l2');
     expect(rows[0]!.piiClass).toEqual(['phone']);
     expect(typeof rows[0]!.generation).toBe('string');
     expect(String(rows[0]!.text)).toContain('[2023-05-01] A: q1');

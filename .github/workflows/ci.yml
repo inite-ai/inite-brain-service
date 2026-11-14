@@ -174,6 +174,26 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Contract gate: would a client written against the base branch break
+      # against this PR? Compares the base's docs/openapi.json and MCP
+      # schema golden with the PR's (scripts/ci/openapi-breaking.ts). A
+      # deliberate break passes when the PR title carries `!:`; the title
+      # reaches the script through env only, never the shell text.
+      - name: Contract breaking-change check (REST + MCP)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          git show "origin/${BASE_REF}:docs/openapi.json" > "$RUNNER_TEMP/openapi.base.json"
+          pnpm exec ts-node -T scripts/ci/openapi-breaking.ts "$RUNNER_TEMP/openapi.base.json" docs/openapi.json
+          if git show "origin/${BASE_REF}:test/golden/mcp-tool-schemas.json" > "$RUNNER_TEMP/mcp.base.json" 2>/dev/null; then
+            pnpm exec ts-node -T scripts/ci/openapi-breaking.ts --mcp "$RUNNER_TEMP/mcp.base.json" test/golden/mcp-tool-schemas.json
+          else
+            echo "No MCP schema golden on ${BASE_REF} yet; skipping the MCP comparison."
+          fi
+
   # ---------------------------------------------------------------------
   # Unit suite + coverage ratchet.
   # ---------------------------------------------------------------------

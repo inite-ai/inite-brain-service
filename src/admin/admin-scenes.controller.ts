@@ -60,7 +60,7 @@ const SEGMENTER_VERSION_MAX_CHARS = 128;
  *  - POST /scenes/embed-gists — standalone gist encoder pass (PR3): ONE
  *    bounded embedMany batch over the scenes of the current effective
  *    world that carry NO `gistEmbedding` yet, writing the vector (plus
- *    the `embeddingSpaceId` stamp under EMBEDDING_SPACE_TRACKING) by
+ *    its `embeddingSpaceId` stamp) by
  *    primary-key UPDATE. 404 unless BOTH the master flag and
  *    SCENES_GIST_EMBEDDING are on. Idempotent by construction (a scene
  *    with a vector is never selected) and bounded per run, so a

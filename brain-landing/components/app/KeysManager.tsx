@@ -45,6 +45,9 @@ interface IssuedPayload {
 }
 
 const PROXY = '/api/app/proxy/v1/keys'
+// Never ticked by default: admin operates the tenant, erase deletes a
+// person's memory. Both are chosen on purpose.
+const OPT_IN_SCOPES = new Set(['brain:admin', 'brain:erase'])
 
 export function KeysManager({ lang }: { lang: Lang }) {
   const t = getMessages(lang).keys
@@ -63,7 +66,7 @@ export function KeysManager({ lang }: { lang: Lang }) {
       const payload = (await res.json()) as KeysPayload
       setData(payload)
       setScopes((current) =>
-        current.length > 0 ? current : payload.issuableScopes.filter((s) => s !== 'brain:admin'),
+        current.length > 0 ? current : payload.issuableScopes.filter((s) => !OPT_IN_SCOPES.has(s)),
       )
       setError(null)
     } catch {

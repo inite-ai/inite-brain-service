@@ -2,14 +2,13 @@
  * Multilingual Tier 2 — ReindexEngineService.
  *
  * Proves:
- *   - DEFAULT (allTables off, tracking off): only knowledge_fact is
- *     SELECTed, the UPDATE is the pre-Tier-2 `SET embedding = $embedding`
- *     (no embeddingSpaceId), and the result carries NO `tables` key. Byte-
- *     identical to the historical reindex.
+ *   - DEFAULT (allTables off): only knowledge_fact is SELECTed and the
+ *     result carries NO `tables` key.
  *   - allTables ON: the non-fact tables are swept and a per-table breakdown
  *     is returned.
- *   - EMBEDDING_SPACE_TRACKING ON: every rewrite ALSO stamps
- *     `embeddingSpaceId = <active space>`.
+ *   - Every rewrite ALSO stamps `embeddingSpaceId = <active space>`,
+ *     unconditionally (the EMBEDDING_SPACE_TRACKING flag is retired — a
+ *     leftover value changes nothing).
  */
 import { ReindexEngineService } from '../src/ai/embedder/reindex-engine.service';
 import { ServiceUnavailableException } from '@nestjs/common';
@@ -42,7 +41,8 @@ const ACTIVE_SPACE = 'openai:text-embedding-3-small:1536:l2';
 
 function makeEngine(opts: {
   pages: Record<string, Array<Record<string, unknown>>>;
-  tracking?: string;
+  /** A leftover EMBEDDING_SPACE_TRACKING value; must change nothing. */
+  tracking?: string | undefined;
 }) {
   const { db, calls } = makeDb(opts.pages);
   const surreal = {
@@ -79,7 +79,7 @@ const ALL_PAGES = {
   strategy_memory: [{ id: 'strategy_memory:1', title: 'T', situation: 'S' }],
 };
 
-describe('ReindexEngineService — default path (byte-identical)', () => {
+describe('ReindexEngineService — default path', () => {
   it('reindexes knowledge_fact ONLY and returns no tables key', async () => {
     const { engine, calls } = makeEngine({ pages: ALL_PAGES });
     const res = await engine.reindexTenant('acme', { dryRun: false, remaining: 1000 });
@@ -92,11 +92,11 @@ describe('ReindexEngineService — default path (byte-identical)', () => {
     const selects = calls.filter((c) => /^\s*SELECT/.test(c.sql));
     expect(selects.every((c) => c.sql.includes('FROM knowledge_fact'))).toBe(true);
 
-    // The UPDATE is exactly the historical clause — NO embeddingSpaceId.
+    // One rewrite: the vector and its space, together.
     const updates = calls.filter((c) => /^\s*UPDATE/.test(c.sql));
     expect(updates).toHaveLength(1);
-    expect(updates[0]!.sql).toContain('SET embedding = $embedding');
-    expect(updates[0]!.sql).not.toContain('embeddingSpaceId');
+    expect(updates[0]!.sql).toContain('SET embedding = $embedding, embeddingSpaceId = $space');
+    expect(updates[0]!.params?.space).toBe(ACTIVE_SPACE);
   });
 
   it('dryRun writes nothing', async () => {
@@ -134,9 +134,20 @@ describe('ReindexEngineService — opt-in all-tables sweep', () => {
   });
 });
 
-describe('ReindexEngineService — EMBEDDING_SPACE_TRACKING stamping', () => {
-  it('stamps embeddingSpaceId on the knowledge_fact rewrite when tracking is on', async () => {
-    const { engine, calls } = makeEngine({ pages: ALL_PAGES, tracking: '1' });
+describe('ReindexEngineService — space stamping (unconditional)', () => {
+  it.each([undefined, '0', '1'])(
+    'stamps embeddingSpaceId on the knowledge_fact rewrite (leftover tracking=%s)',
+    async (tracking) => {
+      const { engine, calls } = makeEngine({ pages: ALL_PAGES, tracking });
+      await engine.reindexTenant('acme', { dryRun: false, remaining: 1000 });
+      const update = calls.find((c) => /^\s*UPDATE/.test(c.sql))!;
+      expect(update.sql).toContain('embeddingSpaceId = $space');
+      expect(update.params?.space).toBe(ACTIVE_SPACE);
+    },
+  );
+
+  it('stamps the space even when the config has no tracking key at all', async () => {
+    const { engine, calls } = makeEngine({ pages: ALL_PAGES });
     await engine.reindexTenant('acme', { dryRun: false, remaining: 1000 });
     const update = calls.find((c) => /^\s*UPDATE/.test(c.sql))!;
     expect(update.sql).toContain('embeddingSpaceId = $space');
@@ -144,7 +155,7 @@ describe('ReindexEngineService — EMBEDDING_SPACE_TRACKING stamping', () => {
   });
 
   it('stamps embeddingSpaceId across ALL swept tables', async () => {
-    const { engine, calls } = makeEngine({ pages: ALL_PAGES, tracking: '1' });
+    const { engine, calls } = makeEngine({ pages: ALL_PAGES });
     await engine.reindexTenant('acme', { dryRun: false, remaining: 1000, allTables: true });
     const updates = calls.filter((c) => /^\s*UPDATE/.test(c.sql));
     expect(updates).toHaveLength(7); // fact + 6 tables

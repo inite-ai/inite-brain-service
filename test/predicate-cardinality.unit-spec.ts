@@ -107,6 +107,7 @@ describe('PredicateRegistryService.canonicalize — who decides a proposed predi
     const embedder = {
       embed: jest.fn(async () => [1, 0]),
       embedMany: jest.fn(async (t: string[]) => t.map(() => [1, 0])),
+      activeSpaceId: () => 'stub:test:2:l2',
     };
     const judge = { classify: jest.fn(async () => judgeVerdict) };
     const svc = new PredicateRegistryService(
