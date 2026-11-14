@@ -10,17 +10,15 @@ export const REPO = 'inite-ai/inite-brain-service'
 export const GITHUB_URL = `https://github.com/${REPO}`
 
 /**
- * The company Brain belongs to.
+ * The company Brain belongs to: INITE (inite LLC), https://inite.ai.
  *
- * It was declared twice and linked zero times: `organizationSchema` asserts
- * `parentOrganization` and lists inite.ai under `sameAs`, and neither is a
- * hyperlink. JSON-LD states a relationship; it does not carry one. Every MCP
- * catalogue that lists this server (pulsemcp, mcphq, mcp-marketplace,
- * roninforge) points at brain.inite.ai, and from here nothing pointed on — the
- * whole family's earned links dead-ended on a subdomain.
+ * The footer link below is the only crawlable edge from Brain to the company.
+ * JSON-LD states a relationship; it does not carry one. Every MCP catalogue
+ * that lists this server (pulsemcp, mcphq, mcp-marketplace, roninforge)
+ * points at brain.inite.ai, and from here nothing pointed on — the whole
+ * family's earned links dead-ended on a subdomain.
  *
- * The footer link below is the only crawlable edge from Brain to the parent,
- * and this constant is the one place its address lives.
+ * This constant is the one place its address lives.
  */
 export const PARENT = {
   name: 'INITE',
@@ -47,72 +45,71 @@ export function ogImage(opts: { title: string; kicker?: string; kind?: 'brand' |
 type Json = Record<string, unknown>
 
 /**
- * INITE Brain, as an entity anything can point at.
+ * The company, by @id, as every family site names it: described in full on
+ * inite.ai only, with enough here to resolve on its own.
  *
- * The node had no `@id` and no parent. inite.ai lists seventeen brands as
- * `subOrganization`, one of them https://brain.inite.ai/#organization — and
- * with nothing declaring it, that reference resolved to nothing and Brain read
- * as a company nobody had heard of that happens to share a word in its name.
- *
- * `sameAs` carries the family handles as well as the repository, for the same
- * reason: they are how a search engine ties this domain to the rest.
+ * Owner, 13.11.2026: there is one company, inite LLC, and Brain is its
+ * product. This site declares no Organization of its own, no
+ * `parentOrganization`, and no `sameAs` to family sites. The graph below is
+ * the family registry's for `brain` (@inite/landing `familySchema`).
  */
-export function organizationSchema(): Json {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Organization',
-    '@id': `${SITE_URL}/#organization`,
-    name: ORG.name,
-    url: ORG.url,
-    logo: ORG.logo,
-    description: ORG.description,
-    sameAs: [
-      ...ORG.sameAs,
-      PARENT.url,
-      'https://www.linkedin.com/company/inite-ai/',
-      'https://t.me/initeai',
-      'https://github.com/inite-ai',
-    ],
-    parentOrganization: {
-      '@type': 'Organization',
-      '@id': `${PARENT.url}/#organization`,
-      name: PARENT.name,
-      legalName: PARENT.legalName,
-      url: PARENT.url,
-    },
-  }
+export const COMPANY_ID = `${PARENT.url}/#organization`
+const COMPANY = { '@id': COMPANY_ID }
+export const COMPANY_REF = { '@type': 'Organization', '@id': COMPANY_ID, name: PARENT.name, url: PARENT.url }
+
+/** The product's line in the family registry (@inite/landing locales/<lang>/family.json). */
+const FAMILY_LINE: Record<'en' | 'ru', string> = {
+  en: 'Facts, time, provenance, conflicts and relationships.',
+  ru: 'Факты, источники, история изменений и связи.',
 }
 
-export function websiteSchema(): Json {
+const familyLang = (lang: string): 'en' | 'ru' => (lang === 'ru' ? 'ru' : 'en')
+
+/** The site's WebSite node; its publisher is the company. */
+export function websiteSchema(lang: string = 'en'): Json {
   return {
-    '@context': 'https://schema.org',
     '@type': 'WebSite',
-    name: ORG.name,
+    '@id': `${SITE_URL}/#website`,
     url: SITE_URL,
-    inLanguage: ['en', 'ru'],
-    // By reference: the full node is emitted once by organizationSchema, and a
-    // second copy here would be free to drift from it.
-    publisher: { '@id': `${SITE_URL}/#organization` },
+    name: ORG.name,
+    publisher: COMPANY,
+    inLanguage: familyLang(lang),
+    about: { '@id': `${SITE_URL}/#app` },
   }
 }
 
-/** Brain is a developer tool → SoftwareApplication / DeveloperApplication. */
-export function softwareApplicationSchema(): Json {
+/**
+ * The landing's graph: WebSite, the product (SoftwareApplication), its Brand
+ * and the company stub.
+ */
+export function familySchema(lang: string = 'en'): Json {
   return {
     '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
-    name: ORG.name,
-    applicationCategory: 'DeveloperApplication',
-    operatingSystem: 'Linux, Docker',
-    description: ORG.description,
-    url: SITE_URL,
-    softwareHelp: `${SITE_URL}/en/docs`,
-    license: 'https://www.gnu.org/licenses/agpl-3.0.html',
-    isAccessibleForFree: true,
-    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-    codeRepository: GITHUB_URL,
-    programmingLanguage: 'TypeScript',
-    sameAs: ORG.sameAs,
+    '@graph': [
+      websiteSchema(lang),
+      {
+        '@type': 'SoftwareApplication',
+        '@id': `${SITE_URL}/#app`,
+        name: ORG.name,
+        url: SITE_URL,
+        description: FAMILY_LINE[familyLang(lang)],
+        provider: COMPANY,
+        brand: { '@id': `${SITE_URL}/#brand` },
+        publisher: COMPANY,
+        applicationCategory: 'DeveloperApplication',
+        operatingSystem: 'Web',
+        // Product facts, not about the organization: kept.
+        softwareHelp: `${SITE_URL}/en/docs`,
+        license: 'https://www.gnu.org/licenses/agpl-3.0.html',
+        isAccessibleForFree: true,
+        offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+        codeRepository: GITHUB_URL,
+        programmingLanguage: 'TypeScript',
+      },
+      // The product's own logo and profiles; never a family domain.
+      { '@type': 'Brand', '@id': `${SITE_URL}/#brand`, name: ORG.name, url: SITE_URL, logo: ORG.logo, sameAs: ORG.sameAs },
+      { ...COMPANY_REF },
+    ],
   }
 }
 
@@ -139,13 +136,13 @@ export function articleSchema(a: ArticleInput): Json {
     mainEntityOfPage: { '@type': 'WebPage', '@id': a.url },
     datePublished: a.datePublished,
     dateModified: a.dateModified || a.datePublished,
-    author: { '@type': 'Organization', name: a.author, url: SITE_URL },
-    publisher: organizationSchema(),
+    author: { ...COMPANY_REF },
+    publisher: { ...COMPANY_REF },
     ...(a.image ? { image: [a.image] } : {}),
     articleSection: a.section,
     keywords: a.keywords.join(', '),
     inLanguage: a.lang,
-    isPartOf: websiteSchema(),
+    isPartOf: { '@id': `${SITE_URL}/#website` },
   }
 }
 

@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react'
 import { JsonLd } from '../../../components/StructuredData'
 import { getMessages, normalizeLang, LANGS, type Lang } from '../../../lib/i18n'
 import { listBlogPosts } from '../../../lib/blog'
-import { SITE_URL, breadcrumbSchema, websiteSchema, ogImage } from '../../../lib/seo'
+import { SITE_URL, breadcrumbSchema, ogImage } from '../../../lib/seo'
 
 interface Props {
   params: Promise<{ lang: string }>
@@ -50,7 +50,7 @@ export default async function BlogIndex({ params }: Props) {
     name: `${t.blog.title} — INITE Brain`,
     url: `${SITE_URL}/${lang}/blog`,
     inLanguage: lang,
-    isPartOf: websiteSchema(),
+    isPartOf: { '@id': `${SITE_URL}/#website` },
     blogPost: posts.map((p) => ({
       '@type': 'BlogPosting',
       headline: p.title,

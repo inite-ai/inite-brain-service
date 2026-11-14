@@ -1,16 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PARENT, organizationSchema } from '@/lib/seo'
+import { PARENT, COMPANY_ID, familySchema, articleSchema } from '@/lib/seo'
 import { LANGS, getMessages } from '@/lib/i18n'
 
 /**
  * Brain must link to the company that makes it, with an anchor a crawler
- * follows.
+ * follows, and its JSON-LD must name that company as the one Organization.
  *
- * The relationship was already declared twice — `parentOrganization` and
- * `sameAs` in the JSON-LD — and linked zero times. JSON-LD asserts a
- * relationship; it does not carry one. Meanwhile every MCP catalogue that
+ * Owner, 13.11.2026: there is one company, inite LLC
+ * (https://inite.ai/#organization), and Brain is its product. The graph
+ * declares no Organization of Brain's own, no `parentOrganization` and no
+ * `sameAs` to family sites. JSON-LD asserts a relationship; it does not
+ * carry one. Meanwhile every MCP catalogue that
  * lists this server points at brain.inite.ai, so the only earned links the
  * family has were arriving here and stopping: inite.ai's own external profile
  * came to two donors, both of them listings of *this* server.
@@ -29,11 +31,39 @@ import { LANGS, getMessages } from '@/lib/i18n'
 const FOOTER = readFileSync(join(__dirname, '..', 'components', 'Footer.tsx'), 'utf-8')
 
 describe('the parent link', () => {
-  it('is the same address the schema claims as parent', () => {
-    const org = organizationSchema() as Record<string, any>
-    expect(org.parentOrganization.url).toBe(PARENT.url)
-    expect(org.parentOrganization['@id']).toBe(`${PARENT.url}/#organization`)
-    expect(org.sameAs).toContain(PARENT.url)
+  it('is the company the graph names, and the graph declares no Organization of its own', () => {
+    const graph = (familySchema('en') as Record<string, any>)['@graph'] as Record<string, any>[]
+    expect(COMPANY_ID).toBe(`${PARENT.url}/#organization`)
+    const orgs = graph.filter((n) => n['@type'] === 'Organization')
+    expect(orgs).toEqual([{ '@type': 'Organization', '@id': COMPANY_ID, name: 'INITE', url: PARENT.url }])
+    expect(graph.map((n) => n['@type'])).toEqual(['WebSite', 'SoftwareApplication', 'Brand', 'Organization'])
+    const app = graph.find((n) => n['@type'] === 'SoftwareApplication')!
+    expect(app['@id']).toBe('https://brain.inite.ai/#app')
+    expect(app.provider).toEqual({ '@id': COMPANY_ID })
+    expect(app.publisher).toEqual({ '@id': COMPANY_ID })
+    expect(app.brand).toEqual({ '@id': 'https://brain.inite.ai/#brand' })
+    expect(graph[0].publisher).toEqual({ '@id': COMPANY_ID })
+    const text = JSON.stringify(familySchema('ru'))
+    expect(text).not.toContain('parentOrganization')
+    expect(text).not.toContain('subOrganization')
+    expect(text).not.toContain('brain.inite.ai/#organization')
+    // The Brand carries the product's own logo and profiles; never a family domain.
+    const brand = graph.find((n) => n['@type'] === 'Brand')!
+    expect(brand.logo).toMatch(/^https:\/\//)
+    for (const url of brand.sameAs as string[]) {
+      expect(new URL(url).host).not.toMatch(/(^|\.)inite\.|break3\.app|floripa\.info/)
+    }
+    expect(graph.filter((n) => n.sameAs).map((n) => n['@type'])).toEqual(['Brand'])
+  })
+
+  it('names the company as author and publisher of a post', () => {
+    const post = articleSchema({
+      title: 't', description: 'd', url: 'https://brain.inite.ai/en/blog/x', datePublished: '2026-11-13',
+      author: 'INITE Brain Team', section: 's', keywords: [], lang: 'en',
+    }) as Record<string, any>
+    expect(post.author['@id']).toBe(COMPANY_ID)
+    expect(post.publisher['@id']).toBe(COMPANY_ID)
+    expect(JSON.stringify(post)).not.toContain('parentOrganization')
   })
 
   it('points somewhere outside this site', () => {
