@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.11.0](https://github.com/inite-ai/inite-brain-service/compare/v2.10.0...v2.11.0) (2026-11-14)
+
+
+### Features
+
+* **models:** server-side models follow the tenant's plan, with a harness queue for the rest ([#956](https://github.com/inite-ai/inite-brain-service/issues/956)) ([38dbc03](https://github.com/inite-ai/inite-brain-service/commit/38dbc03c014ce9e090b323f79adc57ed96bcdd38))
+
+
+### Bug Fixes
+
+* **forget:** user forget erases the facts Brain refused about the user ([ae425eb](https://github.com/inite-ai/inite-brain-service/commit/ae425eb8b4c7816b115ebdbbc6016ad39c977823))
+* **forget:** user forget erases the facts Brain refused about the user ([9d52358](https://github.com/inite-ai/inite-brain-service/commit/9d52358cf95ee65cbf091e8eaf8e0285c30c78cd))
+* **settings:** the pre-boot settings store signs in at SURREALDB_AUTH_LEVEL ([#954](https://github.com/inite-ai/inite-brain-service/issues/954)) ([0048d87](https://github.com/inite-ai/inite-brain-service/commit/0048d87caafe6867f3e099a65e0bfca12d1acb2e))
+
 ## [2.10.0](https://github.com/inite-ai/inite-brain-service/compare/v2.9.0...v2.10.0) (2026-11-14)
 
 
