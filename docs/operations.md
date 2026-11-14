@@ -553,7 +553,7 @@ shape on one host for rehearsal:
 | ------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `pd`                     | TiKV placement driver: decides where each region lives.                                                        |
 | `tikv1..3`               | Three stores. Every region is kept three times (Raft), so one store can fail without losing a committed write. |
-| `surreal-a`, `surreal-b` | Two SurrealDB 3.2.4 servers on `tikv://pd:2379`. No state of their own.                                        |
+| `surreal-a`, `surreal-b` | Two SurrealDB 3.3.5 servers on `tikv://pd:2379`. No state of their own.                                        |
 | `surreal`                | HAProxy (TCP, `/health` check). Brain's single `SURREALDB_URL`. A failed node leaves the pool.                 |
 
 ```bash

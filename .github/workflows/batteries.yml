@@ -78,7 +78,7 @@ jobs:
       - name: Start SurrealDB
         # Same image the e2e suites pin (test/global-setup.ts).
         run: |
-          docker run -d --name stand-surreal -p 8001:8000 surrealdb/surrealdb:v3.2.4 \
+          docker run -d --name stand-surreal -p 8001:8000 surrealdb/surrealdb:v3.3.5 \
             start --user root --pass root rocksdb:/tmp/stand.db
           for _ in $(seq 1 30); do curl -sf http://127.0.0.1:8001/health && break; sleep 1; done
 

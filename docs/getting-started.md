@@ -1,9 +1,10 @@
 # Getting started
 
 Zero to a running Brain with one ingested fact — for anyone standing up
-the service for the first time. Brain runs on Node 24 + SurrealDB 3.2.4
-+ OpenAI. The fast path is five commands; everything else is in the
-linked docs.
+the service for the first time. Brain runs on Node 24 + SurrealDB 3.3.5
+
+- OpenAI. The fast path is five commands; everything else is in the
+  linked docs.
 
 ## Prerequisites
 
@@ -112,7 +113,7 @@ The hosted service exposes the same thing as a screen at `/en/app/keys`.
   `/v1/ingest/document` — [Document pipeline](document-pipeline.md).
 - Install a Domain Pack (needs a `brain:admin`-scoped key):
   `BRAIN_API_KEY=... pnpm pack:install -- --brain-url http://localhost:3000
-  --file packs/fintech.pack.json --accept-modalities` extends the ontology
+--file packs/fintech.pack.json --accept-modalities` extends the ontology
   at runtime. `--accept-modalities` is the operator consent to the pack's
   declared media section; without it the install is refused —
   [Domain Packs](domain-packs.md).
