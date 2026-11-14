@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.12.0](https://github.com/inite-ai/inite-brain-service/compare/v2.11.0...v2.12.0) (2026-11-14)
+
+
+### Features
+
+* **seo:** one company in the graph — the product is a node of INITE, not an Organization ([#949](https://github.com/inite-ai/inite-brain-service/issues/949)) ([56f5495](https://github.com/inite-ai/inite-brain-service/commit/56f5495a3398d512ae40e0035c468481a01894a0))
+
 ## [2.11.0](https://github.com/inite-ai/inite-brain-service/compare/v2.10.0...v2.11.0) (2026-11-14)
 
 
