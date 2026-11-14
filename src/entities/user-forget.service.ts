@@ -27,11 +27,13 @@ import {
  * NOT covered (no per-user linkage to filter on — documented GDPR gap):
  *   - debug_trace: a per-request ring buffer keyed by requestId, no
  *     userId column; TraceBufferService TTL-prunes it (bounded window).
- *   - ingest_dead_letter: rejected-ingest payloads carry no userId, so a
- *     REJECTED personal fact can't be selectively purged. Operators
- *     must sweep/redact dead-letter rows out of band. Adding a userId
- *     stamp at reject time (fn::resolve_fact et al.) would close this —
- *     tracked, not done here.
+ *   - ingest_dead_letter rows with no link to the user: a rejected
+ *     fact carries no userId (fn::resolve_fact writes it), so it is
+ *     erased by what it does name: its entity when that entity is the
+ *     user's own, or its source document when that document is stamped
+ *     with the user (eraseDeadLetters). A rejected personal fact on a
+ *     SHARED entity from an unstamped document stays; operators sweep
+ *     those out of band.
  *
  * Document cascade — HONEST LIMITS. Two linkages reach a document:
  * knowledge_fact.source.documentId on the user's committed facts (the
@@ -80,6 +82,11 @@ export interface UserForgetResult {
    * items, OAuth grants (stored credentials) and pending OAuth states.
    */
   accountRowsDeleted: number;
+  /**
+   * ingest_dead_letter rows: facts Brain refused, which keep the claim's
+   * text. Those on the user's own entities or from the user's documents.
+   */
+  deadLettersDeleted: number;
 }
 
 @Injectable()
@@ -110,6 +117,10 @@ export class UserForgetService {
       );
       const factIds = ((factIdRows as unknown[]) ?? []).map(String);
       const entityIds = ((entityIdRows as unknown[]) ?? []).map(String);
+
+      // Rejected claims about this user, text included: before their
+      // entities and documents die, while both are still the user's.
+      const deadLettersDeleted = await this.eraseDeadLetters(db, userId, entityIdRows);
 
       // Every entity this user had a fact on — personal AND shared. Their
       // compiled dossiers (knowledge_artifact) may have baked in the
@@ -392,15 +403,48 @@ export class UserForgetService {
         purgedIndexerRuns: docRows.indexerRuns,
         memoryFilesDeleted,
         accountRowsDeleted,
+        deadLettersDeleted,
       };
       this.logger.log(
         `user forget ${companyId}/${userId}: facts=${result.factsDeleted} entities=${result.entitiesDeleted} edges=${result.edgesDeleted} audit=${result.auditEventsDeleted} beliefs=${result.beliefsDeleted} ` +
           `evidenceAssets=${result.evidenceAssetsDeleted} evidenceFragments=${result.evidenceFragmentsDeleted} representations=${result.representationsDeleted} evidenceGrants=${result.evidenceGrantsDeleted} ` +
           `docs=${result.purgedSourceDocs} chunks=${result.purgedSourceChunks} candidates=${result.purgedCandidates} indexerRuns=${result.purgedIndexerRuns} ` +
-          `memoryFiles=${result.memoryFilesDeleted} accountRows=${result.accountRowsDeleted}`,
+          `memoryFiles=${result.memoryFilesDeleted} accountRows=${result.accountRowsDeleted} deadLetters=${result.deadLettersDeleted}`,
       );
       return result;
     });
+  }
+
+  /**
+   * Facts Brain refused (ingest_dead_letter, written by fn::resolve_fact)
+   * keep the claim in `payload` with no userId. They are the user's when
+   * they name the user's own entity (`payload.entityId`, a record) or come
+   * from a document stamped with the user (`payload.source.documentId`,
+   * stored as the record or its string). Select ids, then DELETE by id:
+   * the 3.2.4 planner rule this cascade keeps everywhere.
+   */
+  private async eraseDeadLetters(
+    db: QueryHandle,
+    userId: string,
+    entityIdRows: unknown,
+  ): Promise<number> {
+    const entityRefs = (entityIdRows as unknown[] | undefined) ?? [];
+    const [docRows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM source_document WHERE userId = $u`,
+      { u: userId },
+    );
+    const docRefs = (docRows as unknown[]) ?? [];
+    if (entityRefs.length === 0 && docRefs.length === 0) return 0;
+    const [rows] = await db.query<[unknown[]]>(
+      `SELECT VALUE id FROM ingest_dead_letter
+        WHERE payload.entityId INSIDE $ents
+           OR payload.source.documentId INSIDE $docs
+           OR payload.source.documentId INSIDE $docKeys`,
+      { ents: entityRefs, docs: docRefs, docKeys: docRefs.map(String) },
+    );
+    const ids = (rows as unknown[]) ?? [];
+    if (ids.length > 0) await db.query(`DELETE $ids`, { ids });
+    return ids.length;
   }
 
   /**
