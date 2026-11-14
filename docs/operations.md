@@ -1316,6 +1316,18 @@ A 25s deadline forces `exit(1)` if any of that hangs, inside compose's
 `stop_grace_period: 30s`, so docker / fly / k8s never `SIGKILL` you with
 no log line.
 
+## A least-privilege database user
+
+On a SurrealDB server shared with other applications, brain should not hold a root user. Set `SURREALDB_AUTH_LEVEL=namespace` and give brain a namespace owner:
+
+```sql
+-- as root, once
+DEFINE NAMESPACE IF NOT EXISTS inite;
+DEFINE USER brain_app ON NAMESPACE inite PASSWORD '<generated>' ROLES OWNER;
+```
+
+`SURREALDB_USERNAME` and `SURREALDB_PASSWORD` are then that user. Brain creates each tenant's database, the namespace-scoped `brain_caller` user (0005) and runs every migration within those rights. It never defines the namespace itself, so the namespace must exist first. A leaked brain credential then opens brain's namespace only. Other applications on the same server get their own users, for example `DEFINE USER app ON DATABASE app_db ROLES OWNER`.
+
 ## Schema migrations
 
 Every database (each tenant's `co_<companyId>`, and the platform's
