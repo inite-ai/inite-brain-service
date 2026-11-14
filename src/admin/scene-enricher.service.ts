@@ -30,7 +30,7 @@ import {
   type ScenePredictionError,
 } from './scene-prediction-baseline';
 import { SceneVersionService } from './scene-version';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /**
  * Scene LLM enricher (Brain v2 PR2, SCENES_LLM_ENRICHMENT — default on):

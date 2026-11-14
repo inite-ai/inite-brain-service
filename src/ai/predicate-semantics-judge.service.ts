@@ -6,7 +6,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import type { Semantics } from './predicate-registry-internals/types';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /** The cardinality judge's instructions — the server model's and the harness agent's. */
 export const PREDICATE_SEMANTICS_SYSTEM = `You classify a new knowledge-graph predicate by its CARDINALITY OVER TIME.

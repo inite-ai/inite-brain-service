@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { StringRecordId } from 'surrealdb';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { chatCallParams, chatModel, createOpenAiClient } from '../ai/openai-client';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 import { currentSafetyMonitoring } from '../ai/domain-packs/modality-consent';
 import type { PackSafetyMonitoring } from '../ai/domain-packs/manifest';
 import { JobClaimService } from '../jobs/job-claim.service';

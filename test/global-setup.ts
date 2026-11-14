@@ -19,7 +19,7 @@ export default async function setup() {
   // different URL — which is not what happens in production (a compose
   // service keeps its name and port) and would test nothing about recovery.
   const hostPort = await freePort();
-  const container = await new GenericContainer('surrealdb/surrealdb:v3.2.4')
+  const container = await new GenericContainer('surrealdb/surrealdb:v3.3.5')
     .withUser('root')
     .withCommand([
       'start',

@@ -12,7 +12,7 @@ import type {
   HealthComponent,
   HealthComponentsResponse,
 } from '../contracts/admin/health-components.schema';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /**
  * HealthComponentsService — the per-component grid for the admin cockpit

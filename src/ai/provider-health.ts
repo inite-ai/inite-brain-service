@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { resolveModelSource, type ModelSourceReason } from '../common/model-source';
 import {
   classifyProviderFailure,
+  PLATFORM_MODELS_NOT_INCLUDED_NOTICE,
   SERVER_MODELS_NOTICE,
   serverModelsUnavailable,
   type ServerModelsNotice,
@@ -171,9 +173,25 @@ export function serverModelsHealth(): ServerModelsHealth {
  * health above, plus the notice while degraded so an agent reading the
  * status learns the way around it in the same call.
  */
-export function serverModelsStatus(): ServerModelsHealth & { notice?: ServerModelsNotice } {
+export type ServerModelsSource = 'platform' | 'harness' | 'not_included';
+
+/**
+ * Provider health plus who serves this tenant's chat calls (#945 phase 2):
+ * `source` and its `sourceReason`. With no tenant (about_brain) only the
+ * server-wide harness switch decides. A tenant whose plan does not include
+ * server-side models carries the plan notice.
+ */
+export function serverModelsStatus(companyId?: string): ServerModelsHealth & {
+  source: ServerModelsSource;
+  sourceReason: ModelSourceReason;
+  notice?: ServerModelsNotice;
+} {
   const health = serverModelsHealth();
-  return health.state === 'degraded' ? { ...health, notice: SERVER_MODELS_NOTICE } : health;
+  const resolved = resolveModelSource(companyId);
+  const source: ServerModelsSource = resolved.source === 'byok' ? 'platform' : resolved.source;
+  const base = { ...health, source, sourceReason: resolved.reason };
+  if (source === 'not_included') return { ...base, notice: PLATFORM_MODELS_NOT_INCLUDED_NOTICE };
+  return health.state === 'degraded' ? { ...base, notice: SERVER_MODELS_NOTICE } : base;
 }
 
 /** Test seam: forget every recorded outcome. */

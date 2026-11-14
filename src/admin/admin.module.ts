@@ -38,6 +38,7 @@ import { AdminPolicyDecisionsController } from './admin-policy-decisions.control
 import { AdminMemoryDecisionsController } from './admin-memory-decisions.controller';
 import { MemoryDecisionsReadService } from '../outcomes/memory-decisions-read.service';
 import { AdminKeysController } from './admin-keys.controller';
+import { AdminModelSourceController } from './admin-model-source.controller';
 import { AdminCodeMemoryController } from './admin-code-memory.controller';
 import { AdminHnswController } from './admin-hnsw.controller';
 import { AdminEmbeddingSpaceController } from './admin-embedding-space.controller';
@@ -133,6 +134,7 @@ import { PlatformSettingsService } from './platform-settings.service';
     AdminPolicyDecisionsController,
     AdminMemoryDecisionsController,
     AdminKeysController,
+    AdminModelSourceController,
     AdminCodeMemoryController,
     AdminHnswController,
     AdminEmbeddingSpaceController,

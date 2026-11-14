@@ -40,7 +40,7 @@ import {
   epochMs,
   type ActiveBeliefRow,
 } from './belief-revision';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 import {
   BELIEF_NEGATION_VALUE,
   STATEMENT_MAX_CHARS,

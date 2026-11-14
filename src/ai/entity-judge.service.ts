@@ -8,7 +8,7 @@ import { Semaphore } from '../common/semaphore';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { DecisionService } from './decisions/decision.service';
 import type { ChoiceAnswer } from './decisions/decision.types';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 export type EntityVerdict = 'same' | 'different' | 'unsure';
 

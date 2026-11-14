@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.11.0](https://github.com/inite-ai/inite-brain-service/compare/v2.10.0...v2.11.0) (2026-11-14)
+
+
+### Features
+
+* **models:** server-side models follow the tenant's plan, with a harness queue for the rest ([#956](https://github.com/inite-ai/inite-brain-service/issues/956)) ([38dbc03](https://github.com/inite-ai/inite-brain-service/commit/38dbc03c014ce9e090b323f79adc57ed96bcdd38))
+
+
+### Bug Fixes
+
+* **forget:** user forget erases the facts Brain refused about the user ([ae425eb](https://github.com/inite-ai/inite-brain-service/commit/ae425eb8b4c7816b115ebdbbc6016ad39c977823))
+* **forget:** user forget erases the facts Brain refused about the user ([9d52358](https://github.com/inite-ai/inite-brain-service/commit/9d52358cf95ee65cbf091e8eaf8e0285c30c78cd))
+* **settings:** the pre-boot settings store signs in at SURREALDB_AUTH_LEVEL ([#954](https://github.com/inite-ai/inite-brain-service/issues/954)) ([0048d87](https://github.com/inite-ai/inite-brain-service/commit/0048d87caafe6867f3e099a65e0bfca12d1acb2e))
+
+## [2.10.0](https://github.com/inite-ai/inite-brain-service/compare/v2.9.0...v2.10.0) (2026-11-14)
+
+
+### Features
+
+* **db:** brain can run as a namespace owner instead of a root user (SURREALDB_AUTH_LEVEL=namespace) ([#951](https://github.com/inite-ai/inite-brain-service/issues/951)) ([d02b26e](https://github.com/inite-ai/inite-brain-service/commit/d02b26ee563f0471838a76b7e086f0bbc1201f28))
+
+
+### Bug Fixes
+
+* **ci:** the deploy reads the auth level from the step env — an inline expression broke the workflow file ([#952](https://github.com/inite-ai/inite-brain-service/issues/952)) ([d491c1e](https://github.com/inite-ai/inite-brain-service/commit/d491c1e8e04ffc8c425757f338cbc920481be63a))
+* **db:** data migrations judge the rows, not an index over them ([#950](https://github.com/inite-ai/inite-brain-service/issues/950)) ([1b144e7](https://github.com/inite-ai/inite-brain-service/commit/1b144e7fd1fb681b31acebd807b05203f6116dd7))
+
 ## [2.9.0](https://github.com/inite-ai/inite-brain-service/compare/v2.8.1...v2.9.0) (2026-11-13)
 
 

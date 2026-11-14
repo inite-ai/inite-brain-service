@@ -242,10 +242,25 @@ describe('cross-width vectors on a real SurrealDB', () => {
       } catch (e) {
         return (e as Error).message;
       } finally {
-        await db.query(`REMOVE INDEX IF EXISTS ix_width_probe ON knowledge_fact`);
-        await db.query(`DELETE knowledge_fact WHERE predicate = 'width_probe'`);
+        // On 3.3 a failed HNSW build is torn down in the background, and the
+        // cleanup can meet it as "Transaction conflict: Resource busy" (the
+        // server says it can be retried), so the teardown retries instead of
+        // failing a test whose assertion already holds.
+        await retryBusy(() => db.query(`REMOVE INDEX IF EXISTS ix_width_probe ON knowledge_fact`));
+        await retryBusy(() => db.query(`DELETE knowledge_fact WHERE predicate = 'width_probe'`));
       }
     });
     expect(outcome).toMatch(/dimension/i);
   });
 });
+
+async function retryBusy<T>(run: () => Promise<T>, attempts = 10): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await run();
+    } catch (e) {
+      if (i >= attempts || !/can be retried/i.test((e as Error).message)) throw e;
+      await new Promise((r) => setTimeout(r, 200 * i));
+    }
+  }
+}
