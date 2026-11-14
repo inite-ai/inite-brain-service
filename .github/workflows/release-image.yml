@@ -137,7 +137,7 @@ jobs:
           docker image inspect inite-brain-service:smoke --format 'image platform: {{.Os}}/{{.Architecture}}'
           docker network create brain-smoke
           docker run -d --name surreal --network brain-smoke \
-            surrealdb/surrealdb:v3.2.4 \
+            surrealdb/surrealdb:v3.3.5 \
             start --user=root --pass=root --bind=0.0.0.0:8000 memory
           sleep 5
           docker run -d --name brain --network brain-smoke -p 3030:3000 \

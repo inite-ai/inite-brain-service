@@ -1,3 +1,4 @@
+import { surrealAuthLevel } from './surreal-auth-level';
 import './record-id-format';
 import { deploymentRegion } from './residency';
 import { ResidencyDirectory } from './residency-directory';
@@ -172,7 +173,9 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
    *  on its own timer, and in both cases the only reliable repair is a fresh
    *  connection (`ensureSession`). History and measurements:
    *  docs/audits/runtime-auth-embedding-2026-09-08.md. */
-  private rootCreds!: { username: string; password: string };
+  private rootCreds!: { namespace?: string; username: string; password: string };
+  /** SURREALDB_AUTH_LEVEL=namespace (see surreal-auth-level.ts). */
+  private namespaceAuth = false;
   private surrealUrl!: string;
   /** #916: which tenants this deployment's region serves (src/db/residency.ts). */
   readonly residency: ResidencyDirectory = new ResidencyDirectory(
@@ -246,6 +249,12 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Sign `conn` in for `role` and record the access token's expiry. */
+  /** Root only: a namespace-level user cannot define one (it already exists). */
+  private async defineNamespace(conn: Surreal): Promise<void> {
+    if (this.namespaceAuth) return;
+    await conn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
+  }
+
   private async signin(conn: Surreal, role: PoolRole): Promise<void> {
     const creds = role === 'root' ? this.rootCreds : this.scopedCreds;
     if (!creds) throw new Error(`${role} credentials not configured`);
@@ -278,7 +287,18 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     }
 
     // Cache for re-signin / rebuild on ws drops (see ensureSession).
-    this.rootCreds = { username, password };
+    // SURREALDB_AUTH_LEVEL=namespace: the privileged connection is a
+    // namespace OWNER (DEFINE USER … ON NAMESPACE), not a root user — the
+    // shared server's other applications keep their own users, and a
+    // leaked brain credential opens only brain's namespace. Such a user
+    // cannot DEFINE NAMESPACE, so the namespace must already exist (the
+    // operator creates it with the user); everything else brain does —
+    // DEFINE DATABASE per tenant, the namespace-scoped brain_caller user
+    // (0005), migrations — is within a namespace owner's rights.
+    this.namespaceAuth = surrealAuthLevel(this.configService) === 'namespace';
+    this.rootCreds = this.namespaceAuth
+      ? { namespace: this.namespace, username, password }
+      : { username, password };
     this.surrealUrl = url;
 
     // Dedicated migrator connection — root-signed, NOT in any pool.
@@ -698,7 +718,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
   private async withLeaseDb<T>(fn: (db: Surreal) => Promise<T>): Promise<T> {
     this.lockConn = await this.ensureSession(this.lockConn, 'root');
     if (!this.leaseDbReady) {
-      await this.lockConn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
+      await this.defineNamespace(this.lockConn);
       await this.lockConn.use({ namespace: this.namespace });
       await this.lockConn.query(`DEFINE DATABASE IF NOT EXISTS \`${ADMIN_DATABASE}\``);
       this.leaseDbReady = true;
@@ -777,7 +797,7 @@ export class SurrealService implements OnModuleInit, OnApplicationShutdown {
     // parameterized, so we backtick-quote — companyId is already
     // validated `^[a-zA-Z0-9_-]+$` in withCompany, and `database` is
     // `co_<companyId>` / `system`.
-    await this.migratorConn.query(`DEFINE NAMESPACE IF NOT EXISTS \`${this.namespace}\``);
+    await this.defineNamespace(this.migratorConn);
     await this.migratorConn.use({ namespace: this.namespace });
     await this.migratorConn.query(`DEFINE DATABASE IF NOT EXISTS \`${database}\``);
     await this.migratorConn.use({ namespace: this.namespace, database });

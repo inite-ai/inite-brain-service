@@ -1,6 +1,6 @@
 services:
   surrealdb:
-    image: surrealdb/surrealdb:v3.2.4
+    image: surrealdb/surrealdb:v3.3.5
     user: root                              # SurrealDB image needs root to write rocksdb files
     command:
       - start

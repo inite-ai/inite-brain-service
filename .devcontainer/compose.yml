@@ -14,7 +14,7 @@ services:
   surrealdb:
     # Same version and backend as docker-compose.yml and the e2e fixture
     # (test/global-setup.ts).
-    image: surrealdb/surrealdb:v3.2.4
+    image: surrealdb/surrealdb:v3.3.5
     user: root
     command:
       - start
