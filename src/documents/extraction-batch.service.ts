@@ -33,7 +33,7 @@ import { tenantLeaseName } from '../common/lease-name';
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { IndexerRunService, groupDocOf } from './indexer-run.service';
 import { halvingCanHelp } from './read-failure';
-import { extractionSource } from '../common/extraction-source';
+import { harnessServesTenant } from '../common/model-source';
 
 /**
  * Extraction off the write path. A document is remembered when it
@@ -161,7 +161,7 @@ export class ExtractionBatchService implements OnModuleInit {
       force?: boolean;
     } = {},
   ): Promise<PassOutcome> {
-    if (extractionSource() === 'harness') return this.leaveForHarness(companyId);
+    if (harnessServesTenant(companyId)) return this.leaveForHarness(companyId);
     return this.exclusive(companyId, opts.force === true, () => this.pass(companyId, opts));
   }
 

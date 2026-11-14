@@ -7,10 +7,13 @@ import type { SynthesisDegradation, SynthesizeResult } from './synthesize.types'
 import { attachDecisionLog } from './synthesize.helpers';
 import {
   classifyProviderFailure,
+  PLATFORM_MODELS_NOT_INCLUDED_NOTICE,
   SERVER_MODELS_NOTICE,
+  type ServerModelsNotice,
   serverModelsUnavailable,
 } from '../ai/provider-failure';
 import { HarnessModeRefusal } from '../common/extraction-source';
+import { PlatformModelsNotIncluded } from '../common/model-source';
 import { TenantBudgetExceeded } from '../ai/tenant-llm-budget';
 
 /**
@@ -47,6 +50,7 @@ export function modelUnavailableResult(
     citations: Citation[];
     results: SearchHit[];
     decisionLog?: DecisionLogEntry[] | undefined;
+    notice?: ServerModelsNotice;
   },
 ): SynthesizeResult {
   metrics?.countSynthesize('model_unavailable');
@@ -58,7 +62,7 @@ export function modelUnavailableResult(
       citations: serve ? args.citations : [],
       results: args.results,
       degraded: [args.stage],
-      notice: SERVER_MODELS_NOTICE,
+      notice: args.notice ?? SERVER_MODELS_NOTICE,
     },
     args.decisionLog,
   );
@@ -85,6 +89,19 @@ export function generatorFailureResult(
   },
 ): SynthesizeResult {
   const { err, results, decisionLog } = args;
+  if (err instanceof PlatformModelsNotIncluded) {
+    // The plan has no server-side models (#945 phase 2): the evidence is
+    // served and the notice says how the tenant's agent can answer.
+    return modelUnavailableResult(deps.metrics, {
+      stage: 'generator',
+      guardrails: args.guardrails,
+      answer: null,
+      citations: [],
+      results,
+      decisionLog,
+      notice: PLATFORM_MODELS_NOT_INCLUDED_NOTICE,
+    });
+  }
   if (err instanceof HarnessModeRefusal || err instanceof TenantBudgetExceeded) {
     const reason = err instanceof HarnessModeRefusal ? 'harness_mode' : 'model_budget';
     deps.metrics?.countSynthesize(reason);

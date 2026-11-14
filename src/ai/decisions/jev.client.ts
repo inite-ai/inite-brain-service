@@ -5,7 +5,7 @@ import { withGenAiCall } from '../../common/gen-ai-observability';
 import { getAbortSignal } from '../../common/request-context';
 import { MetricsService } from '../../metrics/metrics.service';
 import type { DecisionRequest, DecisionResponse, DecisionAnswer } from './decision.types';
-import { serverModelsRefused } from '../../common/extraction-source';
+import { serverModelsRefused } from '../../common/model-source';
 import { recordProviderFailure, recordProviderSuccess } from '../provider-health';
 
 /** This client's id in the provider-health record. */

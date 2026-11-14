@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';
 import { Semaphore } from '../common/semaphore';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 import { withGenAiCall } from '../common/gen-ai-observability';
 import { getAbortSignal } from '../common/request-context';
 import { MetricsService } from '../metrics/metrics.service';

@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Semaphore } from '../common/semaphore';
 import { LocalCrossEncoderProvider } from './cross-encoder/local-cross-encoder.provider';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /**
  * Cross-encoder reranker via Cohere Rerank v3.5.
