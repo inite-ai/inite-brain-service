@@ -106,7 +106,8 @@ export function familySchema(lang: string = 'en'): Json {
         codeRepository: GITHUB_URL,
         programmingLanguage: 'TypeScript',
       },
-      { '@type': 'Brand', '@id': `${SITE_URL}/#brand`, name: ORG.name, url: SITE_URL },
+      // The product's own logo and profiles; never a family domain.
+      { '@type': 'Brand', '@id': `${SITE_URL}/#brand`, name: ORG.name, url: SITE_URL, logo: ORG.logo, sameAs: ORG.sameAs },
       { ...COMPANY_REF },
     ],
   }

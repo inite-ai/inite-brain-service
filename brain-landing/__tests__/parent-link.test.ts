@@ -47,7 +47,13 @@ describe('the parent link', () => {
     expect(text).not.toContain('parentOrganization')
     expect(text).not.toContain('subOrganization')
     expect(text).not.toContain('brain.inite.ai/#organization')
-    expect(text).not.toContain('sameAs')
+    // The Brand carries the product's own logo and profiles; never a family domain.
+    const brand = graph.find((n) => n['@type'] === 'Brand')!
+    expect(brand.logo).toMatch(/^https:\/\//)
+    for (const url of brand.sameAs as string[]) {
+      expect(new URL(url).host).not.toMatch(/(^|\.)inite\.|break3\.app|floripa\.info/)
+    }
+    expect(graph.filter((n) => n.sameAs).map((n) => n['@type'])).toEqual(['Brand'])
   })
 
   it('names the company as author and publisher of a post', () => {
