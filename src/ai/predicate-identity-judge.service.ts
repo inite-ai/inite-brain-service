@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { chatCallParams, chatModel, createOpenAiClient } from './openai-client';

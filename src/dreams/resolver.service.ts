@@ -16,7 +16,7 @@ import { envFlagNotDisabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 import { isoDay, isoString } from '../common/surreal-date';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /**
  * DreamsResolverService — auto-resolve competing fact pairs that

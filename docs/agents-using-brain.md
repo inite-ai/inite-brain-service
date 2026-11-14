@@ -92,11 +92,21 @@ default, bounds the file, so larger ones go over `POST /v1/ingest/evidence-blob`
 Admin (adds with `brain:admin`): `forget_entity` — GDPR hard-delete with a
 synchronous cascade and tombstones.
 
-Harness work (adds with `brain:write`, only on a server running
-`EXTRACTION_SOURCE=harness`): `take_memory_work`, `submit_memory_work` —
-see [Harness mode](#harness-mode).
+Harness work (adds with `brain:write`, on a server running
+`EXTRACTION_SOURCE=harness`, for a workspace set to harness, or for a
+workspace whose plan does not include server-side models):
+`take_memory_work`, `submit_memory_work` — see [Harness mode](#harness-mode).
 
 ## Harness mode
+
+**On a free plan.** Server-side models are part of paid plans. When your
+workspace's plan does not include them, `workspace_status` shows
+`serverModels.source: "not_included"` and `synthesize` answers
+`reason: "model_unavailable"` with `notice.code:
+"platform_models_not_included"` and the evidence in `results`. Nothing is
+lost: the reading the server would have done waits for you. Work it the same
+way as below with `take_memory_work` / `submit_memory_work`, and answer
+questions yourself from `search_knowledge` results.
 
 A workspace running `EXTRACTION_SOURCE=harness` spends no model key of its
 own, anywhere. Everything its server would have asked a model, it leaves for

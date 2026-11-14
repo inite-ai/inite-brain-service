@@ -15,7 +15,7 @@ import { withSpan } from '../common/tracing';
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { derivedVersionFence } from '../episodes/read-pin.service';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /**
  * DreamsCorroborateService — fuzzy cross-source corroboration.

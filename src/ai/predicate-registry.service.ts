@@ -33,7 +33,7 @@ import {
   embeddingTextFor,
   serializeForInsert,
 } from './predicate-registry-internals/db-mapping';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 
 /**
  * What a writer knows about a predicate it asks the registry about: the

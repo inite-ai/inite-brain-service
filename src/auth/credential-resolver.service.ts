@@ -90,8 +90,10 @@ export class CredentialResolverService {
 
   private async resolveUncached(token: string): Promise<ApiKeyRecord | null> {
     let record: ApiKeyRecord | null = null;
+    let verifiedUserToken = false;
     if (this.jwks.enabled() && JWT_SHAPE.test(token)) {
       record = await this.jwks.verify(token);
+      verifiedUserToken = !!record?.userId;
     }
     if (!record && this.introspection && token.startsWith(OPAQUE_KEY_PREFIX)) {
       record = await this.introspection.resolve(token);
@@ -121,7 +123,13 @@ export class CredentialResolverService {
       // how tenant_registry fills under a remote verifier (JWKS /
       // introspection), where the static key table is disabled and the
       // roster would otherwise be empty.
-      this.apiKeys.noteResolvedTenant(record.companyId);
+      // Only an Auth-signed user token speaks for the tenant's plan (#945
+      // phase 2); no claim = free. M2M tokens, stored and static keys say
+      // nothing and leave the remembered plan alone.
+      this.apiKeys.noteResolvedTenant(
+        record.companyId,
+        verifiedUserToken ? (record.entitlements ?? []) : undefined,
+      );
     }
     return record;
   }

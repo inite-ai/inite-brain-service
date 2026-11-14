@@ -1,4 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  entitlementsChanged,
+  noteTenantModelState,
+  type TenantModelSetting,
+} from '../common/model-source';
 import { SurrealService, queryRows, retryOnUniqueViolation } from '../db/surreal.service';
 import { retryOnReadConflict } from '../db/surreal-retry';
 
@@ -60,6 +65,8 @@ export type TenantStatus = NonNullable<TenantRegistryMeta['status']>;
 /** A roster row as the registry reads it back — companyId plus lifecycle status. */
 interface RosterRow extends TenantRow {
   status?: string;
+  modelEntitlements?: string[] | null;
+  modelSource?: string | null;
 }
 
 /**
@@ -120,8 +127,8 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
     // Best-effort initial load. Not awaited: module init must not block on
     // the DB (and SurrealService may still be connecting). Failures keep
     // the cache empty, which is exactly the BRAIN_API_KEYS-fallback state.
-    void this.refresh();
-    this.refreshTimer = setInterval(() => void this.refresh(), REFRESH_MS);
+    void this.refreshAll();
+    this.refreshTimer = setInterval(() => void this.refreshAll(), REFRESH_MS);
     // Do not keep the event loop (or a jest worker) alive for the timer.
     this.refreshTimer.unref?.();
   }
@@ -333,6 +340,66 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Remember a verified user credential's entitlements for this tenant
+   * (#945 phase 2): background passes resolve the model source from them.
+   * In memory at once; the row only when they changed, fire-and-forget —
+   * the request path never waits on it and a failed write is retried by
+   * the next request that sees the change.
+   */
+  noteEntitlements(companyId: string, entitlements: readonly string[]): void {
+    if (!COMPANY_ID.test(companyId) || !entitlementsChanged(companyId, entitlements)) return;
+    const list = [...entitlements];
+    noteTenantModelState(companyId, { entitlements: list });
+    if (!this.surreal) return;
+    void this.surreal
+      .withAdminDb((db) =>
+        retryOnReadConflict(() =>
+          db.query(
+            `UPSERT type::record('tenant_registry', $companyId) SET
+               companyId = $companyId,
+               modelEntitlements = $list,
+               modelEntitlementsAt = time::now(),
+               updatedAt = time::now()`,
+            { companyId, list },
+          ),
+        ),
+      )
+      .catch((e: unknown) => {
+        this.logger.warn(`noteEntitlements(${companyId}) failed: ${(e as Error).message}`);
+      });
+  }
+
+  /** The tenant's model-source setting (`auto` | `harness` | `platform`), written through. */
+  async setModelSource(companyId: string, setting: TenantModelSetting): Promise<void> {
+    if (!COMPANY_ID.test(companyId)) throw new Error(`invalid companyId: ${companyId}`);
+    if (this.surreal) {
+      await this.surreal.withAdminDb((db) =>
+        retryOnReadConflict(() =>
+          db.query(
+            `UPSERT type::record('tenant_registry', $companyId) SET
+               companyId = $companyId,
+               modelSource = $setting,
+               updatedAt = time::now()`,
+            { companyId, setting },
+          ),
+        ),
+      );
+    }
+    noteTenantModelState(companyId, { setting });
+  }
+
+  /** Carry a registry row's model fields into the process-wide resolver. */
+  private noteModelRow(row: RosterRow): void {
+    if (!row.companyId) return;
+    const setting: TenantModelSetting =
+      row.modelSource === 'harness' || row.modelSource === 'platform' ? row.modelSource : 'auto';
+    noteTenantModelState(row.companyId, {
+      setting,
+      ...(Array.isArray(row.modelEntitlements) ? { entitlements: row.modelEntitlements } : {}),
+    });
+  }
+
   private noteStatus(companyId: string, status: string): void {
     const known: TenantStatus =
       status === 'active' || status === 'suspended' || status === 'provisioning'
@@ -476,6 +543,34 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
       // wiping the roster (which would starve fan-out).
       this.logger.warn(`registry refresh failed, keeping cached roster: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Load every tenant's remembered plan and model-source setting into the
+   * resolver (#945 phase 2), for background passes that have no request.
+   * Its own read so a failure keeps the last-known state and never touches
+   * the roster.
+   */
+  private async refreshModelState(): Promise<void> {
+    if (!this.surreal) return;
+    try {
+      const rows = await this.surreal.withAdminDb((db) =>
+        queryRows<RosterRow>(
+          db,
+          `SELECT companyId, modelEntitlements, modelSource FROM tenant_registry`,
+        ),
+      );
+      for (const r of rows) this.noteModelRow(r);
+    } catch (e) {
+      this.logger.warn(
+        `model-source refresh failed, keeping cached state: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  private async refreshAll(): Promise<void> {
+    await this.refresh();
+    await this.refreshModelState();
   }
 
   private async readActive(): Promise<string[]> {

@@ -12,7 +12,7 @@ import {
 } from './evidence-flags';
 import { KNOWN_BOOLEAN_FLAGS } from './known-boolean-flags';
 import { isProcessRole, normalizeProcessRole } from './process-role';
-import { serverModelsRefused } from './extraction-source';
+import { serverModelsRefused } from './model-source';
 
 const log = new Logger('EnvValidation');
 

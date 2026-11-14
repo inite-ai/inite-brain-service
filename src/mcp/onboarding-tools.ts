@@ -57,7 +57,7 @@ export function registerOnboardingTools(opts: {
       // the provider refused.
       const out = {
         ...(await deps.workspaceStatus.status(input)),
-        serverModels: serverModelsStatus(),
+        serverModels: serverModelsStatus(input.companyId),
       };
       return {
         content: [{ type: 'text', text: JSON.stringify(out) }],

@@ -9,7 +9,7 @@ import {
   offlineServiceTier,
 } from '../ai/openai-client';
 import { withGenAiCall } from '../common/gen-ai-observability';
-import { serverModelsRefused } from '../common/extraction-source';
+import { serverModelsRefused } from '../common/model-source';
 import { isoString } from '../common/surreal-date';
 import { supportEdgesEnabled } from '../common/provenance-flags';
 import { buildConflictEdgeRows } from '../common/support-edges';

@@ -117,7 +117,8 @@ function fromStatus(status: number, e: ErrorFields): ProviderFailureClass {
 
 export function classifyProviderFailure(err: unknown): ProviderFailureClass {
   const e = fieldsOf(err);
-  if (e.code === 'harness_mode') return 'harness';
+  // A free plan's refusal (#945 phase 2) is the server declining too, not a bad key.
+  if (e.code === 'harness_mode' || e.code === 'platform_models_not_included') return 'harness';
   if (e.code === 'tenant_budget_exceeded') return 'other';
   const status = providerStatusOf(err);
   if (status !== undefined) return fromStatus(status, e);
@@ -130,7 +131,7 @@ export function classifyProviderFailure(err: unknown): ProviderFailureClass {
  * not depend on the platform's account.
  */
 export interface ServerModelsNotice {
-  code: 'server_models_unavailable';
+  code: 'server_models_unavailable' | 'platform_models_not_included';
   message: string;
 }
 
@@ -138,4 +139,15 @@ export const SERVER_MODELS_NOTICE: ServerModelsNotice = {
   code: 'server_models_unavailable',
   message:
     "The server's model provider is unavailable, so this answer could not be checked. Use your own provider key (BYOK) or connect an agent in harness mode.",
+};
+
+/**
+ * The tenant's plan does not include server-side models (#945 phase 2):
+ * the server refused before the network, and the tenant's agent can do
+ * the reading in harness mode.
+ */
+export const PLATFORM_MODELS_NOT_INCLUDED_NOTICE: ServerModelsNotice = {
+  code: 'platform_models_not_included',
+  message:
+    'Your plan does not include server-side models. Connect an agent in harness mode, or add your own provider key (BYOK, coming soon).',
 };
