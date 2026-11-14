@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.10.0](https://github.com/inite-ai/inite-brain-service/compare/v2.9.0...v2.10.0) (2026-11-14)
+
+
+### Features
+
+* **db:** brain can run as a namespace owner instead of a root user (SURREALDB_AUTH_LEVEL=namespace) ([#951](https://github.com/inite-ai/inite-brain-service/issues/951)) ([d02b26e](https://github.com/inite-ai/inite-brain-service/commit/d02b26ee563f0471838a76b7e086f0bbc1201f28))
+
+
+### Bug Fixes
+
+* **ci:** the deploy reads the auth level from the step env — an inline expression broke the workflow file ([#952](https://github.com/inite-ai/inite-brain-service/issues/952)) ([d491c1e](https://github.com/inite-ai/inite-brain-service/commit/d491c1e8e04ffc8c425757f338cbc920481be63a))
+* **db:** data migrations judge the rows, not an index over them ([#950](https://github.com/inite-ai/inite-brain-service/issues/950)) ([1b144e7](https://github.com/inite-ai/inite-brain-service/commit/1b144e7fd1fb681b31acebd807b05203f6116dd7))
+
 ## [2.9.0](https://github.com/inite-ai/inite-brain-service/compare/v2.8.1...v2.9.0) (2026-11-13)
 
 
