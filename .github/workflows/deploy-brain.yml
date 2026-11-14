@@ -418,6 +418,11 @@ jobs:
           # How many identical containers of this service to run. Repo
           # variable, empty ⇒ 1. Every check below counts against it.
           BRAIN_REPLICAS: ${{ vars.BRAIN_REPLICAS }}
+          # root (default) or namespace — see SURREALDB_AUTH_LEVEL in the
+          # compose below. An env entry, not an inline expression: a `${{ }}`
+          # inside the run script makes the whole script one expression,
+          # past GitHub's 21 000-character limit ("workflow file issue").
+          BRAIN_SURREAL_AUTH_LEVEL: ${{ vars.BRAIN_SURREAL_AUTH_LEVEL || 'root' }}
           BRAIN_SURREAL_USER: ${{ secrets.BRAIN_SURREAL_USER }}
           BRAIN_SURREAL_PASS: ${{ secrets.BRAIN_SURREAL_PASS }}
           BRAIN_SURREAL_SCOPED_PASS: ${{ secrets.BRAIN_SURREAL_SCOPED_PASS }}
@@ -668,7 +673,7 @@ jobs:
                 # root (default) or namespace: flipped together with the
                 # BRAIN_SURREAL_USER/PASS secrets when they hold the
                 # namespace owner brain_app instead of the server's root.
-                - SURREALDB_AUTH_LEVEL=${{ vars.BRAIN_SURREAL_AUTH_LEVEL || 'root' }}
+                - SURREALDB_AUTH_LEVEL=${BRAIN_SURREAL_AUTH_LEVEL}
                 - SURREALDB_POOL_SIZE=8
                 - SURREALDB_SCOPED_POOL_SIZE=8
                 - SURREALDB_SCOPED_USER=brain_caller
