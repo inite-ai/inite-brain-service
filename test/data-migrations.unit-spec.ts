@@ -93,7 +93,7 @@ describe('IdBatchMigration: ids first, then UPDATE of exactly those ids', () => 
       await expect(m.step(db, 500)).resolves.toBe(2);
       const sql = sqls[0]!;
       expect(sql).toMatch(
-        /LET \$ids = \(SELECT VALUE id FROM knowledge_edge WHERE .+ LIMIT \$n\);/,
+        /LET \$ids = \(SELECT VALUE id FROM knowledge_edge WITH NOINDEX WHERE .+ LIMIT \$n\);/,
       );
       expect(sql).toMatch(/UPDATE \$ids SET /);
       expect(sql).not.toMatch(/UPDATE knowledge_edge\b/);
@@ -109,7 +109,7 @@ describe('IdBatchMigration: ids first, then UPDATE of exactly those ids', () => 
       },
     } as unknown as Surreal;
     await expect(new EdgeResolutionCheckedMigration().pending(db)).resolves.toBe(7);
-    expect(sqls[0]).toContain('SELECT count() AS c FROM knowledge_edge WHERE');
+    expect(sqls[0]).toContain('SELECT count() AS c FROM knowledge_edge WITH NOINDEX WHERE');
     expect(sqls[0]).toContain('GROUP ALL');
   });
 
