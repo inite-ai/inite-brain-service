@@ -24,6 +24,7 @@ import {
 import { SearchResponseSchema } from '../src/contracts/search/search.schema';
 import {
   IngestFactResponseSchema,
+  IngestMentionRequestSchema,
   IngestMentionResponseSchema,
 } from '../src/contracts/ingest/ingest.schema';
 import {
@@ -44,6 +45,7 @@ const contractsMatch: {
   synthesize: Same<Sdk.SynthesizeResponse, z.infer<typeof SynthesizeResponseSchema>>;
   reason: Same<Sdk.AnswerReason, z.infer<typeof SynthesisReasonSchema>>;
   mention: Same<Sdk.IngestMentionResponse, z.infer<typeof IngestMentionResponseSchema>>;
+  mentionMeta: Same<Sdk.BrainMeta, NonNullable<z.infer<typeof IngestMentionRequestSchema>['meta']>>;
   fact: Same<Sdk.IngestFactResponse, z.infer<typeof IngestFactResponseSchema>>;
   entity: Same<Sdk.EntityProfile, z.infer<typeof EntityProfileResponseSchema>>;
   timeline: Same<Sdk.EntityTimeline, z.infer<typeof EntityTimelineResponseSchema>>;
@@ -52,6 +54,7 @@ const contractsMatch: {
   synthesize: true,
   reason: true,
   mention: true,
+  mentionMeta: true,
   fact: true,
   entity: true,
   timeline: true,
@@ -141,6 +144,15 @@ describe('the client', () => {
     await brain.remember('Maria moved to Berlin in June.');
     await brain.recall('Maria');
     expect(s.calls.map((c) => c.body?.userId)).toEqual(['user_42', 'user_42']);
+  });
+
+  it("sends a turn's meta with the mention, and nothing when there is none", async () => {
+    const s = stub({ '/v1/ingest/mention': { skipped: false } });
+    const brain = createBrain({ apiKey: 'brain_test', fetch: s.fetchImpl });
+    await brain.remember('Hi', { conversationId: 'c1', meta: { channel: 'telegram' } });
+    await brain.remember('Hi again');
+    expect(s.calls[0]!.body?.meta).toEqual({ channel: 'telegram' });
+    expect(s.calls[1]!.body).not.toHaveProperty('meta');
   });
 
   it('threads it onto a GET as a query parameter, where there is no body', async () => {
