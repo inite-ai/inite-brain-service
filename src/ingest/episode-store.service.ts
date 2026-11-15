@@ -10,6 +10,7 @@ import { sanitizeIngestText } from '../common/text-sanitizer';
 import { markConversationDirty, type SceneDirtyDb } from '../common/scene-dirty';
 import { sceneScheduledMaintenanceEnabled, sceneSegmentationEnabled } from '../common/scene-flags';
 import type { IngestMentionDto, KnownEntity } from './dto/ingest-mention.dto';
+import { acceptedBeforeForget } from '../common/user-tombstone';
 
 /**
  * L0 episode capture (EPISODE_SUBSTRATE_ENABLED — P1 of
@@ -106,6 +107,9 @@ export class EpisodeStoreService {
         },
       };
       return await this.surreal.withCompany(companyId, async (db) => {
+        // A turn accepted before the user's forget is not captured after
+        // it (user-tombstone.ts): the forget already erased its episodes.
+        if (await acceptedBeforeForget(db, companyId, dto.userId)) return null;
         const [rows] = await db.query<[Array<{ id?: unknown }>]>(
           `INSERT IGNORE INTO episode $row`,
           {

@@ -8,6 +8,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
+import { acceptedBeforeForget, USER_FORGOTTEN } from '../common/user-tombstone';
 import {
   SurrealService,
   dbCreate,
@@ -46,6 +47,8 @@ export interface StoredDocument {
   vertical: string;
   recorder?: string | undefined;
   occurredAt: Date;
+  /** When the row was stored: the acceptance time of its extraction (user-tombstone.ts). */
+  createdAt?: Date | undefined;
   status: string;
   /**
    * Per-user memory scope (0128). Set = the document (and everything the
@@ -190,6 +193,16 @@ export class DocumentStoreService {
     const storeContent = dto.storeContent !== false;
 
     return this.surreal.withCompany(companyId, async (db) => {
+      // A request that arrived before its user was forgotten stores
+      // nothing after it (user-tombstone.ts). Only such a request can get
+      // here: one that arrived after the forget is written normally.
+      if (await acceptedBeforeForget(db, companyId, dto.userId)) {
+        throw new ConflictException({
+          error: USER_FORGOTTEN,
+          code: USER_FORGOTTEN,
+          message: 'the user was forgotten while this request was in flight; nothing was stored',
+        });
+      }
       try {
         const row = await retryOnReadConflict(() =>
           dbCreate<Record<string, unknown>>(db, 'source_document', {
@@ -470,6 +483,7 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     vertical: String(row.vertical),
     recorder: row.recorder ? String(row.recorder) : undefined,
     occurredAt: new Date(row.occurredAt as string | Date),
+    ...(row.createdAt ? { createdAt: new Date(row.createdAt as string | Date) } : {}),
     status: String(row.status),
     ...(row.userId ? { userId: String(row.userId) } : {}),
     ...(Array.isArray(row.scope) && circleTagsOf(row.scope as string[]).length > 0
