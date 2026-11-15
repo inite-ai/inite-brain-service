@@ -8,6 +8,7 @@
  * acceptance time (runAccepted, what the request middleware and the job
  * dispatcher open) and check the database.
  */
+import { ConflictException } from '@nestjs/common';
 import { AppFixture, createApp } from './app-fixture';
 import { SurrealService } from '../src/db/surreal.service';
 import { IngestService } from '../src/ingest/ingest.service';
@@ -61,13 +62,50 @@ describe('forget tombstone', () => {
     expect(forget.status).toBeLessThan(300);
 
     f.extractor.setScript(MOVED);
+    // The turn is not captured after the forget, so a fail-closed
+    // deployment answers 503; one that is not answers with nothing
+    // extracted. Either way nothing is written.
     const out = await runAccepted(accepted, () =>
       f.app.get(IngestService).ingestMention(f.companyId, mention('u_late')),
-    );
-    expect(out.extractedFactIds ?? []).toHaveLength(0);
+    ).catch((e: unknown) => e);
+    if (!(out instanceof Error)) {
+      expect((out as { extractedFactIds?: string[] }).extractedFactIds ?? []).toHaveLength(0);
+    }
     expect(await count('knowledge_fact', 'u_late')).toBe(0);
     expect(await count('episode', 'u_late')).toBe(0);
     expect(await count('source_document', 'u_late')).toBe(0);
+  });
+
+  it('through the document pipeline (production), the in-flight write is refused with user_forgotten', async () => {
+    const saved = {
+      doc: process.env.DOCUMENT_INGEST_ENABLED,
+      via: process.env.INGEST_MENTION_VIA_DOCUMENT,
+      closed: process.env.EVIDENCE_FAIL_CLOSED_CAPTURE,
+    };
+    process.env.DOCUMENT_INGEST_ENABLED = '1';
+    process.env.INGEST_MENTION_VIA_DOCUMENT = '1';
+    process.env.EVIDENCE_FAIL_CLOSED_CAPTURE = '0';
+    try {
+      const accepted = new Date(Date.now() - 5_000);
+      await f.http.post('/v1/users/u_doc/forget').set(auth()).send({});
+      f.extractor.setScript(MOVED);
+      const err = await runAccepted(accepted, () =>
+        f.app.get(IngestService).ingestMention(f.companyId, mention('u_doc')),
+      ).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({ code: 'user_forgotten' });
+      expect(await count('source_document', 'u_doc')).toBe(0);
+      expect(await count('knowledge_fact', 'u_doc')).toBe(0);
+    } finally {
+      for (const [k, v] of [
+        ['DOCUMENT_INGEST_ENABLED', saved.doc],
+        ['INGEST_MENTION_VIA_DOCUMENT', saved.via],
+        ['EVIDENCE_FAIL_CLOSED_CAPTURE', saved.closed],
+      ] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
   });
 
   it('a typed fact accepted before the forget is rejected, entity included', async () => {
