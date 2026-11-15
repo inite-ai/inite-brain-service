@@ -99,4 +99,18 @@ export class IngestMentionDto {
   @IsString()
   @MaxLength(64)
   timezone?: string | undefined;
+
+  /**
+   * Caller meta: operator vocabulary about the turn (an inbox's
+   * `conversation_id`, `channel`, `direction`, `author`). The same rule
+   * as document `meta` and fact `metadata` (src/common/caller-meta-gate.ts):
+   * snake_case keys, scalar values ≤256 chars, ≤16 keys, 400
+   * `invalid_meta` on anything else unless SOURCE_META_STRICT=0. Kept on
+   * the stored document (or, on the direct path, each fact's
+   * `source.meta`), so ABAC source rules match it and the user's forget
+   * erases it with the turn.
+   */
+  @IsOptional()
+  @IsObject()
+  meta?: Record<string, unknown>;
 }
