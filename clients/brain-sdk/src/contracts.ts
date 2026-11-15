@@ -99,6 +99,13 @@ export interface ServerModelsNotice {
   message: string;
 }
 
+/**
+ * Caller meta on a write — the `meta` of `IngestMentionRequestSchema`:
+ * snake_case keys, scalar values (strings ≤256 chars), ≤16 keys. Anything
+ * else is a 400 with `code: "invalid_meta"`.
+ */
+export type BrainMeta = Record<string, string | number | boolean>;
+
 /** `POST /v1/ingest/mention` — `IngestMentionResponseSchema`. */
 export interface IngestMentionResponse {
   /** true when nothing was extracted; `reason` says why. */
