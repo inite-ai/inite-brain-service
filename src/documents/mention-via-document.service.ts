@@ -138,19 +138,19 @@ export class MentionViaDocumentService {
             vertical: dto.contextRef.vertical,
             recorder: dto.contextRef.recorder,
           },
-          // NO `meta`. The document `meta` field is the CALLER channel —
-          // operator vocabulary bound for the ABAC `source.meta` surface,
-          // policed by SOURCE_META_STRICT. A mention has no caller meta
-          // at all (IngestMentionDto has no such field); what follows are
-          // the caller's identifiers read off the TYPED contextRef, and
-          // they ride the internal channel instead — bounded there
+          // The document `meta` field is the CALLER channel: operator
+          // vocabulary bound for the ABAC `source.meta` surface, policed
+          // by SOURCE_META_STRICT. Only the mention's own caller `meta`
+          // (gated already at IngestService.ingestMention) goes there.
+          // The caller's identifiers read off the TYPED contextRef ride
+          // the internal channel instead — bounded there
           // (internalDocumentMeta: string, ≤ the short-scalar limit, else
           // 400). Asserting them as caller meta 400'd every mention under
           // SOURCE_META_STRICT (strict unless explicitly disabled) — and,
-          // because an object literal
-          // materialises a key even for an undefined value, it did so
-          // even for requests that sent no conversationId/messageId/
-          // eventId whatsoever.
+          // because an object literal materialises a key even for an
+          // undefined value, it did so even for requests that sent no
+          // conversationId/messageId/eventId whatsoever.
+          ...(dto.meta !== undefined ? { meta: dto.meta } : {}),
           indexers: 'general',
         },
         { channel: 'mention', internal },
