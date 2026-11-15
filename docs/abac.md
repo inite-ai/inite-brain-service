@@ -18,7 +18,7 @@ tenant attaches to individual API keys. A set carries rules of two kinds:
   Pack-declared MCP tools are gateable by their concrete
   `<packId>__<toolName>` names — query tools are `read`-kind, external
   tools `write`-kind ([mcp-pack-tools.md](mcp-pack-tools.md));
-- **source rules** gate which *rows* (facts, and edges via their `kind`) the
+- **source rules** gate which _rows_ (facts, and edges via their `kind`) the
   key can read, by attribute match on the fact's provenance.
 
 Everything is inert unless `ABAC_ENABLED=1` **and** the key references at
@@ -31,15 +31,23 @@ pre-ABAC, enforced by a golden e2e.
 {
   "name": "support-reader",
   "description": "support agents: read-only, support vertical only, no PII",
-  "posture": { "actions": "deny", "reads": "deny" },   // verdict when nothing matches
-  "mode": "report_only",                                // report_only | enforce | disabled
+  "posture": { "actions": "deny", "reads": "deny" }, // verdict when nothing matches
+  "mode": "report_only", // report_only | enforce | disabled
   "rules": [
-    { "id": "ro",          "effect": "allow", "kind": "action", "actions": ["@readonly"] },
-    { "id": "support-only","effect": "allow", "kind": "source",
-      "match": [ { "attr": "source.vertical", "op": "eq", "value": "support" } ] },
-    { "id": "no-pii",      "effect": "deny",  "kind": "source",
-      "match": [ { "attr": "piiClass", "op": "in", "value": ["identifier", "sensitive"] } ] }
-  ]
+    { "id": "ro", "effect": "allow", "kind": "action", "actions": ["@readonly"] },
+    {
+      "id": "support-only",
+      "effect": "allow",
+      "kind": "source",
+      "match": [{ "attr": "source.vertical", "op": "eq", "value": "support" }],
+    },
+    {
+      "id": "no-pii",
+      "effect": "deny",
+      "kind": "source",
+      "match": [{ "attr": "piiClass", "op": "in", "value": ["identifier", "sensitive"] }],
+    },
+  ],
 }
 ```
 
@@ -69,7 +77,7 @@ Outside the window the set compiles to **nothing** — it neither allows nor
 denies, exactly as if it weren't attached. Write-time validation rejects
 `activeFrom >= activeUntil` (a window that can never open would be a
 permanently-inert, fail-open set). **Operational caveat:** because an expired
-set simply drops out, a key whose *only* restriction was a windowed set reverts
+set simply drops out, a key whose _only_ restriction was a windowed set reverts
 to its pre-ABAC (unpolicied) posture when the window closes — size the window to
 the grant, and keep a standing enforce set for the baseline. The window bounds
 round-trip through the policy editor unchanged; there is no dedicated UI for
@@ -77,31 +85,31 @@ them yet, so edit them via the API or the raw document.
 
 ### Attributes source rules can match
 
-| Attribute | Ops | Notes |
-|---|---|---|
-| `predicate` | eq, in, prefix | tenant predicate registry ids |
-| `piiClass` | eq, in | from the predicate registry (`none/identifier/behavioral/text/sensitive/affect/health`); `sensitive`, `affect` and `health` already need `brain:read_pii` before any policy runs |
-| `source.vertical`, `source.recorder` | eq, in | who wrote the fact |
-| `source.documentId`, `source.originKey` | eq, in (+prefix on originKey) | document lineage |
-| `source.meta.<key>` | eq, in, exists, not_exists | operator metadata projected from documents (`IngestDocumentDto.meta`) and direct facts (`IngestFactDto.metadata`), sanitized (`SOURCE_META_STRICT` to reject instead of drop) |
-| `trust.authority`, `trust.declaredTrust`, `trust.learnedTrust` | gte, gt, lte, lt | write-time trust snapshot (0..1) — **numeric thresholds, not just equality** |
-| `corroboration.count` | gte, gt, lte, lt | distinct confirming origins |
-| `provenance.purged` | eq | document text has been erased |
-| `userId` | eq, in, exists, not_exists | per-user memory scope (migration 0055) |
+| Attribute                                                      | Ops                           | Notes                                                                                                                                                                                                                        |
+| -------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `predicate`                                                    | eq, in, prefix                | tenant predicate registry ids                                                                                                                                                                                                |
+| `piiClass`                                                     | eq, in                        | from the predicate registry (`none/identifier/behavioral/text/sensitive/affect/health`); `sensitive`, `affect` and `health` already need `brain:read_pii` before any policy runs                                             |
+| `source.vertical`, `source.recorder`                           | eq, in                        | who wrote the fact                                                                                                                                                                                                           |
+| `source.documentId`, `source.originKey`                        | eq, in (+prefix on originKey) | document lineage                                                                                                                                                                                                             |
+| `source.meta.<key>`                                            | eq, in, exists, not_exists    | operator metadata projected from documents (`IngestDocumentDto.meta`) and direct facts (`IngestFactDto.metadata`), sanitized; an invalid entry is a 400 `invalid_meta` unless `SOURCE_META_STRICT=0`, which drops it instead |
+| `trust.authority`, `trust.declaredTrust`, `trust.learnedTrust` | gte, gt, lte, lt              | write-time trust snapshot (0..1) — **numeric thresholds, not just equality**                                                                                                                                                 |
+| `corroboration.count`                                          | gte, gt, lte, lt              | distinct confirming origins                                                                                                                                                                                                  |
+| `provenance.purged`                                            | eq                            | document text has been erased                                                                                                                                                                                                |
+| `userId`                                                       | eq, in, exists, not_exists    | per-user memory scope (migration 0055)                                                                                                                                                                                       |
 
 The existing `requiresScope` PII gate always runs first and is never weakened
 by a policy — ABAC can only narrow further.
 
 ### vs. Zep's ABAC (July 2026)
 
-| Capability | Zep | brain |
-|---|---|---|
-| Action-level allow/deny per key | ✓ | ✓ (REST + MCP, one namespace) |
-| Metadata read filtering | equality on projected episode metadata | equality + prefix + **numeric trust thresholds** + corroboration + provenance-purged + piiClass |
-| Default-deny / default-allow | per key | per set, per domain (actions/reads) |
-| report_only + explain | ✓ (zepctl CLI) | ✓ (API + admin UI) |
-| Simulation against real tenant data | ✗ | ✓ (wave 2: run a search as-if holding key X, per-row verdicts) |
-| Management surface | CLI + YAML (Enterprise) | REST API + policy editor UI |
+| Capability                          | Zep                                    | brain                                                                                           |
+| ----------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Action-level allow/deny per key     | ✓                                      | ✓ (REST + MCP, one namespace)                                                                   |
+| Metadata read filtering             | equality on projected episode metadata | equality + prefix + **numeric trust thresholds** + corroboration + provenance-purged + piiClass |
+| Default-deny / default-allow        | per key                                | per set, per domain (actions/reads)                                                             |
+| report_only + explain               | ✓ (zepctl CLI)                         | ✓ (API + admin UI)                                                                              |
+| Simulation against real tenant data | ✗                                      | ✓ (wave 2: run a search as-if holding key X, per-row verdicts)                                  |
+| Management surface                  | CLI + YAML (Enterprise)                | REST API + policy editor UI                                                                     |
 
 ## Enforcement points
 
@@ -155,13 +163,13 @@ deleted-set races. Alert on the metric.
 
 ## Metrics
 
-| Metric | Meaning |
-|---|---|
-| `brain_policy_decisions_total{decision,kind,mode}` | allow / deny / would_deny, by action-vs-row and set mode. Row decisions count requests, not facts. |
-| `brain_policy_eval_seconds` | per-request row-evaluation latency (histogram, buckets from 50 µs). |
-| `brain_policy_resolution_errors_total` | fail-closed events — non-zero pages an operator. |
-| `brain_policy_sets_active` | enabled sets across tenants (nightly gauge). |
-| `brain_policy_sets_truncated_total` | a key resolved to more than `MAX_SETS_PER_KEY` (8) sets and the overflow was dropped — **fails open** (a dropped set may be the deny set). Non-zero means a binding/claim needs pruning. |
+| Metric                                             | Meaning                                                                                                                                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brain_policy_decisions_total{decision,kind,mode}` | allow / deny / would_deny, by action-vs-row and set mode. Row decisions count requests, not facts.                                                                                       |
+| `brain_policy_eval_seconds`                        | per-request row-evaluation latency (histogram, buckets from 50 µs).                                                                                                                      |
+| `brain_policy_resolution_errors_total`             | fail-closed events — non-zero pages an operator.                                                                                                                                         |
+| `brain_policy_sets_active`                         | enabled sets across tenants (nightly gauge).                                                                                                                                             |
+| `brain_policy_sets_truncated_total`                | a key resolved to more than `MAX_SETS_PER_KEY` (8) sets and the overflow was dropped — **fails open** (a dropped set may be the deny set). Non-zero means a binding/claim needs pruning. |
 
 ## DB-level fence status (migration 0057)
 
@@ -186,11 +194,11 @@ today. What IS the barrier on every one of these paths is the application
 filter (`policy/row-filter.ts`, `entity-read.helpers.ts`), and each path
 below applies it before a row leaves the process:
 
-| Path | Identity | App-layer filter |
-|---|---|---|
-| Caller-facing reads (`withScopedCompany`: search, entities, facts, MCP read tools) | `brain_caller` (scoped pool) | yes |
-| Writes, migrations, admin and GDPR paths (`withCompany`, `withAdminDb`) | root | n/a (not caller-facing reads) |
-| LIVE subscription channels (`LIVE_SUBSCRIPTIONS_ENABLED`, `src/live/`) | `brain_caller` when `SURREALDB_SCOPED_USER`/`_PASS` are configured; **root** when they are not | yes — every pushed row passes `makeRowPolicyFilter` with the subscriber's scopes and the tenant's predicate policy |
+| Path                                                                               | Identity                                                                                       | App-layer filter                                                                                                   |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Caller-facing reads (`withScopedCompany`: search, entities, facts, MCP read tools) | `brain_caller` (scoped pool)                                                                   | yes                                                                                                                |
+| Writes, migrations, admin and GDPR paths (`withCompany`, `withAdminDb`)            | root                                                                                           | n/a (not caller-facing reads)                                                                                      |
+| LIVE subscription channels (`LIVE_SUBSCRIPTIONS_ENABLED`, `src/live/`)             | `brain_caller` when `SURREALDB_SCOPED_USER`/`_PASS` are configured; **root** when they are not | yes — every pushed row passes `makeRowPolicyFilter` with the subscriber's scopes and the tenant's predicate policy |
 
 The LIVE row is the one to read twice: a deployment without the scoped
 credentials runs its subscription channels root-authorized, and then the

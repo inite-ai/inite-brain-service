@@ -10,6 +10,7 @@ import { RegistryMirrorService } from './registry-mirror.service';
 import { RegistryMetaService } from './registry-meta.service';
 import { PackPurchaseGateService } from './pack-purchase-gate.service';
 import { PublisherProfileService } from './publisher-profile.service';
+import { FirstPartyPackSeedService } from './first-party-pack-seed.service';
 
 /**
  * The GLOBAL Domain Pack registry (docs/domain-packs.md): a shared catalogue of
@@ -23,7 +24,8 @@ import { PublisherProfileService } from './publisher-profile.service';
  * RegistryMirrorService pull-syncs an upstream instance's catalogue when
  * REGISTRY_UPSTREAM_URL is set (inert otherwise); marketplace state
  * (registry_pack_meta / publisher_profile) is instance-local and never
- * mirrored. SurrealService is @Global; AuthModule supplies the ApiKeyGuard;
+ * mirrored. FirstPartyPackSeedService publishes the repo's packs/*.pack.json
+ * at boot (REGISTRY_SEED_FIRST_PARTY, default on). SurrealService is @Global; AuthModule supplies the ApiKeyGuard;
  * JobsModule (@Global) supplies the worker-loop/claim services the mirror
  * job uses.
  */
@@ -41,6 +43,7 @@ import { PublisherProfileService } from './publisher-profile.service';
     RegistryMetaService,
     PackPurchaseGateService,
     PublisherProfileService,
+    FirstPartyPackSeedService,
   ],
   exports: [PackRegistryService],
 })

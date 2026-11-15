@@ -2,7 +2,9 @@
 /**
  * Seed the GLOBAL Domain Pack registry with the first-party packs shipped in
  * this repo (`packs/*.json`). Idempotent — an already-published version returns
- * created:false. Run once against a fresh environment (or after adding a pack).
+ * created:false. A Brain built from this repo's image does this itself at boot
+ * (FirstPartyPackSeedService, REGISTRY_SEED_FIRST_PARTY); this script is for an
+ * instance that runs without those manifests.
  *
  *   BRAIN_API_KEY=... pnpm registry:seed -- --brain-url https://brain.inite.ai
  *

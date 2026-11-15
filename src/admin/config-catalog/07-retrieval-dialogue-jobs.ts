@@ -591,6 +591,16 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     description:
       'Max concurrent predicate-identity judge calls. These run inside the consolidation PASS (POST /v1/admin/predicates/consolidate), never on the ingest write path \u2014 one call per coined predicate whose blocking set is non-empty.',
   },
+  // ── First-party packs in the registry ────────────────────
+  {
+    key: 'REGISTRY_SEED_FIRST_PARTY',
+    category: 'registry',
+    defaultValue: '1',
+    runtimeMutable: false,
+    isBooleanFlag: true,
+    description:
+      "Publish the image's first-party packs (packs/*.pack.json) into the global registry at boot, off the request path, through the normal publish path (idempotent; an already-published version is left as it is). On by default so a deploy carries its packs; 0 = off (the e2e fixture).",
+  },
   // ── Registry mirroring (pull-only, migration 0064) ───────
   {
     key: 'REGISTRY_UPSTREAM_URL',

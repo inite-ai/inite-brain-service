@@ -271,7 +271,7 @@ const mentionDto = (contextRef: Record<string, unknown>, timezone?: string): Ing
   }) as unknown as IngestMentionDto;
 
 describe('MentionViaDocumentService routes contextRef ids off the caller channel', () => {
-  it('sends NO caller meta, and the ids ride the internal bag instead', async () => {
+  it('sends NO caller meta when the mention has none, and the ids ride the internal bag', async () => {
     const { svc, calls } = makeWrapper();
     await runWithRequestContext({ correlationId: 'm1' }, () =>
       svc.ingest(
