@@ -11,6 +11,7 @@
  */
 
 import type {
+  BrainMeta,
   EntityProfile,
   EntityTimeline,
   IngestFactResponse,
@@ -253,13 +254,18 @@ export class Brain {
    * Text in, facts out. Brain captures the turn as an episode, extracts
    * entities and claims, and runs each through bitemporal conflict
    * resolution. `skipped: true` means the extractor found nothing worth
-   * recording — normal for a greeting, not an error.
+   * recording — normal for a greeting, not an error. `meta` is kept as
+   * the turn's `source.meta` (e.g. `{ channel: 'telegram' }`).
    */
-  remember(text: string, options: { vertical?: string; conversationId?: string } = {}) {
+  remember(
+    text: string,
+    options: { vertical?: string; conversationId?: string; meta?: BrainMeta } = {},
+  ) {
     return this.request<RememberResult>('/v1/ingest/mention', {
       method: 'POST',
       body: {
         text,
+        ...(options.meta ? { meta: options.meta } : {}),
         ...(options.vertical || options.conversationId
           ? {
               contextRef: {

@@ -1,12 +1,6 @@
 import { TRIAGE_VERSION, type TriageStamp } from './triage';
 import { createHash } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
 import { acceptedBeforeForget, USER_FORGOTTEN } from '../common/user-tombstone';
 import {
@@ -19,7 +13,7 @@ import {
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
-import { sanitizeSourceMeta } from '../policy/source-meta';
+import { gateCallerMeta } from '../common/caller-meta-gate';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { scopeForUser, teamTagsOf } from '../auth/scope-tags';
@@ -129,24 +123,17 @@ export class DocumentStoreService {
   ): Promise<CreateDocumentResult> {
     // CALLER meta becomes ABAC-matchable `source.meta` on every derived
     // fact (commit-writer projection), so it must be operator
-    // vocabulary. Default: sanitize-and-warn; SOURCE_META_STRICT=1
-    // rejects instead — a silently-dropped data_class would silently
-    // widen access. Only dto.meta is checked: brain's own provenance is
-    // not caller input and is merged in AFTER this gate.
-    if (dto.meta !== undefined) {
-      const { dropped } = sanitizeSourceMeta(dto.meta);
-      if (dropped.length > 0) {
-        if (envFlagNotDisabled(process.env.SOURCE_META_STRICT)) {
-          throw new BadRequestException({
-            error: 'invalid_meta',
-            issues: dropped,
-          });
-        }
-        this.logger.warn(
-          `document meta has ${dropped.length} non-projectable entr(ies): ${dropped[0]}`,
-        );
-      }
-    }
+    // vocabulary. One gate for every route (src/common/caller-meta-gate.ts):
+    // strict by default — 400 `invalid_meta` — unless SOURCE_META_STRICT
+    // is explicitly off, which warns instead (a silently-dropped
+    // data_class would silently widen access). Only dto.meta is checked:
+    // brain's own provenance is not caller input and is merged in AFTER
+    // this gate. The bag is stored as sent; the commit writer re-sanitizes
+    // it before projecting.
+    gateCallerMeta(dto.meta, {
+      warn: (count, first) =>
+        this.logger.warn(`document meta has ${count} non-projectable entr(ies): ${first}`),
+    });
     // Brain's keys are brain's: a caller asserting one has it dropped,
     // loudly. `toolObservationRef` rides into every derived fact's
     // source.evidence[] verbatim, so an accepted caller copy would be a

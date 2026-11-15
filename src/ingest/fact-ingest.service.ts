@@ -3,7 +3,7 @@ import { SurrealService } from '../db/surreal.service';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
 import { MetricsService } from '../metrics/metrics.service';
-import { sanitizeSourceMeta } from '../policy/source-meta';
+import { gateCallerMeta, LEGACY_INVALID_METADATA } from '../common/caller-meta-gate';
 import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestOutcome, IngestResult } from './ingest-result';
 import { buildConflictExplanation } from './conflict-explainer';
@@ -100,8 +100,11 @@ export class FactIngestService {
     // Direct-path metadata projection: dto.metadata (historically
     // accepted-and-dropped) lands on `source.meta` so ABAC
     // `source.meta.*` rules match direct facts like document-derived
-    // ones. Sanitized to operator vocabulary; SOURCE_META_STRICT=1
-    // turns drops into a 400 instead of a warn.
+    // ones. One gate for every route (src/common/caller-meta-gate.ts):
+    // strict by default — an entry the sanitizer would drop is a 400
+    // (`code: invalid_meta`; this route's `error` stays the legacy
+    // `invalid_metadata`) unless SOURCE_META_STRICT is explicitly off,
+    // which drops it with a warning instead.
     //
     // A caller can also put meta directly on `dto.source.meta` — that copy
     // above carries it verbatim, so it MUST go through the same sanitizer,
@@ -110,22 +113,12 @@ export class FactIngestService {
     // channel and wins; a raw source.meta is sanitized as a fallback.
     const rawSourceMeta = source.meta;
     delete source.meta;
-    const metaInput = dto.metadata ?? rawSourceMeta;
-    if (metaInput !== undefined) {
-      const { meta, dropped } = sanitizeSourceMeta(metaInput);
-      if (dropped.length > 0) {
-        if (envFlagNotDisabled(process.env.SOURCE_META_STRICT)) {
-          throw new BadRequestException({
-            error: 'invalid_metadata',
-            issues: dropped,
-          });
-        }
-        this.logger.warn(
-          `ingest fact metadata partially dropped (${dropped.length} issue(s)): ${dropped[0]}`,
-        );
-      }
-      if (meta) source.meta = meta;
-    }
+    const meta = gateCallerMeta(dto.metadata ?? rawSourceMeta, {
+      legacyError: LEGACY_INVALID_METADATA,
+      warn: (count, first) =>
+        this.logger.warn(`ingest fact metadata partially dropped (${count} issue(s)): ${first}`),
+    });
+    if (meta) source.meta = meta;
     // Agent attribution: the verified acting-client identity (token act/
     // client_id, stamped into ALS by the guard) lands on source.meta.actor
     // — auth-derived, so it OVERRIDES any caller-asserted `actor` meta.
