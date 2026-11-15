@@ -146,7 +146,8 @@ export class MentionViaDocumentService {
           // they ride the internal channel instead — bounded there
           // (internalDocumentMeta: string, ≤ the short-scalar limit, else
           // 400). Asserting them as caller meta 400'd every mention under
-          // SOURCE_META_STRICT=1 — and, because an object literal
+          // SOURCE_META_STRICT (strict unless explicitly disabled) — and,
+          // because an object literal
           // materialises a key even for an undefined value, it did so
           // even for requests that sent no conversationId/messageId/
           // eventId whatsoever.
