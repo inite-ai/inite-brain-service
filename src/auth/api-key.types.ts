@@ -12,6 +12,12 @@ export type BrainScope =
   // next to their usual scope, and no other route names it. A user-bound
   // token holding it still erases only its own user (pinUserScope).
   | 'brain:erase'
+  // Act for this credential's CHILD tenants (src/auth/child-tenant.ts, ADR
+  // docs/adr/0001-child-tenants.md): with the X-Brain-Child-Tenant header a
+  // request runs in `<own companyId>__<child>`, created on first use, and
+  // DELETE /v1/tenants/children/:childId drops a child whole. Reaches only children of the credential's own tenant, never
+  // another tenant: the parent half of the id is derived, not asserted.
+  | 'brain:tenants'
   // Media/biometric evidence access (faces, voices, ID documents — see
   // src/common/media-pii.ts). A STRICTER regime than brain:read_pii, not
   // an extension of it: read_pii opens text rows whose piiClass is set,

@@ -16,6 +16,7 @@ import { CHALLENGE_SCOPE, resourceMetadataUrl } from './resource-metadata';
 import { BrainScope, AuthenticatedRequest, ApiKeyRecord } from './api-key.types';
 import { envFlagEnabled } from '../common/env-validation';
 import { PLATFORM_TENANT_SCOPE } from './tenant-scope';
+import { resolveChildTenant } from './child-tenant';
 import { resolveRetrievalProfileFor } from '../search/retrieval-profile';
 import { MembershipService } from './membership.service';
 import { rememberScopeTags } from './scope-principal';
@@ -170,7 +171,7 @@ export class ApiKeyGuard implements CanActivate {
       }
     }
 
-    const companyId = resolveTenantOverride(record, request);
+    const companyId = this.tenantOf(record, request);
     // Retrieval profile — resolved ONCE per request, next to brainAuth
     // (S3 of the platform directive). Everything below the boundary
     // takes this object; nothing re-reads the genre env keys.
@@ -200,6 +201,23 @@ export class ApiKeyGuard implements CanActivate {
       ...(policy ? { policy } : {}),
     };
     return true;
+  }
+
+  /**
+   * The tenant the request runs in. A child tenant (X-Brain-Child-Tenant +
+   * brain:tenants) is derived from the credential's own tenant, so it can
+   * never name another product's children; without the header, the
+   * platform override as before.
+   */
+  private tenantOf(record: ApiKeyRecord, request: { headers?: Record<string, unknown> }): string {
+    const child = resolveChildTenant(record, request.headers);
+    if (!child) return resolveTenantOverride(record, request);
+    // Into the roster on first use, as a credential's own tenant is: the
+    // worker claims a tenant's jobs (its extraction batches) only there.
+    this.credentials.noteTenant(child);
+    const store = getRequestContext();
+    if (store) store.companyId = child;
+    return child;
   }
 
   private async warmScopeTags(companyId: string, userId: string | undefined): Promise<void> {

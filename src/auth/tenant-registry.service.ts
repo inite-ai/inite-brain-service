@@ -222,6 +222,26 @@ export class TenantRegistryService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Remove a tenant's registry row after its database was dropped (a child
+   * tenant erased by its parent, child-tenant.ts): out of the fan-out
+   * roster here at once, on other pods at their next refresh. A later
+   * request for the same id registers it afresh, as any new tenant.
+   */
+  async forget(companyId: string): Promise<void> {
+    if (!COMPANY_ID.test(companyId)) {
+      throw new Error(`Invalid companyId: ${companyId}`);
+    }
+    this.activeCache.delete(companyId);
+    this.knownStatus.delete(companyId);
+    this.statusWrittenAt.delete(companyId);
+    this.lastWriteAt.delete(companyId);
+    if (!this.surreal) return;
+    await this.surreal.withAdminDb((db) =>
+      db.query(`DELETE type::record('tenant_registry', $companyId)`, { companyId }),
+    );
+  }
+
+  /**
    * Hot-path "this tenant just authenticated" hook: records that the tenant
    * was seen (a throttled, non-blocking lastSeen upsert) and reconciles the
    * roster cache from the tenant's lifecycle STATUS — never from the

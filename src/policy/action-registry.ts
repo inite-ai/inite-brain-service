@@ -128,6 +128,12 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // #916: data residency directory.
   'rest.admin.residency.get': { kind: 'read', family: 'rest', title: 'Get tenant residency' },
   'rest.admin.residency.pin': { kind: 'write', family: 'rest', title: 'Pin tenant residency' },
+  // ADR 0001: a product drops one of its child tenants (company offboarding).
+  'rest.tenants.child.erase': {
+    kind: 'write',
+    family: 'rest',
+    title: 'Erase a child tenant',
+  },
   // #945 phase 2: who pays for a tenant's server-side chat calls.
   'rest.admin.model_source.get': { kind: 'read', family: 'rest', title: 'Get tenant model source' },
   'rest.admin.model_source.set': {
