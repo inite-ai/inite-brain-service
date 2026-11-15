@@ -8,6 +8,12 @@ import { tierMultiplierFor, tokenTrackerKey } from '../auth/tier-multiplier';
 /** The throttler name the failed-authentication budget is kept under. */
 const AUTH_FAIL_THROTTLER = 'authfail';
 
+/** The opt-in model-route throttler (app.module.ts). */
+const EXPENSIVE = 'expensive';
+
+/** @nestjs/throttler's metadata key prefix for a per-route limit (throttler.constants). */
+const THROTTLER_LIMIT = 'THROTTLER:LIMIT';
+
 /** A storage that can say a bucket is blocked without counting a hit (SurrealThrottlerStorage). */
 interface BlockAwareStorage {
   isBlocked(key: string, throttlerName: string): Promise<boolean>;
@@ -76,6 +82,19 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
   }
 
   protected override async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
+    // `expensive` is opt-in. Nest applies every configured throttler to
+    // every route, so without this the 10/min model-route cap also
+    // counted /v1/ingest/fact, entity reads and every other cheap route,
+    // one bucket per route (the health probes were exempted for exactly
+    // that, see health.controller.ts). A route rations the expensive
+    // bucket by declaring @Throttle({ expensive: … }); the rest answer to
+    // `default` alone.
+    if (
+      requestProps.throttler.name === EXPENSIVE &&
+      !this.declares(requestProps.context, EXPENSIVE)
+    ) {
+      return true;
+    }
     const req = requestProps.context.switchToHttp().getRequest();
     const token = bearerToken(req);
     const failKey = `ip:${(req.ip as string | undefined) ?? 'unknown'}`;
@@ -103,6 +122,15 @@ export class TenantThrottlerGuard extends ThrottlerGuard {
       });
     }
     return super.handleRequest(requestProps);
+  }
+
+  /** True when the route or its controller sets a limit for `throttler`. */
+  private declares(context: ExecutionContext, throttler: string): boolean {
+    const limit: unknown = this.reflector.getAllAndOverride(THROTTLER_LIMIT + throttler, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    return limit !== undefined;
   }
 
   protected override async getTracker(req: Record<string, unknown>): Promise<string> {

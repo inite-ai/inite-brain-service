@@ -7,6 +7,7 @@ import { IngestFactDto } from './dto/ingest-fact.dto';
 import { IngestMentionDto } from './dto/ingest-mention.dto';
 import { IngestLinkDto } from './dto/ingest-link.dto';
 import { AuthenticatedRequest } from '../auth/api-key.types';
+import { mentionIngestLimit } from '../common/ingest-throttle';
 
 @Controller('v1/ingest')
 @UseGuards(ApiKeyGuard)
@@ -23,8 +24,10 @@ export class IngestController {
   @Post('mention')
   @RequireScopes('brain:write')
   @PolicyAction('rest.ingest.mention')
-  // Mention ingest runs the LLM extractor; cap per-credential rate.
-  @Throttle({ expensive: { limit: 10, ttl: 60_000 } })
+  // Queued (via the document pipeline): an enqueue, THROTTLE_INGEST_LIMIT
+  // per credential. Direct: the LLM extractor runs in the request, 10/min.
+  // See src/common/ingest-throttle.ts.
+  @Throttle({ expensive: { limit: () => mentionIngestLimit(), ttl: 60_000 } })
   async ingestMention(@Req() req: AuthenticatedRequest, @Body() body: IngestMentionDto) {
     // Direct or through the document pipeline: IngestService decides
     // (INGEST_MENTION_VIA_DOCUMENT), for every caller alike.
