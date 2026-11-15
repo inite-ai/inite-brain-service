@@ -28,6 +28,7 @@ import {
   type EdgeTiming,
   type EventTimeResolveOpts,
 } from './event-time';
+import { acceptedBeforeForget } from '../common/user-tombstone';
 
 export interface MentionPersistResult {
   extractedEntityIds: string[];
@@ -61,6 +62,12 @@ export class MentionPersistService {
   }): Promise<MentionPersistResult> {
     const { companyId, dto, extraction, source, factEmbeddings } = p;
     return this.surreal.withCompany(companyId, async (db) => {
+      // An extraction accepted before the user's forget writes nothing
+      // after it (user-tombstone.ts).
+      if (await acceptedBeforeForget(db, companyId, dto.userId)) {
+        this.logger.warn(`mention for a forgotten user dropped (${extraction.facts.length} facts)`);
+        return { extractedEntityIds: [], extractedFactIds: [], extractedEdgeIds: [] };
+      }
       const entityIds = await this.persistEntities(db, { extraction, dto });
       const factIds = await this.persistFacts(db, {
         companyId,

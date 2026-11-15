@@ -207,6 +207,21 @@ curl -X POST https://brain.example.com/v1/entities/$ENTITY_ID/forget \
 
 `reason` is one of `gdpr_request`, `tenant_offboarding`, `operator_request`. The HMAC means you can prove a forget happened without recovering what you forgot.
 
+A user forget (`POST /v1/users/:userId/forget`) also leaves a tombstone in
+`user_tombstone` (migration 0200): the record key is an HMAC of the user id
+(under `FORGET_HMAC_KEY`) and the row holds `forgottenAt`. Every write path
+for that user (document store, mention persist, document commit, episode
+capture, the fact resolver under every job) drops work that was ACCEPTED at
+or before `forgottenAt`: a request by its arrival time, a job by its claim,
+a stored document by its `createdAt`. So a background extraction that
+finishes after the forget writes nothing, and the log says
+`commit for a forgotten user dropped (N facts, …)` or `mention for a
+forgotten user dropped`. Work accepted after the forget is written: a
+person who re-consents in the product is remembered again, and a product
+that must erase again sends another forget. Rotating `FORGET_HMAC_KEY`
+orphans existing tombstones; only work already in flight at the rotation
+is affected.
+
 For a whole-tenant forget, hit `dropCompanyDatabase` directly (admin tooling, not exposed via HTTP). That's a single-statement `REMOVE DATABASE co_<companyId>`.
 
 ## Monitor: metrics + logs

@@ -9,6 +9,7 @@ import {
   purgeExclusiveDocContent,
   type QueryHandle,
 } from '../documents/document-purge.util';
+import { recordUserTombstone } from '../common/user-tombstone';
 
 /**
  * UserForgetService — GDPR erasure for a per-user memory scope
@@ -106,6 +107,12 @@ export class UserForgetService {
       // background passes: retry each one on a read conflict, so erasure
       // completes instead of failing halfway.
       const db = retryingQueries(conn);
+      // The tombstone goes first, before any row dies: from here on, work
+      // accepted before this moment (a background extraction, a request
+      // whose client gave up, a running job) is dropped at its write
+      // instead of recreating what the cascade below erases
+      // (src/common/user-tombstone.ts, migration 0200).
+      await recordUserTombstone(db, companyId, userId);
       // Record ids first — the audit purge needs them AFTER the rows die.
       const [factIdRows] = await db.query<[unknown[]]>(
         `SELECT VALUE id FROM knowledge_fact WHERE userId = $u`,

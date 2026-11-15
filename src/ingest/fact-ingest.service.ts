@@ -14,6 +14,7 @@ import { episodeIdsValidationError, evidenceValidationError } from './ingest-uti
 import { groundingStampEnabled } from '../common/evidence-flags';
 import { pinUserScope } from '../auth/user-scope';
 import { getRequestContext } from '../common/request-context';
+import { acceptedBeforeForget, USER_FORGOTTEN } from '../common/user-tombstone';
 
 /**
  * The typed direct-ingest path (`ingestFact`): a single fully-specified fact
@@ -127,6 +128,11 @@ export class FactIngestService {
       source.meta = { ...((source.meta as Record<string, unknown>) ?? {}), actor: actorId };
     }
     return this.surreal.withCompany(companyId, async (db) => {
+      // 0. A request that arrived before its user was forgotten writes
+      //    nothing after it, not even the entity (user-tombstone.ts).
+      if (await acceptedBeforeForget(db, companyId, dto.userId)) {
+        return { factId: null, outcome: 'REJECTED' as const, reason: USER_FORGOTTEN };
+      }
       // 1. Resolve entity (own atomic step — own tx with unique-retry).
       //    dto.userId scopes both the entity dedup key and the fact.
       const entityId = await this.entities.resolveOrCreateEntity(db, dto, dto.userId);
