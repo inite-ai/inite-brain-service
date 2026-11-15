@@ -25,7 +25,9 @@ Brain's side of it is `src/auth/token-audience.ts`, pinned by
 ## Ground rules (non-negotiable)
 
 1. **Never edit a shipped migration.** Schema changes are a NEW file
-   `src/db/migrations/NNNN_description.surql` (next free number, idempotent,
+   `src/db/migrations/NNNN_description.surql` (one above the highest
+   existing number, never a gap below it: 0194 and 0196 are retired,
+   see docs/operations.md § Schema migrations; idempotent,
    `IF NOT EXISTS`). The migrator records applied ids per tenant and skips
    a file it has seen, so an edit never reaches production: every file's
    checksum is pinned in `test/golden/migration-checksums.json`

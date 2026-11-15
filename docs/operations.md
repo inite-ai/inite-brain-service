@@ -1420,6 +1420,20 @@ line `Schema apply failed for <ns>/<db>`. Fix the file's problem by shipping
 a NEW migration (never edit a shipped one), or repair the tenant's data by
 hand, then wait for the next retry or restart the replica.
 
+**Numbering has gaps on purpose: 0194 and 0196 do not exist, and must
+never be filled.** On 2026-11-13 a wave of parallel PRs was handed
+migration numbers in advance, each to be used only if the change turned
+out to need one: `0194_record_id_two_arg` for #940 (record ids bound as
+table + key) and `0196_embedding_space_on_write` for #942 (every vector
+write declares its embedding space). Both changes landed in code alone, so
+neither file was ever written, while 0195, 0197, 0198 and 0199 shipped
+around them. The migrator applies every file a database has not recorded,
+in name order, so a file numbered 0194 or 0196 today would run on
+production tenants AFTER 0199, out of the order its number claims, and
+on a fresh tenant BEFORE 0195: two different histories for one file. A
+new migration takes the number one above the highest file in
+`src/db/migrations/`, never a free slot below it.
+
 `GET /v1/admin/migrations` reads each tenant's ledger **as it is**, without
 migrating it first. A tenant behind the manifest shows its pending files. A
 tenant whose ledger cannot be read is listed with `error: "ledger read
