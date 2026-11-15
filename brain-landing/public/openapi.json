@@ -4495,6 +4495,19 @@
             },
             "type": "array"
           },
+          "meta": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "text": {
             "maxLength": 16000,
             "type": "string"

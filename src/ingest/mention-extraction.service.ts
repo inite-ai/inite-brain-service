@@ -22,6 +22,8 @@ export interface MentionSource {
   conversationId?: string | undefined;
   messageId?: string | undefined;
   recorder: string;
+  /** Caller meta (gated at IngestService.ingestMention): ABAC `source.meta`. */
+  meta?: Record<string, string | number | boolean> | undefined;
 }
 
 export type MentionPrep =
@@ -117,6 +119,9 @@ export class MentionExtractionService {
       // recorder wins; otherwise the extraction model id, so source-trust
       // scores LLM-extracted facts per model.
       recorder: dto.contextRef.recorder ?? this.extractor.modelId(),
+      // Already sanitized at the entry; absent key when none was sent, so a
+      // meta-free mention's source stays byte-identical.
+      ...(dto.meta ? { meta: dto.meta as MentionSource['meta'] } : {}),
     };
 
     // Contextual fact embedding (Anthropic Contextual Retrieval, fact-level):
