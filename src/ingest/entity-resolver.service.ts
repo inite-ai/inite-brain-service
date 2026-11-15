@@ -5,7 +5,11 @@ import { EntityJudgeService } from '../ai/entity-judge.service';
 import { traceArtifact } from '../common/debug-trace';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { singleValuedPredicates } from '../ai/predicate-semantics';
-import { conflictsOnSingleValuedSlot } from './same-name-conflict';
+import {
+  compareIdentity,
+  conflictsOnSingleValuedSlot,
+  type IdentityMatch,
+} from './same-name-conflict';
 import {
   EntityCandidateService,
   judgeSimilarity,
@@ -205,16 +209,23 @@ export class EntityResolverService {
    * whether the facts CONTRADICT it (the `same-name` hint), and only when
    * there is something to contradict — the mention brings facts AND the
    * candidate holds some. A mention with no facts or a candidate with none
-   * reuses the first candidate exactly as before; so does `unsure`. Only a
-   * `different` verdict on every candidate mints a new entity.
+   * reuses the first candidate exactly as before. A `different` verdict
+   * rules the candidate out.
    *
    * Without a judge (no model key, harness mode, the resolver off) the
-   * same question is answered on the slots themselves: a candidate whose
-   * single-valued facts the mention disagrees with is not reused
-   * (same-name-conflict.ts — a wrong merge is invisible forever, a wrong
-   * split is a pair the dedup pass judges later). Measured by
-   * eval:entity-resolution: three same-name different people of three were
-   * fused through `exact` with the judge off.
+   * same question is answered on the facts themselves (`contradictionCheck`): a
+   * candidate the mention disagrees with on a single-valued slot, or on who
+   * the person is — city, employer, profession — with nothing in common,
+   * is not reused (same-name-conflict.ts — a wrong merge is invisible
+   * forever, a wrong split is a pair the dedup pass judges later).
+   * Measured by eval:entity-resolution: three same-name different people
+   * of three were fused through `exact` with the judge off.
+   *
+   * `unsure` is no verdict — it is also what the judge answers when its
+   * call fails — so it gets the judge-less answer: the candidate is kept
+   * as a fallback only when nothing contradicts it. It used to be kept
+   * whatever the facts said, and that alone fused the Munich vet and the
+   * Lisbon engineer whenever the judge hedged or timed out (#815).
    *
    * Never throws: a failing fact read counts as "nothing to contradict".
    */
@@ -229,32 +240,42 @@ export class EntityResolverService {
     if (incomingFacts.length === 0) return { kind: 'reuse', entityId: first.entityId };
     if (!this.isEnabled()) return this.sameNameBySlots(db, candidates, incomingFacts);
     const incoming = incomingFacts.map((f) => `- ${f}`).join('\n');
-    // The first candidate nothing contradicted, kept while a later one
-    // might still be judged outright "same".
+    const check = this.contradictionCheck(db, incomingFacts);
+    // The first candidate nothing contradicted — one whose identity the
+    // facts confirm ahead of one they merely leave open — kept while a
+    // later one might still be judged outright "same".
     let fallback: string | undefined;
+    let confirmed: string | undefined;
     for (const c of candidates) {
       const existingFacts = await this.judge
         .fetchTopFacts(db, c.entityId)
         .catch(() => '(no facts)');
-      const verdict =
-        existingFacts === '(no facts)'
-          ? 'unsure'
-          : await this.judge.judge(existingFacts, incoming, {
-              cosine: 1,
-              similarity: 'same-name',
-              names: { a: c.canonicalName, b: name },
-            });
+      const empty = existingFacts === '(no facts)';
+      const verdict = empty
+        ? 'unsure'
+        : await this.judge.judge(existingFacts, incoming, {
+            cosine: 1,
+            similarity: 'same-name',
+            names: { a: c.canonicalName, b: name },
+          });
+      // A candidate with nothing on record has nothing to contradict.
+      const evidence: IdentityMatch =
+        verdict === 'unsure' && !empty ? await check(c.entityId) : 'unrelated';
+      const contradicted = evidence === 'contradicts';
       traceArtifact('ingest.entity.same_name', {
         name,
         candidate: { entityId: c.entityId, canonicalName: c.canonicalName },
         existingFacts,
         incoming,
         verdict,
+        contradicted,
       });
       if (verdict === 'same') return { kind: 'reuse', entityId: c.entityId };
-      if (verdict === 'unsure') fallback ??= c.entityId;
+      if (verdict === 'unsure' && !contradicted) fallback ??= c.entityId;
+      if (verdict === 'unsure' && evidence === 'agrees') confirmed ??= c.entityId;
     }
-    if (fallback) return { kind: 'reuse', entityId: fallback };
+    const kept = confirmed ?? fallback;
+    if (kept) return { kind: 'reuse', entityId: kept };
     // Ids only: the name is memory content.
     this.logger.log(
       `[ingest.inline_resolution] same-name candidates ` +
@@ -266,38 +287,80 @@ export class EntityResolverService {
 
   /**
    * The judge-less same-name decision: the first candidate the mention's
-   * facts do not disagree with on a single-valued slot, else a new entity.
-   * A failing read counts as nothing to disagree with.
+   * facts confirm, else the first they do not contradict, else a new
+   * entity. A failing read counts as nothing to contradict.
    */
   private async sameNameBySlots(
     db: Surreal,
     candidates: ConfirmSameNameOptions['candidates'],
     incomingFacts: string[],
   ): Promise<SameNameOutcome> {
-    try {
-      const [registry] = await db.query<[Array<{ predicateId: string; semantics: string }>]>(
-        `SELECT predicateId, semantics FROM knowledge_predicate;`,
-      );
-      const singleValued = singleValuedPredicates(registry ?? []);
-      for (const c of candidates) {
-        const [facts] = await db.query<[Array<{ predicate: string; object: string }>]>(
-          `SELECT predicate, object FROM knowledge_fact
-            WHERE entityId = $eid AND status = 'active' AND retractedAt IS NONE`,
-          { eid: new StringRecordId(c.entityId) },
-        );
-        if (!conflictsOnSingleValuedSlot(incomingFacts, facts ?? [], singleValued)) {
-          return { kind: 'reuse', entityId: c.entityId };
-        }
-      }
-    } catch {
-      return { kind: 'reuse', entityId: candidates[0]!.entityId };
+    const check = this.contradictionCheck(db, incomingFacts);
+    // Several entities share the name: the mention goes to the one its
+    // facts confirm, else to the first they do not contradict.
+    let open: string | undefined;
+    for (const c of candidates) {
+      const evidence = await check(c.entityId);
+      if (evidence === 'agrees') return { kind: 'reuse', entityId: c.entityId };
+      if (evidence === 'unrelated') open ??= c.entityId;
     }
+    if (open) return { kind: 'reuse', entityId: open };
     // Ids only: the name is memory content.
     this.logger.log(
       `[ingest.inline_resolution] same-name candidates ` +
-        `${candidates.map((c) => c.entityId).join(', ')} disagree with the mention on a ` +
-        `single-valued slot and no judge is available — creating new`,
+        `${candidates.map((c) => c.entityId).join(', ')} contradicted by the mention's facts ` +
+        `and no judge confirmed one — creating new`,
     );
     return { kind: 'distinct' };
+  }
+
+  /**
+   * How the mention's facts meet an entity's, decided on the facts alone:
+   * `contradicts` on a single-valued slot holding another value, else the
+   * person's city / employer / profession compared (`compareIdentity`).
+   * The entity's side is its live facts and its live edges — the
+   * extractor files an employer and a city as edges, and the mention's
+   * side already carries its edges as `kind: other` lines.
+   * An ended fact or edge is history and contradicts nothing on the
+   * identity attributes. The predicate registry is read once per mention.
+   * Never throws: a failing read is `unrelated` (nothing to contradict).
+   */
+  private contradictionCheck(
+    db: Surreal,
+    incomingFacts: string[],
+  ): (entityId: string) => Promise<IdentityMatch> {
+    let singleValued: Promise<Set<string>> | undefined;
+    const registry = () =>
+      (singleValued ??= db
+        .query<[Array<{ predicateId: string; semantics: string }>]>(
+          `SELECT predicateId, semantics FROM knowledge_predicate;`,
+        )
+        .then(([rows]) => singleValuedPredicates(rows ?? [])));
+    return async (entityId) => {
+      try {
+        type Held = { predicate: string; object: string; ended?: boolean };
+        const eid = new StringRecordId(entityId);
+        const [facts] = await db.query<[Held[]]>(
+          `SELECT predicate, object, (validUntil != NONE AND validUntil <= time::now()) AS ended
+             FROM knowledge_fact
+            WHERE entityId = $eid AND status = 'active' AND retractedAt IS NONE`,
+          { eid },
+        );
+        const [edges] = await db.query<[Held[]]>(
+          `SELECT kind AS predicate, out.canonicalName AS object,
+                  (validUntil != NONE AND validUntil <= time::now()) AS ended
+             FROM knowledge_edge
+            WHERE in = $eid AND invalidatedAt IS NONE AND out.canonicalName != NONE`,
+          { eid },
+        );
+        const live = [...(facts ?? []), ...(edges ?? [])].filter((h) => !h.ended);
+        if (conflictsOnSingleValuedSlot(incomingFacts, facts ?? [], await registry())) {
+          return 'contradicts';
+        }
+        return compareIdentity(incomingFacts, live);
+      } catch {
+        return 'unrelated';
+      }
+    };
   }
 }
