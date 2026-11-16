@@ -210,6 +210,12 @@ instead of reading as a verdict on the memory (#945):
 observedRefusals }`. `PUT` with `{ "modelSource": "auto" | "harness" }`
   sets the workspace's own choice; `"platform"` and other workspaces need
   `brain:platform_admin`.
+- `GET /v1/admin/retention` (`brain:admin`, own workspace) returns
+  `{ companyId, userInactiveDays, familyDefaultDays }`; `PUT` with
+  `{ "userInactiveDays": 730 }` (30..3650) erases each user after that many
+  days without a write, through the user forget, in a daily job; `null`
+  turns it off (the default). See
+  [operations.md § User retention](operations.md#user-retention-0201).
 - `degraded: ["verifier"]`: the answer could not be checked. Either the
   verifier call itself was refused, or part of the audit was (the
   decision-plane pass, a revision, a re-verify) and the verdict came back

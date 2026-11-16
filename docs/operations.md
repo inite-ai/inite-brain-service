@@ -1081,6 +1081,42 @@ silently discarded on the next deploy. A value at or below the 5-minute
 re-auth margin is honoured but logged at error level: every scoped acquire
 then re-signs, which only the expiry e2e wants.
 
+## User retention (0201)
+
+A person's memory can be erased automatically after a stretch without
+contact (owner decision 2026-11-14: two years, 730 days, for the family
+products). **Off for every tenant until it is set**: an existing tenant
+never starts erasing because a release shipped, and nothing marks a tenant
+as "family" reliably enough to switch it on by itself. Set it when a family
+product is onboarded:
+
+```bash
+curl -X PUT https://brain.inite.ai/v1/admin/retention \
+  -H "authorization: Bearer $TENANT_ADMIN_KEY" -H 'content-type: application/json' \
+  -d '{"userInactiveDays": 730}'
+```
+
+`brain:admin` on the tenant itself (a platform operator reaches another
+tenant through the usual tenant override); `GET` reads it; `null` turns it
+off; 30..3650 days. Stored as `retention_policy:users` in the tenant's
+database.
+
+- **Last contact** is the latest write for the user: a turn (`episode`), a
+  fact (`knowledge_fact.recordedAt`) or a stored document. A read made on
+  the person's behalf is not contact.
+- **The job** `user_retention`: a daily cron (04:41 UTC) enqueues one job
+  per tenant, deduplicated per day; a tenant with no rule returns at once.
+  The handler reads last contact with three `GROUP BY userId` passes (a
+  whole-tenant read, so in the worker, never on a request path) and runs
+  the **user forget** for each user past the window, oldest first, at most
+  25 per run; more enqueue a continuation a minute later.
+- **The erase is the user forget**, the same as `POST
+/v1/users/:userId/forget`: documents, dead letters, episodes and every
+  derived row go, and the forget's tombstone (0200) stops work still in
+  flight from writing the person back.
+- **Log** (counts only): `retention <tenant>: window=730d expired=N
+forgotten=N failed=N remaining=N`.
+
 ## Data migrations (0197)
 
 Schema migrations (`src/db/migrations/`) define schema only, from 0197 on.

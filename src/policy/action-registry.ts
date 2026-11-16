@@ -128,6 +128,9 @@ export const ACTIONS: Record<string, ActionSpec> = {
   // #916: data residency directory.
   'rest.admin.residency.get': { kind: 'read', family: 'rest', title: 'Get tenant residency' },
   'rest.admin.residency.pin': { kind: 'write', family: 'rest', title: 'Pin tenant residency' },
+  // Per-tenant retention: erase a person after a stretch without contact.
+  'rest.admin.retention.get': { kind: 'read', family: 'rest', title: 'Get tenant retention' },
+  'rest.admin.retention.set': { kind: 'write', family: 'rest', title: 'Set tenant retention' },
   // #945 phase 2: who pays for a tenant's server-side chat calls.
   'rest.admin.model_source.get': { kind: 'read', family: 'rest', title: 'Get tenant model source' },
   'rest.admin.model_source.set': {
