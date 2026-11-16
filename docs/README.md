@@ -33,6 +33,7 @@ with one row per document.
 | [Data model](data-model.md) | Bitemporal facts, predicate vocabulary, conflict resolution, tenancy, PII / GDPR. |
 | [Bitemporal semantics](bitemporal-semantics.md) | Default-now search, Allen's interval algebra, why not just post-filter. |
 | [Source reputation & trust](source-reputation.md) | Domain-scoped trust, corroboration, feedback loop, trust in ranking. |
+| [ADR 0001: child tenants](adr/0001-child-tenants.md) | One B2B product machine client, many client companies, each in its own tenant: `brain:tenants`, `X-Brain-Child-Tenant`, the derived `<parent>__<child>` namespace, whole-child erase. |
 | [ABAC access policies](abac.md) | Per-key policy sets: action gating + row-level read filtering, rollout runbook. |
 | [Document pipeline](document-pipeline.md) | Source → Indexer → Candidates → Brain: composable indexers, staged candidates, origin-keyed corroboration, re-indexing, external indexers, seed documents. |
 | [Source plane](source-plane.md) | Where brain READS raw evidence from: pack-declared sources, connections, the per-connection catalogue, the sync engine (diff · fetch by policy · drift stamps · delete policy) and the door each shape enters. Flag `SOURCE_PLANE_ENABLED`. |

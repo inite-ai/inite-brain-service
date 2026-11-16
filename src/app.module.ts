@@ -24,6 +24,7 @@ import { FactsModule } from './facts/facts.module';
 import { BeliefsModule } from './beliefs/beliefs.module';
 import { ScenesModule } from './scenes/scenes.module';
 import { EntitiesModule } from './entities/entities.module';
+import { TenantsModule } from './tenants/tenants.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { McpModule } from './mcp/mcp.module';
 import { CompactionModule } from './compaction/compaction.module';
@@ -105,6 +106,7 @@ import { DataMigrationsModule } from './db/data-migrations/data-migrations.modul
     BeliefsModule,
     ScenesModule,
     EntitiesModule,
+    TenantsModule,
     ArtifactsModule,
     FeedbackModule,
     KeysModule,

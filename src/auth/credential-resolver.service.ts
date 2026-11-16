@@ -133,4 +133,14 @@ export class CredentialResolverService {
     }
     return record;
   }
+
+  /**
+   * A tenant this request proved live without being its credential's own:
+   * a child tenant (child-tenant.ts). Lands in tenant_registry like any
+   * resolved tenant, so background loops (the worker's job claims among
+   * them) walk it.
+   */
+  noteTenant(companyId: string): void {
+    this.apiKeys.noteResolvedTenant(companyId);
+  }
 }
