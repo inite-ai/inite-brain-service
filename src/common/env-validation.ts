@@ -141,6 +141,7 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   // app.module; validate them too so a typo isn't silently parseInt→NaN.
   positiveInt(env, 'THROTTLE_EXPENSIVE_TTL_MS', errors);
   positiveInt(env, 'THROTTLE_EXPENSIVE_LIMIT', errors);
+  positiveInt(env, 'THROTTLE_INGEST_LIMIT', errors);
   positiveInt(env, 'COMPACTION_HOT_RETENTION_DAYS', errors);
 
   // ── Body size cap (main.ts useBodyParser) ─────────────────────────

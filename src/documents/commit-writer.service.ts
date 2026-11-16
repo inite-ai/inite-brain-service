@@ -26,6 +26,7 @@ import { EpisodeStoreService } from '../ingest/episode-store.service';
 import { splitDocumentTurns, turnOfSpan, type DocumentTurn } from './document-turns';
 import { idTailOf } from '../ingest/ingest-utils';
 import { recordIdOf } from '../db/record-key';
+import { acceptedAt, acceptedBeforeForget, earliest, runAccepted } from '../common/user-tombstone';
 
 export interface FactWriteOutcome {
   fact: MergedFact;
@@ -94,6 +95,19 @@ export class CommitWriterService {
   private writeMergedInCircle(p: Parameters<CommitWriterService['writeMerged']>[0]) {
     return runInCircle(p.doc.circles ?? [], () =>
       this.surreal.withCompany(p.companyId, async (db) => {
+        // A document stored, or a commit started, before its user was
+        // forgotten writes nothing after it: the background extraction is
+        // exactly the work that outlives a forget (user-tombstone.ts).
+        const accepted = earliest(p.doc.createdAt, acceptedAt());
+        const dropped =
+          accepted !== undefined &&
+          (await runAccepted(accepted, () => acceptedBeforeForget(db, p.companyId, p.doc.userId)));
+        if (dropped) {
+          this.logger.warn(
+            `commit for a forgotten user dropped (${p.factsToWrite.length} facts, ${p.doc.id})`,
+          );
+          return { entityIds: new Map<string, string>(), facts: [], relations: [] };
+        }
         const entityIds = await this.resolveEntities(db, p);
         const turns = await this.commitTurns(db, p.companyId, p.doc);
         const facts = await this.writeFacts(db, {

@@ -6,6 +6,7 @@ import { MetricsService } from '../metrics/metrics.service';
 import type { RegisteredHandler } from './worker-loop.types';
 import { batchOutcomeOf, describeBatchOutcome } from '../common/batch-outcome';
 import { runWithTenant } from '../common/tenant-context';
+import { runAccepted } from '../common/user-tombstone';
 
 /**
  * JobDispatcherService — runs a single claimed job to completion. Owns
@@ -135,8 +136,12 @@ export class JobDispatcherService {
               attempts: ctx.attempts,
               workerId: ctx.workerId,
             })
-          : // A model call the handler makes is charged to the job's tenant.
-            await runWithTenant(ctx.companyId, () => reg.handler(ctx));
+          : // A model call the handler makes is charged to the job's tenant;
+            // the claim is when its work was accepted, so a user forgotten
+            // while it runs is not written back (user-tombstone.ts).
+            await runAccepted(new Date(), () =>
+              runWithTenant(ctx.companyId, () => reg.handler(ctx)),
+            );
       clearInterval(renewTimer);
       if (cancelRequested) {
         consumerSpan.setAttribute('job.outcome', 'cancelled');

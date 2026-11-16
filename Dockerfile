@@ -96,6 +96,9 @@ COPY package.json pnpm-lock.yaml* ./
 RUN corepack enable && pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/dist ./dist
+# First-party pack manifests: FirstPartyPackSeedService publishes them into
+# the global registry at boot (dist/registry/ -> ../../packs = /app/packs).
+COPY packs ./packs
 
 # Run as the unprivileged `node` user (uid 1000, ships with the official
 # image) instead of root. node_modules / dist stay root-owned but are

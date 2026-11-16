@@ -28,7 +28,8 @@ export type JobType =
   | 'read_affect'
   | 'read_safety'
   | 'read_voice_affect'
-  | 'data_migrations';
+  | 'data_migrations'
+  | 'user_retention';
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 

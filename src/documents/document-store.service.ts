@@ -1,13 +1,8 @@
 import { TRIAGE_VERSION, type TriageStamp } from './triage';
 import { createHash } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { Surreal } from 'surrealdb';
+import { acceptedBeforeForget, USER_FORGOTTEN } from '../common/user-tombstone';
 import {
   SurrealService,
   dbCreate,
@@ -18,7 +13,7 @@ import {
 import { retryOnReadConflict } from '../db/surreal-retry';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { sanitizeIngestText } from '../common/text-sanitizer';
-import { sanitizeSourceMeta } from '../policy/source-meta';
+import { gateCallerMeta } from '../common/caller-meta-gate';
 import { idTailOf, redactPii } from '../ingest/ingest-utils';
 import { MetricsService } from '../metrics/metrics.service';
 import { scopeForUser, teamTagsOf } from '../auth/scope-tags';
@@ -46,6 +41,8 @@ export interface StoredDocument {
   vertical: string;
   recorder?: string | undefined;
   occurredAt: Date;
+  /** When the row was stored: the acceptance time of its extraction (user-tombstone.ts). */
+  createdAt?: Date | undefined;
   status: string;
   /**
    * Per-user memory scope (0128). Set = the document (and everything the
@@ -126,24 +123,17 @@ export class DocumentStoreService {
   ): Promise<CreateDocumentResult> {
     // CALLER meta becomes ABAC-matchable `source.meta` on every derived
     // fact (commit-writer projection), so it must be operator
-    // vocabulary. Default: sanitize-and-warn; SOURCE_META_STRICT=1
-    // rejects instead — a silently-dropped data_class would silently
-    // widen access. Only dto.meta is checked: brain's own provenance is
-    // not caller input and is merged in AFTER this gate.
-    if (dto.meta !== undefined) {
-      const { dropped } = sanitizeSourceMeta(dto.meta);
-      if (dropped.length > 0) {
-        if (envFlagNotDisabled(process.env.SOURCE_META_STRICT)) {
-          throw new BadRequestException({
-            error: 'invalid_meta',
-            issues: dropped,
-          });
-        }
-        this.logger.warn(
-          `document meta has ${dropped.length} non-projectable entr(ies): ${dropped[0]}`,
-        );
-      }
-    }
+    // vocabulary. One gate for every route (src/common/caller-meta-gate.ts):
+    // strict by default — 400 `invalid_meta` — unless SOURCE_META_STRICT
+    // is explicitly off, which warns instead (a silently-dropped
+    // data_class would silently widen access). Only dto.meta is checked:
+    // brain's own provenance is not caller input and is merged in AFTER
+    // this gate. The bag is stored as sent; the commit writer re-sanitizes
+    // it before projecting.
+    gateCallerMeta(dto.meta, {
+      warn: (count, first) =>
+        this.logger.warn(`document meta has ${count} non-projectable entr(ies): ${first}`),
+    });
     // Brain's keys are brain's: a caller asserting one has it dropped,
     // loudly. `toolObservationRef` rides into every derived fact's
     // source.evidence[] verbatim, so an accepted caller copy would be a
@@ -190,6 +180,16 @@ export class DocumentStoreService {
     const storeContent = dto.storeContent !== false;
 
     return this.surreal.withCompany(companyId, async (db) => {
+      // A request that arrived before its user was forgotten stores
+      // nothing after it (user-tombstone.ts). Only such a request can get
+      // here: one that arrived after the forget is written normally.
+      if (await acceptedBeforeForget(db, companyId, dto.userId)) {
+        throw new ConflictException({
+          error: USER_FORGOTTEN,
+          code: USER_FORGOTTEN,
+          message: 'the user was forgotten while this request was in flight; nothing was stored',
+        });
+      }
       try {
         const row = await retryOnReadConflict(() =>
           dbCreate<Record<string, unknown>>(db, 'source_document', {
@@ -470,6 +470,7 @@ function mapDoc(row: Record<string, unknown>): StoredDocument {
     vertical: String(row.vertical),
     recorder: row.recorder ? String(row.recorder) : undefined,
     occurredAt: new Date(row.occurredAt as string | Date),
+    ...(row.createdAt ? { createdAt: new Date(row.createdAt as string | Date) } : {}),
     status: String(row.status),
     ...(row.userId ? { userId: String(row.userId) } : {}),
     ...(Array.isArray(row.scope) && circleTagsOf(row.scope as string[]).length > 0

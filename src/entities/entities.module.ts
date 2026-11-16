@@ -4,6 +4,8 @@ import { EntitiesService } from './entities.service';
 import { EntityForgetService } from './entity-forget.service';
 import { UserForgetController } from './user-forget.controller';
 import { UserForgetService } from './user-forget.service';
+import { UserRetentionController } from './user-retention.controller';
+import { UserRetentionService } from './user-retention.service';
 import { EvidenceModule } from '../evidence/evidence.module';
 import { IngestCoreModule } from '../ingest/ingest-core.module';
 import { ScopedEntityConsolidationService } from './scoped-entity-consolidation.service';
@@ -13,11 +15,12 @@ import { ScopedEntityConsolidationService } from './scoped-entity-consolidation.
   // IngestCoreModule: the entity upsert rules the consolidation pass
   // reuses (adopt-by-name) and the one edge primitive.
   imports: [EvidenceModule, IngestCoreModule],
-  controllers: [EntitiesController, UserForgetController],
+  controllers: [EntitiesController, UserForgetController, UserRetentionController],
   providers: [
     EntitiesService,
     EntityForgetService,
     UserForgetService,
+    UserRetentionService,
     ScopedEntityConsolidationService,
   ],
   exports: [EntitiesService, ScopedEntityConsolidationService],

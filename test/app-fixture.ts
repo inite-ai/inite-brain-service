@@ -117,6 +117,8 @@ export async function createApp(
   // The capability probe is on by default in production; a spec that wants
   // its timer (test/capability-probe.e2e-spec.ts) arms it explicitly.
   process.env.CAPABILITY_PROBE_ENABLED = '0';
+  // A registry spec sees only the packs it publishes itself.
+  process.env.REGISTRY_SEED_FIRST_PARTY = '0';
   if (opts.enableScopedPool) {
     process.env.SURREALDB_SCOPED_USER = 'brain_caller';
     process.env.SURREALDB_SCOPED_PASS = 'brain-caller-password-must-be-overridden-via-env';
