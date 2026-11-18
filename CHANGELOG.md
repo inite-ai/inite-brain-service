@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.12.0](https://github.com/inite-ai/inite-brain-service/compare/v2.11.0...v2.12.0) (2026-11-18)
+
+
+### Features
+
+* **forget:** a forgotten user stays forgotten when work accepted before the forget finishes after it ([e544966](https://github.com/inite-ai/inite-brain-service/commit/e5449667b8b2b67c961b2b74e09be7f4b7d15f8e))
+* **forget:** a forgotten user stays forgotten when work accepted before the forget finishes after it ([37b8e4b](https://github.com/inite-ai/inite-brain-service/commit/37b8e4b43e15f992cc779c4406e08e327a06ce36))
+* **ingest:** a mention carries its caller's meta, checked like a document's and erased with the user ([3e837c0](https://github.com/inite-ai/inite-brain-service/commit/3e837c0f3e90ffec34280c09f5231f02a8a38435))
+* **ingest:** a mention carries its caller's meta, checked like a document's and erased with the user ([c5bc262](https://github.com/inite-ai/inite-brain-service/commit/c5bc2623678d7d44ec47162bde36a787e3c9bb7a))
+* **registry:** every boot publishes the first-party packs, so a release carries them into the registry ([ffa87f8](https://github.com/inite-ai/inite-brain-service/commit/ffa87f8c3c864b5b90f8c37a15806e430dd4c306))
+* **registry:** every boot publishes the first-party packs, so a release carries them into the registry ([fa69ffd](https://github.com/inite-ai/inite-brain-service/commit/fa69ffdd981efcdc64d9c136cdf2002903f0b0e2))
+* **retention:** a tenant can have a person's memory erased after a stretch without contact ([a135541](https://github.com/inite-ai/inite-brain-service/commit/a135541d10ab458a4fecbb929dd58ea17c546bcd))
+* **retention:** a tenant can have a person's memory erased after a stretch without contact ([6a60dc9](https://github.com/inite-ai/inite-brain-service/commit/6a60dc9f94c497c8fac6a3879c47c3c28e942bb5))
+* **seo:** one company in the graph — the product is a node of INITE, not an Organization ([#949](https://github.com/inite-ai/inite-brain-service/issues/949)) ([56f5495](https://github.com/inite-ai/inite-brain-service/commit/56f5495a3398d512ae40e0035c468481a01894a0))
+* **tenants:** one product machine client keeps each client company's memory in a child tenant of its own ([82c7036](https://github.com/inite-ai/inite-brain-service/commit/82c7036d260d12cb08a5481fb6b60c401043a2dc))
+* **tenants:** one product machine client keeps each client company's memory in a child tenant of its own ([f604800](https://github.com/inite-ai/inite-brain-service/commit/f6048002f5bea468cb46dd9162b70d832bdc129d))
+* **throttle:** a queued mention is an enqueue, and the model-route cap counts only the routes that ask for it ([5351f40](https://github.com/inite-ai/inite-brain-service/commit/5351f4007c31f8c64ddf03891fa7f08db84068df))
+* **throttle:** a queued mention is an enqueue, and the model-route cap counts only the routes that ask for it ([a37b54d](https://github.com/inite-ai/inite-brain-service/commit/a37b54d73ddb9d337fcced9c3a1bc8c96bfb86cd))
+
+
+### Bug Fixes
+
+* **ingest:** one code for a refused meta bag, and the strict default said where it is read ([c3c7d9a](https://github.com/inite-ai/inite-brain-service/commit/c3c7d9a08960dd858e54604e561f8ef124504e19))
+* **ingest:** one code for a refused meta bag; strict-by-default stated where it is read ([af5c8a0](https://github.com/inite-ai/inite-brain-service/commit/af5c8a06b2ee35d7bbeaef5dbf2d209854277bfd))
+* **ingest:** two people who share a name stay two when the judge hedges or their facts use other words ([#961](https://github.com/inite-ai/inite-brain-service/issues/961)) ([f28b0a2](https://github.com/inite-ai/inite-brain-service/commit/f28b0a26306dcfbfcb490420fc2a1bdd3f4843bd))
+
 ## [2.11.0](https://github.com/inite-ai/inite-brain-service/compare/v2.10.0...v2.11.0) (2026-11-14)
 
 
