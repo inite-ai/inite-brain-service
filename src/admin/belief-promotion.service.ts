@@ -50,9 +50,7 @@ import {
 
 // The belief phrasing prompt lives in belief-statement.ts (shared with the
 // harness work); re-exported where its callers have always imported it.
-export {
-  BELIEF_NEGATION_VALUE,
-} from './belief-statement';
+export { BELIEF_NEGATION_VALUE } from './belief-statement';
 
 // The lexical fold rule lives in belief-field-fold.ts, the scene
 // selection / row shape / #387 fence / world stamping in

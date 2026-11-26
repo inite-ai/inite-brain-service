@@ -1,6 +1,5 @@
 import type { LanguageCode } from '../../../src/eval/types';
 
-
 /**
  * The three role facts the cross-lingual retrieval cases rank, one
  * sentence per language. Same company, three departments, three people —

@@ -36,4 +36,3 @@ export const allScenarios: Scenario[] = [
   ...multilingualScenarios,
   ...falsePremiseScenarios,
 ];
-

@@ -56,8 +56,7 @@ export type LensSuppressionModel = readonly LensSuppressionClass[];
  *                      lane; the floor keeps the original set (never empty).
  *   - no_op          — a confident class match, but its suppress set is
  *                      disjoint from the active lanes → the original set. */
-type SuppressionOutcome =
-  'suppressed' | 'no_model' | 'low_confidence' | 'floor_kept' | 'no_op';
+type SuppressionOutcome = 'suppressed' | 'no_model' | 'low_confidence' | 'floor_kept' | 'no_op';
 
 /** The pure governor decision. `effectiveLanes` is the SAME reference as the
  *  input `activeLanes` for every non-'suppressed' outcome (so the caller can

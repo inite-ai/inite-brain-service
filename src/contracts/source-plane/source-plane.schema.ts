@@ -237,13 +237,7 @@ export type WebhookReceipt = z.infer<typeof WebhookReceiptSchema>;
  *   external — the publisher pushes through the doors; a connection is
  *              only the registry identity the pushes are attributed to.
  */
-const SourceAvailabilitySchema = z.enum([
-  'ready',
-  'disabled',
-  'missing',
-  'agent',
-  'external',
-]);
+const SourceAvailabilitySchema = z.enum(['ready', 'disabled', 'missing', 'agent', 'external']);
 export type SourceAvailability = z.infer<typeof SourceAvailabilitySchema>;
 
 /** One connectable `sources[]` entry of an installed (or builtin) pack. */

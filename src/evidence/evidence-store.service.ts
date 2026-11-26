@@ -59,7 +59,6 @@ const GRANT_OWNER_KINDS = new Set<string>(EVIDENCE_GRANT_OWNER_KINDS);
  *  represent anyway. */
 const EMBED_TEXT_MAX_CHARS = 8000;
 
-
 export interface RegisterAssetInput {
   modality: EvidenceModality;
   mediaType: string;

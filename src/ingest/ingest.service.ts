@@ -11,7 +11,7 @@ import { MentionIngestService } from './mention-ingest.service';
 import { LinkIngestService } from './link-ingest.service';
 
 // Re-exported for callers that import the result types from this module.
-export type {  IngestResult } from './ingest-result';
+export type { IngestResult } from './ingest-result';
 
 /**
  * Thin facade over the three ingest paths, each its own focused service:

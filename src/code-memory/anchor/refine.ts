@@ -61,4 +61,3 @@ export function reanchor(opts: {
   if (!picked || !candidates.includes(picked)) return null;
   return symbolAnchorId(opts.path, picked);
 }
-

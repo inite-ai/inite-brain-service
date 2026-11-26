@@ -3,7 +3,7 @@ import { RETRIEVAL_CONVEYOR } from './retrieval';
 import { SYNTHESIZE_CONVEYOR } from './synthesize';
 import type { Conveyor, Handoff } from './types';
 
-export type { Artifact, Conveyor,  ConveyorStage, Handoff } from './types';
+export type { Artifact, Conveyor, ConveyorStage, Handoff } from './types';
 export { INGEST_CONVEYOR } from './ingest';
 export { RETRIEVAL_CONVEYOR } from './retrieval';
 export { SYNTHESIZE_CONVEYOR } from './synthesize';

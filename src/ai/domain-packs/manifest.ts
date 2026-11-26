@@ -1,7 +1,6 @@
 import type { ExtractionProfile, PredicateDefinition } from '../predicate-registry-internals/types';
 import { DERIVED_REPRESENTATION_KINDS, EVIDENCE_MODALITIES } from '../../common/evidence-taxonomy';
 
-
 /**
  * Domain Pack standard (docs/domain-packs.md).
  *

@@ -15,7 +15,18 @@ import {
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
 } from '../common/scene-flags';
-import { deriveSceneConfidence, detectSceneSegments, foldSceneScope, meanVector, renderSceneGist, renderSceneLabel, scoreSceneDeterministic, type SceneSegment, type SceneSegmenterConfig, type SceneTurnRow } from './scene-segmentation';
+import {
+  deriveSceneConfidence,
+  detectSceneSegments,
+  foldSceneScope,
+  meanVector,
+  renderSceneGist,
+  renderSceneLabel,
+  scoreSceneDeterministic,
+  type SceneSegment,
+  type SceneSegmenterConfig,
+  type SceneTurnRow,
+} from './scene-segmentation';
 import { SceneVersionService } from './scene-version';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';

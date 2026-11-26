@@ -78,10 +78,7 @@ export const TimelineRetractedEventSchema = z.object({
   supersededBy: z.string().optional(),
 });
 
-const TimelineEventSchema = z.union([
-  TimelineRecordedEventSchema,
-  TimelineRetractedEventSchema,
-]);
+const TimelineEventSchema = z.union([TimelineRecordedEventSchema, TimelineRetractedEventSchema]);
 
 export const EntityTimelineResponseSchema = z.object({
   entityId: z.string(),

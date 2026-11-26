@@ -4,7 +4,6 @@ import { ImapError } from './imap-error';
 import { SocketReader } from './imap-reader';
 import { assertConnectableHost } from './safe-fetch';
 
-
 /**
  * The IMAP the `imap` connector needs and nothing more, over a TLS
  * socket the egress guard admitted first (a plain socket only under the

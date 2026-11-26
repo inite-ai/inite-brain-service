@@ -177,7 +177,6 @@ async function readBounded(res: Response, maxBytes: number, url: string): Promis
   return Buffer.concat(chunks.map((c) => Buffer.from(c)));
 }
 
-
 /**
  * The guard as a `fetch` a client library can be handed (the MCP SDK's
  * Streamable HTTP transport takes one): every URL it is asked for passes

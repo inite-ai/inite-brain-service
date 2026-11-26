@@ -9,9 +9,7 @@ import { shouldSkipLLM } from './chat-router-internals/local-prepass';
 import { validateAndAssemble } from './chat-router-internals/validator';
 import type { RouteContext, RoutePlan } from './chat-route-context';
 
-export type {
-  ChatRoute,
-} from './chat-router-internals/types';
+export type { ChatRoute } from './chat-router-internals/types';
 export {
   classifyIntentLocally,
   extractPredicateHintsLocally,

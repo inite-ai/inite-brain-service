@@ -117,11 +117,7 @@ export type { Citation } from './fact-index';
 // The result/IO types live in synthesize.types.ts (so pure helpers
 // never type-import back into this service); re-exported here for the
 // existing consumers (multi-hop, MCP surfaces).
-export type {
-  GeneratorOutput,
-  SynthesisReason,
-  SynthesizeResult,
-} from './synthesize.types';
+export type { GeneratorOutput, SynthesisReason, SynthesizeResult } from './synthesize.types';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import type { Asker } from './asker';
 import { generatorFailureResult } from './model-unavailable';

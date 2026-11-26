@@ -30,11 +30,7 @@ import { compileDenyPushdown } from '../policy/db-fence';
 
 // Re-export the error-classification + retry helpers from their dedicated
 // module so existing `from './surreal.service'` import sites keep working.
-export {
-  isUniqueViolation,
-  isReadConflict,
-  retryOnUniqueViolation,
-} from './surreal-retry';
+export { isUniqueViolation, isReadConflict, retryOnUniqueViolation } from './surreal-retry';
 
 /**
  * How long the readiness probe waits for a scoped connection before it gives
