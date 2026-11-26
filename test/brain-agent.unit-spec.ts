@@ -194,7 +194,8 @@ describe('GitAgentConnector', () => {
       execFileSync('git', ['-C', repo, ...args], {
         stdio: 'ignore',
         env: {
-          ...process.env,
+          // Not a commit hook's GIT_DIR, GIT_INDEX_FILE or author: this repo only.
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
           GIT_AUTHOR_NAME: 'a',
           GIT_AUTHOR_EMAIL: 'a@x',
           GIT_COMMITTER_NAME: 'a',
