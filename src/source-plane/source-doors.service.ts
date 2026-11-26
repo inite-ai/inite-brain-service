@@ -12,7 +12,6 @@ import type { IngestMentionDto } from '../ingest/dto/ingest-mention.dto';
 import type { ConnectorConnectionView, FetchedItem, ItemDescriptor } from './connector';
 import { RecordsDoorService } from './records/records-door.service';
 export { renderRecord } from './records/record-mapping';
-export { SOURCE_RECORD_KIND } from './records/records-door.service';
 
 /** What a door wrote — the catalogue links to it. */
 export interface DoorOutcome {
@@ -26,7 +25,7 @@ export interface DoorOutcome {
 }
 
 /** `kind` on rows the doors write when the connector names none. */
-export const SOURCE_DOCUMENT_KIND = 'source_document';
+const SOURCE_DOCUMENT_KIND = 'source_document';
 
 /**
  * SourceDoorsService — "shape decides the door" (raw-evidence-sources
@@ -257,7 +256,7 @@ export class SourceDoorsService {
  * the empty array — tenant-global — for an item that names none, which
  * is what a public repository or an open channel IS.
  */
-export function scopeOfItem(connection: ConnectorConnectionView, item: ItemDescriptor): string[] {
+function scopeOfItem(connection: ConnectorConnectionView, item: ItemDescriptor): string[] {
   if (connection.userId) return [];
   return scopeForSource({
     connectionId: connection.id,
@@ -285,7 +284,7 @@ function toIso(v: string | undefined): string {
  * document-meta keys verbatim (the bridge copies them through
  * internalDocumentMeta) plus the flat ABAC labels the text door writes.
  */
-export function sourceAssetMeta(p: {
+function sourceAssetMeta(p: {
   connection: ConnectorConnectionView;
   itemId: string;
   item?: ItemDescriptor | undefined;

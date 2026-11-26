@@ -40,9 +40,9 @@ export interface SourceVersionStamp {
   readAt: string;
 }
 
-export const SOURCE_VERSION_MAX_SYSTEM = 32;
-export const SOURCE_VERSION_MAX_REF = 200;
-export const SOURCE_VERSION_MAX_VERSION = 200;
+const SOURCE_VERSION_MAX_SYSTEM = 32;
+const SOURCE_VERSION_MAX_REF = 200;
+const SOURCE_VERSION_MAX_VERSION = 200;
 
 /** snake/kebab-free lowercase token — the system is vocabulary, not prose. */
 const SYSTEM_TOKEN = /^[a-z][a-z0-9_]{1,31}$/;

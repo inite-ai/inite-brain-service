@@ -58,7 +58,7 @@ const BRAIN_AUDIENCE = process.env.BRAIN_AUDIENCE || 'brain'
 /**
  * Full operator scope — used by the admin BFF (`/api/admin/proxy`).
  */
-export const ADMIN_SCOPE =
+const ADMIN_SCOPE =
   process.env.BRAIN_SCOPE || 'brain:read brain:write brain:admin brain:read_pii'
 
 /**

@@ -232,7 +232,7 @@ function transcriptOf(added: FactRef[], ctx: DiffSources): string[] {
 }
 
 /** The facts the view shows (the turns it may quote are theirs) and those it only added. */
-export function diffFacts(out: MemoryDiffResult): { added: FactRef[]; shown: FactRef[] } {
+function diffFacts(out: MemoryDiffResult): { added: FactRef[]; shown: FactRef[] } {
   const { added, shown } = partition(out);
   return { added, shown };
 }

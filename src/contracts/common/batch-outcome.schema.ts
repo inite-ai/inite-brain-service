@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Wire mirror of src/common/batch-outcome.ts (parity: test/batch-outcome.unit-spec.ts). */
-export const BatchFailureSchema = z.object({
+const BatchFailureSchema = z.object({
   /** The unit's retry key; `*` names the operation itself. */
   key: z.string(),
   error: z.string(),

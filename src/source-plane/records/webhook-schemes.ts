@@ -42,7 +42,7 @@ export interface WebhookRequest {
   query: ReadonlyMap<string, string>;
 }
 
-export interface WebhookSecrets {
+interface WebhookSecrets {
   /** The connection's own secret (generated, or the vendor's token pasted at setup). */
   secret: string;
   /** The deployment's OAuth app secret for the connector's provider, when there is one. */
@@ -260,14 +260,6 @@ export const signedWebhook: WebhookScheme = {
     }
     return out;
   },
-};
-
-export const WEBHOOK_SCHEMES: Record<WebhookScheme['id'], WebhookScheme> = {
-  hubspot: hubspotWebhook,
-  pipedrive: pipedriveWebhook,
-  bitrix24: bitrix24Webhook,
-  kommo: kommoWebhook,
-  signed: signedWebhook,
 };
 
 /** `?token=` or `Authorization: Bearer` equal to the secret. */

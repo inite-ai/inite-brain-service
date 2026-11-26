@@ -40,14 +40,14 @@ export interface AbArm {
   stubMode?: StubMode;
 }
 
-export interface AbArmResult {
+interface AbArmResult {
   arm: string;
   spaceId: string;
   reranker: boolean;
   report: MultilingualMatrixReport;
 }
 
-export interface AbMetricRow {
+interface AbMetricRow {
   metric: string;
   /** arm name → overall value for that metric (null when N/A). */
   values: Record<string, number | null>;

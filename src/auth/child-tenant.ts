@@ -23,9 +23,9 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { BrainScope } from './api-key.types';
 
-export const CHILD_TENANT_SCOPE: BrainScope = 'brain:tenants';
+const CHILD_TENANT_SCOPE: BrainScope = 'brain:tenants';
 export const CHILD_TENANT_HEADER = 'x-brain-child-tenant';
-export const CHILD_TENANT_SEPARATOR = '__';
+const CHILD_TENANT_SEPARATOR = '__';
 /** Lowercase letters, digits and dashes; starts alphanumeric; no `_`. */
 const CHILD_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 /** Every tenant id must still fit the companyId rule (claim-parsers.ts). */

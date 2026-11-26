@@ -44,7 +44,7 @@ export type Artifact =
   | 'citations'; // the evidence the answer is allowed to stand on
 
 /** How a stage can be switched off. `always` means it is the chain. */
-export type StageGate = 'always' | { profile: string } | { env: string };
+type StageGate = 'always' | { profile: string } | { env: string };
 
 export interface ConveyorStage {
   /**
@@ -79,7 +79,7 @@ export interface Conveyor {
   tracks?: string;
 }
 
-export type ConveyorId = 'ingest' | 'retrieval' | 'synthesize';
+type ConveyorId = 'ingest' | 'retrieval' | 'synthesize';
 
 /**
  * How one conveyor feeds the next. Declared rather than inferred,

@@ -15,5 +15,5 @@ const BaselineEntrySchema = z.object({
 
 export const BaselinesResponseSchema = z.array(BaselineEntrySchema)
 
-export type BaselinesResponse = z.infer<typeof BaselinesResponseSchema>
+type BaselinesResponse = z.infer<typeof BaselinesResponseSchema>
 export type BaselineEntry = z.infer<typeof BaselineEntrySchema>

@@ -42,7 +42,3 @@ export const PredicatesListResponseSchema = z.object({
 });
 
 export type PredicatesListResponse = z.infer<typeof PredicatesListResponseSchema>;
-export type Predicate = z.infer<typeof PredicateDefinitionSchema>;
-export type Semantics = z.infer<typeof SemanticsSchema>;
-export type PiiClass = z.infer<typeof PiiClassSchema>;
-export type PredicateStatus = z.infer<typeof PredicateStatusSchema>;

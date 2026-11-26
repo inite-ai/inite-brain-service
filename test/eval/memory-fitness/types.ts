@@ -21,7 +21,7 @@ export interface CorpusTurn {
 }
 
 /** Evidence pointer accepted by the `record_fact` MCP tool. */
-export interface DirectFactEvidence {
+interface DirectFactEvidence {
   kind: 'event' | 'message' | 'conversation' | 'url' | 'document' | 'commit' | 'other';
   ref: string;
   note?: string;
@@ -67,7 +67,7 @@ interface QuestionBase {
  * string failed exactly those answers (the D9 lesson below, learned
  * again on this axis).
  */
-export interface CurrencyQuestion extends QuestionBase {
+interface CurrencyQuestion extends QuestionBase {
   kind: 'currency';
   /** The value that is current. Must be present, and first. */
   currentMarkers: string[];
@@ -76,7 +76,7 @@ export interface CurrencyQuestion extends QuestionBase {
 }
 
 /** D2 — evolution history via the entity timeline (old + new, ordered). */
-export interface EvolutionQuestion extends QuestionBase {
+interface EvolutionQuestion extends QuestionBase {
   kind: 'evolution';
   /** search_knowledge query used to resolve the entity. */
   entityQuery: string;
@@ -88,7 +88,7 @@ export interface EvolutionQuestion extends QuestionBase {
 }
 
 /** D2 (belief leg) — the promoted belief carries value + priorValue. */
-export interface BeliefEvolutionQuestion extends QuestionBase {
+interface BeliefEvolutionQuestion extends QuestionBase {
   kind: 'belief-evolution';
   /** Markers the CURRENT belief value must match (anyOf). */
   valueMarkers: string[];
@@ -97,7 +97,7 @@ export interface BeliefEvolutionQuestion extends QuestionBase {
 }
 
 /** D3 — provenance unrollability: a served fact unrolls to a seeded turn. */
-export interface ProvenanceQuestion extends QuestionBase {
+interface ProvenanceQuestion extends QuestionBase {
   kind: 'provenance';
   searchQuery: string;
   /** Prefer facts whose predicate contains this substring, else any hit. */
@@ -110,7 +110,7 @@ export interface ProvenanceQuestion extends QuestionBase {
 }
 
 /** D4 — temporal anchor: the served answer names the expected date. */
-export interface TemporalQuestion extends QuestionBase {
+interface TemporalQuestion extends QuestionBase {
   kind: 'temporal';
   /** Expected date as `yyyy-mm-dd`; the scorer accepts common phrasings. */
   expectDate: string;
@@ -129,7 +129,7 @@ export interface TemporalQuestion extends QuestionBase {
  * So the discriminator is order, not presence: whichever value the
  * answer presents first is the one the memory holds to be current.
  */
-export interface OrderingQuestion extends QuestionBase {
+interface OrderingQuestion extends QuestionBase {
   kind: 'ordering';
   /** The value that is current by event time. Must be present. */
   currentMarkers: string[];
@@ -143,7 +143,7 @@ export interface OrderingQuestion extends QuestionBase {
  * own user (must not). Both halves, because a fence that answers nobody
  * would pass the negative half for entirely the wrong reason.
  */
-export interface ScopeFenceQuestion extends QuestionBase {
+interface ScopeFenceQuestion extends QuestionBase {
   kind: 'scope-fence';
   /** The owner's answer must contain ≥1 of these. */
   expectAnyOf: string[];
@@ -152,12 +152,12 @@ export interface ScopeFenceQuestion extends QuestionBase {
 }
 
 /** D5 — absence honesty: never-written topic must yield abstention. */
-export interface AbsenceQuestion extends QuestionBase {
+interface AbsenceQuestion extends QuestionBase {
   kind: 'absence';
 }
 
 /** D6 — conflict surfacing via the competing-facts API. */
-export interface ConflictApiQuestion extends QuestionBase {
+interface ConflictApiQuestion extends QuestionBase {
   kind: 'conflict-api';
   entityQuery: string;
   predicate: string;
@@ -166,20 +166,20 @@ export interface ConflictApiQuestion extends QuestionBase {
 }
 
 /** D6 — conflict surfacing in the served answer. */
-export interface ConflictAnswerQuestion extends QuestionBase {
+interface ConflictAnswerQuestion extends QuestionBase {
   kind: 'conflict-answer';
   sideA: string[];
   sideB: string[];
 }
 
 /** D7 — cross-session integration (joins two conversations). */
-export interface IntegrationQuestion extends QuestionBase {
+interface IntegrationQuestion extends QuestionBase {
   kind: 'integration';
   expectAnyOf: string[];
 }
 
 /** D8 — self-utility replay, scored by key-phrase presence. */
-export interface ReplayQuestion extends QuestionBase {
+interface ReplayQuestion extends QuestionBase {
   kind: 'replay';
   /**
    * Every group must be satisfied; a string is a required substring, a

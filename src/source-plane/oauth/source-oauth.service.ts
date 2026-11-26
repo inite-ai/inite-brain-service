@@ -46,7 +46,7 @@ import {
 } from './oauth-providers';
 
 /** The provider id a grant of a discovered MCP server carries. */
-export const MCP_PROVIDER = 'mcp';
+const MCP_PROVIDER = 'mcp';
 const MCP_CLIENT_NAME = 'INITE Brain';
 
 /** How long a started authorization may take before its state is dead. */

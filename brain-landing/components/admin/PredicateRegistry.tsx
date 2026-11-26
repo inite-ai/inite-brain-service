@@ -22,7 +22,7 @@ import type {
   PredicateStatus,
 } from '../../lib/contracts/admin-predicates'
 
-export type { Predicate, Semantics, PiiClass, PredicateStatus }
+export type { Predicate }
 
 type Filter = 'all' | PredicateStatus
 

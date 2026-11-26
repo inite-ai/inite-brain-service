@@ -11,4 +11,4 @@ export const DlqResponseSchema = z.object({
   rows: z.array(AdminDeadLetterRowSchema),
 })
 
-export type DlqResponse = z.infer<typeof DlqResponseSchema>
+type DlqResponse = z.infer<typeof DlqResponseSchema>

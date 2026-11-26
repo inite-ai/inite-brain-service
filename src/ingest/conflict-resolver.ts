@@ -48,7 +48,7 @@ import { CORE_PREDICATES } from '../ai/predicate-registry.service';
 import { type PiiClass, withClassScope } from '../ai/predicate-registry-internals/types';
 import type { EvidenceCapability } from '../synthesize/synthesize.types';
 
-export type Semantics = 'append_only' | 'single_active' | 'bitemporal';
+type Semantics = 'append_only' | 'single_active' | 'bitemporal';
 
 /**
  * V9 §1: the derive-internal semantics superset. 'bitemporal_event'

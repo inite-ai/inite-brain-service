@@ -22,11 +22,11 @@ import {
 } from './record-mapping';
 
 /** `kind` on the grounding document a record becomes, and on a prose attribute's own document. */
-export const SOURCE_RECORD_KIND = 'source_record';
-export const SOURCE_RECORD_TEXT_KIND = 'source_record_text';
+const SOURCE_RECORD_KIND = 'source_record';
+const SOURCE_RECORD_TEXT_KIND = 'source_record_text';
 
 /** The scene a lifecycle claim rides on (crm_memory's memoryModel declares it). */
-export const RECORD_UPDATE_SCENE = 'record_update';
+const RECORD_UPDATE_SCENE = 'record_update';
 
 export interface RecordsDoorOutcome {
   documentId: string;

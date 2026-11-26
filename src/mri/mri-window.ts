@@ -36,7 +36,7 @@ export const DEFAULT_MRI_WINDOW_MS = 60 * 60 * 1000;
 /** Hard cap on retained snapshots so a pathological tight poll loop cannot grow
  *  memory without bound. Dropping the oldest only ever SHRINKS the window (never
  *  lengthens it), which is the safe direction: recent data, never ancient. */
-export const MAX_SNAPSHOTS = 512;
+const MAX_SNAPSHOTS = 512;
 
 /** Internal map-key field separator. A printable delimiter that cannot appear in
  *  a Prometheus metric name / series / `k=v` label pair, so keys never collide. */

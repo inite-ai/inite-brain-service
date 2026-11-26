@@ -14,7 +14,7 @@
  */
 
 /** "Is this statement true?" — answered as a probability, not a boolean. */
-export interface NoulQuestion {
+interface NoulQuestion {
   type: 'noul';
   instructions: string;
   /** Optional descriptions of what true and false mean for this judgement. */
@@ -22,22 +22,22 @@ export interface NoulQuestion {
 }
 
 /** "Choose one option" — at most 255 options, each with a description. */
-export interface ChoiceQuestion {
+interface ChoiceQuestion {
   type: 'choice';
   instructions: string;
   criteria: Record<string, string>;
 }
 
 /** "Score on a rubric" — 2..10 ordered, described levels. */
-export interface ScoreQuestion {
+interface ScoreQuestion {
   type: 'score';
   instructions: string;
   criteria: string[];
 }
 
-export type DecisionQuestion = NoulQuestion | ChoiceQuestion | ScoreQuestion;
+type DecisionQuestion = NoulQuestion | ChoiceQuestion | ScoreQuestion;
 
-export interface NoulAnswer {
+interface NoulAnswer {
   type: 'noul';
   /** P(true), 0..1. Its distance from 0.5 IS the confidence. */
   noul: number;
@@ -51,7 +51,7 @@ export interface ChoiceAnswer {
   confidence: number;
 }
 
-export interface ScoreAnswer {
+interface ScoreAnswer {
   type: 'score';
   score: number;
   legend: Record<string, string>;

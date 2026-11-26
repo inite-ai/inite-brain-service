@@ -78,8 +78,6 @@ export const KeyListResponseSchema = z.object({
 
 export const RevokeKeyResponseSchema = z.object({ revoked: z.boolean() });
 
-export type IssuableScope = z.infer<typeof IssuableScopeSchema>;
-export type ApiKeySummaryContract = z.infer<typeof ApiKeySummarySchema>;
 export type IssuedKeyResponse = z.infer<typeof IssuedKeyResponseSchema>;
 export type KeyListResponse = z.infer<typeof KeyListResponseSchema>;
 export type RevokeKeyResponse = z.infer<typeof RevokeKeyResponseSchema>;

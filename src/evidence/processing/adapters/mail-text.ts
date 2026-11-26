@@ -44,7 +44,7 @@ interface Part {
   body: Buffer;
 }
 
-export interface MailAttachment {
+interface MailAttachment {
   name: string;
   mediaType: string;
   size: number;

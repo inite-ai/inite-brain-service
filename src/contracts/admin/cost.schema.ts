@@ -35,4 +35,3 @@ export const CostResponseSchema = z.object({
 });
 
 export type CostResponse = z.infer<typeof CostResponseSchema>;
-export type CostBucket = z.infer<typeof CostBucketSchema>;

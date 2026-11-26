@@ -196,7 +196,7 @@ export function conflictSlotSemantics(
  * doctrine). Keep this table SMALL and declared: every entry is a
  * deliberate ontology statement, not a similarity guess.
  */
-export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
+const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
   // "runs until December 2026" (a duration phrase → duration_limit,
   // append_only) vs "ends in September 2026" (a lifecycle claim →
   // status, single_active): same attribute, two slots (s07).

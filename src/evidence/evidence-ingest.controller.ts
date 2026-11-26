@@ -29,7 +29,7 @@ import { UploadEvidenceBlobDto } from './dto/upload-evidence-blob.dto';
  * is this ingest surface relaying the caller's quotation — not a model
  * (model / modelVersion / promptVersion stay absent on purpose).
  */
-export const INGEST_EXCERPT_PRODUCER = 'ingest-excerpt-v1';
+const INGEST_EXCERPT_PRODUCER = 'ingest-excerpt-v1';
 
 export interface IngestEvidenceFragmentResult {
   fragmentId: string;

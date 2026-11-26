@@ -29,7 +29,7 @@ import { cloudHttp, type CloudHttp } from './cloud-http';
  * Needs SOURCE_OAUTH_CLIENT (the grant) as well as SOURCE_KIND_CONFLUENCE.
  */
 
-export interface ConfluenceConnectorConfig {
+interface ConfluenceConnectorConfig {
   /** `acme.atlassian.net`, its URL, or the site's name — when the account reaches several. */
   site?: string | undefined;
   spaceKeys?: string[] | undefined;

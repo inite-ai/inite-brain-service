@@ -206,7 +206,7 @@ function renderSummary(
   }
 }
 
-export type SummarizeStyle = 'neutral' | 'sales' | 'support';
+type SummarizeStyle = 'neutral' | 'sales' | 'support';
 
 export interface SummarizeArgs {
   entityId: string;

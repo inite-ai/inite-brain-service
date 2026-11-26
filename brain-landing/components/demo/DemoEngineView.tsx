@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { TraceSpan } from './DemoTraceStrip'
 
-export interface TraceArtifact {
+interface TraceArtifact {
   spanId?: string
   name: string
   ts: number

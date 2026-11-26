@@ -257,7 +257,7 @@ export function hasUsableCalibration(cal: PerClassCalibration): boolean {
 
 // ── §3 measurement: reliability diagram + ECE ──────────────────────
 
-export interface ReliabilityBin {
+interface ReliabilityBin {
   /** Lower edge of the bin on the predicted-probability axis. */
   binLo: number;
   /** Upper edge of the bin. */

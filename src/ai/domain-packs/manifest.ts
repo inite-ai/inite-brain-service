@@ -1,8 +1,6 @@
 import type { ExtractionProfile, PredicateDefinition } from '../predicate-registry-internals/types';
 import { DERIVED_REPRESENTATION_KINDS, EVIDENCE_MODALITIES } from '../../common/evidence-taxonomy';
 
-export type { ExtractionProfile, ExtractionExample } from '../predicate-registry-internals/types';
-
 /**
  * Domain Pack standard (docs/domain-packs.md).
  *
@@ -256,28 +254,27 @@ export type PackToolSpec = PackQueryToolSpec | PackExternalToolSpec;
 // Everything is DECLARATIVE DATA — no code, no templates.
 
 export const PACK_SOURCE_KINDS = ['mcp', 'native', 'external'] as const;
-export type PackSourceKind = (typeof PACK_SOURCE_KINDS)[number];
 
 export const PACK_SOURCE_SHAPES = ['document', 'conversation', 'binary', 'structure'] as const;
 export type PackSourceShape = (typeof PACK_SOURCE_SHAPES)[number];
 
 export const PACK_SOURCE_CONTENT_POLICIES = ['manifest', 'text', 'bytes'] as const;
-export type PackSourceContentPolicy = (typeof PACK_SOURCE_CONTENT_POLICIES)[number];
+type PackSourceContentPolicy = (typeof PACK_SOURCE_CONTENT_POLICIES)[number];
 
 export const PACK_SOURCE_DELETE_POLICIES = ['close', 'retract', 'keep'] as const;
-export type PackSourceDeletePolicy = (typeof PACK_SOURCE_DELETE_POLICIES)[number];
+type PackSourceDeletePolicy = (typeof PACK_SOURCE_DELETE_POLICIES)[number];
 
 export const PACK_SOURCE_SCHEDULES = ['manual', '15m', '1h', '4h', '24h'] as const;
-export type PackSourceSchedule = (typeof PACK_SOURCE_SCHEDULES)[number];
+type PackSourceSchedule = (typeof PACK_SOURCE_SCHEDULES)[number];
 
 export const PACK_SOURCE_MCP_AUTH = ['none', 'install_secret', 'oauth'] as const;
-export type PackSourceMcpAuth = (typeof PACK_SOURCE_MCP_AUTH)[number];
+type PackSourceMcpAuth = (typeof PACK_SOURCE_MCP_AUTH)[number];
 
 /** ≤ 16 sources per pack — a pack reads a domain, not the internet (file_memory: 5 places × 2 shapes). */
 export const MAX_PACK_SOURCES = 16;
 
 /** Connection defaults an operator may override per connection. */
-export interface PackSourceDefaults {
+interface PackSourceDefaults {
   contentPolicy?: PackSourceContentPolicy;
   deletePolicy?: PackSourceDeletePolicy;
   schedule?: PackSourceSchedule;
@@ -311,7 +308,7 @@ export interface PackMcpHttpSourceSpec extends PackSourceBase {
 }
 
 /** An MCP server the LOCAL AGENT spawns over stdio (agent host). */
-export interface PackMcpStdioSourceSpec extends PackSourceBase {
+interface PackMcpStdioSourceSpec extends PackSourceBase {
   kind: 'mcp';
   transport: 'stdio';
   /** ≤ 200 chars; the agent, never the server, spawns it. */
@@ -320,17 +317,17 @@ export interface PackMcpStdioSourceSpec extends PackSourceBase {
   args?: string[];
 }
 
-export type PackMcpSourceSpec = PackMcpHttpSourceSpec | PackMcpStdioSourceSpec;
+type PackMcpSourceSpec = PackMcpHttpSourceSpec | PackMcpStdioSourceSpec;
 
 /** A platform-shipped connector, named — never supplied — by the pack. */
-export interface PackNativeSourceSpec extends PackSourceBase {
+interface PackNativeSourceSpec extends PackSourceBase {
   kind: 'native';
   /** `^[a-z][a-z0-9_]{1,31}$` — must match an installed Connector.kind. */
   connector: string;
 }
 
 /** The publisher pushes items itself through the existing doors. */
-export interface PackExternalSourceSpec extends PackSourceBase {
+interface PackExternalSourceSpec extends PackSourceBase {
   kind: 'external';
 }
 
@@ -365,7 +362,7 @@ export type PackMemoryModality = (typeof PACK_MEMORY_MODALITIES)[number];
 
 /** Recomputable interpretations a core-owned processor may produce. */
 export const PACK_REPRESENTATION_KINDS = DERIVED_REPRESENTATION_KINDS;
-export type PackRepresentationKind = (typeof PACK_REPRESENTATION_KINDS)[number];
+type PackRepresentationKind = (typeof PACK_REPRESENTATION_KINDS)[number];
 
 /** A recurring scene shape of the domain ("viewing", "claim_intake", …).
  *  Cues are literal substrings (2..64 chars) that suggest — never assert —
@@ -380,7 +377,7 @@ export interface PackSceneSchema {
 }
 
 /** One allowed state transition of a PackStateModel. */
-export interface PackStateTransition {
+interface PackStateTransition {
   /** Must be one of the model's declared states. */
   from: string;
   /** Must be one of the model's declared states. */

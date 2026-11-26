@@ -18,7 +18,7 @@ import { getCorrelationId } from './request-context';
  * members, so a client that read those keeps working; validation messages
  * are also listed under `errors`.
  */
-export function problemDetails(
+function problemDetails(
   status: number,
   payload: Record<string, unknown>,
   ctx: { instance: string; requestId: string },

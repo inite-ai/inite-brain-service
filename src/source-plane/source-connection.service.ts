@@ -40,7 +40,6 @@ import {
   SOURCE_CONNECTORS,
 } from './connector';
 import { Inject } from '@nestjs/common';
-import { recordIdOf } from '../db/record-key';
 
 /** Raw `source_connection` row (SurrealDB record id in `id`). */
 export interface SourceConnectionRow {
@@ -705,7 +704,7 @@ const SCHEDULE_MS: Record<string, number> = {
   '24h': 24 * 60 * 60_000,
 };
 
-export function isDue(row: SourceConnectionRow, now: Date): boolean {
+function isDue(row: SourceConnectionRow, now: Date): boolean {
   const every = SCHEDULE_MS[row.schedule];
   if (every === undefined) return false;
   const last = toDate(row.lastSyncAt);
@@ -767,11 +766,6 @@ export function toView(row: SourceConnectionRow): SourceConnection {
     createdAt: toIso(row.createdAt) ?? new Date(0).toISOString(),
     updatedAt: toIso(row.updatedAt),
   };
-}
-
-/** Bound-var-safe record link (the candidate-store idiom). */
-export function connectionRef(connectionId: string): unknown {
-  return recordIdOf('source_connection', connectionId);
 }
 
 /**

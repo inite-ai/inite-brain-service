@@ -59,7 +59,7 @@ export const OAUTH_PROVIDER_IDS: readonly OAuthProviderId[] = [
  * the token endpoint and the API; Bitrix24: the portal's REST). Filled
  * from the callback (`accountHost`) or from the grant's `apiBase`.
  */
-export const HOST_PLACEHOLDER = '{host}';
+const HOST_PLACEHOLDER = '{host}';
 /** A syntactically valid stand-in so a template still parses as a URL. */
 const HOST_STANDIN = 'account.invalid';
 
@@ -562,7 +562,7 @@ export function fillHost(u: string, host: string | null | undefined): string {
   return u.replace(HOST_PLACEHOLDER, host);
 }
 
-export function hasHostPlaceholder(u: string): boolean {
+function hasHostPlaceholder(u: string): boolean {
   return u.includes(HOST_PLACEHOLDER);
 }
 

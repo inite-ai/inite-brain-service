@@ -4,7 +4,7 @@
 
 import type { Decision, PolicySet } from '../../../lib/contracts/admin-policies'
 
-export const MODE_TONE: Record<PolicySet['mode'], string> = {
+const MODE_TONE: Record<PolicySet['mode'], string> = {
   enforce: 'text-[var(--accent)] bg-[var(--accent)]/10',
   report_only: 'text-[var(--warning)] bg-[var(--warning)]/10',
   disabled: 'text-[var(--text-faint)] bg-[var(--bg-overlay)]',
@@ -16,7 +16,7 @@ export const DECISION_TONE: Record<Decision, string> = {
   would_deny: 'text-[var(--warning)] bg-[var(--warning)]/10',
 }
 
-export const DECISION_LABEL: Record<Decision, string> = {
+const DECISION_LABEL: Record<Decision, string> = {
   allow: 'allow',
   deny: 'deny',
   would_deny: 'would deny',
@@ -42,7 +42,7 @@ export function DecisionBadge({ decision }: { decision: Decision }) {
   )
 }
 
-export function EffectBadge({ effect }: { effect: 'allow' | 'deny' }) {
+function EffectBadge({ effect }: { effect: 'allow' | 'deny' }) {
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${

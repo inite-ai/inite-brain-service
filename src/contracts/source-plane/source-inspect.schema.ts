@@ -34,7 +34,7 @@ export const SourceConnectionStatsSchema = z.object({
 });
 export type SourceConnectionStats = z.infer<typeof SourceConnectionStatsSchema>;
 
-export const SourceRunCountersSchema = z.object({
+const SourceRunCountersSchema = z.object({
   seen: z.number().int(),
   new: z.number().int(),
   changed: z.number().int(),
@@ -46,10 +46,9 @@ export const SourceRunCountersSchema = z.object({
   failed: z.number().int(),
   closed: z.number().int(),
 });
-export type SourceRunCounters = z.infer<typeof SourceRunCountersSchema>;
 
 /** One sync run of a connection — a `source_sync` job_run, whoever ran it. */
-export const SourceRunSchema = z.object({
+const SourceRunSchema = z.object({
   runId: z.string(),
   status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'pending']),
   /** 'server' (queue or inline), 'agent:<id>', or 'webhook:<scheme>' (a vendor's call fetched by name). */
@@ -76,7 +75,7 @@ export const SourceRunsResponseSchema = z.object({
 export type SourceRunsResponse = z.infer<typeof SourceRunsResponseSchema>;
 
 /** A fact this item grounds, with what the drift sweep sees. */
-export const SourceItemFactSchema = z.object({
+const SourceItemFactSchema = z.object({
   id: z.string(),
   entityId: z.string(),
   predicate: z.string(),
@@ -91,7 +90,7 @@ export const SourceItemFactSchema = z.object({
 });
 export type SourceItemFact = z.infer<typeof SourceItemFactSchema>;
 
-export const SourceItemDocumentSchema = z.object({
+const SourceItemDocumentSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
   kind: z.string().nullable(),
@@ -101,7 +100,7 @@ export const SourceItemDocumentSchema = z.object({
 });
 export type SourceItemDocument = z.infer<typeof SourceItemDocumentSchema>;
 
-export const SourceItemAssetSchema = z.object({
+const SourceItemAssetSchema = z.object({
   id: z.string(),
   mediaType: z.string(),
   modality: z.string(),
@@ -122,7 +121,7 @@ export const SourceItemAssetSchema = z.object({
 export type SourceItemAsset = z.infer<typeof SourceItemAssetSchema>;
 
 /** The episode turn a conversation-shaped item became (a mail message, a chat message). */
-export const SourceItemEpisodeSchema = z.object({
+const SourceItemEpisodeSchema = z.object({
   id: z.string(),
   conversationId: z.string().nullable(),
   messageId: z.string().nullable(),
@@ -154,7 +153,7 @@ export type SourceItemInspectResponse = z.infer<typeof SourceItemInspectResponse
 // has claimed: it grants no visibility at all, which is why the surface
 // shows it rather than hiding it.
 
-export const SourceExternalIdentitySchema = z.object({
+const SourceExternalIdentitySchema = z.object({
   externalId: z.string(),
   handle: z.string().nullable(),
   displayName: z.string().nullable(),
@@ -164,9 +163,8 @@ export const SourceExternalIdentitySchema = z.object({
   /** 'operator' (an admin said so) | 'email' (followed a link already made). */
   linkedBy: z.string().nullable(),
 });
-export type SourceExternalIdentity = z.infer<typeof SourceExternalIdentitySchema>;
 
-export const SourceMembershipTupleSchema = z.object({
+const SourceMembershipTupleSchema = z.object({
   subject: z.string(),
   object: z.string(),
   source: z.string(),
@@ -174,7 +172,6 @@ export const SourceMembershipTupleSchema = z.object({
   /** Set = the membership ENDED then; the row stays so March is answerable. */
   revokedAt: z.string().nullable(),
 });
-export type SourceMembershipTuple = z.infer<typeof SourceMembershipTupleSchema>;
 
 export const SourcePrincipalsResponseSchema = z.object({
   /** The tenant's consistency token: every cached expansion keys on it. */
@@ -189,4 +186,3 @@ export const SourcePrincipalLinkRequestSchema = z.object({
   /** null = unlink: the account is nobody's again. */
   userId: z.string().min(1).max(200).nullable(),
 });
-export type SourcePrincipalLinkRequest = z.infer<typeof SourcePrincipalLinkRequestSchema>;

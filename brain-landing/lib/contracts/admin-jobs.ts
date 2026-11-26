@@ -59,4 +59,4 @@ export const JobsListResponseSchema = z.object({
 })
 
 export type JobRow = z.infer<typeof JobRowSchema>
-export type JobsListResponse = z.infer<typeof JobsListResponseSchema>
+type JobsListResponse = z.infer<typeof JobsListResponseSchema>

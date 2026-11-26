@@ -55,7 +55,7 @@ type Json = Record<string, unknown>
  */
 export const COMPANY_ID = `${PARENT.url}/#organization`
 const COMPANY = { '@id': COMPANY_ID }
-export const COMPANY_REF = { '@type': 'Organization', '@id': COMPANY_ID, name: PARENT.name, url: PARENT.url }
+const COMPANY_REF = { '@type': 'Organization', '@id': COMPANY_ID, name: PARENT.name, url: PARENT.url }
 
 /** The product's line in the family registry (@inite/landing locales/<lang>/family.json). */
 const FAMILY_LINE: Record<'en' | 'ru', string> = {
@@ -66,7 +66,7 @@ const FAMILY_LINE: Record<'en' | 'ru', string> = {
 const familyLang = (lang: string): 'en' | 'ru' => (lang === 'ru' ? 'ru' : 'en')
 
 /** The site's WebSite node; its publisher is the company. */
-export function websiteSchema(lang: string = 'en'): Json {
+function websiteSchema(lang: string = 'en'): Json {
   return {
     '@type': 'WebSite',
     '@id': `${SITE_URL}/#website`,

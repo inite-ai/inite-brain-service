@@ -120,7 +120,7 @@ import { probeHnswIndex, resetKnnIndexMemo, type HnswIndexState } from '../db/kn
  * mismatch and refuses to call the tenant ready. The declared DIMENSION is parsed out of the same `INFO FOR TABLE`
  * response the existence probe already fetched, so it costs nothing.
  */
-export type HnswIndexBuildState = HnswIndexState;
+type HnswIndexBuildState = HnswIndexState;
 
 /** Every action this service can be asked to perform. */
 export type HnswMaintenanceAction = 'create' | 'drop' | 'status' | 'ensure';
@@ -206,7 +206,7 @@ const INDEX_SPECS = [
  * thing to do. The 60 s default covers ~280k rows at the measured ~4 700
  * rows/s; 0 answers immediately with the first probe.
  */
-export const DEFAULT_BUILD_WAIT_MS = 60_000;
+const DEFAULT_BUILD_WAIT_MS = 60_000;
 /** Longest wait a single request may ask for — past this, poll `status`. */
 export const MAX_BUILD_WAIT_MS = 600_000;
 const BUILD_POLL_MS = 2_000;

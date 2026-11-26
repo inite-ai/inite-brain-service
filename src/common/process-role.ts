@@ -36,7 +36,7 @@
  * the environment during module init.
  */
 
-export const PROCESS_ROLES = ['api', 'worker', 'all'] as const;
+const PROCESS_ROLES = ['api', 'worker', 'all'] as const;
 export type ProcessRole = (typeof PROCESS_ROLES)[number];
 
 /** Trim + lowercase; unset means 'all'. */

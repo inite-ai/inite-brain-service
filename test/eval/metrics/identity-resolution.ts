@@ -81,14 +81,3 @@ export function identityResolutionMetrics(
     unresolvedDistractors: unresolved,
   };
 }
-
-/**
- * Backwards-compat shim — preserves the old `identity-resolution` rate
- * for callers that haven't migrated yet. Equivalent to the old metric:
- * share of declared merges that succeeded, blind to false merges.
- */
-export function identityResolutionRate(results: IdentityMergeResult[]): number | null {
-  if (results.length === 0) return null;
-  const ok = results.filter((r) => r.merged).length;
-  return ok / results.length;
-}

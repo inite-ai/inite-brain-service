@@ -38,7 +38,7 @@ import { safeFetch } from './safe-fetch';
  * `Basic` for `authScheme: 'basic'`, credential `user:pass`).
  */
 
-export interface UrlConnectorConfig {
+interface UrlConnectorConfig {
   urls?: string[] | undefined;
   sitemaps?: string[] | undefined;
   maxPages?: number | undefined;

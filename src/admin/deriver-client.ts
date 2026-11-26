@@ -11,7 +11,7 @@ import { resolveExtractionProfile } from '../ai/extraction-profile';
  * union, the volume-neutral salience grading turn.
  */
 
-export const DERIVER_SYSTEM = `You extract durable MEMORY PROPOSITIONS from ONE session of a two-person dialogue. The original conversation will NOT be available at retrieval time — each proposition must stand alone years later.
+const DERIVER_SYSTEM = `You extract durable MEMORY PROPOSITIONS from ONE session of a two-person dialogue. The original conversation will NOT be available at retrieval time — each proposition must stand alone years later.
 
 For every durable piece of information, emit:
 - "subject": the full display name of the person the proposition is ABOUT (one of the participants, exactly as named);
@@ -90,7 +90,7 @@ When several could apply, prefer assistant_contribution, then event, then person
  * default off: a prompt change confirms only on a FRESH
  * derivedVersion.
  */
-export const DERIVER_DATE_SECTION = `
+const DERIVER_DATE_SECTION = `
 
 EVENT DATING
 "occurred_on" dates the EVENT, never the conversation:
@@ -111,7 +111,7 @@ EVENT DATING
  * off: a prompt + schema change confirms only on a FRESH
  * derivedVersion.
  */
-export const DERIVER_QUOTES_SECTION = `
+const DERIVER_QUOTES_SECTION = `
 
 GROUNDING QUOTES
 For every proposition also fill "quotes" — an array PARALLEL to "turns": for each grounding turn, the shortest VERBATIM snippet from that turn's text that supports the proposition, copied character-for-character (never paraphrased, never spanning multiple turns, never including the [N] / speaker prefix). Use null for a turn with no single verbatim supporting snippet. "quotes" must have exactly as many entries as "turns".`;
@@ -614,7 +614,7 @@ function deriverRequest(deps: DeriverClientDeps, messages: ChatMessage[], maxTok
  * beats). Bounded state, one call per session, chronological fold
  * order is the caller's contract.
  */
-export const DIGEST_MERGE_SYSTEM = `You maintain a rolling digest of ONE ongoing conversation.
+const DIGEST_MERGE_SYSTEM = `You maintain a rolling digest of ONE ongoing conversation.
 
 Input: the EXISTING DIGEST (may be empty) and one SESSION transcript with its date.
 Merge the session's durable content into the digest and output the FULL updated digest text, nothing else.
@@ -630,7 +630,7 @@ Rules:
 
 /** Hard cap on stored digest text — the prompt asks for ~250 words;
  *  this is the belt for prompt-escape (chars, not tokens). */
-export const DIGEST_CHAR_CAP = 2400;
+const DIGEST_CHAR_CAP = 2400;
 
 export async function foldDigest(
   deps: DeriverClientDeps,

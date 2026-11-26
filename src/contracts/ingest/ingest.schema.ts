@@ -196,8 +196,3 @@ export const IngestMentionResponseSchema = z.object({
    */
   episodeId: z.string().optional(),
 });
-
-export type IngestFactRequest = z.infer<typeof IngestFactRequestSchema>;
-export type IngestFactResponse = z.infer<typeof IngestFactResponseSchema>;
-export type IngestMentionRequest = z.infer<typeof IngestMentionRequestSchema>;
-export type IngestMentionResponse = z.infer<typeof IngestMentionResponseSchema>;

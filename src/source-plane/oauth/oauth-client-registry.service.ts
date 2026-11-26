@@ -14,7 +14,7 @@ import type { AuthorizationServerMetadata, RegisteredClient } from './mcp-oauth-
 /** How the brain holds its client at an authorization server (0180). */
 export type ClientRegistration = 'dynamic' | 'operator' | 'metadata_document';
 
-export interface OAuthClientRow {
+interface OAuthClientRow {
   id: unknown;
   resource: string;
   origin: string;

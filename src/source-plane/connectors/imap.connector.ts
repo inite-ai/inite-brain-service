@@ -37,7 +37,7 @@ import { idOf, mailTurnOf } from './mail-turn';
  *
  * Needs SOURCE_KIND_IMAP; the password is the connection's credential.
  */
-export interface ImapConnectorConfig {
+interface ImapConnectorConfig {
   host: string;
   /** Default 993 (TLS), 143 without. */
   port?: number | undefined;

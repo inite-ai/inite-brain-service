@@ -13,7 +13,7 @@ import type { PolicyOperatingPoint } from './economics';
  */
 
 /** A dimension cell value: a real number/string, or an honest sentinel. */
-export type MriValue = number | string | 'pending-eval';
+type MriValue = number | string | 'pending-eval';
 
 export interface MriDimension {
   /** Real measured value, or the `'pending-eval'` / `'unrecorded'` sentinel. */

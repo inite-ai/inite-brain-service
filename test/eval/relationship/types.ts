@@ -45,7 +45,7 @@ interface ProbeBase {
  * Served answer must satisfy every group (a string is required, a
  * string[] is any-of). Abstention fails: the memory holds the answer.
  */
-export interface ExpectProbe extends ProbeBase {
+interface ExpectProbe extends ProbeBase {
   kind: 'expect';
   groups: Array<string | string[]>;
 }
@@ -55,7 +55,7 @@ export interface ExpectProbe extends ProbeBase {
  * disclosure, the assistant must not. Both halves, because a fence that
  * answers nobody would pass the negative half for the wrong reason.
  */
-export interface FenceProbe extends ProbeBase {
+interface FenceProbe extends ProbeBase {
   kind: 'fence';
   /** The coach's answer must contain ≥1 of these. */
   ownerAnyOf: string[];
@@ -68,7 +68,7 @@ export interface FenceProbe extends ProbeBase {
  * rejected (R8) or as an unconfirmed guess (R5). Abstaining passes;
  * `expectAnyOf`, when set, must also be present (then abstention fails).
  */
-export interface QualifiedProbe extends ProbeBase {
+interface QualifiedProbe extends ProbeBase {
   kind: 'qualified';
   markers: string[];
   qualifiers: 'past' | 'negated' | 'hedged' | 'past-or-hedged';
@@ -76,7 +76,7 @@ export interface QualifiedProbe extends ProbeBase {
 }
 
 /** A never-written topic: the answer must abstain. */
-export interface AbsenceProbe extends ProbeBase {
+interface AbsenceProbe extends ProbeBase {
   kind: 'absence';
 }
 
@@ -84,7 +84,7 @@ export interface AbsenceProbe extends ProbeBase {
  * A check that needs the relationship surface (step 1+) or voice (step
  * 5). Skipped, never passed, while the stand does not list the tool.
  */
-export interface RequiresProbe extends ProbeBase {
+interface RequiresProbe extends ProbeBase {
   kind: 'requires';
   tool: string;
 }
@@ -94,7 +94,7 @@ export interface RequiresProbe extends ProbeBase {
  * marker comes back flagged overdue. Skipped while the stand does not list
  * the tool (a tenant without the relationship pack, or a base arm without it).
  */
-export interface OverdueProbe extends ProbeBase {
+interface OverdueProbe extends ProbeBase {
   kind: 'overdue';
   tool: 'relationship_context';
   markers: readonly string[];
@@ -104,7 +104,7 @@ export interface OverdueProbe extends ProbeBase {
  * The hypothesis lifecycle read through relationship_context: a guess put
  * to the person sits in the bucket its outcome puts it in.
  */
-export interface HypothesisProbe extends ProbeBase {
+interface HypothesisProbe extends ProbeBase {
   kind: 'hypothesis';
   tool: 'relationship_context';
   bucket: 'open' | 'confirmed' | 'rejected';

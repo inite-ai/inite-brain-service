@@ -50,7 +50,7 @@ async function fetchPprEdges(
 }
 
 /** PPR step 2 — undirected adjacency + per-node out-weight. Pure. */
-export function buildPprAdjacency(
+function buildPprAdjacency(
   ids: string[],
   edges: PprEdge[],
 ): {
@@ -95,7 +95,7 @@ function buildPprSeed(byEntity: Map<string, { bestScore: number }>): Map<string,
 
 /** PPR step 4 — power-iteration `r ← α·M·r + (1−α)·seed` with
  *  dangling-node mass returned to the seed slot. */
-export interface RunPprIterationsOptions {
+interface RunPprIterationsOptions {
   ids: string[];
   adj: Map<string, Array<{ to: string; w: number }>>;
   outWeight: Map<string, number>;

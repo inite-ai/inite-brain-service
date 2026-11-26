@@ -41,7 +41,7 @@ export interface InsightLegOptions {
   derivedVersion: ReadPin;
 }
 
-export interface InsightRow {
+interface InsightRow {
   id: unknown;
   predicate: string;
   object: string;

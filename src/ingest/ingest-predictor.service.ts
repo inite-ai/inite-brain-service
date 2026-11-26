@@ -16,12 +16,7 @@ import {
 import { makeRowPolicyFilter } from '../policy/row-filter';
 import { pinUserScope } from '../auth/user-scope';
 
-export type {
-  IngestOutcome,
-  PredictResolveArgs,
-  PredictResolveResult,
-  OpposingFact,
-} from './predictor-internals';
+export type { PredictResolveArgs, PredictResolveResult } from './predictor-internals';
 
 /**
  * IngestPredictionService — read-only dry-run of fn::resolve_fact.

@@ -43,7 +43,7 @@ export interface FakeWiki {
   };
 }
 
-export interface NotionFakePage {
+interface NotionFakePage {
   id: string;
   title: string;
   lastEdited: string;
@@ -52,14 +52,14 @@ export interface NotionFakePage {
   parent?: { type: string; page_id?: string; workspace?: boolean };
 }
 
-export interface NotionFakeBlock {
+interface NotionFakeBlock {
   id: string;
   type: string;
   body: Record<string, unknown>;
   hasChildren?: boolean;
 }
 
-export interface ConfluenceFakePage {
+interface ConfluenceFakePage {
   id: string;
   title: string;
   spaceId: string;

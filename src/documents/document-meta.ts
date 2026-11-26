@@ -148,7 +148,7 @@ export function internalDocumentMeta(
  * SAY what it carries — `undefined` is a statement, an omitted argument
  * was not.
  */
-export type DocumentWriteChannel = 'ingest_sync' | 'ingest_async';
+type DocumentWriteChannel = 'ingest_sync' | 'ingest_async';
 
 export interface DocumentWriteOrigin {
   channel: DocumentWriteChannel;

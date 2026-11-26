@@ -105,9 +105,6 @@ export interface AccuracyRecord {
   score: number | null;
 }
 
-export type UpdateVerdict = 'Correct' | 'Hallucination' | 'Omission' | 'Other';
-export type QaVerdict = 'Correct' | 'Hallucination' | 'Omission';
-
 export interface UpdateRecord {
   memoryType: string;
   verdict: string | null;

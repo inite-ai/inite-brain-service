@@ -61,7 +61,7 @@ export interface ZoomCandidate {
 export type FragmentZoomOutcome = 'flipped' | 'unchanged' | 'skipped' | 'error';
 
 /** Metrics port (keeps this module pure — the fragment-citations idiom). */
-export interface FragmentZoomMetrics {
+interface FragmentZoomMetrics {
   countFragmentZoom(outcome: FragmentZoomOutcome): void;
 }
 

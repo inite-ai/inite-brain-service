@@ -43,25 +43,25 @@ export interface Vocabulary {
   stateModels: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-export interface MappedEntity {
+interface MappedEntity {
   name: string;
   type: CoreEntityType;
   externalId: string;
 }
 
-export interface MappedFact {
+interface MappedFact {
   entityIndex: number;
   predicate: string;
   object: string;
 }
 
-export interface MappedRelation {
+interface MappedRelation {
   fromEntityIndex: number;
   toEntityIndex: number;
   kind: string;
 }
 
-export type DropReason = 'unknown_predicate' | 'unknown_state' | 'unnamed_target';
+type DropReason = 'unknown_predicate' | 'unknown_state' | 'unnamed_target';
 
 export interface MappedRecord {
   /** The grounding document: the deterministic render. */
@@ -120,7 +120,7 @@ export function renderRecord(r: RecordEnvelope): string {
 }
 
 /** The predicate a mapping value names, fully qualified — or null when the vocabulary has no such thing. */
-export function resolvePredicate(named: string, vocab: Vocabulary): string | null {
+function resolvePredicate(named: string, vocab: Vocabulary): string | null {
   const sep = '__';
   if (named.includes(sep)) {
     const [pack, local] = [named.slice(0, named.indexOf(sep)), named.slice(named.indexOf(sep) + 2)];

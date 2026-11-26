@@ -273,7 +273,7 @@ interface Node {
 }
 
 /** Relative dir paths (sorted) → a tree. */
-export function childrenOf(folders: string[]): Node[] {
+function childrenOf(folders: string[]): Node[] {
   const roots: Node[] = []
   const byRel = new Map<string, Node>()
   for (const rel of folders) {

@@ -69,7 +69,7 @@ export function meanVector(vectors: number[][]): number[] {
  *                  the floor. The ONLY inexact edge the segmenter can make,
  *                  and it carries the cosine that fired it.
  */
-export type SceneBoundaryKind = 'session' | 'max-turns' | 'topic-cosine';
+type SceneBoundaryKind = 'session' | 'max-turns' | 'topic-cosine';
 
 export interface SceneBoundary {
   kind: SceneBoundaryKind;

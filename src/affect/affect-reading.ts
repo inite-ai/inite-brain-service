@@ -32,7 +32,7 @@ export const AFFECT_LABELS = [
   'surprise',
   'neutral',
 ] as const;
-export type AffectLabel = (typeof AFFECT_LABELS)[number];
+type AffectLabel = (typeof AFFECT_LABELS)[number];
 
 /** Most observations one turn can yield: a turn is a few sentences. */
 const MAX_PER_TURN = 3;

@@ -19,7 +19,7 @@ import { isoString } from '../common/surreal-date';
 import { RESOLUTION_CANDIDATES, type ResolvableFact } from './fact-resolution';
 
 /** Open on both axes: still holds in the world, and memory still believes it. */
-export const EDGE_OPEN = 'validUntil IS NONE AND invalidatedAt IS NONE';
+const EDGE_OPEN = 'validUntil IS NONE AND invalidatedAt IS NONE';
 
 export function isEdgeId(id: string): boolean {
   return id.startsWith('knowledge_edge:');

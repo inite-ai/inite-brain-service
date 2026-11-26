@@ -23,7 +23,7 @@ export const AFFECT_INFERENCE_PURPOSE = 'affect_inference';
 /** Rows a category export or erase reaches, per kind. */
 const CATEGORY_CAP = 2000;
 
-export interface AffectFactWire {
+interface AffectFactWire {
   factId: string;
   aspect: string;
   statement: string;
@@ -34,7 +34,7 @@ export interface AffectFactWire {
   retracted: boolean;
 }
 
-export interface AffectBeliefWire {
+interface AffectBeliefWire {
   beliefId: string;
   subject: string;
   field: string;
@@ -45,7 +45,7 @@ export interface AffectBeliefWire {
 }
 
 /** How the person seemed to feel at a time, read from their words (0188). */
-export interface AffectObservationWire {
+interface AffectObservationWire {
   observationId: string;
   observedAt: string;
   /** text | voice (#916). */
@@ -69,7 +69,7 @@ export interface AffectObservationWire {
 }
 
 /** A risk of suicide or self-harm read from the person's words (#916, 0190). */
-export interface RiskSignalWire {
+interface RiskSignalWire {
   signalId: string;
   observedAt: string;
   level: 'concern' | 'urgent';

@@ -22,7 +22,7 @@ export const CONSENT_BASES = [
   'public_task',
   'legitimate_interests',
 ] as const;
-export type ConsentBasis = (typeof CONSENT_BASES)[number];
+type ConsentBasis = (typeof CONSENT_BASES)[number];
 
 /** A purpose name: lowercase snake_case, as a scope or a pack id. */
 const PURPOSE_RE = /^[a-z][a-z0-9_]{0,63}$/;

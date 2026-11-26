@@ -83,7 +83,7 @@ export interface PackTransitionCheck extends BaseCheck {
 
 /** Two or more domains, with the minimum kept in the type: a
  *  single-domain "cross-domain" check would pass vacuously. */
-export type MultiDomain = readonly [DomainSpec, DomainSpec, ...DomainSpec[]];
+type MultiDomain = readonly [DomainSpec, DomainSpec, ...DomainSpec[]];
 
 /** `cross-entity` — search returns ONE entity (no per-domain
  *  duplication) carrying facts from EVERY listed domain plus generic
@@ -149,7 +149,7 @@ export interface ServeIsolationCheck extends BaseCheck {
  *  tools. Neither installed pack declares mcpTools, so the no-op is
  *  ASSERTED, not assumed; this flips to a positive check the day a
  *  pack ships tools (see README.md). */
-export interface NoRogueToolsCheck extends BaseCheck {
+interface NoRogueToolsCheck extends BaseCheck {
   kind: 'no-rogue-tools';
 }
 
@@ -165,7 +165,7 @@ export type Check =
   | NoRogueToolsCheck;
 export type CheckKind = Check['kind'];
 
-export type CheckStatus = 'pass' | 'fail' | 'skipped';
+type CheckStatus = 'pass' | 'fail' | 'skipped';
 
 export interface CheckResult {
   id: string;

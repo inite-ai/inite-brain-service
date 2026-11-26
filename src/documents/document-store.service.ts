@@ -457,7 +457,6 @@ export function originKeyOf(contentHash: string): string {
 
 // Re-exported from its extracted home (document-purge.util) so existing
 // importers keep working; the GDPR forget cascade shares the same helper.
-export { markFactsProvenancePurged } from './document-purge.util';
 
 function mapDoc(row: Record<string, unknown>): StoredDocument {
   return {

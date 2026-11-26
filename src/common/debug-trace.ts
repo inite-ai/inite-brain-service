@@ -11,11 +11,6 @@
  * new HTTP-bound code in `debug-trace.interceptor.ts`.
  */
 export {
-  type DebugSpan,
-  type DebugArtifact,
-  type DebugContext,
-  type DebugTraceSnapshot,
-  getDebugContext,
   runWithDebugTrace,
   traceSpan,
   traceArtifact,

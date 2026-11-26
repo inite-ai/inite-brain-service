@@ -17,4 +17,4 @@ export const DreamsSummaryResponseSchema = z.object({
   }),
 })
 
-export type DreamsSummaryResponse = z.infer<typeof DreamsSummaryResponseSchema>
+type DreamsSummaryResponse = z.infer<typeof DreamsSummaryResponseSchema>

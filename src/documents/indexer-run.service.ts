@@ -610,7 +610,7 @@ function passesOf(depth: ReadDepth | undefined): number | undefined {
 const CHUNK_CONCURRENCY = 4;
 
 /** The ledger's pack id of a focused re-read (runFocused). */
-export const RELEARN_INDEXER_ID = '_relearn';
+const RELEARN_INDEXER_ID = '_relearn';
 
 /**
  * Store what an extraction produced, retrying a write conflict: the

@@ -29,7 +29,7 @@ import { blockText, propertiesText, titleOf, type NotionBlock } from './notion-t
  * Needs SOURCE_OAUTH_CLIENT (the grant) as well as SOURCE_KIND_NOTION.
  */
 
-export interface NotionConnectorConfig {
+interface NotionConnectorConfig {
   /** Only these pages and what is under them (default: everything the integration can see). */
   rootPageIds?: string[] | undefined;
   maxPages?: number | undefined;
@@ -221,7 +221,7 @@ async function* children(
 }
 
 /** The block tree as text, depth-first, children indented, cut at maxBlocks / MAX_DEPTH. */
-export async function blocksText(
+async function blocksText(
   http: CloudHttp,
   at: { base: string; pageId: string },
   limits: { maxBlocks: number; signal: AbortSignal },

@@ -18,5 +18,4 @@ export const RetentionResponseSchema = z.object({
   familyDefaultDays: z.number().int(),
 });
 
-export type RetentionSetRequest = z.infer<typeof RetentionSetRequestSchema>;
 export type RetentionResponse = z.infer<typeof RetentionResponseSchema>;

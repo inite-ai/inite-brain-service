@@ -25,7 +25,7 @@ import { StringRecordId, Surreal } from 'surrealdb';
 export type QueryHandle = Pick<Surreal, 'query'>;
 
 /** Batch size for the chunk-purge loop (a doc's chunk count is unbounded). */
-export const CHUNK_PURGE_BATCH = 5000;
+const CHUNK_PURGE_BATCH = 5000;
 
 /** 'source_document:<tail>' → '<tail>' (accepts a bare tail unchanged). */
 function docTailOf(docId: string): string {

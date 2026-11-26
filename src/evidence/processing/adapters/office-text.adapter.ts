@@ -65,7 +65,7 @@ export class OfficeTextAdapter implements ProcessorAdapter {
 
 const RENDER_CONTRACT = 'ooxml-lines-v1';
 
-export const OFFICE_MEDIA_TYPES: ReadonlyMap<string, 'docx' | 'xlsx' | 'pptx'> = new Map([
+const OFFICE_MEDIA_TYPES: ReadonlyMap<string, 'docx' | 'xlsx' | 'pptx'> = new Map([
   ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'docx'],
   ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'],
   ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'pptx'],

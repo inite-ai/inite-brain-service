@@ -76,6 +76,3 @@ export const MultiHopResponseSchema = z.object({
     })
     .optional(),
 });
-
-export type MultiHopRequest = z.infer<typeof MultiHopRequestSchema>;
-export type MultiHopResponse = z.infer<typeof MultiHopResponseSchema>;

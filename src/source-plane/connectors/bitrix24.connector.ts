@@ -42,7 +42,7 @@ import { isoOf, scalars } from './records-vendor';
  * operator's SOURCE_EGRESS_ALLOW_PRIVATE) like every network connector.
  */
 
-export interface Bitrix24Config {
+interface Bitrix24Config {
   entities?: string[] | undefined;
   mapping?: RecordMapping | undefined;
   /** The connection's half of the private-egress opt-in (a self-hosted portal on the LAN). */
@@ -316,7 +316,7 @@ async function loadLookups(api: Bitrix24Api): Promise<Lookups> {
 }
 
 /** One `crm.item` → the envelope: names for ids, relations to the contact / company. */
-export function toEnvelope(entity: string, row: Bitrix24Item, l: Lookups): RecordEnvelope | null {
+function toEnvelope(entity: string, row: Bitrix24Item, l: Lookups): RecordEnvelope | null {
   if (!row || typeof row.id !== 'number') return null;
   const common = {
     externalId: String(row.id),
@@ -495,7 +495,7 @@ export function webhookRoot(credential: string | null): string {
  * parameter (the portal from the grant; the dev override's origin when
  * one is in force); for a webhook the URL itself, its code the secret.
  */
-export function restRoot(ctx: ConnectorCtx): { root: string; auth: string | null; secret: string } {
+function restRoot(ctx: ConnectorCtx): { root: string; auth: string | null; secret: string } {
   if (ctx.connection.credentialSource === 'grant') {
     const token = ctx.connection.credential;
     if (!token) throw new Error('bitrix24: the connected account handed no token');

@@ -16,6 +16,7 @@ import { z } from 'zod';
 
 const OpenRecord = z.record(z.string(), z.unknown());
 
+/** @public the source of ScenarioDetailResponse, read only as a type (z.infer). */
 export const ScenarioDetailResponseSchema = z.object({
   id: z.string(),
   vertical: z.string(),

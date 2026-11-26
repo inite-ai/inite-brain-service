@@ -32,11 +32,6 @@ import { isoOf, scalars } from './records-vendor';
  * SOURCE_OAUTH_HUBSPOT_BASE_URL reroutes the API to a fake.
  */
 
-export interface HubSpotConfig {
-  entities?: string[] | undefined;
-  mapping?: RecordMapping | undefined;
-}
-
 const PAGE_LIMIT = 200;
 /** The Search API refuses `after` at or beyond this — the window narrows instead. */
 const SEARCH_WINDOW_CAP = 10_000;
@@ -428,7 +423,7 @@ interface RowContext {
 }
 
 /** One HubSpot object → the envelope: flat attributes with ids resolved to labels, relations from the associations. */
-export function toEnvelope(entity: string, row: HubSpotRow, rc: RowContext): RecordEnvelope | null {
+function toEnvelope(entity: string, row: HubSpotRow, rc: RowContext): RecordEnvelope | null {
   const spec = OBJECTS[entity];
   if (!spec || !row?.id) return null;
   const p = row.properties ?? {};

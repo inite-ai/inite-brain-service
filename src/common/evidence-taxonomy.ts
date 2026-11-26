@@ -28,7 +28,7 @@ export type DerivedRepresentationKind = (typeof DERIVED_REPRESENTATION_KINDS)[nu
  * geometry and EXIF, not what the image says), nor are tracks, graphs
  * or vectors. Keyed by the kind union, so a new kind must take a side.
  */
-export const KIND_CARRIES_WORDS: Readonly<Record<DerivedRepresentationKind, boolean>> = {
+const KIND_CARRIES_WORDS: Readonly<Record<DerivedRepresentationKind, boolean>> = {
   caption: false,
   ocr: true,
   asr: true,
@@ -51,12 +51,10 @@ export const PROCESSING_RUN_STATUSES = [
   'failed',
   'superseded',
 ] as const;
-export type ProcessingRunStatus = (typeof PROCESSING_RUN_STATUSES)[number];
 
 /** External-ingest quarantine states on evidence_asset (0121). Absent =
  *  legacy/off-era row, read as clean (all pre-seam writes were internal). */
 export const QUARANTINE_STATUSES = ['quarantined', 'scanning', 'clean', 'rejected'] as const;
-export type QuarantineStatus = (typeof QUARANTINE_STATUSES)[number];
 
 /**
  * Evidence-capability axis (0113): what KIND of evidence a claim can be

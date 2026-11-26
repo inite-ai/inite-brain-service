@@ -80,7 +80,7 @@ async function verifiedSession(request: NextRequest): Promise<{
  * `withUser` or `withSession`, or a renewal here rotates the refresh
  * token and loses it (see withSession).
  */
-export async function getAdminSession(
+async function getAdminSession(
   request: NextRequest,
 ): Promise<AdminSession | null> {
   return (await getAdminSessionWithRenewal(request))?.session ?? null
@@ -113,7 +113,7 @@ async function getAdminSessionWithRenewal(
  * dev-bypass still applies so local development without auth works.
  * Same hazard as getAdminSession: route handlers use `withSession`.
  */
-export async function getUserSession(
+async function getUserSession(
   request: NextRequest,
 ): Promise<UserSession | null> {
   return (await getUserSessionWithRenewal(request))?.session ?? null

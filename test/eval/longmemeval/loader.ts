@@ -9,12 +9,12 @@ import { promises as fs } from 'node:fs';
  * `_abs` are the abstention subset — the correct behavior is to decline.
  */
 
-export interface LmeTurn {
+interface LmeTurn {
   role: 'user' | 'assistant' | string;
   content: string;
 }
 
-export interface LmeSession {
+interface LmeSession {
   sessionId: string;
   /** Upstream format: "2023/05/20 (Sat) 02:21" — parsed to ISO. */
   dateIso: string;
@@ -33,7 +33,7 @@ export interface LmeQuestion {
 }
 
 /** "2023/05/20 (Sat) 02:21" → ISO string (UTC, deterministic). */
-export function parseLmeDate(raw: string): string {
+function parseLmeDate(raw: string): string {
   const m = /^(\d{4})\/(\d{2})\/(\d{2})\D+(\d{2}):(\d{2})/.exec(raw ?? '');
   if (!m) return new Date(0).toISOString();
   return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00.000Z`;

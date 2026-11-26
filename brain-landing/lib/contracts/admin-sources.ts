@@ -20,7 +20,7 @@ export const SOURCE_TYPES = [
 export type SourceType = (typeof SOURCE_TYPES)[number]
 
 /** Operator-declared identity (source_registry row). */
-export const DeclaredSourceSchema = z.object({
+const DeclaredSourceSchema = z.object({
   sourceKey: z.string(),
   type: z.enum(SOURCE_TYPES),
   authLevel: z.number().min(0).max(1),
@@ -31,7 +31,7 @@ export const DeclaredSourceSchema = z.object({
 })
 
 /** One learned reputation scope (source_trust row). domain null = global. */
-export const TrustScopeRowSchema = z.object({
+const TrustScopeRowSchema = z.object({
   domain: z.string().nullable(),
   agreementRate: z.number(),
   sampleCount: z.number().int(),
@@ -41,7 +41,7 @@ export const TrustScopeRowSchema = z.object({
 })
 
 /** Catalogue line: declared ⋈ learned, either side may be absent. */
-export const SourceSummarySchema = z.object({
+const SourceSummarySchema = z.object({
   sourceKey: z.string(),
   declared: DeclaredSourceSchema.nullable(),
   globalTrust: TrustScopeRowSchema.nullable(),
@@ -53,7 +53,7 @@ export const SourcesListResponseSchema = z.object({
   sources: z.array(SourceSummarySchema),
 })
 
-export const SourceHistoryRowSchema = z.object({
+const SourceHistoryRowSchema = z.object({
   domain: z.string().nullable(),
   agreementRate: z.number(),
   sampleCount: z.number().int(),
@@ -73,10 +73,10 @@ export const DeclareSourceResponseSchema = z.object({
   declared: DeclaredSourceSchema,
 })
 
-export type DeclaredSource = z.infer<typeof DeclaredSourceSchema>
+type DeclaredSource = z.infer<typeof DeclaredSourceSchema>
 export type TrustScopeRow = z.infer<typeof TrustScopeRowSchema>
 export type SourceSummary = z.infer<typeof SourceSummarySchema>
-export type SourcesListResponse = z.infer<typeof SourcesListResponseSchema>
-export type SourceHistoryRow = z.infer<typeof SourceHistoryRowSchema>
+type SourcesListResponse = z.infer<typeof SourcesListResponseSchema>
+type SourceHistoryRow = z.infer<typeof SourceHistoryRowSchema>
 export type SourceDetailResponse = z.infer<typeof SourceDetailResponseSchema>
-export type DeclareSourceResponse = z.infer<typeof DeclareSourceResponseSchema>
+type DeclareSourceResponse = z.infer<typeof DeclareSourceResponseSchema>

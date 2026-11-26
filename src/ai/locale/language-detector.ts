@@ -30,10 +30,10 @@
 
 import { envFlagEnabled, envFlagNotDisabled } from '../../common/env-validation';
 
-export type LanguageCode =
+type LanguageCode =
   'en' | 'ru' | 'es' | 'fr' | 'de' | 'pt' | 'it' | 'zh' | 'ja' | 'ko' | 'ar' | 'hi' | 'und';
 
-export type ScriptCode = 'Latn' | 'Cyrl' | 'Hani' | 'Hira' | 'Hang' | 'Arab' | 'Deva' | 'Zyyy';
+type ScriptCode = 'Latn' | 'Cyrl' | 'Hani' | 'Hira' | 'Hang' | 'Arab' | 'Deva' | 'Zyyy';
 
 /**
  * Version tag of THIS detector — the stopword + Unicode-block scheme.

@@ -8,7 +8,7 @@ import type { FieldError, FieldSpec, FormContext, FormValues } from './specs'
 type FieldText = { label: string; hint: string }
 
 /** The i18n group a connector's fields live under (`admin.connections.form.fields.<group>`). */
-export function fieldGroupOf(ctx: FormContext): string {
+function fieldGroupOf(ctx: FormContext): string {
   if (ctx.entry.kind === 'mcp') return 'mcp'
   return ctx.entry.connector
 }

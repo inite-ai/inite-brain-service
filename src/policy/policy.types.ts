@@ -17,9 +17,8 @@ import { z } from 'zod';
  */
 
 export type PolicyEffect = 'allow' | 'deny';
-export type PolicyRuleKind = 'action' | 'source';
 export type PolicyMode = 'report_only' | 'enforce' | 'disabled';
-export type PolicyPosture = 'allow' | 'deny';
+type PolicyPosture = 'allow' | 'deny';
 /** would_deny = a report_only (or force-demoted) set would have blocked. */
 export type PolicyDecision = 'allow' | 'deny' | 'would_deny';
 export type ActionKind = 'read' | 'write' | 'admin';
@@ -104,7 +103,7 @@ export const POLICY_ATTRIBUTES: Record<
 const SOURCE_META_ATTR = /^source\.meta\.[a-z][a-z0-9_]{0,63}$/;
 const META_ATTR_OPS: MatchOp[] = ['eq', 'in', 'exists', 'not_exists'];
 
-export function attributeSpec(
+function attributeSpec(
   attr: string,
 ): { type: 'string' | 'number' | 'boolean'; ops: MatchOp[] } | null {
   const fixed = POLICY_ATTRIBUTES[attr];
@@ -122,9 +121,9 @@ const RULE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const SET_NAME = /^[a-z][a-z0-9_-]{1,63}$/;
 const ACTION_NAME = /^(@[a-z]+|[a-z][a-z0-9_.-]{0,127})$/;
 
-export const MAX_RULES_PER_SET = 64;
-export const MAX_VALUES_PER_LIST = 128;
-export const MAX_DOCUMENT_BYTES = 32 * 1024;
+const MAX_RULES_PER_SET = 64;
+const MAX_VALUES_PER_LIST = 128;
+const MAX_DOCUMENT_BYTES = 32 * 1024;
 export const MAX_SETS_PER_KEY = 8;
 
 const MatchConditionSchema = z

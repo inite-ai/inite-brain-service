@@ -217,7 +217,7 @@ export class AgentSyncService {
  * connection's `config.mapping[entityType]` is the mapping, the way the
  * push transport applies it.
  */
-export function fromWire(w: FetchedItemWire, config: Record<string, unknown> = {}): FetchedItem {
+function fromWire(w: FetchedItemWire, config: Record<string, unknown> = {}): FetchedItem {
   switch (w.shape) {
     case 'document':
       return {

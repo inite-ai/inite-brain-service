@@ -137,7 +137,7 @@ export const LANE_EXEMPLARS: Record<ClassifierLane, readonly string[]> = {
 };
 
 /** One fitted lane class: the mean of its embedded exemplars. */
-export interface LaneCentroid {
+interface LaneCentroid {
   lane: ClassifierLane;
   centroid: number[];
   /** Exemplars that fed the centroid (0 ⇒ unusable, skipped). */
@@ -147,7 +147,7 @@ export interface LaneCentroid {
 export type LaneClassifierModel = readonly LaneCentroid[];
 
 /** Classifier outcome (control flow + telemetry label). */
-export type LaneClassifyOutcome =
+type LaneClassifyOutcome =
   'classified' | 'abstain_no_model' | 'abstain_low_confidence' | 'abstain_ambiguous';
 
 export interface LaneClassification {

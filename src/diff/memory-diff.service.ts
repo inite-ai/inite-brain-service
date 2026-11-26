@@ -459,14 +459,14 @@ export interface FactRef {
   retractedAt?: string | undefined;
 }
 
-export interface ChangedFact {
+interface ChangedFact {
   factId: string;
   replacedBy: string;
   before: FactRef;
   after?: FactRef | undefined;
 }
 
-export interface EntityRef {
+interface EntityRef {
   entityId: string;
   type: string;
   canonicalName: string;
@@ -474,7 +474,7 @@ export interface EntityRef {
   createdAt: string;
 }
 
-export interface ForgottenRef {
+interface ForgottenRef {
   entityIdHash: string;
   reason: string;
   requestId?: string | undefined;

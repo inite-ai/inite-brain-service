@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
  * suites, reached through SOURCE_OAUTH_SLACK_BASE_URL /
  * SOURCE_TELEGRAM_API_BASE under SOURCE_EGRESS_ALLOW_PRIVATE.
  */
-export interface SlackFakeMessage {
+interface SlackFakeMessage {
   ts: string;
   user?: string;
   text?: string;

@@ -22,12 +22,14 @@ import { getRequestContext } from '../common/request-context';
 import { userTag } from './scope-tags';
 import { actingCircleTags, isCircleTag } from './circle-scope';
 
-/** The per-request memo: the expanded tag set of each user we resolved. */
+/** The per-request memo: the expanded tag set of each user we resolved.
+ * @public read as import('../auth/scope-principal').ScopeTagMemo (src/common/request-context.ts), which knip does not follow.
+ */
 export interface ScopeTagMemo {
   byUser: Map<string, readonly string[]>;
 }
 
-export function scopeTagMemo(): ScopeTagMemo | undefined {
+function scopeTagMemo(): ScopeTagMemo | undefined {
   return getRequestContext()?.scopeTags;
 }
 
@@ -58,7 +60,7 @@ export function heldTagsFor(userId: string): readonly string[] {
  * left as resolved (a person reading their own memory holds every circle
  * they are a member of).
  */
-export function boundToActingCircle(tags: readonly string[]): readonly string[] {
+function boundToActingCircle(tags: readonly string[]): readonly string[] {
   const acting = actingCircleTags();
   if (acting.length === 0) return tags;
   return [...tags.filter((t) => !isCircleTag(t)), ...acting];

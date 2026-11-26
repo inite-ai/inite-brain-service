@@ -31,7 +31,7 @@
 import type { ParticipantHint } from './participants';
 
 /** The vertical relatives are filed under (scoped by the user, like `user`). */
-export const RELATIVE_VERTICAL = 'relative';
+const RELATIVE_VERTICAL = 'relative';
 
 /** Surface → canonical role. Keys are lowercased; plural and synonyms fold. */
 const KIN: Readonly<Record<string, string>> = {

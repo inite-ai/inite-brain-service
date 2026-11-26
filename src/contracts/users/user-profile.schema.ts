@@ -40,5 +40,3 @@ export const UserProfileResponseSchema = z.object({
   /** The identity line, then one line per fact: `- [aspect] statement (as of YYYY-MM-DD)`, a temporary state followed by its expectation. */
   profileText: z.string(),
 });
-
-export type UserProfileResponse = z.infer<typeof UserProfileResponseSchema>;

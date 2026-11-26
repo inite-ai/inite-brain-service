@@ -8,8 +8,6 @@ import { UserForgetService } from './user-forget.service';
 
 /** The window family products run with (owner decision 2026-11-14): two years. */
 export const FAMILY_RETENTION_DAYS = 730;
-export const RETENTION_MIN_DAYS = 30;
-export const RETENTION_MAX_DAYS = 3650;
 /** Users forgotten per job run; more waiting enqueue a continuation. */
 export const RETENTION_USERS_PER_RUN = 25;
 const DAY_MS = 24 * 60 * 60_000;
@@ -30,7 +28,7 @@ export async function readRetentionDays(db: RetentionDb): Promise<number | null>
 }
 
 /** Set (a number) or clear (null) the tenant's rule. */
-export async function writeRetentionDays(db: RetentionDb, days: number | null): Promise<void> {
+async function writeRetentionDays(db: RetentionDb, days: number | null): Promise<void> {
   await db.query(
     `UPSERT type::record('retention_policy', 'users') SET userInactiveDays = $d, updatedAt = time::now()`,
     { d: days ?? undefined },

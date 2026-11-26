@@ -8,7 +8,7 @@ export const SAFETY_EVENT_TYPES = [
   'minor_safety_setting_changed',
   'emotion_recognition_notice_shown',
 ] as const;
-export type SafetyEventType = (typeof SAFETY_EVENT_TYPES)[number];
+type SafetyEventType = (typeof SAFETY_EVENT_TYPES)[number];
 
 export interface SafetyEventWire {
   eventId: string;

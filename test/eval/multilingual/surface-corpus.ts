@@ -1,41 +1,6 @@
 import type { LanguageCode } from '../../../src/eval/types';
 
 /**
- * The surface half of the multilingual matrix — the text a LIVE run has
- * to put in and ask with.
- *
- * WHY IT DID NOT EXIST. The scenarios in src/eval/scenarios were written
- * script-agnostic on purpose: gold is refs, never surface strings, so one
- * grid can score seven languages without the gold itself leaning on any
- * of them. That is right for the gold and it is why the matrix could
- * never be run against the real system — a live run needs sentences.
- * `RealModel.predict` says as much and throws.
- *
- * So this file is the missing adapter input, and nothing else: per ref
- * per language, the sentence that states that fact; per language, the
- * question that asks for it. The gold stays where it is.
- *
- * TWO RULES IT FOLLOWS, both to keep the measurement honest:
- *
- *  1. NATIVE NAMES, NOT TRANSLITERATED LATIN. Writing "Maria Alvarez" in
- *     the Chinese and Arabic sentences would make cross-lingual retrieval
- *     a lexical match on a Latin string, and the number would measure
- *     nothing. Each language names people the way that language does.
- *  2. REFS ARE RESOLVED BY ID, NOT BY TEXT. The adapter records which
- *     entity and fact ids each ingested sentence produced and maps
- *     results back through that. No string matching between a result and
- *     a ref anywhere — which is the only way a ref mapping can be
- *     script-independent in fact and not just in intention.
- *
- * Cases whose gold already carries its own surface text — every
- * `temporal` (the expression) and every `linking` (the surfaces) — are
- * not repeated here; only the carrier sentence that has to hold a
- * temporal expression is.
- */
-
-export const MATRIX_LANGUAGES: readonly LanguageCode[] = ['en', 'ru', 'de', 'es', 'zh', 'ar', 'hi'];
-
-/**
  * The three role facts the cross-lingual retrieval cases rank, one
  * sentence per language. Same company, three departments, three people —
  * so a query for one department has two plausible distractors in the same

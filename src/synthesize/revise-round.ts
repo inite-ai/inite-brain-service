@@ -49,12 +49,12 @@ import { noteProviderFailureInScope, withProviderFailureScope } from '../ai/prov
  * nothing; when the first "no" was the sample's noise, it is the
  * difference between an answer and a null.
  */
-export interface ReviseRoundDeps {
+interface ReviseRoundDeps {
   metrics?: MetricsService | undefined;
   logger: { warn(message: string): void };
 }
 
-export interface ReviseRoundArgs {
+interface ReviseRoundArgs {
   verdict: VerifierOutput;
   generated: GeneratorOutput;
   /** The local NLI arm judges differently and names no claims. */
@@ -158,7 +158,7 @@ export interface AuditArgs {
   decisionCtx: DecisionContext;
 }
 
-export interface AuditedAnswer {
+interface AuditedAnswer {
   verdict: VerifierOutput;
   generated: GeneratorOutput;
   citations: Citation[];

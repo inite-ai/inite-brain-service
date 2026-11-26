@@ -53,6 +53,3 @@ export const CalibrationResponseSchema = z.object({
 });
 
 export type CalibrationResponse = z.infer<typeof CalibrationResponseSchema>;
-export type ReliabilityBin = z.infer<typeof ReliabilityBinSchema>;
-export type CurvePoint = z.infer<typeof CurvePointSchema>;
-export type CalibrationVersion = z.infer<typeof CalibrationVersionSchema>;

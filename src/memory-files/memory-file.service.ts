@@ -18,7 +18,7 @@ import { pinUserScope } from '../auth/user-scope';
  */
 
 /** The one directory the tool is allowed to touch. */
-export const MEMORY_ROOT = '/memories';
+const MEMORY_ROOT = '/memories';
 const MAX_PATH = 512;
 const MAX_CONTENT = 100_000;
 
@@ -48,7 +48,7 @@ interface Row {
  * is on (path, userId) and a crafted path is how you would forge
  * someone else's key.
  */
-export function normalizeMemoryPath(raw: unknown): string {
+function normalizeMemoryPath(raw: unknown): string {
   if (typeof raw !== 'string' || raw.length === 0) {
     throw new BadRequestException('path is required');
   }

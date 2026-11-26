@@ -20,13 +20,13 @@ import { SourceItemSchema } from './source-item.schema';
 
 const CONNECTION_ID = /^source_connection:[A-Za-z0-9_]+$/;
 
-export const SourceConnectionStatusSchema = z.enum(['active', 'paused', 'deleting']);
-export const SourceConnectionModeSchema = z.enum(['synced', 'linked']);
-export const SourceScheduleSchema = z.enum(PACK_SOURCE_SCHEDULES);
-export const SourceContentPolicySchema = z.enum(PACK_SOURCE_CONTENT_POLICIES);
-export const SourceDeletePolicySchema = z.enum(PACK_SOURCE_DELETE_POLICIES);
-export const SourceShapeSchema = z.enum(PACK_SOURCE_SHAPES);
-export const SourceKindSchema = z.enum(PACK_SOURCE_KINDS);
+const SourceConnectionStatusSchema = z.enum(['active', 'paused', 'deleting']);
+const SourceConnectionModeSchema = z.enum(['synced', 'linked']);
+const SourceScheduleSchema = z.enum(PACK_SOURCE_SCHEDULES);
+const SourceContentPolicySchema = z.enum(PACK_SOURCE_CONTENT_POLICIES);
+const SourceDeletePolicySchema = z.enum(PACK_SOURCE_DELETE_POLICIES);
+const SourceShapeSchema = z.enum(PACK_SOURCE_SHAPES);
+const SourceKindSchema = z.enum(PACK_SOURCE_KINDS);
 
 /** Connector configuration — an object of scalars/arrays, never secrets. */
 const ConfigSchema = z.record(z.string().max(64), z.unknown());
@@ -112,7 +112,7 @@ export const SourceConnectionsListResponseSchema = z.object({
 });
 export type SourceConnectionsListResponse = z.infer<typeof SourceConnectionsListResponseSchema>;
 
-export { SourceItemSchema, SourceItemStateSchema } from './source-item.schema';
+export { SourceItemSchema } from './source-item.schema';
 export type { SourceItem } from './source-item.schema';
 
 export const SourceItemsListResponseSchema = z.object({
@@ -166,7 +166,6 @@ export const SyncNowRequestSchema = z.object({
    */
   itemIds: z.array(z.string().min(1).max(200)).max(50).optional(),
 });
-export type SyncNowRequest = z.infer<typeof SyncNowRequestSchema>;
 
 export const SyncNowResponseSchema = z.union([
   z.object({ enqueued: z.literal(true), runId: z.string(), created: z.boolean() }),
@@ -183,15 +182,14 @@ export type SyncNowResponse = z.infer<typeof SyncNowResponseSchema>;
 // under an HMAC; the secret authenticates the vendor (or the vendor's
 // own signature does).
 
-export const WEBHOOK_SECRET_MIN = 16;
-export const WEBHOOK_SECRET_MAX = 256;
+const WEBHOOK_SECRET_MIN = 16;
+const WEBHOOK_SECRET_MAX = 256;
 
 /** POST /v1/admin/source-connections/:id/webhook — switch the webhook on (a secret is generated unless given). */
 export const WebhookSetupRequestSchema = z.object({
   /** The vendor's own token when the vendor issues it (Bitrix24 application token, a HubSpot app's client secret); absent = generated. */
   secret: z.string().min(WEBHOOK_SECRET_MIN).max(WEBHOOK_SECRET_MAX).optional(),
 });
-export type WebhookSetupRequest = z.infer<typeof WebhookSetupRequestSchema>;
 
 export const WebhookSetupResponseSchema = z.object({
   /** What to register at the vendor. Kommo / signed: the secret rides in it as `?token=`. */
@@ -205,7 +203,7 @@ export const WebhookSetupResponseSchema = z.object({
 export type WebhookSetupResponse = z.infer<typeof WebhookSetupResponseSchema>;
 
 /** What one webhook call did (inline) or will do (queued). */
-export const WebhookApplySummarySchema = z.object({
+const WebhookApplySummarySchema = z.object({
   connectionId: z.string(),
   received: z.number().int(),
   fetched: z.number().int(),
@@ -239,17 +237,11 @@ export type WebhookReceipt = z.infer<typeof WebhookReceiptSchema>;
  *   external — the publisher pushes through the doors; a connection is
  *              only the registry identity the pushes are attributed to.
  */
-export const SourceAvailabilitySchema = z.enum([
-  'ready',
-  'disabled',
-  'missing',
-  'agent',
-  'external',
-]);
+const SourceAvailabilitySchema = z.enum(['ready', 'disabled', 'missing', 'agent', 'external']);
 export type SourceAvailability = z.infer<typeof SourceAvailabilitySchema>;
 
 /** One connectable `sources[]` entry of an installed (or builtin) pack. */
-export const SourceCatalogEntrySchema = z.object({
+const SourceCatalogEntrySchema = z.object({
   packId: z.string(),
   packVersion: z.string(),
   builtin: z.boolean(),
@@ -332,7 +324,7 @@ export const SourceCatalogEntrySchema = z.object({
 });
 export type SourceCatalogEntry = z.infer<typeof SourceCatalogEntrySchema>;
 
-export const SourceConnectorStateSchema = z.object({
+const SourceConnectorStateSchema = z.object({
   kind: z.string(),
   state: z.enum(['ready', 'disabled']),
   /** The env switch that turns it on. */
@@ -376,7 +368,7 @@ export type SourceCatalogResponse = z.infer<typeof SourceCatalogResponseSchema>;
 export const AGENT_HOST = /^agent:[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-export const ItemDescriptorWireSchema = z.object({
+const ItemDescriptorWireSchema = z.object({
   externalId: z.string().min(1).max(2048),
   originUri: z.string().max(2048).optional(),
   path: z.string().max(2048).optional(),
@@ -388,7 +380,7 @@ export const ItemDescriptorWireSchema = z.object({
   acl: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const ItemDeltaWireSchema = z.discriminatedUnion('type', [
+const ItemDeltaWireSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('upsert'), item: ItemDescriptorWireSchema }),
   z.object({ type: z.literal('gone'), externalId: z.string().min(1).max(2048) }),
   z.object({ type: z.literal('checkpoint'), checkpoint: z.record(z.string(), z.unknown()) }),
@@ -398,7 +390,7 @@ export type ItemDeltaWire = z.infer<typeof ItemDeltaWireSchema>;
 // ── Records (W4.2: docs/roadmap/crm-sources-2026-09.md) ─────────────────
 
 /** The record envelope — entities + attributes + relations + a revision; the shape every CRM transport funnels into. */
-export const RecordEnvelopeWireSchema = z.object({
+const RecordEnvelopeWireSchema = z.object({
   entityType: z.string().min(1).max(64),
   externalId: z.string().min(1).max(512),
   name: z.string().min(1).max(512),
@@ -419,7 +411,6 @@ export const RecordEnvelopeWireSchema = z.object({
     .optional(),
   updatedAt: z.string().max(64).optional(),
 });
-export type RecordEnvelopeWire = z.infer<typeof RecordEnvelopeWireSchema>;
 
 /** How one entity type's attributes become facts (records/record-mapping.ts) — bounded on purpose. */
 export const EntityMappingSchema = z.object({
@@ -435,8 +426,7 @@ export const EntityMappingSchema = z.object({
   /** The core entity type the record's entity is filed under (src/common/entity-types.ts). */
   coreType: z.enum(ENTITY_TYPES).optional(),
 });
-export const RecordMappingSchema = z.record(z.string().max(64), EntityMappingSchema);
-export type RecordMappingWire = z.infer<typeof RecordMappingSchema>;
+const RecordMappingSchema = z.record(z.string().max(64), EntityMappingSchema);
 
 /** POST /v1/source-connections/:id/records — a batch pushed by a webhook or an automation. */
 export const PushRecordsRequestSchema = z.object({
@@ -483,7 +473,7 @@ export type RecordsPreviewRequest = z.infer<typeof RecordsPreviewRequestSchema>;
 const DOTTED = z.string().min(1).max(128);
 const ENTITY_TYPE = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
 
-export const RestPagingSchema = z.object({
+const RestPagingSchema = z.object({
   style: z.enum(['none', 'page', 'offset', 'cursor', 'link']),
   /** The page number / offset / cursor parameter (query for GET, body for POST). */
   param: z.string().max(64).optional(),
@@ -494,7 +484,6 @@ export const RestPagingSchema = z.object({
   /** Dotted path in the answer to the next cursor (cursor) or the next URL (link). */
   next: DOTTED.optional(),
 });
-export type RestPaging = z.infer<typeof RestPagingSchema>;
 
 export const RestEntitySchema = z.object({
   label: z.string().max(64).optional(),
@@ -688,12 +677,11 @@ export const BeginAgentRunResponseSchema = z.object({
 });
 export type BeginAgentRunResponse = z.infer<typeof BeginAgentRunResponseSchema>;
 
-export const AGENT_DELTAS_MAX = 1000;
+const AGENT_DELTAS_MAX = 1000;
 
 export const AgentDeltasRequestSchema = z.object({
   deltas: z.array(ItemDeltaWireSchema).min(1).max(AGENT_DELTAS_MAX),
 });
-export type AgentDeltasRequest = z.infer<typeof AgentDeltasRequestSchema>;
 
 export const AgentDeltasResponseSchema = z.object({
   /** externalIds whose content the agent must now post (revision moved). */
@@ -720,7 +708,7 @@ export const FinishAgentRunRequestSchema = z.object({
 export type FinishAgentRunRequest = z.infer<typeof FinishAgentRunRequestSchema>;
 
 /** An agent's view of one of its connections: the row plus the pack entry it runs. */
-export const AgentConnectionSchema = z.object({
+const AgentConnectionSchema = z.object({
   connection: SourceConnectionSchema,
   /** The pack's `sources[]` entry (transport / command / connector …); null when the pack no longer declares it. */
   source: z.record(z.string(), z.unknown()).nullable(),
@@ -743,10 +731,10 @@ export type AgentConnectionsListResponse = z.infer<typeof AgentConnectionsListRe
  */
 const SQL_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SQL_TABLE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/;
-export const DB_DATABASE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+const DB_DATABASE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const SqlIdentSchema = z.string().regex(SQL_IDENT, 'a SQL identifier');
 
-export const DbSourceEntitySchema = z.object({
+const DbSourceEntitySchema = z.object({
   type: SqlIdentSchema,
   table: z.string().regex(SQL_TABLE, 'a table or schema.table'),
   idColumn: SqlIdentSchema.optional(),
@@ -758,7 +746,6 @@ export const DbSourceEntitySchema = z.object({
     .max(32)
     .optional(),
 });
-export type DbSourceEntity = z.infer<typeof DbSourceEntitySchema>;
 
 /** Keys a `db` config must not carry: the DSN and its parts stay on the agent. */
 export const DB_CONFIG_FORBIDDEN_KEYS = [
@@ -781,9 +768,8 @@ export const DbSourceConfigSchema = z
     mapping: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
-export type DbSourceConfig = z.infer<typeof DbSourceConfigSchema>;
 
-export const AGENT_INVENTORY_MAX_FOLDERS = 2000;
+const AGENT_INVENTORY_MAX_FOLDERS = 2000;
 
 /** What an agent reports on every pass: its identity and the folders under its roots. */
 export const AgentInventorySchema = z.object({
@@ -804,7 +790,7 @@ export const AgentInventorySchema = z.object({
 });
 export type AgentInventory = z.infer<typeof AgentInventorySchema>;
 
-export const SourceAgentSchema = z.object({
+const SourceAgentSchema = z.object({
   agentId: z.string(),
   firstSeenAt: z.string(),
   lastSeenAt: z.string(),
@@ -843,7 +829,7 @@ export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
 
 const GRANT_ID = /^source_oauth_grant:[A-Za-z0-9_]+$/;
 
-export const SourceOAuthProviderIdSchema = z.enum([
+const SourceOAuthProviderIdSchema = z.enum([
   'google',
   'microsoft',
   'dropbox',
@@ -858,7 +844,6 @@ export const SourceOAuthProviderIdSchema = z.enum([
   'github',
   'gitlab',
 ]);
-export type SourceOAuthProviderId = z.infer<typeof SourceOAuthProviderIdSchema>;
 
 export const SourceOAuthStartRequestSchema = z.object({
   provider: SourceOAuthProviderIdSchema,
@@ -869,7 +854,6 @@ export const SourceOAuthStartRequestSchema = z.object({
   /** Make the grant a user's (a personal connection's account). */
   ownerUserId: z.string().max(200).optional(),
 });
-export type SourceOAuthStartRequest = z.infer<typeof SourceOAuthStartRequestSchema>;
 
 export const SourceOAuthStartResponseSchema = z.object({
   authorizeUrl: z.string(),
@@ -878,9 +862,9 @@ export const SourceOAuthStartResponseSchema = z.object({
 });
 export type SourceOAuthStartResponse = z.infer<typeof SourceOAuthStartResponseSchema>;
 
-export const SourceOAuthGrantStatusSchema = z.enum(['active', 'revoked', 'broken']);
+const SourceOAuthGrantStatusSchema = z.enum(['active', 'revoked', 'broken']);
 
-export const SourceOAuthGrantSchema = z.object({
+const SourceOAuthGrantSchema = z.object({
   id: z.string(),
   provider: z.string(),
   /** E-mail / login / workspace — what the admin sees; never a secret. */
@@ -924,7 +908,6 @@ export const SourceOAuthMcpStartRequestSchema = z.object({
   origin: z.string().url().max(256).optional(),
   ownerUserId: z.string().max(200).optional(),
 });
-export type SourceOAuthMcpStartRequest = z.infer<typeof SourceOAuthMcpStartRequestSchema>;
 
 export const SourceOAuthMcpStartResponseSchema = SourceOAuthStartResponseSchema.extend({
   /** The canonical resource the grant will be for. */
@@ -932,7 +915,7 @@ export const SourceOAuthMcpStartResponseSchema = SourceOAuthStartResponseSchema.
 });
 export type SourceOAuthMcpStartResponse = z.infer<typeof SourceOAuthMcpStartResponseSchema>;
 
-export const SourceOAuthProviderStateSchema = z.object({
+const SourceOAuthProviderStateSchema = z.object({
   id: SourceOAuthProviderIdSchema,
   title: z.string(),
   /** SOURCE_OAUTH_<P>_CLIENT_ID is set on this deployment. */
@@ -962,7 +945,7 @@ export function isGrantId(v: string): boolean {
 }
 
 /** The credential form that names a grant. */
-export const OAUTH_CREDENTIAL_PREFIX = 'oauth:';
+const OAUTH_CREDENTIAL_PREFIX = 'oauth:';
 
 export function grantIdOfCredential(credential: string | null | undefined): string | null {
   if (typeof credential !== 'string' || !credential.startsWith(OAUTH_CREDENTIAL_PREFIX))

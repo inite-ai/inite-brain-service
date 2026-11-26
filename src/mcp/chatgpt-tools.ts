@@ -29,7 +29,7 @@ import type { BrainScope } from '../auth/api-key.types';
  * output, which is the correct degradation.
  */
 
-export interface ChatGptToolDeps {
+interface ChatGptToolDeps {
   search: SearchService;
   entities: EntitiesService;
 }

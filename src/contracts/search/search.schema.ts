@@ -112,7 +112,7 @@ export const SearchFactSchema = z.object({
 });
 
 /** One 1-hop graph relation of the hit — evidence beside the facts. */
-export const SearchRelationSchema = z.object({
+const SearchRelationSchema = z.object({
   kind: z.string(),
   peer: z.string(),
   peerType: z.string(),
@@ -146,7 +146,7 @@ export const SearchHitSchema = z.object({
  * (0111) the call wrote, which a document made of these hits, and then
  * every fact derived from it, points back at.
  */
-export const LinkedHitSchema = z.object({
+const LinkedHitSchema = z.object({
   externalId: z.string(),
   title: z.string(),
   originUri: z.string().optional(),
@@ -155,7 +155,7 @@ export const LinkedHitSchema = z.object({
   modifiedAt: z.string().optional(),
 });
 
-export const LinkedSourceResultSchema = z.object({
+const LinkedSourceResultSchema = z.object({
   connectionId: z.string(),
   connector: z.string(),
   /** `tool_observation:<id>` — pass it to `ingest_document` to keep the chain. */
@@ -189,6 +189,3 @@ export const SearchResponseSchema = z.object({
    */
   notice: ServerModelsNoticeSchema.optional(),
 });
-
-export type SearchRequest = z.infer<typeof SearchRequestSchema>;
-export type SearchResponse = z.infer<typeof SearchResponseSchema>;

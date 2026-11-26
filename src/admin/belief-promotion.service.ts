@@ -50,14 +50,7 @@ import {
 
 // The belief phrasing prompt lives in belief-statement.ts (shared with the
 // harness work); re-exported where its callers have always imported it.
-export {
-  BELIEF_NEGATION_VALUE,
-  BELIEF_SYNTHESIS_NEGATION_CLAUSE,
-  BELIEF_SYNTHESIS_SYSTEM,
-  beliefStatementRequest,
-  cleanBeliefStatement,
-  type BeliefStatementInput,
-} from './belief-statement';
+export { BELIEF_NEGATION_VALUE } from './belief-statement';
 
 // The lexical fold rule lives in belief-field-fold.ts, the scene
 // selection / row shape / #387 fence / world stamping in
@@ -68,7 +61,6 @@ export {
 // the prediction baseline, every spec — is unchanged.
 export {
   BELIEF_PROMOTER_VERSION,
-  PACK_SCENE_WORLD_PREFIX,
   beliefPromoterVersion,
   buildPromotableScenesQuery,
   isPackSceneWorld,
@@ -269,7 +261,7 @@ const CONFIDENCE_CAP = 0.95;
 const CONFIDENCE_FLOOR = 0.05;
 
 /** One delta occurrence, normalized for the fold. */
-export interface BeliefContribution {
+interface BeliefContribution {
   sceneId: string;
   conversationId: string;
   /** Scene occurredTo as epoch ms — the fold's ordering axis. */

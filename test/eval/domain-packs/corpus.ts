@@ -40,7 +40,7 @@ import { REAL_ESTATE_PACK } from '../../../src/ai/domain-packs/real-estate.pack'
 import type { DomainPackManifest } from '../../../src/ai/domain-packs/manifest';
 import type { Check, CorpusTurn, DomainSpec } from './types';
 
-export { FINTECH_PACK, MEDICAL_PACK, LEGAL_PACK, HR_PACK, INSURANCE_PACK, REAL_ESTATE_PACK };
+export { FINTECH_PACK, MEDICAL_PACK };
 
 /**
  * Every pack the battery installs and exercises — the runner's phase 0
@@ -97,7 +97,7 @@ export const MED = {
 } as const;
 
 /** Real legal predicate ids (legal@0.1.0). */
-export const LEG = {
+const LEG = {
   governed: packPredicate(LEGAL_PACK, 'governed_by'),
   party: packPredicate(LEGAL_PACK, 'party_to'),
   obligation: packPredicate(LEGAL_PACK, 'obligation'),
@@ -105,7 +105,7 @@ export const LEG = {
 } as const;
 
 /** Real HR predicate ids (hr@0.1.0). */
-export const HR = {
+const HR = {
   skill: packPredicate(HR_PACK, 'requires_skill'),
   seniority: packPredicate(HR_PACK, 'seniority'),
   comp: packPredicate(HR_PACK, 'compensation'),
@@ -113,7 +113,7 @@ export const HR = {
 } as const;
 
 /** Real insurance predicate ids (insurance@0.1.0). */
-export const INS = {
+const INS = {
   covers: packPredicate(INSURANCE_PACK, 'covers'),
   limit: packPredicate(INSURANCE_PACK, 'coverage_limit'),
   premium: packPredicate(INSURANCE_PACK, 'premium'),
@@ -121,7 +121,7 @@ export const INS = {
 } as const;
 
 /** Real real-estate predicate ids (real_estate@0.1.0). */
-export const RE = {
+const RE = {
   zoned: packPredicate(REAL_ESTATE_PACK, 'zoned_as'),
   valued: packPredicate(REAL_ESTATE_PACK, 'valued_at'),
   tenure: packPredicate(REAL_ESTATE_PACK, 'tenure_type'),
@@ -259,22 +259,22 @@ export const MED_DOMAIN: DomainSpec = {
   ],
 };
 
-export const LEG_DOMAIN: DomainSpec = {
+const LEG_DOMAIN: DomainSpec = {
   namespace: LEGAL_PACK.id,
   markers: ['English law', 'Northwind', '90 days notice', '2027-03-31', '2028-03-31'],
 };
 
-export const HR_DOMAIN: DomainSpec = {
+const HR_DOMAIN: DomainSpec = {
   namespace: HR_PACK.id,
   markers: ['ACLS', 'Senior', '62000', '68000'],
 };
 
-export const INS_DOMAIN: DomainSpec = {
+const INS_DOMAIN: DomainSpec = {
   namespace: INSURANCE_PACK.id,
   markers: ['clinical negligence', 'cosmetic procedures', '47000', '5M EUR', '8M EUR'],
 };
 
-export const RE_DOMAIN: DomainSpec = {
+const RE_DOMAIN: DomainSpec = {
   namespace: REAL_ESTATE_PACK.id,
   markers: ['Rua do Ouro', '1998', 'leasehold', '4.2M', 'mixed-use', 'healthcare'],
 };

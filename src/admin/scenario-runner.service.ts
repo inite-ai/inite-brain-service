@@ -18,9 +18,6 @@ import type {
 // scenario result types from this module.
 export type {
   ScenarioListItem,
-  ScenarioQueryResult,
-  MemoryAssertionResult,
-  IdentityMergeOutcomeShape,
   ScenarioRunOutcome,
   ScenarioRunOptions,
 } from './scenario-runner.types';

@@ -12,7 +12,7 @@ import { recordIdOf } from '../../db/record-key';
  * Pure function — no DB, no embedder, no policy lookup. All inputs
  * flow in via the dto + flags; outputs are SQL + bound params.
  */
-export interface BaseWhereOptions {
+interface BaseWhereOptions {
   /**
    * Phase 4.B locale-aware retrieval. When supplied (and not
    * disabled via the dto), the WHERE clause restricts to facts

@@ -26,7 +26,7 @@ export const RESOLUTION_CANDIDATES = 10;
 /** New facts per judged batch (one model call, or one harness batch). */
 export const RESOLUTION_FACTS_PER_BATCH = 8;
 
-export const RESOLUTION_VERDICTS = ['same', 'replaces', 'contradicts', 'unrelated'] as const;
+const RESOLUTION_VERDICTS = ['same', 'replaces', 'contradicts', 'unrelated'] as const;
 export type ResolutionVerdict = (typeof RESOLUTION_VERDICTS)[number];
 
 /** The judge's instructions — the server model's and the harness agent's. */

@@ -20,7 +20,7 @@ export const SOURCE_TYPES = [
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
 /** Operator-declared identity (source_registry row). */
-export const DeclaredSourceSchema = z.object({
+const DeclaredSourceSchema = z.object({
   sourceKey: z.string(),
   type: z.enum(SOURCE_TYPES),
   authLevel: z.number().min(0).max(1),
@@ -43,7 +43,7 @@ export const TrustScopeRowSchema = z.object({
 export type TrustScopeRow = z.infer<typeof TrustScopeRowSchema>;
 
 /** Catalogue line: declared ⋈ learned, either side may be absent. */
-export const SourceSummarySchema = z.object({
+const SourceSummarySchema = z.object({
   sourceKey: z.string(),
   declared: DeclaredSourceSchema.nullable(),
   /** The global (domain-less) learned rate, when the refit has seen it. */
@@ -67,7 +67,6 @@ export const SourceHistoryRowSchema = z.object({
   sampleCount: z.number().int(),
   recordedAt: z.string(),
 });
-export type SourceHistoryRow = z.infer<typeof SourceHistoryRowSchema>;
 
 export const SourceDetailResponseSchema = z.object({
   sourceKey: z.string(),
@@ -79,6 +78,7 @@ export const SourceDetailResponseSchema = z.object({
 });
 export type SourceDetailResponse = z.infer<typeof SourceDetailResponseSchema>;
 
+/** @public the source of DeclareSourceRequest, read only as a type (z.infer). */
 export const DeclareSourceRequestSchema = z.object({
   type: z.enum(SOURCE_TYPES),
   authLevel: z.number().min(0).max(1).optional(),

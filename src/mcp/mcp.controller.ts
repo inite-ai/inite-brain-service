@@ -220,10 +220,7 @@ export class McpController {
  * (the brain scopes already held plus the one missing, so stepping up
  * loses nothing) and the resource metadata, like the 401 does.
  */
-export function challengeInsufficientScope(
-  req: AuthenticatedRequest & Request,
-  res: Response,
-): void {
+function challengeInsufficientScope(req: AuthenticatedRequest & Request, res: Response): void {
   const body = req.body as { method?: unknown; params?: { name?: unknown } } | undefined;
   if (body?.method !== 'tools/call' || typeof body.params?.name !== 'string') return;
   const tool = body.params.name;

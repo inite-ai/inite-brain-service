@@ -152,7 +152,7 @@ export function groundEntities(
  * src/common/entity-types.ts; re-exported here for the extractor's
  * callers. `classifyEntityType` also returns what was written.
  */
-export { classifyEntityType, normalizeEntityType } from '../../common/entity-types';
+export { classifyEntityType } from '../../common/entity-types';
 
 /** Parse the entities[] array from the raw LLM JSON. */
 export function parseEntities(parsed: unknown, memory?: MemoryContext): ExtractedEntity[] {

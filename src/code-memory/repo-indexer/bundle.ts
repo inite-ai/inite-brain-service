@@ -33,7 +33,7 @@ import {
 } from './types';
 
 /** `code_memory__gotcha` for kind `gotcha`. */
-export function predicateFor(packId: string, kind: string): string {
+function predicateFor(packId: string, kind: string): string {
   return `${packId}__${kind}`;
 }
 
@@ -302,12 +302,12 @@ export function applyGroundingFence(doc: EvidenceDocument): {
   return { kept, dropped };
 }
 
-export interface SubmittedEntityPayload {
+interface SubmittedEntityPayload {
   name: string;
   type: string;
 }
 
-export interface SubmittedFactPayload {
+interface SubmittedFactPayload {
   entityIndex: number;
   predicate: string;
   object: string;

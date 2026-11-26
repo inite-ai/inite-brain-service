@@ -36,7 +36,7 @@ import { isoOf, scalars } from './records-vendor';
  * `baseUrl` also overrides the grant's host when both are given.
  */
 
-export interface KommoConfig {
+interface KommoConfig {
   entities?: string[] | undefined;
   mapping?: RecordMapping | undefined;
   /** `https://<subdomain>.kommo.com` / `https://<subdomain>.amocrm.ru`. */
@@ -276,7 +276,7 @@ async function loadLookups(http: CloudHttp, base: string): Promise<Lookups> {
 }
 
 /** One v4 row → the envelope: ids resolved to names, the closing stages folded into a status, relations from `_embedded`. */
-export function toEnvelope(entity: string, row: KommoRow, l: Lookups): RecordEnvelope | null {
+function toEnvelope(entity: string, row: KommoRow, l: Lookups): RecordEnvelope | null {
   if (!row || typeof row.id !== 'number' || row.is_deleted) return null;
   const company = row._embedded?.companies?.[0];
   const worksAt = company

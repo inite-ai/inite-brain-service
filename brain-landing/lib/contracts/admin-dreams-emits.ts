@@ -13,4 +13,4 @@ export const DreamsEmitsResponseSchema = z.object({
   emits: z.array(OpenRecord),
 })
 
-export type DreamsEmitsResponse = z.infer<typeof DreamsEmitsResponseSchema>
+type DreamsEmitsResponse = z.infer<typeof DreamsEmitsResponseSchema>

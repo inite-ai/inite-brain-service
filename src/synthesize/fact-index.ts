@@ -91,7 +91,7 @@ export function lineFactId(line: string, factIndex: ReadonlyMap<string, Citation
  * so the wire contract — `[knowledge_fact:…]` inline, real ids in
  * `citations` — is unchanged.
  */
-export function factHandle(index: number): string {
+function factHandle(index: number): string {
   return `f${index + 1}`;
 }
 

@@ -1,6 +1,6 @@
 import type { DecisionCandidate } from '../capture/types';
 import { parseAnchor, symbolAnchorId } from './symbol-id';
-import { enclosingSymbol, listSymbols, symbolExists } from './ts-symbol-resolver';
+import { listSymbols, symbolExists } from './ts-symbol-resolver';
 
 /** Read a repo-relative file's current source, or null if it's gone. */
 export type ReadFile = (path: string) => string | null;
@@ -61,5 +61,3 @@ export function reanchor(opts: {
   if (!picked || !candidates.includes(picked)) return null;
   return symbolAnchorId(opts.path, picked);
 }
-
-export { enclosingSymbol };

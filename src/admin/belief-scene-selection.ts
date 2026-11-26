@@ -80,7 +80,7 @@ export function beliefPromoterVersion(sceneVersion: string): string {
 }
 
 /** Namespace prefix of a pack-projection scene world. */
-export const PACK_SCENE_WORLD_PREFIX = 'pack:';
+const PACK_SCENE_WORLD_PREFIX = 'pack:';
 
 /** Pure: does this scene world belong to a pack projection? */
 export function isPackSceneWorld(world: string): boolean {

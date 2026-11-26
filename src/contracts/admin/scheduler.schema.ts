@@ -27,4 +27,3 @@ export const SchedulerResponseSchema = z.object({
 });
 
 export type SchedulerResponse = z.infer<typeof SchedulerResponseSchema>;
-export type CronEntry = z.infer<typeof CronEntrySchema>;

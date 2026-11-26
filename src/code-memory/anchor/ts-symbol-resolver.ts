@@ -30,7 +30,7 @@ const TS_JS_EXT = /\.(mts|cts|tsx?|jsx?|mjs|cjs)$/i; // ts tsx mts cts js jsx mj
  * spans from misparsed tokens, poisoning anchors. The docstring always promised
  * "non-TS/JS files get no symbols" — this enforces it.
  */
-export function isTsJsSource(fileName: string): boolean {
+function isTsJsSource(fileName: string): boolean {
   return TS_JS_EXT.test(fileName);
 }
 

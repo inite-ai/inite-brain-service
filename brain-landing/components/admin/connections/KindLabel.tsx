@@ -61,7 +61,7 @@ export const GROUP_ICONS: Record<SourceGroup, Icon> = {
 };
 
 /** The records family names the vendor: the vendor's name for a vendor connector, "custom REST" for the config-driven one. */
-export const CONNECTOR_NAMES: Record<string, string> = {
+const CONNECTOR_NAMES: Record<string, string> = {
   pipedrive: 'Pipedrive',
   hubspot: 'HubSpot',
   bitrix24: 'Bitrix24',

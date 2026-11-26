@@ -208,7 +208,7 @@ const SetupSummarySchema = z.object({
   ),
 });
 
-export const ScenarioRunOutcomeSchema = z.object({
+const ScenarioRunOutcomeSchema = z.object({
   scenarioId: z.string(),
   vertical: z.string(),
   companyId: z.string(),
@@ -223,6 +223,7 @@ export const ScenarioRunOutcomeSchema = z.object({
   metrics: ScenarioMetricsSchema,
 });
 
+/** @public the source of ScenariosBatchResponse, read only as a type (z.infer). */
 export const ScenariosBatchResponseSchema = z.object({
   outcomes: z.array(ScenarioRunOutcomeSchema),
 });

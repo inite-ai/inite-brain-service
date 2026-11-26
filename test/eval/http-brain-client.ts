@@ -33,7 +33,7 @@ export interface HttpBrainClientOptions {
  * kept inline so the eval harness has no dependency on production
  * code. Fields not used by eval runners are open via `[k: string]: unknown`.
  */
-export interface EvalSearchHit {
+interface EvalSearchHit {
   entityId: string;
   entityType: string;
   canonicalName: string;
@@ -54,7 +54,7 @@ export interface EvalSearchResponse {
   results: EvalSearchHit[];
 }
 
-export interface EvalCitation {
+interface EvalCitation {
   factId: string;
   entityId: string;
   canonicalName: string;
@@ -72,7 +72,7 @@ export interface EvalSynthesizeResponse {
   [k: string]: unknown;
 }
 
-export interface EvalIngestResult {
+interface EvalIngestResult {
   factId: string | null;
   outcome: string;
   [k: string]: unknown;
@@ -83,7 +83,7 @@ export interface EvalIngestResult {
  * production controller surfaces extractedEntityIds / extractedFactIds
  * arrays which the runner indexes into for extraction-recall scoring.
  */
-export interface EvalMentionResult {
+interface EvalMentionResult {
   extractedEntityIds: string[];
   extractedFactIds: string[];
   [k: string]: unknown;

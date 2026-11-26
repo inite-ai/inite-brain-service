@@ -118,9 +118,6 @@ export const PackEvalReportSchema = z.object({
   results: z.array(PackEvalFixtureResultSchema),
 });
 
-export type InstallPackRequest = z.infer<typeof InstallPackRequestSchema>;
-export type InstallFromRegistryRequest = z.infer<typeof InstallFromRegistryRequestSchema>;
-export type PackEvalReportWire = z.infer<typeof PackEvalReportSchema>;
 export type PacksListResponse = z.infer<typeof PacksListResponseSchema>;
 export type InstallPackResponse = z.infer<typeof InstallPackResponseSchema>;
 export type UninstallPackResponse = z.infer<typeof UninstallPackResponseSchema>;

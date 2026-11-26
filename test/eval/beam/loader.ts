@@ -12,31 +12,18 @@ import { promises as fs } from 'node:fs';
  * the decline-to-answer subset — mirror of LongMemEval's `_abs`.
  */
 
-export const BEAM_ABILITIES = [
-  'abstention',
-  'contradiction_resolution',
-  'event_ordering',
-  'information_extraction',
-  'instruction_following',
-  'knowledge_update',
-  'multi_session_reasoning',
-  'preference_following',
-  'summarization',
-  'temporal_reasoning',
-] as const;
-
-export interface BeamTurn {
+interface BeamTurn {
   role: 'user' | 'assistant' | string;
   content: string;
 }
 
-export interface BeamSession {
+interface BeamSession {
   sessionId: string;
   dateIso: string;
   turns: BeamTurn[];
 }
 
-export interface BeamQuestion {
+interface BeamQuestion {
   questionId: string;
   ability: string;
   question: string;

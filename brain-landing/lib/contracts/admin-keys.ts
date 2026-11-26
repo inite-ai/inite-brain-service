@@ -5,7 +5,7 @@ import { z } from 'zod'
  * key contract as the admin shell uses it (issuing a brain:write key for
  * a local agent). Keep in sync; the mirror test pins the shape.
  */
-export const ApiKeySummarySchema = z.object({
+const ApiKeySummarySchema = z.object({
   id: z.string(),
   name: z.string(),
   prefix: z.string(),
@@ -36,4 +36,4 @@ export const KeyListResponseSchema = z.object({
 export const RevokeKeyResponseSchema = z.object({ revoked: z.boolean() })
 
 export type IssuedKeyResponse = z.infer<typeof IssuedKeyResponseSchema>
-export type KeyListResponse = z.infer<typeof KeyListResponseSchema>
+type KeyListResponse = z.infer<typeof KeyListResponseSchema>

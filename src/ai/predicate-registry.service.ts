@@ -52,9 +52,7 @@ export {
   type PiiClass,
   type PredicateDefinition,
   type PredicateSnapshot,
-  type PredicateStatus,
   type Semantics,
-  DEFAULT_FALLBACK,
 } from './predicate-registry-internals/types';
 export { CORE_PREDICATES } from './predicate-registry-internals/core-seed';
 

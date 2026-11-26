@@ -107,7 +107,7 @@ export interface SweepRunStats {
 }
 
 /** Hard bound per distill call (ReasoningBank: ≤3 items per batch). */
-export const DISTILL_MAX_ITEMS = 3;
+const DISTILL_MAX_ITEMS = 3;
 
 /** Dedup-merge neighbor count (Mem0 idiom, G4 v1: top-3). */
 const MERGE_NEIGHBORS = 3;

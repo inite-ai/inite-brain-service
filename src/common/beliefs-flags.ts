@@ -22,7 +22,7 @@ import { envFlagNotDisabled } from './env-validation';
  * ENGINE flag budget by design (a substrate serving switch, not an
  * engine fork).
  */
-export function beliefServingLaneEnabled(): boolean {
+function beliefServingLaneEnabled(): boolean {
   return envFlagNotDisabled(process.env.BELIEFS_SERVING_LANE);
 }
 
