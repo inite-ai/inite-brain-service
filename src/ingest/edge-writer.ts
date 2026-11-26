@@ -100,7 +100,7 @@ function asMs(v: unknown): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-export async function widenEdgeTiming(
+async function widenEdgeTiming(
   db: Surreal,
   edgeId: string,
   t: { validFrom?: Date | undefined; validUntil?: Date | undefined },

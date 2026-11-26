@@ -96,7 +96,7 @@ export interface RetractResult {
   revivedFactIds: string[];
 }
 
-export interface CompetingFactRecord {
+interface CompetingFactRecord {
   factId: string;
   entityId: string;
   predicate: string;
@@ -108,7 +108,7 @@ export interface CompetingFactRecord {
   source?: unknown;
 }
 
-export interface CompetingFactGroup {
+interface CompetingFactGroup {
   /** Composite key — `${entityId}::${predicate}` for callers to merge groups. */
   key: string;
   entityId: string;
@@ -200,7 +200,7 @@ export interface FactProvenanceEpisode {
  * (compacted/retracted members still witness — status is reported,
  * never hidden).
  */
-export interface FactProvenanceDerivedFact {
+interface FactProvenanceDerivedFact {
   factId: string;
   predicate: string;
   depth: number;
@@ -208,7 +208,7 @@ export interface FactProvenanceDerivedFact {
 }
 
 /** Closure walk summary (PROVENANCE_RECURSIVE_CLOSURE). */
-export interface FactProvenanceClosure {
+interface FactProvenanceClosure {
   /** Deepest derivedFrom hop reached (root = 0). */
   depth: number;
   /** Supporting facts in the closure (root excluded). */
@@ -271,7 +271,7 @@ export interface FactReadRow extends PolicyFilterableRow {
  * so the closure walk can apply the SAME verdict to every member row
  * without rebuilding the policy filter per depth.
  */
-export interface FactVisibilityGates {
+interface FactVisibilityGates {
   /** The read surface's pinned user (userReadFence); undefined = tenant-global only. */
   scopeUserId: string | undefined;
   /** principalScopeTags() when SCOPE_TAGS_ENABLED; null ⇒ fence inert. */
@@ -300,7 +300,7 @@ function readGates(userId: string | undefined): Omit<FactVisibilityGates, 'rowPo
  * root caller turns `false` into its 404, the closure walk turns it into
  * a silent member drop.
  */
-export function factVisible(fact: FactReadRow, gates: FactVisibilityGates): boolean {
+function factVisible(fact: FactReadRow, gates: FactVisibilityGates): boolean {
   // User scope (0055): another user's fact is invisible, and so is any
   // personal fact to a caller acting for no one — omitting userId reads
   // tenant-global memory only, on this surface as on every other. Before,

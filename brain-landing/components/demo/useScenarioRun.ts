@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export interface ScenarioRunMetrics {
+interface ScenarioRunMetrics {
   recallAt1: number
   recallAt5: number
   queries: number
@@ -13,7 +13,7 @@ export interface ScenarioRunMetrics {
   piiGatingTotal: number
 }
 
-export interface ScenarioRunResult {
+interface ScenarioRunResult {
   scenarioId: string
   passed: boolean
   durationMs: number

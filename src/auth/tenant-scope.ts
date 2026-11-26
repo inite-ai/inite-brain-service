@@ -36,7 +36,7 @@ import type { AuthenticatedRequest, BrainScope } from './api-key.types';
 export const PLATFORM_TENANT_SCOPE: BrainScope = 'brain:platform_admin';
 
 /** The env gate that unlocks the platform-operator cross-tenant path. */
-export function tenantOverrideEnabled(): boolean {
+function tenantOverrideEnabled(): boolean {
   return envFlagEnabled(process.env.BRAIN_TENANT_OVERRIDE_ENABLED);
 }
 

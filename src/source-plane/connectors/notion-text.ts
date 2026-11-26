@@ -7,7 +7,7 @@
  * and nothing else.
  */
 
-export interface RichText {
+interface RichText {
   plain_text?: string;
   href?: string | null;
 }

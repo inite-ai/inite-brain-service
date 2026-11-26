@@ -36,7 +36,7 @@ interface PolicyDecisionStatRow {
   keyHash?: string;
 }
 
-export interface DecisionEvent {
+interface DecisionEvent {
   id: string;
   ts: string;
   keyId: string;

@@ -95,7 +95,7 @@ export function ownershipFromCodeowners(source: RepoSource): RepoFact[] {
 }
 
 /** Per-path author tallies over a commit window. Pure. */
-export function tallyAuthors(
+function tallyAuthors(
   commits: CommitRecord[],
   depth: number,
 ): Map<string, Map<string, number>> {

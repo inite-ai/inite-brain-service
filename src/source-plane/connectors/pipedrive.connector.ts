@@ -34,7 +34,7 @@ import { isoOf, scalars } from './records-vendor';
  * organization and the engine fetches it (W4.2c).
  */
 
-export interface PipedriveConfig {
+interface PipedriveConfig {
   entities?: string[] | undefined;
   mapping?: RecordMapping | undefined;
   apiDomain?: string | undefined;
@@ -256,7 +256,7 @@ async function loadLookups(http: CloudHttp, base: string): Promise<Lookups> {
 }
 
 /** One vendor row → the envelope: flat scalar attributes, names resolved, relations by id. */
-export function toEnvelope(entity: string, row: unknown, l: Lookups): RecordEnvelope | null {
+function toEnvelope(entity: string, row: unknown, l: Lookups): RecordEnvelope | null {
   if (!row || typeof row !== 'object') return null;
   if ((row as { is_deleted?: boolean }).is_deleted) return null;
   switch (entity) {

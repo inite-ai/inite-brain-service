@@ -11,7 +11,7 @@ import { composePredicateId, PACK_NAMESPACE_SEP } from './manifest';
  */
 
 /** One expected fact a fixture asserts must surface. */
-export interface EvalFixtureExpectFact {
+interface EvalFixtureExpectFact {
   /** Predicate id. Bare (`zoned_as`) is resolved against the pack namespace
    *  (`<packId>__zoned_as`); an already-namespaced id (contains `__`) is used
    *  verbatim — so a fixture can also assert a core predicate. */

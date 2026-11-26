@@ -22,7 +22,7 @@ export interface ParamDigest {
   required: boolean;
 }
 
-export interface PropertyDigest {
+interface PropertyDigest {
   name: string;
   type: string | null;
 }

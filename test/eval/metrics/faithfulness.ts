@@ -66,7 +66,7 @@ export interface FaithfulnessInput {
   model?: string | undefined;
 }
 
-export interface FaithfulnessClaim {
+interface FaithfulnessClaim {
   claim: string;
   verdict: 'supported' | 'partial' | 'not_supported';
 }

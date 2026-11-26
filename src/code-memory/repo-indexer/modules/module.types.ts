@@ -71,11 +71,6 @@ export function moduleProducer(mod: EcosystemModule): `module:${string}` {
   return `module:${mod.id}@${mod.version}`;
 }
 
-export interface PathAssignment {
-  moduleId: string;
-  paths: string[];
-}
-
 /**
  * Deterministically assign every path to at most one module.
  *

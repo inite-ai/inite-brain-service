@@ -38,7 +38,7 @@ import { envFlagEnabled } from '../../common/env-validation';
  * touches many hot paths) and called out in the Tier-2 report.
  */
 
-export type MigrationPhase = 'idle' | 'dual_write' | 'cut_over';
+type MigrationPhase = 'idle' | 'dual_write' | 'cut_over';
 
 export interface EmbeddingSpaceState {
   /** The space reads select for this tenant. */

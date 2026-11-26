@@ -63,7 +63,7 @@ export function recordLlmUsage(at: LlmCallAt, usage: unknown): void {
   row.outputTokens += num(u.completion_tokens);
 }
 
-export function recordLlmError(at: LlmCallAt): void {
+function recordLlmError(at: LlmCallAt): void {
   rowFor(at.kind, at.model, at.site ?? 'unknown').errors += 1;
 }
 

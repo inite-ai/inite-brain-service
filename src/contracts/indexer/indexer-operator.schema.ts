@@ -18,10 +18,10 @@ import { z } from 'zod';
  */
 
 /** Indexer execution modes (mirrors IndexerDescriptor.mode). */
-export const IndexerModeSchema = z.enum(['virtual', 'dedicated', 'external']);
+const IndexerModeSchema = z.enum(['virtual', 'dedicated', 'external']);
 
 /** Where the pack came from: shipped with the service, or installed. */
-export const IndexerSourceSchema = z.enum(['builtin', 'installed']);
+const IndexerSourceSchema = z.enum(['builtin', 'installed']);
 
 /** The bounded window every aggregate on this surface is computed over. */
 export const IndexerWindowSchema = z.object({
@@ -135,8 +135,6 @@ export const IndexerRunListResponseSchema = z.object({
   truncated: z.boolean(),
 });
 
-export type IndexerMode = z.infer<typeof IndexerModeSchema>;
-export type IndexerSource = z.infer<typeof IndexerSourceSchema>;
 export type IndexerWindow = z.infer<typeof IndexerWindowSchema>;
 export type IndexerRunTotals = z.infer<typeof IndexerRunTotalsSchema>;
 export type IndexerCandidateTotals = z.infer<typeof IndexerCandidateTotalsSchema>;

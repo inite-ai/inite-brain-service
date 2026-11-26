@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { JsonView } from '../admin/JsonView'
 
-export interface DebugSpan {
+interface DebugSpan {
   id: string
   parentId?: string
   name: string

@@ -9,7 +9,7 @@ import { recordDataMigrationRemaining } from './data-migration-remaining';
 import { runDataMigrations, type DataMigrationRun } from './run-data-migrations';
 
 /** Wall-clock budget of one tenant's run; what is left resumes on the next. */
-export const DATA_MIGRATION_TIME_BUDGET_MS = 20_000;
+const DATA_MIGRATION_TIME_BUDGET_MS = 20_000;
 /** A run cut off by its budget asks for the next one this soon. */
 const RESUME_DELAY_MS = 30_000;
 const HOUR_MS = 60 * 60_000;

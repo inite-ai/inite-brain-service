@@ -11,7 +11,7 @@ type Claims = Record<string, unknown>;
 // Tenant slug charset. The companyId becomes the `co_<id>` database name
 // and is interpolated into record ids, so it must stay within a safe
 // identifier charset (alnum / underscore / hyphen, bounded length).
-export const VALID_COMPANY_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const VALID_COMPANY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 // Per-user memory rows store userId verbatim (option<string> column, always
 // a bound query param — never interpolated), so the charset can be wider

@@ -18,7 +18,7 @@ import type { AddressInfo } from 'node:net';
  * Messages are raw RFC 822 text; tests add and delete them between runs
  * and read `calls` / `imapCommands` to assert what the brain asked for.
  */
-export interface FakeMailMessage {
+interface FakeMailMessage {
   id: string;
   threadId: string;
   /** Epoch ms. */
@@ -29,7 +29,7 @@ export interface FakeMailMessage {
   attachments?: Array<{ partId: string; filename: string; mimeType: string; data: Buffer }>;
 }
 
-export interface FakeImapMessage {
+interface FakeImapMessage {
   uid: number;
   /** `dd-Mon-yyyy HH:MM:SS +0000`. */
   internalDate: string;

@@ -35,6 +35,6 @@ export const ThrottlerResponseSchema = z.object({
 })
 
 export type ThrottlerResponse = z.infer<typeof ThrottlerResponseSchema>
-export type ThrottledEvent = z.infer<typeof ThrottledEventSchema>
+type ThrottledEvent = z.infer<typeof ThrottledEventSchema>
 export type RouteRow = z.infer<typeof TopRouteSchema>
 export type ActorRow = z.infer<typeof TopActorSchema>

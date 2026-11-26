@@ -13,7 +13,7 @@ import type { AddressInfo } from 'node:net';
  * Reached through SOURCE_OAUTH_GITHUB_BASE_URL under
  * SOURCE_EGRESS_ALLOW_PRIVATE.
  */
-export interface GithubFakeIssue {
+interface GithubFakeIssue {
   number: number;
   title: string;
   body?: string;

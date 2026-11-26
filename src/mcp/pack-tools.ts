@@ -34,7 +34,7 @@ import { asStructuredContent } from './structured';
  * caller-facing input schemas are fixed — a pack chooses names and
  * descriptions, never the query shape.
  */
-export interface PackToolsDeps {
+interface PackToolsDeps {
   search: SearchService;
   facts: FactsService;
   /** Absent = external tools cannot be served and are skipped. */

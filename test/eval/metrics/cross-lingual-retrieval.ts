@@ -11,7 +11,7 @@
  * 1/log2(rank+1) — the same convention as ndcg.ts. Pure functions.
  */
 
-export type RetrievalDirection = 'mono' | 'cross';
+type RetrievalDirection = 'mono' | 'cross';
 
 export interface RetrievalQuery {
   /** Candidate refs in ranked order (rank 1 = index 0). */

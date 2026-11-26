@@ -79,7 +79,7 @@ export interface RunSummary {
 }
 
 /** Derive everything: the language-agnostic core, then the modules. */
-export function derive(p: {
+function derive(p: {
   source: RepoSource;
   paths: string[];
   modules: readonly EcosystemModule[];

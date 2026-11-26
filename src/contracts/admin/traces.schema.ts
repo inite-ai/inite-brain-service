@@ -28,4 +28,3 @@ export const TracesResponseSchema = z.object({
 });
 
 export type TracesResponse = z.infer<typeof TracesResponseSchema>;
-export type TraceListItem = z.infer<typeof TraceListItemSchema>;

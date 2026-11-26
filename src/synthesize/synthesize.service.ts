@@ -121,7 +121,6 @@ export type {
   GeneratorOutput,
   SynthesisReason,
   SynthesizeResult,
-  TokenUsage,
 } from './synthesize.types';
 import type { GeneratorOutput, SynthesizeResult } from './synthesize.types';
 import type { Asker } from './asker';

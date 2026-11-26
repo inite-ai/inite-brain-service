@@ -12,7 +12,7 @@ import type { AddressInfo } from 'node:net';
  * read `calls` to assert what the brain asked for. Every API route
  * demands `authorization: Bearer <a token this server issued>`.
  */
-export interface FakeFile {
+interface FakeFile {
   id: string;
   name: string;
   mimeType: string;

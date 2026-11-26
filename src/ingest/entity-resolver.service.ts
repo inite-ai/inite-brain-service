@@ -53,7 +53,7 @@ export interface ResolveByNameOptions {
 }
 
 /** An entity the deterministic naming rungs found under the very same name. */
-export interface SameNameCandidate {
+interface SameNameCandidate {
   entityId: string;
   canonicalName?: string | undefined;
 }

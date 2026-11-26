@@ -37,7 +37,7 @@ import { modalityOf } from './media';
  * Needs SOURCE_OAUTH_CLIENT (the grant) as well as SOURCE_KIND_DROPBOX.
  */
 
-export interface DropboxConnectorConfig {
+interface DropboxConnectorConfig {
   /** `/Folder/Sub` or '' for everything. */
   path?: string | undefined;
   extensions?: string[] | undefined;

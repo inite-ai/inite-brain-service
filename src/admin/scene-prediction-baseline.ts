@@ -69,7 +69,7 @@ export const SCENE_BASELINE_VERSION = 'scene-baseline-v1';
 export const BASELINE_QUERY_LIMIT = 2000;
 export const BASELINE_MAX_SUBJECTS = 20;
 export const BASELINE_MAX_BELIEFS = 40;
-export const BASELINE_VALUE_MAX_CHARS = 200;
+const BASELINE_VALUE_MAX_CHARS = 200;
 
 /**
  * `stateChange` saturation: deltas-per-member-turn at which the
@@ -77,7 +77,7 @@ export const BASELINE_VALUE_MAX_CHARS = 200;
  * a dense state-change scene — above that the dimension saturates rather
  * than growing without bound.
  */
-export const STATE_CHANGE_SATURATION_PER_TURN = 0.5;
+const STATE_CHANGE_SATURATION_PER_TURN = 0.5;
 
 /**
  * Self-subject markers for the `identity` dimension — a deliberately

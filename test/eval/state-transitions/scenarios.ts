@@ -39,7 +39,7 @@ export const CORPUS_VERTICAL = 'personal';
  * key) with a display name, exactly as a client names its user; the
  * runner fills in the id per run.
  */
-export const SPEAKER_NAME = 'Sasha';
+const SPEAKER_NAME = 'Sasha';
 export const speakerFor = (userId: string) =>
   ({ vertical: 'user', id: userId, role: 'speaker', name: SPEAKER_NAME }) as const;
 
@@ -595,8 +595,3 @@ export const SCENARIOS: Scenario[] = [
     ],
   },
 ];
-
-/** All mention turns across scenarios, sorted chronologically. */
-export const ALL_TURNS: ScenarioTurn[] = SCENARIOS.flatMap((s) => s.turns).sort((a, b) =>
-  a.emittedAt.localeCompare(b.emittedAt),
-);

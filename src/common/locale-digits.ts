@@ -23,7 +23,7 @@ const DIGIT_BASES: ReadonlyArray<readonly [number, string]> = [
 ];
 
 /** True when the string carries any non-ASCII decimal digit we normalize. */
-export function hasNonAsciiDigits(text: string): boolean {
+function hasNonAsciiDigits(text: string): boolean {
   for (const ch of text) {
     const code = ch.codePointAt(0) ?? 0;
     for (const [base] of DIGIT_BASES) {

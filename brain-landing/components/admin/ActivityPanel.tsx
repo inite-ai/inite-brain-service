@@ -10,7 +10,6 @@ import type {
   InFlightRequest,
 } from '../../lib/contracts/admin-now'
 
-export type { InFlightRequest }
 
 export function ActivityPanel() {
   const [data, setData] = useState<ActivityResponse | null>(null)

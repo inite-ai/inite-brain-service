@@ -154,7 +154,7 @@ function isoOrUndefined(v: unknown): string | undefined {
  * No revision ⇒ no stamp — a fact that LOOKS bound to a version but is
  * not can never be swept (source-version.ts).
  */
-export function stampOf(
+function stampOf(
   connection: ConnectorConnectionView,
   row: SourceItemRow,
 ): SourceVersionStamp | null {

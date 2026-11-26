@@ -20,7 +20,6 @@ import type {
   CostBucket,
 } from '../../lib/contracts/admin-cost'
 
-export type { CostBucket }
 
 export function CostPanel() {
   const [data, setData] = useState<CostResponse | null>(null)

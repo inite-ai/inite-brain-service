@@ -36,7 +36,7 @@ import {
 
 export type StrategyPolarity = 'do' | 'avoid';
 export type StrategyStatus = 'candidate' | 'active' | 'deprecated';
-export type StrategyScope = 'tenant' | 'global';
+type StrategyScope = 'tenant' | 'global';
 
 /** Vote counters + provenance (Memp/ExpeL lifecycle inputs). */
 export interface StrategyEvidence extends Record<string, unknown> {
@@ -121,8 +121,8 @@ export interface CreateStrategyArgs {
 export const STRATEGY_RETRIEVAL_MAX_K = 2;
 
 /** Auto-deprecation thresholds (G4 lifecycle). */
-export const STRATEGY_MAX_CONTRADICT = 2;
-export const STRATEGY_STALE_DAYS = 90;
+const STRATEGY_MAX_CONTRADICT = 2;
+const STRATEGY_STALE_DAYS = 90;
 
 /** Clamp a requested k into [1, STRATEGY_RETRIEVAL_MAX_K]; default 1. */
 export function clampStrategyK(k?: number): number {

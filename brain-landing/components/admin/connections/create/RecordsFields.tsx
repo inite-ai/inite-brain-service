@@ -22,7 +22,7 @@ export interface RecordsChoice {
 }
 
 /** What the mapping table lists: the connector's static entities, or the proposal's for the custom REST source. */
-export function entitiesOf(entry: SourceCatalogEntry, value: RecordsChoice): SourceCatalogEntry['records'] extends infer R ? (R extends { entities: infer E } ? E : never) : never {
+function entitiesOf(entry: SourceCatalogEntry, value: RecordsChoice): SourceCatalogEntry['records'] extends infer R ? (R extends { entities: infer E } ? E : never) : never {
   if (value.proposal) {
     return value.proposal.map((e) => ({ type: e.type, label: e.label, defaultOn: true, fields: e.fields }))
   }

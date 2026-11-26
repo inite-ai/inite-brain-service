@@ -19,8 +19,8 @@ import { MigrationApplyError } from './migration-blocked';
  * into SurrealService.
  */
 
-export const MIGRATION_BACKOFF_BASE_MS = 30_000;
-export const MIGRATION_BACKOFF_MAX_MS = 15 * 60_000;
+const MIGRATION_BACKOFF_BASE_MS = 30_000;
+const MIGRATION_BACKOFF_MAX_MS = 15 * 60_000;
 
 /** Failures not attributable to one file (lease wait timed out, connection lost). */
 export const UNATTRIBUTED_MIGRATION = 'none';

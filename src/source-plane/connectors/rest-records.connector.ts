@@ -115,7 +115,7 @@ export class RestRecordsConnector extends RecordsConnector {
 }
 
 /** The entity specs the config describes — for the runtime, the preview and the connect form. */
-export function entitySpecsOf(endpoints: Record<string, RestEntity>): EntitySpec[] {
+function entitySpecsOf(endpoints: Record<string, RestEntity>): EntitySpec[] {
   return Object.entries(endpoints).map(([type, e]) => ({
     type,
     label: e.label ?? type,
@@ -256,7 +256,7 @@ function rowOf(answer: unknown, spec: RestEntity): Record<string, unknown> | nul
 }
 
 /** One row → the envelope, by the entity's field paths. */
-export function toEnvelope(
+function toEnvelope(
   entity: string,
   row: Record<string, unknown>,
   spec: RestEntity,

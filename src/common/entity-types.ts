@@ -63,10 +63,6 @@ const TYPE_RAW_MAX = 64;
 
 const KNOWN: ReadonlySet<string> = new Set(ENTITY_TYPES);
 
-export function isEntityType(t: unknown): t is EntityType {
-  return typeof t === 'string' && KNOWN.has(t);
-}
-
 /**
  * Fold a type as an extractor, an indexer or a caller wrote it onto the
  * core list: exact or case/space-insensitive matches keep their type,

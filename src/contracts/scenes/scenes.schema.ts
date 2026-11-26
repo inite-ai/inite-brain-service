@@ -10,7 +10,7 @@ import { z } from 'zod';
  */
 
 /** Per-dimension memory value (0106: a vector, never one scalar). */
-export const SceneMemoryValueSchema = z.object({
+const SceneMemoryValueSchema = z.object({
   novelty: z.number().optional(),
   contradiction: z.number().optional(),
   stateChange: z.number().optional(),
@@ -21,7 +21,7 @@ export const SceneMemoryValueSchema = z.object({
 });
 
 /** One enrichment-owned state delta ({subject, field, from, to}). */
-export const SceneStateDeltaSchema = z.object({
+const SceneStateDeltaSchema = z.object({
   subject: z.string(),
   field: z.string(),
   from: z.string().optional(),
@@ -67,6 +67,3 @@ export const ScenesListResponseSchema = z.object({
   /** The segmenter world served — '' when no world has been built. */
   world: z.string(),
 });
-
-export type SceneReadResponse = z.infer<typeof SceneReadResponseSchema>;
-export type ScenesListResponse = z.infer<typeof ScenesListResponseSchema>;

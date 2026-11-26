@@ -19,5 +19,5 @@ export const PiiInventoryResponseSchema = z.object({
   rows: z.array(PiiRowSchema),
 })
 
-export type PiiInventoryResponse = z.infer<typeof PiiInventoryResponseSchema>
+type PiiInventoryResponse = z.infer<typeof PiiInventoryResponseSchema>
 export type PiiRow = z.infer<typeof PiiRowSchema>

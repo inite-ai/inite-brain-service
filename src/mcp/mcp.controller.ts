@@ -220,7 +220,7 @@ export class McpController {
  * (the brain scopes already held plus the one missing, so stepping up
  * loses nothing) and the resource metadata, like the 401 does.
  */
-export function challengeInsufficientScope(
+function challengeInsufficientScope(
   req: AuthenticatedRequest & Request,
   res: Response,
 ): void {

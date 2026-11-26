@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 const OpenRecord = z.record(z.string(), z.unknown());
 
+/** @public the source of DreamsEmitsResponse, read only as a type (z.infer). */
 export const DreamsEmitsResponseSchema = z.object({
   runId: z.string(),
   emits: z.array(OpenRecord),

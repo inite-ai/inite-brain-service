@@ -18,7 +18,7 @@
 
 export const MCP_URL = 'https://brain.inite.ai/mcp'
 
-export type ConnectKind = 'deeplink' | 'command' | 'url'
+type ConnectKind = 'deeplink' | 'command' | 'url'
 
 export interface ConnectTarget {
   id: 'cursor' | 'vscode' | 'claude-code' | 'gemini' | 'claude' | 'chatgpt'

@@ -33,7 +33,7 @@ import { cloudHttp, CloudHttpError, type CloudHttp } from './cloud-http';
  * api.telegram.org for a fake; the fetch then needs the private opt-in.
  * A bot with a webhook set answers 409 to getUpdates — remove it first.
  */
-export interface TelegramConnectorConfig {
+interface TelegramConnectorConfig {
   /** Chat ids, `@usernames` or titles to keep; empty = every chat the bot sees. */
   chats?: string[] | undefined;
   /** Updates read per run at most. Default 2000. */

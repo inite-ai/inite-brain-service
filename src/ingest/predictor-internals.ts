@@ -9,7 +9,7 @@
 // The preflight must be able to predict every one of them, not the
 // 0006-era subset — otherwise detect_contradiction reports the wrong
 // outcome for corroboration and backdated ingests.
-export type IngestOutcome =
+type IngestOutcome =
   'INSERTED' | 'INSERTED_HISTORICAL' | 'CORROBORATED' | 'SUPERSEDED' | 'COMPETING' | 'REJECTED';
 
 /**

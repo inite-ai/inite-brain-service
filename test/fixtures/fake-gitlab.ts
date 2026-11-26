@@ -15,7 +15,7 @@ import type { AddressInfo } from 'node:net';
  * Reached through SOURCE_OAUTH_GITLAB_BASE_URL under
  * SOURCE_EGRESS_ALLOW_PRIVATE.
  */
-export interface GitlabFakeThread {
+interface GitlabFakeThread {
   iid: number;
   title: string;
   description?: string;
@@ -33,7 +33,7 @@ export interface GitlabFakeThread {
   }>;
 }
 
-export interface GitlabFakeMember {
+interface GitlabFakeMember {
   id: number;
   username?: string;
   name?: string;

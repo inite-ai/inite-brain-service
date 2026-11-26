@@ -619,7 +619,7 @@ function rel(
 }
 
 /** A field by its query name — `Owner.Name` is nested in a query answer and flat in a bulk CSV row. */
-export function text(row: SalesforceRow, field: string): string | undefined {
+function text(row: SalesforceRow, field: string): string | undefined {
   let v: unknown = row[field];
   if (v === undefined && field.includes('.')) {
     v = row;

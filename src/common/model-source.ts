@@ -36,7 +36,7 @@ import { Logger } from '@nestjs/common';
 import { extractionSource, HarnessModeRefusal } from './extraction-source';
 import { currentTenant } from './tenant-context';
 
-export type ModelSource = 'platform' | 'harness' | 'byok' | 'not_included';
+type ModelSource = 'platform' | 'harness' | 'byok' | 'not_included';
 
 /**
  * A tenant's setting: `auto` = platform if entitled, else not included;
@@ -75,7 +75,7 @@ export interface ModelSourceResolution {
   reason: ModelSourceReason;
 }
 
-export const DEFAULT_PLATFORM_ENTITLEMENTS = 'plan:pro,plan:team';
+const DEFAULT_PLATFORM_ENTITLEMENTS = 'plan:pro,plan:team';
 
 interface TenantModelState {
   /** Last seen entitlements from a verified user credential; undefined = never seen. */
@@ -161,7 +161,7 @@ function noteObserved(companyId: string | undefined): void {
 }
 
 /** The current tenant's (from tenant context) resolution. */
-export function currentModelSource(env: NodeJS.ProcessEnv = process.env): ModelSourceResolution {
+function currentModelSource(env: NodeJS.ProcessEnv = process.env): ModelSourceResolution {
   return resolveModelSource(currentTenant(), env);
 }
 

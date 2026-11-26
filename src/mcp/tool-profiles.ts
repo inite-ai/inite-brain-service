@@ -87,7 +87,7 @@ const isProfileName = (value: string): value is ToolProfileName =>
  * per-workspace decision, and a process-global env would force every
  * tenant on a shared deployment onto one answer.
  */
-export function toolProfileOverrideFor(
+function toolProfileOverrideFor(
   companyId: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {

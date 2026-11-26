@@ -5,7 +5,7 @@ import { z } from 'zod';
  * source-plane.schema.ts and source-inspect.schema.ts build on it, and
  * source-plane.schema.ts re-exports the inspect contracts.
  */
-export const SourceItemStateSchema = z.enum(['seen', 'fetched', 'indexed', 'gone']);
+const SourceItemStateSchema = z.enum(['seen', 'fetched', 'indexed', 'gone']);
 
 export const SourceItemSchema = z.object({
   id: z.string(),

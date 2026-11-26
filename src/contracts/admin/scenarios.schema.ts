@@ -23,4 +23,3 @@ export const ScenariosResponseSchema = z.object({
 });
 
 export type ScenariosResponse = z.infer<typeof ScenariosResponseSchema>;
-export type ScenarioListItem = z.infer<typeof ScenarioListItemSchema>;

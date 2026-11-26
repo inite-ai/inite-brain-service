@@ -30,13 +30,13 @@ export interface Assignment {
   rung: string;
 }
 
-export interface PRF {
+interface PRF {
   precision: number;
   recall: number;
   f1: number;
 }
 
-export interface CategoryRow {
+interface CategoryRow {
   category: string;
   /** Mentions whose cluster already existed — each should join it. */
   links: number;

@@ -68,7 +68,7 @@ import { StringRecordId } from 'surrealdb';
  */
 
 /** The expectation snapshot the enrichment pass stamps (#473). */
-export interface SceneExpectationRef {
+interface SceneExpectationRef {
   beliefs: unknown[];
   stampedAt?: string;
   baselineVersion?: string;

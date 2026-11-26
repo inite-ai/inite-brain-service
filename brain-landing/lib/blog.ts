@@ -17,7 +17,7 @@ import { LANGS, DEFAULT_LANG, type Lang } from './i18n'
 
 const BLOG_DIR = path.join(process.cwd(), 'content', 'blog')
 
-export interface BlogFaq {
+interface BlogFaq {
   question: string
   answer: string
 }
@@ -126,4 +126,4 @@ export function getRelatedPosts(slug: string, lang: Lang, n = 3): BlogMeta[] {
   return scored.slice(0, n).map((s) => s.p)
 }
 
-export { LANGS, DEFAULT_LANG }
+

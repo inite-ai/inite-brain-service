@@ -149,9 +149,9 @@ export const SCENE_SCORER_LLM_VERSION = 'scene-scorer-llm-v1';
  * once rows carry its stamp, or the stamp stops identifying what the
  * model actually saw. Prompt changes ship as a NEW constant + version.
  */
-export const SCENE_GIST_PROMPT_VERSION = 'scene-gist-v1';
+const SCENE_GIST_PROMPT_VERSION = 'scene-gist-v1';
 /** Version of the prediction-baseline prompt (SCENES_PREDICTION_BASELINE). */
-export const SCENE_GIST_PROMPT_VERSION_V2 = 'scene-gist-v2';
+const SCENE_GIST_PROMPT_VERSION_V2 = 'scene-gist-v2';
 
 /**
  * Pure: the prompt version this run uses. The baseline flag changes the
@@ -160,7 +160,7 @@ export const SCENE_GIST_PROMPT_VERSION_V2 = 'scene-gist-v2';
  * would share one stamp and the idempotency skip would refuse to
  * re-enrich after a flip.
  */
-export function sceneGistPromptVersion(predictionBaseline: boolean): string {
+function sceneGistPromptVersion(predictionBaseline: boolean): string {
   return predictionBaseline ? SCENE_GIST_PROMPT_VERSION_V2 : SCENE_GIST_PROMPT_VERSION;
 }
 
@@ -171,7 +171,7 @@ export function sceneGistPromptVersion(predictionBaseline: boolean): string {
  * BOTH producers so a mixed-scorer world stays auditable (the same reason
  * the v0 vector stamps its own scorerVersion).
  */
-export function sceneScorerVersion(predictionBaseline: boolean): string {
+function sceneScorerVersion(predictionBaseline: boolean): string {
   return predictionBaseline
     ? `${SCENE_SCORER_LLM_VERSION}+${SCENE_PREDICTION_SCORER_VERSION}`
     : SCENE_SCORER_LLM_VERSION;
@@ -384,7 +384,7 @@ export interface PreparedScene {
 }
 
 /** The JSON schema of one scene's enrichment reply. */
-export const SCENE_ENRICHMENT_SCHEMA: Record<string, unknown> = {
+const SCENE_ENRICHMENT_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
   properties: {

@@ -120,7 +120,7 @@ export function dependenciesOf(
   return out.sort((a, b) => DEPENDENCY_KINDS.indexOf(a.kind) - DEPENDENCY_KINDS.indexOf(b.kind));
 }
 
-export function dependencyArm(c: EvidenceCitation): Pick<CachedDependency, 'kind' | 'id'> | null {
+function dependencyArm(c: EvidenceCitation): Pick<CachedDependency, 'kind' | 'id'> | null {
   if (isRecordId(c.beliefId)) return { kind: 'belief', id: c.beliefId };
   if (isRecordId(c.episodeId)) return { kind: 'episode', id: c.episodeId };
   if (isRecordId(c.fragmentId)) return { kind: 'fragment', id: c.fragmentId };

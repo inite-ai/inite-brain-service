@@ -14,8 +14,8 @@ import { JobClaimService } from '../jobs/job-claim.service';
 import { WorkerLoopService } from '../jobs/worker-loop.service';
 import { ConsentService } from './consent.service';
 
-export const VOICE_AFFECT_PURPOSE = 'voice_affect_inference';
-export const VOICE_AFFECT_READER_VERSION = 'voice-affect-v1';
+const VOICE_AFFECT_PURPOSE = 'voice_affect_inference';
+const VOICE_AFFECT_READER_VERSION = 'voice-affect-v1';
 
 /** Recordings one pass reads per person. */
 const ASSETS_PER_PERSON = 5;
@@ -26,7 +26,7 @@ const MAX_SEGMENTS = 200;
 const SCHEDULE_WINDOW_MS = 10 * 60_000;
 
 /** VOICE_AFFECT_URL — the operator's voice-affect service; empty = off. */
-export function voiceAffectUrl(): string {
+function voiceAffectUrl(): string {
   return (process.env.VOICE_AFFECT_URL ?? '').trim();
 }
 

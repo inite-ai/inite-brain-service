@@ -31,16 +31,16 @@ import {
  */
 
 /** Tool-name clear-text cap (a function identifier, not free text). */
-export const TOOL_OBSERVATION_TOOL_CAP = 80;
+const TOOL_OBSERVATION_TOOL_CAP = 80;
 
 /** Cap for opaque id fields (requestId / packId / installId). */
-export const TOOL_OBSERVATION_ID_CAP = 128;
+const TOOL_OBSERVATION_ID_CAP = 128;
 
 /** Opt-in content excerpt cap (chars). */
 export const TOOL_OBSERVATION_EXCERPT_CAP = 512;
 
 /** Ref format the ingest path accepts: `tool_observation:<id>`. */
-export const TOOL_OBSERVATION_REF_PREFIX = 'tool_observation:';
+const TOOL_OBSERVATION_REF_PREFIX = 'tool_observation:';
 
 export interface ToolObservationInput {
   tool: string;

@@ -34,7 +34,7 @@ export interface RelationshipFactRow {
   scheduledDay?: string | null;
 }
 
-export interface RelationshipItem {
+interface RelationshipItem {
   factId: string;
   text: string;
   /** Who it is about: the person, or whoever made a commitment. */
@@ -42,14 +42,14 @@ export interface RelationshipItem {
   since: string;
 }
 
-export interface RelationshipCommitment extends RelationshipItem {
+interface RelationshipCommitment extends RelationshipItem {
   /** When it was due, when the turn said. */
   due?: string;
   /** Due and not closed — the agent owes it. */
   overdue: boolean;
 }
 
-export type RelationshipState =
+type RelationshipState =
   | {
       known: true;
       factId: string;

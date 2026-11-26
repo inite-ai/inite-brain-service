@@ -18,7 +18,7 @@ import { PLATFORM_TENANT_SCOPE } from '../../src/auth/tenant-scope';
 const u = undefined as never;
 const as = <T>(v: unknown): T => v as T;
 
-export const ADMIN_SCOPES: BrainScope[] = ['brain:admin'];
+const ADMIN_SCOPES: BrainScope[] = ['brain:admin'];
 export const PLATFORM_SCOPES: BrainScope[] = ['brain:admin', PLATFORM_TENANT_SCOPE];
 
 /**

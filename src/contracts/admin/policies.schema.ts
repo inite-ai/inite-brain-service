@@ -12,13 +12,13 @@ import { z } from 'zod';
  * admin-policies.ts.
  */
 
-export const PolicyMatchConditionSchema = z.object({
+const PolicyMatchConditionSchema = z.object({
   attr: z.string(),
   op: z.enum(['eq', 'in', 'prefix', 'gte', 'gt', 'lte', 'lt', 'exists', 'not_exists']),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional(),
 });
 
-export const PolicyRuleWireSchema = z.object({
+const PolicyRuleWireSchema = z.object({
   id: z.string(),
   effect: z.enum(['allow', 'deny']),
   kind: z.enum(['action', 'source']),
@@ -28,7 +28,7 @@ export const PolicyRuleWireSchema = z.object({
   match: z.array(PolicyMatchConditionSchema).optional(),
 });
 
-export const PolicySetWireSchema = z.object({
+const PolicySetWireSchema = z.object({
   name: z.string(),
   description: z.string(),
   posture: z.object({
@@ -54,6 +54,7 @@ export const PolicySetResponseSchema = z.object({
   policySet: PolicySetWireSchema,
 });
 
+/** @public the source of PolicySetDeleteResponse, read only as a type (z.infer). */
 export const PolicySetDeleteResponseSchema = z.object({
   deleted: z.string(),
 });

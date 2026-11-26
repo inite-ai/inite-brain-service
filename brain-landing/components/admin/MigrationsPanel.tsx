@@ -13,7 +13,7 @@ import type {
 
 // keep Migration / TenantState named exports so JSX render fns below
 // that destructure these still compile without renaming.
-export type { Migration, TenantState }
+
 
 export function MigrationsPanel() {
   const [data, setData] = useState<MigrationsResponse | null>(null)

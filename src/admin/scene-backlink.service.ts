@@ -71,7 +71,7 @@ export function matchFactsToScene(
 }
 
 /** One UPDATE group: every fact id gets exactly this pointer set. */
-export interface BacklinkWrite {
+interface BacklinkWrite {
   sceneIds: string[];
   factIds: unknown[];
 }

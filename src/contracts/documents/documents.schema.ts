@@ -235,7 +235,7 @@ export const SubmittedRelationSchema = z.object({
 });
 
 /** Mirror of SubmittedScene (0110, PACK_MEMORY_PROJECTIONS_ENABLED). */
-export const SubmittedSceneSchema = z.object({
+const SubmittedSceneSchema = z.object({
   schemaId: z.string().describe("∈ the pack's memoryModel.sceneSchemas[].id."),
   label: z.string().describe('Short human label (≤200 chars).'),
   gist: z.string().describe('Scene gist text (≤2000 chars).'),
@@ -248,7 +248,7 @@ export const SubmittedSceneSchema = z.object({
 });
 
 /** Mirror of SourceVersionStamp (src/common/source-version.ts). */
-export const SourceVersionSchema = z.object({
+const SourceVersionSchema = z.object({
   system: z
     .string()
     .max(32)
@@ -265,7 +265,7 @@ export const SourceVersionSchema = z.object({
 });
 
 /** Mirror of SubmittedStateDelta (0110). */
-export const SubmittedStateDeltaSchema = z.object({
+const SubmittedStateDeltaSchema = z.object({
   sceneIndex: z
     .number()
     .int()
@@ -389,13 +389,3 @@ export const FailWorkRequestSchema = z.object({
         "marks the run 'failed' — no longer offered, still claimable by runId.",
     ),
 });
-
-export type HeartbeatWorkRequest = z.infer<typeof HeartbeatWorkRequestSchema>;
-export type FailWorkRequest = z.infer<typeof FailWorkRequestSchema>;
-export type IngestDocumentRequest = z.infer<typeof IngestDocumentRequestSchema>;
-export type IngestDocumentSyncResponse = z.infer<typeof IngestDocumentSyncResponseSchema>;
-export type IngestDocumentAsyncResponse = z.infer<typeof IngestDocumentAsyncResponseSchema>;
-export type DocumentResponse = z.infer<typeof DocumentResponseSchema>;
-export type DocumentCandidatesResponse = z.infer<typeof DocumentCandidatesResponseSchema>;
-export type SubmitCandidatesRequest = z.infer<typeof SubmitCandidatesRequestSchema>;
-export type SubmitCandidatesResponse = z.infer<typeof SubmitCandidatesResponseSchema>;

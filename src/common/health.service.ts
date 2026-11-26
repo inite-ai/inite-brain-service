@@ -59,7 +59,7 @@ export interface EvidenceStoreDetail {
 }
 
 /** Measurements behind the checks — what the cockpit shows next to them. */
-export interface ReadinessDetail {
+interface ReadinessDetail {
   dbLatencyMs: number;
   /**
    * The scoped (`brain_caller`) pool is configured. When false, reads route

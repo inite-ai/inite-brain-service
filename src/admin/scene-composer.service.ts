@@ -15,19 +15,7 @@ import {
   sceneLlmEnrichmentEnabled,
   sceneSegmentationEnabled,
 } from '../common/scene-flags';
-import {
-  SEGMENTER_VERSION,
-  deriveSceneConfidence,
-  detectSceneSegments,
-  foldSceneScope,
-  meanVector,
-  renderSceneGist,
-  renderSceneLabel,
-  scoreSceneDeterministic,
-  type SceneSegment,
-  type SceneSegmenterConfig,
-  type SceneTurnRow,
-} from './scene-segmentation';
+import { deriveSceneConfidence, detectSceneSegments, foldSceneScope, meanVector, renderSceneGist, renderSceneLabel, scoreSceneDeterministic, type SceneSegment, type SceneSegmenterConfig, type SceneTurnRow } from './scene-segmentation';
 import { SceneVersionService } from './scene-version';
 import { SceneEnricherService } from './scene-enricher.service';
 import { SceneBacklinkService } from './scene-backlink.service';
@@ -68,11 +56,10 @@ import {
  * 'built', nothing on the serving path reads these tables, and prod
  * behavior is byte-identical whether this service runs or not.
  */
-export const SCENE_RECORDER = 'scene-composer-v1';
+const SCENE_RECORDER = 'scene-composer-v1';
 // PR2: the version stamp moved to the pure segmentation module so the
 // enricher/backlinker can name the current world without a module cycle;
 // re-exported here for API continuity.
-export { SEGMENTER_VERSION };
 /** sceneLabel budget enforced in code (the 0106 header's ≤200 contract). */
 const SCENE_LABEL_MAX = 200;
 

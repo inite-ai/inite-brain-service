@@ -15,7 +15,7 @@ import { z } from 'zod';
  * can widen that.
  */
 
-export const DecisionKindSchema = z.enum([
+const DecisionKindSchema = z.enum([
   'l3_escalation',
   'abstain',
   'lane_route',
@@ -24,7 +24,7 @@ export const DecisionKindSchema = z.enum([
 ]);
 
 /** One decision as served. Optional fields are absent, never null. */
-export const MemoryDecisionSchema = z.object({
+const MemoryDecisionSchema = z.object({
   decisionId: z.string(),
   decisionKind: DecisionKindSchema,
   policyVersion: z.string(),
@@ -38,6 +38,7 @@ export const MemoryDecisionSchema = z.object({
   costs: z.record(z.string(), z.number()).optional(),
 });
 
+/** @public the source of MemoryDecisionsResponse, read only as a type (z.infer). */
 export const MemoryDecisionsResponseSchema = z.object({
   decisions: z.array(MemoryDecisionSchema),
   /** Cursor for the next page: the last row's createdAt. */
@@ -49,6 +50,7 @@ export const MemoryDecisionsResponseSchema = z.object({
  * time answers nothing; the questions are "how often does the abstain
  * gate fire, under which policy version, and what does escalation cost".
  */
+/** @public the source of MemoryDecisionsStatsResponse, read only as a type (z.infer). */
 export const MemoryDecisionsStatsResponseSchema = z.object({
   windowDays: z.number(),
   /** Rows scanned — reported so a truncated window is never read as a trend. */

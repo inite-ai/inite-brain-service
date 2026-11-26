@@ -17,10 +17,8 @@ import { makeRowPolicyFilter } from '../policy/row-filter';
 import { pinUserScope } from '../auth/user-scope';
 
 export type {
-  IngestOutcome,
   PredictResolveArgs,
   PredictResolveResult,
-  OpposingFact,
 } from './predictor-internals';
 
 /**

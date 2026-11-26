@@ -3,7 +3,7 @@ import { sceneBeliefNegationDeltasEnabled } from '../common/scene-flags';
 /** Belts against runaway payloads (the enricher's cap discipline). */
 export const STATEMENT_MAX_CHARS = 500;
 
-export const BELIEF_SYNTHESIS_SYSTEM = `You phrase ONE remembered belief — a (subject, attribute, value) state a user's conversations established — as a single natural sentence. Output strictly the JSON schema: "statement": one concise declarative sentence stating the belief content itself (never meta-language like "the user said"). Include the previous value only when one is given.`;
+const BELIEF_SYNTHESIS_SYSTEM = `You phrase ONE remembered belief — a (subject, attribute, value) state a user's conversations established — as a single natural sentence. Output strictly the JSON schema: "statement": one concise declarative sentence stating the belief content itself (never meta-language like "the user said"). Include the previous value only when one is given.`;
 
 /**
  * Canonical negation sentinel (#135 seam 1): the folded value of an
@@ -20,7 +20,7 @@ export const BELIEF_NEGATION_VALUE = 'none';
  * involves the sentinel (the generator-prompt split-constant idiom,
  * #412/#413/#415: flag off ⇒ byte-identical prompt).
  */
-export const BELIEF_SYNTHESIS_NEGATION_CLAUSE = ` A value of "${BELIEF_NEGATION_VALUE}" means the subject NO LONGER has the attribute — phrase it as a natural negation (e.g. "no longer has a car"), never as possessing something called "${BELIEF_NEGATION_VALUE}".`;
+const BELIEF_SYNTHESIS_NEGATION_CLAUSE = ` A value of "${BELIEF_NEGATION_VALUE}" means the subject NO LONGER has the attribute — phrase it as a natural negation (e.g. "no longer has a car"), never as possessing something called "${BELIEF_NEGATION_VALUE}".`;
 
 /** What one belief statement prompt reads. */
 export interface BeliefStatementInput {

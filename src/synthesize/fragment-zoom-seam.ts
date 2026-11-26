@@ -59,7 +59,7 @@ import type { Asker } from './asker';
 /** The fenced fuller-text reader (FragmentLaneService.fullerTexts
  *  satisfies this structurally — a port, not an import, so this module
  *  never depends on the lane service). */
-export interface FragmentZoomFetchPort {
+interface FragmentZoomFetchPort {
   fullerTexts(opts: {
     companyId: string;
     reprIds: string[];

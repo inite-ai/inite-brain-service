@@ -18,7 +18,7 @@ import {
 } from './storage/storage-adapter';
 
 /** Images per batch: each travels as an image block in the tool result. */
-export const IMAGES_PER_BATCH = 4;
+const IMAGES_PER_BATCH = 4;
 
 /**
  * The longest edge an image is handed to the agent at. Vision models read

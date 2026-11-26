@@ -16,7 +16,7 @@
  */
 import type { TruthAnchor, TruthFact } from '../../../src/ai/calibration/truth-discovery';
 
-export interface SimSource {
+interface SimSource {
   key: string;
   accuracy: number;
   kind: 'independent' | 'copier' | 'diligent';
@@ -41,7 +41,7 @@ export interface SimOptions {
   anchorRate: number;
 }
 
-export function mulberry32(seed: number): () => number {
+function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

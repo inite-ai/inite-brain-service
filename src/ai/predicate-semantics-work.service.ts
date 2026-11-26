@@ -9,7 +9,7 @@ import {
 } from './predicate-semantics-judge.service';
 
 /** Predicates per batch: one name and one example each. */
-export const PREDICATES_PER_BATCH = 20;
+const PREDICATES_PER_BATCH = 20;
 
 const SEMANTICS = ['single_active', 'append_only'] as const;
 

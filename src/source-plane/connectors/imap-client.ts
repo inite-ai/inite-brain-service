@@ -4,7 +4,6 @@ import { ImapError } from './imap-error';
 import { SocketReader } from './imap-reader';
 import { assertConnectableHost } from './safe-fetch';
 
-export { ImapError } from './imap-error';
 
 /**
  * The IMAP the `imap` connector needs and nothing more, over a TLS
@@ -326,7 +325,7 @@ function readAtom(seg: string, i: number): { value: string; end: number } {
 }
 
 /** A quoted string: `\` and `"` escaped. */
-export function quote(s: string): string {
+function quote(s: string): string {
   return `"${s.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
 

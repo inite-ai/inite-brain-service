@@ -61,7 +61,7 @@ export function checkPacksInstalled(
 // ── pack-vocabulary matcher ─────────────────────────────────────────
 
 /** One search-hit fact as the vocabulary matcher consumes it. */
-export interface FactLike {
+interface FactLike {
   factId: string;
   predicate: string;
   object: string;

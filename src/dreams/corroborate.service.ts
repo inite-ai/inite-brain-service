@@ -54,7 +54,7 @@ import { serverModelsRefused } from '../common/model-source';
  * Bounded by DREAMS_CORROBORATE_MAX_PAIRS per run. Default off
  * (DREAMS_CORROBORATE_ENABLED).
  */
-export interface CorroborationApplied {
+interface CorroborationApplied {
   incumbentFactId: string;
   corroboratingFactId: string;
   predicate: string;

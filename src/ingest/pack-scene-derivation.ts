@@ -43,7 +43,7 @@ import {
  */
 
 /** A state transition read off one turn. */
-export interface DerivedPackStateDelta {
+interface DerivedPackStateDelta {
   stateModelId: string;
   subject: string;
   from?: string;
@@ -68,7 +68,7 @@ const STATE_MIN = 3;
 /** 0106 sceneLabel budget (the composer/0110 cap). */
 const LABEL_MAX = 200;
 /** Gist budget for a single turn — the scene quotes, it does not archive. */
-export const DERIVED_GIST_MAX = 500;
+const DERIVED_GIST_MAX = 500;
 /** One cue matched = a weak hypothesis; each extra cue firms it up. */
 const SCENE_CONFIDENCE_BASE = 0.5;
 const SCENE_CONFIDENCE_STEP = 0.1;

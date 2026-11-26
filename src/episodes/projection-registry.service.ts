@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Surreal } from 'surrealdb';
 import { SurrealService } from '../db/surreal.service';
 
-export type ProjectionStatus = 'building' | 'built' | 'live' | 'residual' | 'failed';
+type ProjectionStatus = 'building' | 'built' | 'live' | 'residual' | 'failed';
 
 export interface ProjectionRow {
   id: string;

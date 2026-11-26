@@ -37,21 +37,3 @@ export const allScenarios: Scenario[] = [
   ...falsePremiseScenarios,
 ];
 
-export {
-  demoTalkScenarios,
-  rentScenarios,
-  estateScenarios,
-  eventsScenarios,
-  healthScenarios,
-  shopScenarios,
-  crossVerticalScenarios,
-  hybridSearchScenarios,
-  adversarialScenarios,
-  bitemporalScenarios,
-  conflictResolutionScenarios,
-  graphTraversalScenarios,
-  memoryLifecycleScenarios,
-  contentScenarios,
-  multilingualScenarios,
-  falsePremiseScenarios,
-};

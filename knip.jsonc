@@ -1,0 +1,37 @@
+// What knip counts as reached beyond what it finds itself (https://knip.dev). Each line says why.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        // The jest projects pick tests by testRegex, which knip's jest plugin does not read
+        // (test/jest-unit.json *.unit-spec.ts, also under src; jest-e2e, jest-socket, jest-e2e-real).
+        "{src,test}/**/*.{unit-spec,e2e-spec,socket-spec,real-e2e-spec}.ts",
+        // Nest's entry (nest-cli.json, sourceRoot src).
+        "src/main.ts",
+        // package.json's scripts run these by path with ts-node (evals, packs, skills, reports).
+        "scripts/**/*.ts",
+        "test/eval/**/runner.ts",
+        "test/eval/**/asr-runner.ts",
+        "examples/**/*.ts",
+        // Worker threads and pool jobs started by path, not imported (new Worker(join(__dirname, ...)):
+        // intent-classifier, cross-encoder, bge-m3, local NER, the job pool's runner and its jobs).
+        "src/**/*.worker.ts",
+        "src/**/*.worker-job.ts",
+        "src/jobs/job-worker-runner.ts",
+        "test/fixtures/*-worker-job.ts"
+      ],
+      // The OCR language data is resolved by package name at run time (src/evidence/processing/adapters/ocr-assets.ts).
+      "ignoreDependencies": ["@tesseract.js-data/*"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "examples/**/*.ts"]
+    },
+    // The landing: its own Next app, package.json and lockfile; knip's next and vitest plugins find its entries.
+    "brain-landing": {
+      // The blog, docs and legal pages are read from content/ by path (lib/blog.ts, lib/docs.ts, app/[lang]/privacy), not imported.
+      "ignore": ["content/**"]
+    }
+  },
+  // The published clients (SDK, MCP, agent) are packages of their own, not workspaces here; plugins/ is the
+  // Claude Code plugin bundle (markdown and JSON).
+  "ignore": ["plugins/**"]
+}

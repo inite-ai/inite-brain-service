@@ -37,7 +37,7 @@ import { scopeFenceSql } from '../auth/scope-visibility';
 export const SCENES_LIST_MAX = 100;
 export const SCENES_LIST_DEFAULT = 25;
 
-export interface SceneMemoryValue {
+interface SceneMemoryValue {
   novelty?: number;
   contradiction?: number;
   stateChange?: number;
@@ -47,7 +47,7 @@ export interface SceneMemoryValue {
   scorerVersion?: string;
 }
 
-export interface SceneStateDelta {
+interface SceneStateDelta {
   subject: string;
   field: string;
   from?: string;
@@ -122,7 +122,7 @@ const SELECT_COLUMNS = `id, userId, userIds, sceneLabel, gist, enrichedGist,
  * unstamped row is out of contract and hidden from everyone
  * (sceneVisibleToUser's fail-closed leg).
  */
-export function sceneVisible(
+function sceneVisible(
   row: { userId?: unknown; userIds?: unknown },
   scopeUserId: string | undefined,
 ): boolean {
@@ -283,7 +283,7 @@ function piiFence(scopes: readonly BrainScope[]): string | null {
  * registry marks `live`, else the newest `built` one (the composer
  * promotes to `live` only when the scene lane is on at build time).
  */
-export async function currentSceneWorld(db: {
+async function currentSceneWorld(db: {
   query: <T>(sql: string, params?: Record<string, unknown>) => Promise<T>;
 }): Promise<string> {
   // `finishedAt` rides the projection: SurrealDB 3.x orders only by a

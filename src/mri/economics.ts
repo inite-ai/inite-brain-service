@@ -43,13 +43,13 @@ import { histogramQuantile, sumCounter } from './metrics-reader';
  *  deployment can price its own models. Kept deliberately conservative and
  *  explicit: a wrong price shifts the $ axis uniformly, it never fabricates a
  *  measurement. */
-export interface PriceTable {
+interface PriceTable {
   chatPromptPerMillion: number;
   chatCompletionPerMillion: number;
   embedPromptPerMillion: number;
 }
 
-export const DEFAULT_PRICE_TABLE: PriceTable = {
+const DEFAULT_PRICE_TABLE: PriceTable = {
   chatPromptPerMillion: 0.15,
   chatCompletionPerMillion: 0.6,
   embedPromptPerMillion: 0.02,
@@ -116,7 +116,7 @@ export interface CollectOperatingPointOptions {
  * TERMINAL outcome is added there — a missing terminal outcome would understate
  * the denominator and INFLATE the proxy, so this list is the source of truth.
  */
-export const TERMINAL_SYNTHESIZE_OUTCOMES = [
+const TERMINAL_SYNTHESIZE_OUTCOMES = [
   'ok',
   'no_results',
   'no_grounded_evidence',
@@ -136,7 +136,7 @@ const TERMINAL_SYNTHESIZE_SET: ReadonlySet<string> = new Set(TERMINAL_SYNTHESIZE
  * reached a final disposition (the honest per-request denominator). Series whose
  * `outcome` is intermediate or absent are excluded.
  */
-export function terminalSynthesizeCount(reader: MetricsReader): number {
+function terminalSynthesizeCount(reader: MetricsReader): number {
   let total = 0;
   for (const s of reader.counter('brain_synthesize_total')) {
     const outcome = s.labels['outcome'];
@@ -206,7 +206,7 @@ export function collectOperatingPoint(
 }
 
 /** True iff every axis the frontier compares is present (not null). */
-export function hasCompleteAxes(p: PolicyOperatingPoint): boolean {
+function hasCompleteAxes(p: PolicyOperatingPoint): boolean {
   return p.accuracyProxy !== null && p.costPerQueryUpperBound !== null && p.latencyP95 !== null;
 }
 
@@ -229,7 +229,7 @@ export function dominates(a: PolicyOperatingPoint, b: PolicyOperatingPoint): boo
   return noWorse && strictlyBetter;
 }
 
-export interface DominatedPoint {
+interface DominatedPoint {
   point: PolicyOperatingPoint;
   dominatedBy: PolicyOperatingPoint;
 }

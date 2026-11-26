@@ -36,7 +36,7 @@ import { SOURCE_CONNECTORS, findConnector, type ConnectorRegistry } from '../con
 import { SourceOAuthService } from './source-oauth.service';
 
 /** The public callback's path — what a provider must have as the app's redirect URI. */
-export const OAUTH_CALLBACK_PATH = '/v1/source-connections/oauth/callback';
+const OAUTH_CALLBACK_PATH = '/v1/source-connections/oauth/callback';
 
 /**
  * Connected accounts (brain:admin) — the brain as an outbound OAuth

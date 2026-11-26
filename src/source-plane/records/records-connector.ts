@@ -9,7 +9,7 @@ import type {
   RecordEnvelope,
 } from '../connector';
 import type { OAuthProviderId } from '../oauth/oauth-providers';
-import { mergeMappings, type EntityMapping, type RecordMapping } from './record-mapping';
+import { mergeMappings, type RecordMapping } from './record-mapping';
 import type { WebhookScheme } from './webhook-schemes';
 
 /**
@@ -26,7 +26,7 @@ import type { WebhookScheme } from './webhook-schemes';
  * vendor.
  */
 
-export interface EntityFieldSpec {
+interface EntityFieldSpec {
   key: string;
   label: string;
 }
@@ -251,7 +251,7 @@ export function itemIdOf(type: string, externalId: string): string {
   return `${type}/${externalId}`;
 }
 
-export function parseItemId(itemId: string): { type: string; id: string } {
+function parseItemId(itemId: string): { type: string; id: string } {
   const i = itemId.indexOf('/');
   if (i === -1) return { type: '', id: itemId };
   return { type: itemId.slice(0, i), id: itemId.slice(i + 1) };
@@ -285,6 +285,3 @@ function checkpointEntities(
   const raw = checkpoint?.entities;
   return raw && typeof raw === 'object' ? (raw as Record<string, { since?: string }>) : {};
 }
-
-/** Exposed for the form: which mapping a connection ends up with. */
-export type { EntityMapping };

@@ -96,7 +96,7 @@ export type VerbatimEvidenceMode = 'off' | 'shape_conditioned' | 'always' | 'fus
  *               'routed', so worlds permanently carrying
  *               aggregates/arcs read clean.
  */
-export type InsightEvidenceMode = 'off' | 'routed' | 'query_arc';
+type InsightEvidenceMode = 'off' | 'routed' | 'query_arc';
 
 /**
  * Timeline evidence for mention-order questions (V8 §2):
@@ -125,7 +125,7 @@ export type InsightEvidenceMode = 'off' | 'routed' | 'query_arc';
  *               COVERAGE: golds enumerate a topic across ALL sessions;
  *               top-K similarity windows cannot).
  */
-export type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
+type TimelineEvidenceMode = 'off' | 'routed' | 'scan';
 
 /**
  * Dense-leg execution mode of the two coverage-first scan lanes
@@ -194,7 +194,7 @@ export type CoverageLexMode = 'phrase' | 'or_terms';
  *                 marginal API cost. Strict/answer guardrails keep the
  *                 LLM verifier path untouched.
  */
-export type AbstentionCalibrationMode = 'off' | 'coverage' | 'verifier' | 'minicheck';
+type AbstentionCalibrationMode = 'off' | 'coverage' | 'verifier' | 'minicheck';
 
 /**
  * How the generator's "today" is anchored:
@@ -218,10 +218,10 @@ export type DateAnchoring = 'none' | 'session_date' | 'absolute';
  *                      overlap + distance decay). Soft recall, fuzzier
  *                      point-in-time compliance.
  */
-export type TemporalMode = 'filter' | 'overlap_boost';
+type TemporalMode = 'filter' | 'overlap_boost';
 
 /** Digest-evidence lane targeting (see RetrievalProfile.digestLanes). */
-export type DigestLaneMode = 'all' | 'summary_ku';
+type DigestLaneMode = 'all' | 'summary_ku';
 
 /** One id per dispatch lane; the Lane registry must cover all of them. */
 export type LaneId =

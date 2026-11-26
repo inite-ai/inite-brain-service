@@ -33,7 +33,6 @@ import { compileDenyPushdown } from '../policy/db-fence';
 export {
   isUniqueViolation,
   isReadConflict,
-  enrichTransactionError,
   retryOnUniqueViolation,
 } from './surreal-retry';
 

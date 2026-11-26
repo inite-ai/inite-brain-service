@@ -14,7 +14,7 @@ import { z } from 'zod';
  * so both render without a discriminated branch.
  */
 
-export const PolicyOperatingPointSchema = z.object({
+const PolicyOperatingPointSchema = z.object({
   flags: z.array(z.string()),
   accuracyProxy: z.number().nullable(),
   ece: z.number().nullable(),
@@ -27,7 +27,7 @@ export const PolicyOperatingPointSchema = z.object({
   sampleCount: z.number(),
 });
 
-export const MriDimensionSchema = z.object({
+const MriDimensionSchema = z.object({
   value: z.union([z.number(), z.string()]),
   unit: z.string().optional(),
   source: z.string(),
@@ -40,7 +40,7 @@ export const MriDimensionSchema = z.object({
 /** The rolling window the LIVE rate cells cover — the counters are deltaed
  *  against a baseline snapshot so rates are bounded to recent traffic, never the
  *  whole process lifetime. Optional: absent for a raw (un-windowed) build. */
-export const MriWindowSchema = z.object({
+const MriWindowSchema = z.object({
   startedAt: z.string(),
   endedAt: z.string(),
   windowMs: z.number(),
@@ -52,7 +52,3 @@ export const MriReportSchema = z.object({
   operatingPoint: PolicyOperatingPointSchema,
   window: MriWindowSchema.optional(),
 });
-
-export type MriReportContract = z.infer<typeof MriReportSchema>;
-export type MriDimensionContract = z.infer<typeof MriDimensionSchema>;
-export type PolicyOperatingPointContract = z.infer<typeof PolicyOperatingPointSchema>;

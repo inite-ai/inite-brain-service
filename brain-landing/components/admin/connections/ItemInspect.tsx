@@ -297,7 +297,7 @@ function FactRow({
 type FactState = 'current' | 'drifted' | 'stale' | 'closed' | 'retracted'
 
 /** What the drift sweep sees on one fact against the catalogue's revision. */
-export function factState(fact: SourceItemFact, revision: string | null): FactState {
+function factState(fact: SourceItemFact, revision: string | null): FactState {
   if (fact.validUntil) return 'closed'
   if (fact.status !== 'active') return 'retracted'
   if (fact.staleAt) return 'stale'

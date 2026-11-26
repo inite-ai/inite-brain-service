@@ -35,7 +35,7 @@ import { nameKeysFor } from '../common/name-key';
 import { userEntityKey } from './user-entity';
 
 /** The core predicate the extractor and the onboarding write file names under. */
-export const NAME_PREDICATE = 'name';
+const NAME_PREDICATE = 'name';
 
 /** The outcomes after which the fact IS the entity's current name. */
 const CURRENT_OUTCOMES: ReadonlySet<string> = new Set(['INSERTED', 'SUPERSEDED']);

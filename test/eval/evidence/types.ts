@@ -32,7 +32,7 @@ export const DIMENSION_LABELS: Record<Dimension, string> = {
   E8: 'gdpr',
 };
 
-export type CheckStatus = 'pass' | 'fail' | 'skipped';
+type CheckStatus = 'pass' | 'fail' | 'skipped';
 
 /**
  * One check's identity, authored next to its assertion so the report and

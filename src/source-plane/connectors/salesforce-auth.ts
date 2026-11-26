@@ -165,7 +165,7 @@ export function mintAssertion(jwt: JwtCredential, loginUrl: string, now = Date.n
 }
 
 /** An https origin out of a URL-ish string (the dev override admits http), else ''. */
-export function originOf(raw: string | undefined): string {
+function originOf(raw: string | undefined): string {
   if (typeof raw !== 'string' || raw.trim().length === 0) return '';
   try {
     const u = new URL(raw.trim());

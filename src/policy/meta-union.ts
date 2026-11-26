@@ -63,12 +63,12 @@ function cacheKey(companyId: string, originKey: string): string {
   return `${companyId}\u0000${originKey}`;
 }
 
-export function metaUnionEnabled(): boolean {
+function metaUnionEnabled(): boolean {
   return envFlagNotDisabled(process.env.POLICY_META_UNION_ENABLED);
 }
 
 /** Does any enforce/report set carry a deny rule touching source.meta.*? */
-export function contextHasMetaDenyRules(ctx: PolicyContext): boolean {
+function contextHasMetaDenyRules(ctx: PolicyContext): boolean {
   return ctx.sets.some((set) =>
     set.sourceDeny.some((rule) => rule.conditions.some((c) => c.attr.startsWith('source.meta.'))),
   );

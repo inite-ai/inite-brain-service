@@ -847,7 +847,7 @@ export function staleRunMs(): number {
  * never showed up. Days-scale by design: a daily poller is a legitimate
  * integration.
  */
-export function externalPendingTtlMs(): number {
+function externalPendingTtlMs(): number {
   const days = Number(process.env.INDEXER_EXTERNAL_PENDING_TTL_DAYS);
   return (Number.isFinite(days) && days > 0 ? days : 7) * 86_400_000;
 }

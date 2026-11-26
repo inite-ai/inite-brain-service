@@ -15,7 +15,7 @@ import {
 } from './scene-enricher.service';
 
 /** Scenes per batch: their transcripts are the bulk of the prompt. */
-export const SCENES_PER_BATCH = 6;
+const SCENES_PER_BATCH = 6;
 
 /** What a submitted batch of scene summaries did. */
 export interface ScenesSubmitOutcome {

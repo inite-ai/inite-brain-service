@@ -365,7 +365,7 @@ function mergeCandidateTotals(into: IndexerCandidateTotals, from: IndexerCandida
 }
 
 /** The one place the window/cap bounds are decided. */
-export function makeWindow(days: number | undefined, runCap: number): IndexerWindow {
+function makeWindow(days: number | undefined, runCap: number): IndexerWindow {
   const d = clamp(days, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS);
   return { since: new Date(Date.now() - d * DAY_MS).toISOString(), days: d, runCap };
 }

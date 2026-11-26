@@ -1,9 +1,9 @@
 import { INGEST_CONVEYOR } from './ingest';
 import { RETRIEVAL_CONVEYOR } from './retrieval';
 import { SYNTHESIZE_CONVEYOR } from './synthesize';
-import type { Artifact, Conveyor, Handoff } from './types';
+import type { Conveyor, Handoff } from './types';
 
-export type { Artifact, Conveyor, ConveyorId, ConveyorStage, Handoff, StageGate } from './types';
+export type { Artifact, Conveyor,  ConveyorStage, Handoff } from './types';
 export { INGEST_CONVEYOR } from './ingest';
 export { RETRIEVAL_CONVEYOR } from './retrieval';
 export { SYNTHESIZE_CONVEYOR } from './synthesize';
@@ -52,17 +52,3 @@ export const HANDOFFS: readonly Handoff[] = [
     via: ['belief', 'episode', 'fact'],
   },
 ];
-
-/** Every artifact the whole chain ever produces. */
-export function producedArtifacts(): ReadonlySet<Artifact> {
-  const out = new Set<Artifact>();
-  for (const c of CONVEYORS) for (const s of c.stages) for (const a of s.produces) out.add(a);
-  return out;
-}
-
-/** Every artifact the whole chain ever consumes. */
-export function consumedArtifacts(): ReadonlySet<Artifact> {
-  const out = new Set<Artifact>();
-  for (const c of CONVEYORS) for (const s of c.stages) for (const a of s.consumes) out.add(a);
-  return out;
-}

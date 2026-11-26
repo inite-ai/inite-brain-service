@@ -31,4 +31,3 @@ export const AuditPageResponseSchema = z.object({
 });
 
 export type AuditPageResponse = z.infer<typeof AuditPageResponseSchema>;
-export type AuditEventRow = z.infer<typeof AuditEventRowSchema>;

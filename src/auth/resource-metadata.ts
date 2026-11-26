@@ -9,7 +9,7 @@
  * well-known controller alike.
  */
 
-export const PROTECTED_RESOURCE_PATH = '/.well-known/oauth-protected-resource';
+const PROTECTED_RESOURCE_PATH = '/.well-known/oauth-protected-resource';
 
 interface RequestLike {
   headers?: Record<string, string | string[] | undefined>;

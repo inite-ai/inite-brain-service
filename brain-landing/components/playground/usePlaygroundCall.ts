@@ -17,7 +17,7 @@ import type { DebugTracePayload } from './TraceWaterfall'
  * admin/PII) via {@link ProxyBaseProvider} so the same playground
  * components can be reused under `/[lang]/app/*`.
  */
-export const ProxyBaseContext = createContext<string>('/api/admin/proxy')
+const ProxyBaseContext = createContext<string>('/api/admin/proxy')
 export const ProxyBaseProvider = ProxyBaseContext.Provider
 
 export function useProxyBase(): string {

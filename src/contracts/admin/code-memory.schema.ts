@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Wire contracts for the code-memory anchor sweep (/v1/admin/code-memory). */
 
-export const AnchorRowSchema = z.object({
+const AnchorRowSchema = z.object({
   anchor: z.string(),
   entityId: z.string(),
   factIds: z.array(z.string()),
@@ -12,6 +12,7 @@ export const AnchorsListResponseSchema = z.object({
   anchors: z.array(AnchorRowSchema),
 });
 
+/** @public the source of AnchorVerdict, read only as a type (z.infer). */
 export const AnchorVerdictSchema = z.discriminatedUnion('action', [
   z.object({ anchor: z.string(), action: z.literal('ok') }),
   z.object({
@@ -26,6 +27,7 @@ export const AnchorVerdictSchema = z.discriminatedUnion('action', [
   }),
 ]);
 
+/** @public the source of ApplyVerdictsResponse, read only as a type (z.infer). */
 export const ApplyVerdictsResponseSchema = z.object({
   reanchored: z.number().int().nonnegative(),
   invalidated: z.number().int().nonnegative(),

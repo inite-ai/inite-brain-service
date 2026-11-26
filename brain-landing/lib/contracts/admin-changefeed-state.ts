@@ -35,5 +35,5 @@ export const ChangefeedStateResponseSchema = z.object({
 export type ChangefeedStateResponse = z.infer<
   typeof ChangefeedStateResponseSchema
 >
-export type ChangefeedStats = z.infer<typeof ChangefeedStatsSchema>
-export type ChangefeedCursor = z.infer<typeof ChangefeedCursorSchema>
+type ChangefeedStats = z.infer<typeof ChangefeedStatsSchema>
+type ChangefeedCursor = z.infer<typeof ChangefeedCursorSchema>

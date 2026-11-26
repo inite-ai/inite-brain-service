@@ -26,7 +26,7 @@ import { safeFetch, type SafeFetchResult } from '../connectors/safe-fetch';
  * followed on the probe. Nothing here stores anything.
  */
 
-export interface ProtectedResourceMetadata {
+interface ProtectedResourceMetadata {
   resource: string;
   authorizationServers: string[];
   scopesSupported: string[];
@@ -344,7 +344,7 @@ function sameIssuer(published: string, requested: string): boolean {
 }
 
 /** The path of the brain's Client ID Metadata Document, under the callback's origin. */
-export const CLIENT_METADATA_PATH = '/v1/source-connections/oauth/client-metadata.json';
+const CLIENT_METADATA_PATH = '/v1/source-connections/oauth/client-metadata.json';
 
 /**
  * The Client ID Metadata Document URL for a redirect URI, when one can be

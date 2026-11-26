@@ -11,10 +11,6 @@ import type { RouteContext, RoutePlan } from './chat-route-context';
 
 export type {
   ChatRoute,
-  Span,
-  EditOp,
-  TemporalAnchor,
-  ValidationReport,
 } from './chat-router-internals/types';
 export {
   classifyIntentLocally,

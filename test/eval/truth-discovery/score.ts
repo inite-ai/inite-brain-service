@@ -3,7 +3,7 @@
  * the contested slots no user anchored: an anchored claim is right by
  * construction and would flatter every method equally.
  */
-import { discoverTruth, type TruthResult } from '../../../src/ai/calibration/truth-discovery';
+import { discoverTruth } from '../../../src/ai/calibration/truth-discovery';
 import type { SimWorkspace } from './simulate';
 
 export interface BatteryScore {
@@ -69,10 +69,6 @@ export function score(ws: SimWorkspace, priorStrength: number): BatteryScore {
       winRate: winRate.get('diligent:recorder') ?? null,
     },
   };
-}
-
-export function run(ws: SimWorkspace, priorStrength: number): TruthResult {
-  return discoverTruth(ws.facts, ws.anchors, { priorStrength });
 }
 
 /** 1 if the truth is the unique top, 1/n if it ties n ways, else 0. */

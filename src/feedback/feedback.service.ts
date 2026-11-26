@@ -77,7 +77,7 @@ interface CastVoteRow {
  *
  * Returns the replaced verdict, or undefined for a first vote.
  */
-export async function castVote(
+async function castVote(
   db: Surreal,
   v: {
     fact: RecordId;

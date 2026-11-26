@@ -16,7 +16,7 @@
 import { readSourceVersionStamp, type SourceVersionStamp } from '../common/source-version';
 import type { CandidateRow } from './candidate-store.service';
 
-export interface MergedEntity {
+interface MergedEntity {
   key: string;
   name: string;
   type: string;
@@ -31,7 +31,7 @@ export interface MergedEntity {
   candidateIds: string[];
 }
 
-export interface FactContributor {
+interface FactContributor {
   candidateId: string;
   indexerId: string;
   packVersion: string;
@@ -80,7 +80,7 @@ export interface MergedRelation {
   mergedIds: string[];
 }
 
-export interface RejectedCandidate {
+interface RejectedCandidate {
   candidateId: string;
   kind: 'entity' | 'fact' | 'relation';
   reason: string;

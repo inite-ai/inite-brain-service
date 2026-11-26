@@ -15,7 +15,7 @@ export interface SurqlStatement {
 }
 
 /** Blank out line comments, block comments and quoted literals, length-preserving. */
-export function maskNoise(sql: string): string {
+function maskNoise(sql: string): string {
   let out = '';
   let i = 0;
   while (i < sql.length) {

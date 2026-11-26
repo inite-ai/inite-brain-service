@@ -17,7 +17,7 @@ import { z } from 'zod';
  */
 
 /** Absolute path under `/memories`, traversal-free. Enforced server-side. */
-export const MemoryFilePathSchema = z
+const MemoryFilePathSchema = z
   .string()
   .min(1)
   .max(512)
@@ -64,6 +64,3 @@ export const MemoryFileDeleteResponseSchema = z.object({
   /** Rows removed — more than one when the path named a directory. */
   deleted: z.number(),
 });
-
-export type MemoryFileReadRequest = z.infer<typeof MemoryFileReadRequestSchema>;
-export type MemoryFileWriteRequest = z.infer<typeof MemoryFileWriteRequestSchema>;

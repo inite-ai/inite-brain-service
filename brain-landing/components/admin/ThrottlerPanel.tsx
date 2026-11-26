@@ -11,7 +11,6 @@ import type {
   ActorRow,
 } from '../../lib/contracts/admin-throttler'
 
-export type { RouteRow, ActorRow }
 
 export function ThrottlerPanel() {
   const [data, setData] = useState<ThrottlerSnapshot | null>(null)

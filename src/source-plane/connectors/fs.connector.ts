@@ -50,7 +50,7 @@ import {
  * the pack (file_memory: `folder` / `folder_media`).
  */
 
-export interface FsConnectorConfig {
+interface FsConnectorConfig {
   root: string;
   /** Lower-case, no dot. Defaults per shape (below). */
   extensions?: string[] | undefined;
@@ -67,10 +67,6 @@ export interface FsConnectorConfig {
   maxFiles?: number | undefined;
   maxFileBytes?: number | undefined;
 }
-
-/** Kept as the fs names of the shared tables (media.ts) — s3 reads the same. */
-export const FS_TEXT_EXTENSIONS = TEXT_EXTENSIONS;
-export const FS_BINARY_EXTENSIONS = BINARY_EXTENSIONS;
 
 const DEFAULT_EXCLUDE_DIRS = [
   '.git',

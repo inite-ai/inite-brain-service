@@ -78,7 +78,7 @@ export const TimelineRetractedEventSchema = z.object({
   supersededBy: z.string().optional(),
 });
 
-export const TimelineEventSchema = z.union([
+const TimelineEventSchema = z.union([
   TimelineRecordedEventSchema,
   TimelineRetractedEventSchema,
 ]);
@@ -113,8 +113,3 @@ export const EntityConnectionsResponseSchema = z.object({
   entityId: z.string(),
   edges: z.array(ConnectionEdgeSchema),
 });
-
-export type EntityAutocompleteResponse = z.infer<typeof EntityAutocompleteResponseSchema>;
-export type EntityProfileResponse = z.infer<typeof EntityProfileResponseSchema>;
-export type EntityTimelineResponse = z.infer<typeof EntityTimelineResponseSchema>;
-export type EntityConnectionsResponse = z.infer<typeof EntityConnectionsResponseSchema>;

@@ -15,8 +15,8 @@ import { sanitizePackText } from '../common/text-sanitizer';
  * `sanitizePackText` is re-exported here unchanged for existing importers.
  */
 
-export const TITLE_CAP = 80;
-export const DESCRIPTION_CAP = 500;
+const TITLE_CAP = 80;
+const DESCRIPTION_CAP = 500;
 export const PARAM_DESCRIPTION_CAP = 200;
 
 export { sanitizePackText };

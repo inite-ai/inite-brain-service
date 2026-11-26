@@ -67,7 +67,7 @@ export type OutcomeCounter =
  * from the engine dirs it serves. Absent = legacy/text (the migration's
  * NONE contract).
  */
-export type OutcomeModality = 'text' | 'visual' | 'audio' | 'document_region';
+type OutcomeModality = 'text' | 'visual' | 'audio' | 'document_region';
 
 export interface OutcomeEventInput {
   subjectKind: OutcomeSubjectKind;

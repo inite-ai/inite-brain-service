@@ -53,6 +53,3 @@ export const BeliefsListResponseSchema = z.object({
   /** Rows returned (NOT a total count — the page size after fencing). */
   found: z.number(),
 });
-
-export type BeliefReadResponse = z.infer<typeof BeliefReadResponseSchema>;
-export type BeliefsListResponse = z.infer<typeof BeliefsListResponseSchema>;

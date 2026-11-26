@@ -6,7 +6,7 @@ import { DistributedLeaseGuard, noteUnguarded } from '../common/distributed-leas
 import { SurrealService, isUniqueViolation, queryFirst, queryRows } from '../db/surreal.service';
 
 /** How long a key answers for (draft-ietf-httpapi-idempotency-key-header: the server picks). */
-export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
 const LOCK_KEY = 'idempotency_sweep';
 const LEASE_TTL_SECONDS = 30 * 60;
