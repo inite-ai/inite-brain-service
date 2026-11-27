@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import type { Surreal } from 'surrealdb';
 import { SurrealService, retryOnUniqueViolation } from '../db/surreal.service';
+import { pinUserScope } from '../auth/user-scope';
 import { IngestLinkDto, LinkRef } from './dto/ingest-link.dto';
 import { createEdgeBetween } from './edge-writer';
 import { externalRefKey, idTailOf } from './ingest-utils';
@@ -45,6 +47,11 @@ export class LinkIngestService {
   ) {}
 
   async ingestLink(companyId: string, dto: IngestLinkDto): Promise<IngestLinkResult> {
+    // A user-bound token writes into its user's memory, never the
+    // tenant's: the edge is stamped with that user (0055), and it may not
+    // merge an entity that is not its own. An M2M credential keeps
+    // declaring tenant-global relations.
+    const userId = pinUserScope(undefined);
     return this.surreal.withCompany(companyId, async (db) => {
       const fromId = await this.entities.resolveOrCreateBareRef(db, dto.from);
       const toId = await this.entities.resolveOrCreateBareRef(db, dto.to);
@@ -90,6 +97,8 @@ export class LinkIngestService {
             alreadyIdentical: true,
           };
         }
+        if (userId !== undefined)
+          await assertUserMayMerge(db, { loser: toId, survivor: fromId, userId });
         const merge = await retryOnUniqueViolation(async () => {
           const [r] = await db.query<[{ merged: boolean; reason: string | null }]>(
             `RETURN fn::merge_identity(
@@ -124,15 +133,16 @@ export class LinkIngestService {
       }
 
       // Idempotent edge insert through the shared primitive: a replayed
-      // webhook returns the existing edge instead of a second copy. The
-      // link API declares tenant-global relations (no per-user scope on
-      // this surface), so the edge lands in the '' scope.
+      // webhook returns the existing edge instead of a second copy. An M2M
+      // credential declares tenant-global relations (the '' scope); a
+      // user-bound token's edge is that user's.
       const edgeId = await createEdgeBetween(db, {
         fromEntityId: fromId,
         toEntityId: toId,
         kind: dto.kind,
         weight: dto.weight ?? 1.0,
         source: { ...dto.source },
+        ...(userId !== undefined ? { userId } : {}),
         // The link API states no period: the relation holds from when it
         // was declared (0164), as a timeless extracted edge holds from
         // when it was said. A re-declared link never moves the start later.
@@ -148,5 +158,32 @@ export class LinkIngestService {
 
       return { edgeId, fromEntityId: fromId, toEntityId: toId, kind: dto.kind };
     });
+  }
+}
+
+/**
+ * A merge rewrites the LOSER for every reader (its mergedInto redirects
+ * it out of retrieval), so a user-bound token may merge only an entity
+ * of its own memory, into one it can see (tenant-global or its own).
+ * Merging two tenant-global entities is the tenant's call — an M2M
+ * credential's — not one user's.
+ */
+async function assertUserMayMerge(
+  db: Surreal,
+  ends: { loser: string; survivor: string; userId: string },
+): Promise<void> {
+  const [loserRows, survivorRows] = await db.query<[unknown[], unknown[]]>(
+    `SELECT VALUE userId FROM type::record('knowledge_entity', $loser);
+     SELECT VALUE userId FROM type::record('knowledge_entity', $survivor);`,
+    { loser: idTailOf(ends.loser), survivor: idTailOf(ends.survivor) },
+  );
+  const loserOwner = loserRows?.[0];
+  const survivorOwner = survivorRows?.[0];
+  const survivorVisible =
+    survivorOwner === undefined || survivorOwner === null || survivorOwner === ends.userId;
+  if (loserOwner !== ends.userId || !survivorVisible) {
+    throw new ForbiddenException(
+      'identity_of with a user-bound token merges only an entity of that user’s own memory',
+    );
   }
 }

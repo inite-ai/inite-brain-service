@@ -18,10 +18,15 @@ import { fencedClasses } from '../ai/predicate-registry-internals/types';
  *    tenant's belief id simply is not present here;
  *  - user scope: a belief ALWAYS carries the single-user scope its
  *    promotion stamped (#387 fail-closed fence — never tenant-global).
- *    Via pinUserScope, a user-bound token sees only its OWN beliefs;
- *    an M2M credential sees the whole tenant. A row whose userId stamp
- *    is missing/blank (out-of-contract) is invisible to EVERYONE —
- *    fail-closed, the same doctrine the promotion applies on write.
+ *    Via pinUserScope, a user-bound token sees only its OWN beliefs.
+ *    The list never mixes personal memory into a request that names no
+ *    user: an M2M credential lists one user's beliefs when it asserts
+ *    that userId, and none when it asserts no one (every belief is
+ *    personal, so tenant-global = empty). By id, an M2M credential still
+ *    resolves any well-stamped belief — it holds the id, and the id read
+ *    has no userId to assert. A row whose userId stamp is missing/blank
+ *    (out-of-contract) is invisible to EVERYONE — fail-closed, the same
+ *    doctrine the promotion applies on write.
  *
  *  - class: a belief stamped `affect`, `health` or `sensitive` (0185)
  *    needs brain:read_pii, the predicate rule (classRequiredScope) applied
@@ -147,9 +152,9 @@ export interface BeliefListOptions {
   field?: string | undefined;
   /**
    * Caller-asserted user scope — pinned via pinUserScope: an M2M key
-   * may scope to any user (or omit for tenant-wide), a user-bound
-   * token is pinned to its own user (mismatch = 403, the platform-wide
-   * pin idiom).
+   * may scope to any user (omitted → no beliefs: they are all personal),
+   * a user-bound token is pinned to its own user (mismatch = 403, the
+   * platform-wide pin idiom).
    */
   userId?: string | undefined;
   /** Lifecycle filter, already validated ('active' default). */
@@ -202,20 +207,14 @@ export class BeliefsService {
   async listBeliefs(opts: BeliefListOptions): Promise<BeliefsListResult> {
     if (actingCircleTags().length > 0) return { beliefs: [], found: 0 };
     const scopeUserId = pinUserScope(opts.userId);
+    // Every belief is personal (the promotion stamps one user, never
+    // tenant-global). A request that names no user reads tenant-global
+    // memory only — which, for beliefs, is nothing. Before, an M2M list
+    // without userId returned every user's beliefs.
+    if (scopeUserId === undefined) return { beliefs: [], found: 0 };
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
-      const clauses: string[] = [];
-      const params: Record<string, unknown> = {};
-      if (scopeUserId !== undefined) {
-        clauses.push('userId = $u');
-        params.u = scopeUserId;
-      } else {
-        // The fail-closed leg of beliefVisible, pushed into WHERE: an
-        // out-of-contract blank stamp must not occupy page slots either
-        // (the F1 lesson — a fence applied after LIMIT starves the
-        // page). userId is TYPE string (0120), so blank is the only
-        // DB-representable out-of-contract shape.
-        clauses.push(`userId != ''`);
-      }
+      const clauses: string[] = ['userId = $u'];
+      const params: Record<string, unknown> = { u: scopeUserId };
       const fenced = fencedClasses(opts.scopes);
       if (fenced.length > 0) {
         clauses.push('(piiClass = NONE OR piiClass NOTINSIDE $fenced)');

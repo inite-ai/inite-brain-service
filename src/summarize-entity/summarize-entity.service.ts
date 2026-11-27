@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { EntitiesService } from '../entities/entities.service';
 import { BrainScope } from '../auth/api-key.types';
 import { getPolicyContext } from '../common/request-context';
+import { actingCircleTags } from '../auth/circle-scope';
 
 /**
  * summarize_entity — one-liner-per-entity surface for LLM context.
@@ -155,8 +156,15 @@ function buildCacheKey(
   // callers with different visibility must never share a cache entry —
   // otherwise a read_pii summary is served to a brain:read key. Fold both
   // axes into the key. Absent policy context (ABAC off) → scopes decide.
+  // The circle a credential acts in is a third axis (the scope-tag fence
+  // reads a circle's facts only inside it): without it, a summary built
+  // inside one circle was served to the same key acting in another.
   const visibility =
-    [...scopes].sort().join(',') + '::' + (getPolicyContext()?.keyHash ?? 'no-policy');
+    [...scopes].sort().join(',') +
+    '::' +
+    (getPolicyContext()?.keyHash ?? 'no-policy') +
+    '::' +
+    [...actingCircleTags()].sort().join(',');
   const raw = `${companyId}::${args.entityId}::${asOf}::${style}::${visibility}::${args.userId ?? ''}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
