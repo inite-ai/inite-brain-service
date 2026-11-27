@@ -74,18 +74,6 @@ async function verifiedSession(request: NextRequest): Promise<{
   return fresh ? { decoded: fresh, renewed } : null
 }
 
-/**
- * Session read WITHOUT the renewed cookies. For code that cannot set
- * cookies on its response only; a route handler must use `withAdmin`,
- * `withUser` or `withSession`, or a renewal here rotates the refresh
- * token and loses it (see withSession).
- */
-async function getAdminSession(
-  request: NextRequest,
-): Promise<AdminSession | null> {
-  return (await getAdminSessionWithRenewal(request))?.session ?? null
-}
-
 async function getAdminSessionWithRenewal(
   request: NextRequest,
 ): Promise<{ session: AdminSession; renewed: RefreshedTokens | null } | null> {
@@ -108,17 +96,10 @@ async function getAdminSessionWithRenewal(
 }
 
 /**
- * Like {@link getAdminSession} but does NOT require admin. Returns a
+ * Like getAdminSessionWithRenewal but does NOT require admin. Returns a
  * session for any valid OAuth token (audience='brain-landing'). The
  * dev-bypass still applies so local development without auth works.
- * Same hazard as getAdminSession: route handlers use `withSession`.
  */
-async function getUserSession(
-  request: NextRequest,
-): Promise<UserSession | null> {
-  return (await getUserSessionWithRenewal(request))?.session ?? null
-}
-
 async function getUserSessionWithRenewal(
   request: NextRequest,
 ): Promise<{ session: UserSession; renewed: RefreshedTokens | null } | null> {
