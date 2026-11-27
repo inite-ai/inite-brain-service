@@ -24,6 +24,11 @@ export interface UserSession {
   userId: string
   email: string | null
   isAdmin: boolean
+  /**
+   * A demo persona (auth's demo grant, `/api/auth/demo`): read-only, never
+   * an admin, and it reads only the demo workspace (`/api/app/demo`).
+   */
+  demo: boolean
 }
 
 // Sentinel value used by dev-bypass + reused by /api/auth/me.
@@ -95,7 +100,8 @@ async function getAdminSessionWithRenewal(
   const verified = await verifiedSession(request)
   if (!verified) return null
   const { decoded, renewed } = verified
-  if (!isAdminFromToken(decoded)) return null
+  // A demo persona is never an admin, whatever its token says.
+  if (decoded.demo === true || !isAdminFromToken(decoded)) return null
 
   return {
     session: {
@@ -123,7 +129,7 @@ async function getUserSessionWithRenewal(
   request: NextRequest,
 ): Promise<{ session: UserSession; renewed: RefreshedTokens | null } | null> {
   const bypass = devBypass()
-  if (bypass) return { session: bypass, renewed: null }
+  if (bypass) return { session: { ...bypass, demo: false }, renewed: null }
 
   const verified = await verifiedSession(request)
   if (!verified) return null
@@ -133,7 +139,8 @@ async function getUserSessionWithRenewal(
     session: {
       userId: decoded.sub,
       email: (decoded.email as string) ?? null,
-      isAdmin: isAdminFromToken(decoded),
+      isAdmin: decoded.demo !== true && isAdminFromToken(decoded),
+      demo: decoded.demo === true,
     },
     renewed,
   }

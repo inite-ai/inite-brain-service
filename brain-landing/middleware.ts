@@ -59,7 +59,9 @@ async function verifyToken(
     const roles = (payload.roles as string[] | undefined) ?? []
     const metadataIsAdmin =
       (payload.metadata as { isAdmin?: boolean } | undefined)?.isAdmin === true
-    return { valid: true, isAdmin: roles.includes('admin') || metadataIsAdmin }
+    // A demo persona (`demo: true`, /api/auth/demo) is never an admin.
+    const demo = payload.demo === true
+    return { valid: true, isAdmin: !demo && (roles.includes('admin') || metadataIsAdmin) }
   } catch {
     return { valid: false, isAdmin: false }
   }

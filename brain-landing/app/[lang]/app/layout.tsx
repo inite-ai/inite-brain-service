@@ -3,8 +3,8 @@
  
 
 import Link from 'next/link'
-import { usePathname, useParams } from 'next/navigation'
-import { ReactNode, useState } from 'react'
+import { usePathname, useParams, useRouter } from 'next/navigation'
+import { ReactNode, useEffect, useState } from 'react'
 import {
   BarChart3,
   GitCompareArrows,
@@ -24,7 +24,8 @@ import { Header } from '../../../components/Header'
 import { ShellNav, type ShellGroup } from '../../../components/ShellNav'
 import { ProxyBaseProvider } from '../../../components/playground/usePlaygroundCall'
 import { useAuth } from '../../../hooks/useAuth'
-import { normalizeLang } from '../../../lib/i18n'
+import { getMessages, normalizeLang } from '../../../lib/i18n'
+import { DemoSignInButton } from '../../../components/demo-session/DemoSignInButton'
 
 /** End-user pages route all brain calls through the reduced-scope BFF. */
 const APP_PROXY_BASE = '/api/app/proxy'
@@ -64,7 +65,16 @@ export default function AppLayout({ children }: Props) {
   const lang = normalizeLang(params?.lang)
   const pathname = usePathname() ?? ''
   const auth = useAuth()
+  const router = useRouter()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const appPath = pathname.replace(/^\/+(en|ru)\/app\/?/, '')
+  const currentSlug = appPath.split('/')[0]
+
+  // A demo persona has one page: the demo workspace. Everything else under
+  // /app reads a real tenant's memory and is refused to it by the BFF.
+  useEffect(() => {
+    if (auth.demo && currentSlug !== 'demo') router.replace(`/${lang}/app/demo`)
+  }, [auth.demo, currentSlug, lang, router])
 
   if (!auth.loading && !auth.isAuthenticated) {
     return (
@@ -78,22 +88,34 @@ export default function AppLayout({ children }: Props) {
             <code className="mx-1 text-[var(--accent)]">auth.inite.ai</code>
             to explore your brain.
           </p>
-          <Link
-            href={`/api/auth/login?return_url=${encodeURIComponent(
-              pathname || `/${lang}/app/search`,
-            )}`}
-            className="mt-4 inline-block px-4 py-2 rounded-md text-sm bg-[var(--accent)] text-white"
-          >
-            Sign in
-          </Link>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link
+              href={`/api/auth/login?return_url=${encodeURIComponent(
+                pathname || `/${lang}/app/search`,
+              )}`}
+              className="inline-block px-4 py-2 rounded-md text-sm bg-[var(--accent)] text-white"
+            >
+              Sign in
+            </Link>
+            <DemoSignInButton
+              lang={lang}
+              className="inline-block px-4 py-2 rounded-md text-sm border border-[var(--border-strong)] text-[var(--text)]"
+            />
+          </div>
         </div>
       </div>
     )
   }
 
-  const appPath = pathname.replace(/^\/+(en|ru)\/app\/?/, '')
-  const currentSlug = appPath.split('/')[0]
   const closeNav = () => setMobileNavOpen(false)
+  const groups: ShellGroup[] = auth.demo
+    ? [
+        {
+          label: getMessages(lang).demo.workspace.org,
+          items: [{ slug: 'demo', title: getMessages(lang).demo.workspace.nav, icon: Network }],
+        },
+      ]
+    : GROUPS
 
   return (
     <div className="min-h-screen bg-[var(--bg)]">
@@ -132,7 +154,7 @@ export default function AppLayout({ children }: Props) {
       <div className="max-w-7xl mx-auto px-4 md:grid md:grid-cols-[14rem_1fr] md:gap-6">
         <aside className="hidden md:block sticky top-[5.5rem] self-start py-6 max-h-[calc(100vh-5.5rem)] overflow-y-auto">
           <ShellNav
-            groups={GROUPS}
+            groups={groups}
             currentSlug={currentSlug}
             hrefFor={(slug) => `/${lang}/app/${slug}`}
             onNavigate={closeNav}
@@ -163,7 +185,7 @@ export default function AppLayout({ children }: Props) {
                 </button>
               </div>
               <ShellNav
-                groups={GROUPS}
+                groups={groups}
                 currentSlug={currentSlug}
                 hrefFor={(slug) => `/${lang}/app/${slug}`}
                 onNavigate={closeNav}

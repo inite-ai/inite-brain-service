@@ -82,17 +82,24 @@ export class DemoPipelineService {
     return { route, ingest, autoDedup };
   }
 
-  /** Ask flow: graph-first retrieval, falling back to vector+lexical. */
+  /**
+   * Ask flow: graph-first retrieval, falling back to vector+lexical.
+   * `vectorFallback: false` (the public demo workspace) stops at the
+   * graph: the vector leg embeds the query, and the workspace makes no
+   * model call of any kind.
+   */
   async runAsk({
     route,
     message,
     tenant,
     scopes,
+    vectorFallback = true,
   }: {
     route: ChatRoute;
     message: string;
     tenant: string;
     scopes: readonly BrainScope[];
+    vectorFallback?: boolean;
   }) {
     const queryText = route.cleanedQuery ?? message;
     const entityRefs = route.mentions.map((m) => m.canonical);
@@ -125,6 +132,10 @@ export class DemoPipelineService {
         strategy: 'graph' as const,
         search: { results: graph.results },
       };
+    }
+    if (!vectorFallback) {
+      traceArtifact('demo.strategy', { picked: 'graph', graphHits: 0, entityRefs, vectorFallback });
+      return { route, strategy: 'graph' as const, search: { results: graph.results } };
     }
     // Graph couldn't pin the subject — fall back to vector+lexical.
     traceArtifact('demo.strategy', {

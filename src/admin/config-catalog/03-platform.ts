@@ -31,6 +31,16 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
     description:
       'The region this deployment serves (a residency cell, e.g. "ru"). Empty = the default deployment: it serves every tenant not pinned elsewhere. A regional cell serves only tenants pinned to it (PUT /v1/admin/residency/:companyId) and answers 421 for any other; a tenant pinned to another region is never created or read here.',
   },
+  // ── Demo workspace (src/demo/, /v1/demo/workspace) ─────
+  {
+    key: 'BRAIN_DEMO_WORKSPACE_ENABLED',
+    category: 'auth',
+    defaultValue: '0',
+    runtimeMutable: true,
+    isBooleanFlag: true,
+    description:
+      'Serve the public demo workspace: GET /v1/demo/workspace/graph and POST /v1/demo/workspace/chat read the one demo tenant (DEMO_ORG_ID, «Atlântica Group (demo)», src/demo/demo-tenant.ts) for any brain:read caller. Read-only: no write route, chat is the local ask path with no model call. Off → both routes answer 404. Load the data with dist/demo/demo-seed.cli.js.',
+  },
   // ── Throttle ────────────────────────────────────────────
   {
     key: 'THROTTLE_TTL_MS',

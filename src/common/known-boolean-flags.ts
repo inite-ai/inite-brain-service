@@ -200,6 +200,8 @@ export const KNOWN_BOOLEAN_FLAGS = [
   // Eval-harness primitives: per-call tenant override for admin keys
   // (X-Brain-Tenant) and LLM-free episode-only ingestion.
   'BRAIN_TENANT_OVERRIDE_ENABLED',
+  // The public demo workspace (/v1/demo/workspace, src/demo/).
+  'BRAIN_DEMO_WORKSPACE_ENABLED',
   'INGEST_EPISODE_ONLY',
   'SEARCH_HNSW_ENABLED',
   // Index PROVISIONING: the schema-ready hook that gives a new tenant its

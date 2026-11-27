@@ -17,9 +17,12 @@ function appOrigin(request: NextRequest): string {
 
 export async function POST(request: NextRequest) {
   const dest = new URL('/en', appOrigin(request))
-  const res = NextResponse.redirect(dest)
+  // 303: a form POST (the demo banner's «Leave the demo») lands as a GET.
+  const res = NextResponse.redirect(dest, 303)
   res.cookies.set('access_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('refresh_token', '', { path: '/', maxAge: 0 })
+  // The demo banner reads this one; leaving the demo ends it too.
+  res.cookies.set('demo_session', '', { path: '/', maxAge: 0 })
   return res
 }
 

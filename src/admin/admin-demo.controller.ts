@@ -4,11 +4,9 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  HttpException,
   Logger,
   Post,
   Req,
-  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -22,6 +20,7 @@ import { runWithDebugTrace } from '../common/debug-trace';
 import { DemoPipelineService } from './demo-pipeline.service';
 import { DemoStateService } from './demo-state.service';
 import { DemoChatService } from './demo-chat.service';
+import { rethrowDemoChatError } from './demo-upstream-guard';
 import { policyFor } from '../ingest/conflict-resolver';
 import type { SearchHit } from '../search/search.types';
 
@@ -193,28 +192,7 @@ export class AdminDemoController {
         },
       };
     } catch (err) {
-      // Preserve typed Nest exceptions (BadRequest, Forbidden, ...);
-      // they're semantically meaningful and the client routes on them.
-      if (err instanceof HttpException) throw err;
-      // Classify transient upstream LLM failures (OpenAI premature
-      // close / connection drops after the SDK's own retries). These
-      // are NOT bugs in our pipeline — they're an external dependency
-      // outage. Surface as 503 with a retry hint so the chat UI can
-      // back off and replay instead of showing the operator a
-      // generic 500.
-      const e = err as Error & { code?: string };
-      const isUpstream =
-        e.code === 'ERR_STREAM_PREMATURE_CLOSE' ||
-        /api\.openai\.com|Premature close|ECONNRESET|ETIMEDOUT|fetch failed/i.test(e.message ?? '');
-      if (isUpstream) {
-        this.logger.warn(`/v1/admin/demo/chat upstream LLM unavailable: ${e.message}`);
-        throw new ServiceUnavailableException({
-          reason: 'upstream_llm_unavailable',
-          detail: e.message,
-          retryAfterMs: 2000,
-        });
-      }
-      throw err;
+      rethrowDemoChatError(err, this.logger, '/v1/admin/demo/chat');
     }
   }
 

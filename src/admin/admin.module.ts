@@ -13,6 +13,8 @@ import { EpisodesModule } from '../episodes/episodes.module';
 import { CompactionModule } from '../compaction/compaction.module';
 import { AdminController } from './admin.controller';
 import { AdminDemoController } from './admin-demo.controller';
+import { DemoWorkspaceController } from './demo-workspace.controller';
+import { DemoWorkspaceService } from './demo-workspace.service';
 import { AdminEvalController } from './admin-eval.controller';
 import { AdminPredicatesController } from './admin-predicates.controller';
 import { AdminJobsController } from './admin-jobs.controller';
@@ -122,6 +124,7 @@ import { PlatformSettingsService } from './platform-settings.service';
     AdminEntityConsolidationController,
     AdminController,
     AdminDemoController,
+    DemoWorkspaceController,
     AdminEvalController,
     AdminPredicatesController,
     AdminJobsController,
@@ -176,6 +179,7 @@ import { PlatformSettingsService } from './platform-settings.service';
     DemoStateService,
     DemoPipelineService,
     DemoChatService,
+    DemoWorkspaceService,
     DomainPackInstallService,
     // MemoryModelReaderService moved to AiModule (@Global, exported) in
     // 0110: the documents pipeline consumes it too, and two per-module

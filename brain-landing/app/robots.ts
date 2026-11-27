@@ -32,7 +32,20 @@ import { SITE_URL } from '../lib/seo'
  * and an agent calling an endpoint it names is making an API call, not a
  * crawl. What stops here is a search crawler treating an API as pages.
  */
-const APP_PATHS = ['/api/', '/v1/', '/mcp', '/en/admin/', '/ru/admin/', '/admin/', '/auth/']
+// The signed-in product shell (/app, the demo workspace among it) is behind
+// a session and noindex; a crawler has nothing to read there.
+const APP_PATHS = [
+  '/api/',
+  '/v1/',
+  '/mcp',
+  '/en/admin/',
+  '/ru/admin/',
+  '/admin/',
+  '/en/app/',
+  '/ru/app/',
+  '/app/',
+  '/auth/',
+]
 
 const CITATION_GRADE = [
   'OAI-SearchBot',
