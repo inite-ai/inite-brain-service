@@ -24,9 +24,9 @@ import { CIRCLE_NAMESPACE, actingCircleTags, withSourceCircles } from './circle-
 /** Active namespace: a single end-user's slice of the tenant (0055). */
 export const USER_NAMESPACE = 'user';
 /** Reserved for step 3+ (ABAC org widen). No writer emits it in step 1. */
-export const ORG_NAMESPACE = 'org';
+const ORG_NAMESPACE = 'org';
 /** Reserved for step 3+ (team membership). No writer emits it in step 1. */
-export const TEAM_NAMESPACE = 'team';
+const TEAM_NAMESPACE = 'team';
 
 /**
  * Namespaces the grammar recognizes. A tag whose namespace is NOT in

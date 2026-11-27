@@ -23,5 +23,5 @@ export const TracesResponseSchema = z.object({
   traces: z.array(TraceListItemSchema),
 })
 
-export type TracesResponse = z.infer<typeof TracesResponseSchema>
+type TracesResponse = z.infer<typeof TracesResponseSchema>
 export type TraceListItem = z.infer<typeof TraceListItemSchema>

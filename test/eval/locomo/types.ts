@@ -50,7 +50,7 @@ export interface LocomoSession {
   turns: LocomoTurn[];
 }
 
-export type LocomoQACategory =
+type LocomoQACategory =
   /** category 1 — multi-hop: requires joining evidence across turns. */
   | 1
   /** category 2 — temporal: requires reasoning about WHEN something happened. */

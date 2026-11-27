@@ -17,10 +17,10 @@
  * requested `explain: true`.
  */
 
-export type ConflictOutcome = 'SUPERSEDED' | 'COMPETING';
+type ConflictOutcome = 'SUPERSEDED' | 'COMPETING';
 
 /** The deterministic rule that decided the write (0177 conflictTrace.decidedBy). */
-export type ConflictRule = 'valid_time' | 'event_day';
+type ConflictRule = 'valid_time' | 'event_day';
 
 export interface ConflictExplanation {
   outcome: ConflictOutcome;

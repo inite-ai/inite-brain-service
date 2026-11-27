@@ -10,7 +10,6 @@ import type {
   HealthComponent as Component,
 } from '../../lib/contracts/admin-health-components'
 
-export type { Component }
 
 const STATUS_TONE: Record<Component['status'], string> = {
   ok: 'text-[var(--success)] bg-[var(--success)]/10',

@@ -130,7 +130,7 @@ export function providerFailureCounts(): ReadonlyMap<string, number> {
   return failureCounts;
 }
 
-export interface CapabilityHealth {
+interface CapabilityHealth {
   state: 'ok' | 'degraded';
   /** The failure class of the oldest still-failing source. */
   failure?: ProviderFailureClass;

@@ -303,7 +303,7 @@ export function entriesFor(card: SourceCard, choice: ShapeChoice | null): Source
 }
 
 /** The kind + shape line a connection reads as (`Folder · files`). */
-export function connectionFamily(c: SourceConnection): SourceFamily {
+function connectionFamily(c: SourceConnection): SourceFamily {
   return familyOf(c);
 }
 

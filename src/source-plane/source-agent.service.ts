@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { readdir, realpath } from 'node:fs/promises';
-import { basename, dirname, resolve, sep } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { sourceFsRoots } from '../common/source-plane-flags';
 import type {
   AgentInventory,
@@ -155,9 +155,4 @@ function toAgent(r: RawAgent): SourceAgent {
     })),
     databases: Array.isArray(r.inventory?.databases) ? r.inventory.databases.map(String) : [],
   };
-}
-
-/** Exposed for tests: the name a picker shows for a root. */
-export function rootLabel(path: string): string {
-  return basename(path) || path;
 }

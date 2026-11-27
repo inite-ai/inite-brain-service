@@ -22,6 +22,7 @@
  */
 import { parseRecordRef } from './evidence-ref';
 
+/** @public the source of SupportEdgeKind, read only as a type. */
 export const SUPPORT_EDGE_KINDS = [
   'supported_by',
   'contradicted_by',
@@ -38,7 +39,7 @@ export type SupportEdgeKind = (typeof SUPPORT_EDGE_KINDS)[number];
  * dedicated POST-walk fetch over the crossed scenes instead
  * (provenance-closure.ts, normalizeReconstructedEdges).
  */
-export const EMITTED_EDGE_KINDS = ['supported_by', 'contradicted_by', 'derived_from'] as const;
+const EMITTED_EDGE_KINDS = ['supported_by', 'contradicted_by', 'derived_from'] as const;
 export type EmittedEdgeKind = (typeof EMITTED_EDGE_KINDS)[number];
 
 export function isEmittedEdgeKind(v: string): v is EmittedEdgeKind {

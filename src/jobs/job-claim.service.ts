@@ -11,7 +11,7 @@ import {
 import { withSpan } from '../common/tracing';
 import { PROCESS_IDENTITY } from '../common/process-identity';
 import { recordKey } from '../db/record-key';
-import type { JobType, JobStatus } from './job-run.service';
+import type { JobType } from './job-run.service';
 
 /** SurrealDB returns datetimes as a Date on 3.x and an ISO string via JSON. */
 type RawDateTime = string | number | Date;
@@ -718,4 +718,3 @@ export class JobClaimService {
 }
 
 // Re-export status type for callers that only import JobClaimService.
-export type { JobStatus };

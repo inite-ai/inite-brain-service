@@ -38,6 +38,6 @@ export const TraceDetailResponseSchema = z.object({
     .optional(),
 })
 
-export type TraceDetailResponse = z.infer<typeof TraceDetailResponseSchema>
-export type DebugSpan = z.infer<typeof DebugSpanSchema>
-export type DebugArtifact = z.infer<typeof DebugArtifactSchema>
+type TraceDetailResponse = z.infer<typeof TraceDetailResponseSchema>
+type DebugSpan = z.infer<typeof DebugSpanSchema>
+type DebugArtifact = z.infer<typeof DebugArtifactSchema>

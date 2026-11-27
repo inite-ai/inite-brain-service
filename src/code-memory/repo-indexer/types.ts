@@ -19,11 +19,11 @@
  */
 
 /** The code_memory local predicate kinds this indexer can emit. */
-export type RepoFactKind =
+type RepoFactKind =
   'owns' | 'depends_on_version' | 'default_value' | 'decided' | 'because' | 'invariant' | 'gotcha';
 
 /** Where a fact was read from — a repo-relative path and a line span. */
-export interface RepoEvidence {
+interface RepoEvidence {
   /** Repo-relative path of the artefact (POSIX separators). */
   path: string;
   /** 1-based inclusive line span of `excerpt` inside `path`. */
@@ -43,7 +43,7 @@ export interface RepoEvidence {
  * server-side CandidateProvenance is a fixed shape (indexerId,
  * packVersion, executionMode, model) and cannot carry it.
  */
-export type FactProducer = `core:${string}` | `module:${string}`;
+type FactProducer = `core:${string}` | `module:${string}`;
 
 /** One derived, artefact-traceable claim about the repository. */
 export interface RepoFact {

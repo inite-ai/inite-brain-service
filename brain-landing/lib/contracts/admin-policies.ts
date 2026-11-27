@@ -7,7 +7,7 @@ import { z } from 'zod'
  * src/contracts/admin/policy-tools.schema.ts.
  */
 
-export const MatchOpSchema = z.enum([
+const MatchOpSchema = z.enum([
   'eq',
   'in',
   'prefix',
@@ -19,7 +19,7 @@ export const MatchOpSchema = z.enum([
   'not_exists',
 ])
 
-export const PolicyMatchConditionSchema = z.object({
+const PolicyMatchConditionSchema = z.object({
   attr: z.string(),
   op: MatchOpSchema,
   value: z
@@ -27,7 +27,7 @@ export const PolicyMatchConditionSchema = z.object({
     .optional(),
 })
 
-export const PolicyRuleSchema = z.object({
+const PolicyRuleSchema = z.object({
   id: z.string(),
   effect: z.enum(['allow', 'deny']),
   kind: z.enum(['action', 'source']),
@@ -37,7 +37,7 @@ export const PolicyRuleSchema = z.object({
   match: z.array(PolicyMatchConditionSchema).optional(),
 })
 
-export const PolicySetSchema = z.object({
+const PolicySetSchema = z.object({
   name: z.string(),
   description: z.string(),
   posture: z.object({
@@ -286,7 +286,7 @@ export type PolicyRule = z.infer<typeof PolicyRuleSchema>
 export type PolicySet = z.infer<typeof PolicySetSchema>
 export type PolicySetsListResponse = z.infer<typeof PolicySetsListResponseSchema>
 export type PolicySetResponse = z.infer<typeof PolicySetResponseSchema>
-export type PolicyExplainResponse = z.infer<typeof PolicyExplainResponseSchema>
+type PolicyExplainResponse = z.infer<typeof PolicyExplainResponseSchema>
 export type PolicyRegistryResponse = z.infer<typeof PolicyRegistryResponseSchema>
 export type SimulateSearchResponse = z.infer<typeof SimulateSearchResponseSchema>
 export type SimulateActionsResponse = z.infer<typeof SimulateActionsResponseSchema>
@@ -297,4 +297,4 @@ export type PolicyDecisionsStatsResponse = z.infer<
 >
 export type AdminKeysResponse = z.infer<typeof AdminKeysResponseSchema>
 export type Decision = z.infer<typeof DecisionSchema>
-export type SimulationReason = z.infer<typeof ReasonSchema>
+type SimulationReason = z.infer<typeof ReasonSchema>

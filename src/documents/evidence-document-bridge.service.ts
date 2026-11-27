@@ -81,14 +81,14 @@ function sourceHeaderOf(asset: AssetRow): {
  * because the alternative is inventing a tag nobody holds, which hides
  * the row from everyone including its owner.
  */
-export function assetScopeOf(asset: AssetRow): string[] {
+function assetScopeOf(asset: AssetRow): string[] {
   const raw = (asset.meta ?? {})['sourceScope'];
   if (!Array.isArray(raw)) return [];
   return raw.filter((t): t is string => typeof t === 'string' && t.length > 0);
 }
 
 /** `kind` on the source_document rows the bridge writes. */
-export const EVIDENCE_BRIDGE_DOCUMENT_KIND = 'evidence_text';
+const EVIDENCE_BRIDGE_DOCUMENT_KIND = 'evidence_text';
 
 /** The job payload / the runner's argument — one representation. */
 export interface EvidenceBridgeRef {

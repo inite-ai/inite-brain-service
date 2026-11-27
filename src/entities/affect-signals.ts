@@ -39,7 +39,7 @@ export interface AffectObservationRow {
   confidence: number;
 }
 
-export interface AffectSignalItem {
+interface AffectSignalItem {
   observationId: string;
   at: string;
   /** text | voice. */
@@ -54,7 +54,7 @@ export interface AffectSignalItem {
   confidence: number;
 }
 
-export interface AffectWindow {
+interface AffectWindow {
   /** Confidence-weighted mean valence, −1..1. */
   meanValence: number;
   n: number;

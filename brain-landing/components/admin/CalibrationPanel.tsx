@@ -26,7 +26,6 @@ import type {
   CalibrationVersion,
 } from '../../lib/contracts/admin-calibration'
 
-export type { ReliabilityBin, CurvePoint, CalibrationVersion }
 
 export function CalibrationPanel() {
   const [data, setData] = useState<CalibrationResponse | null>(null)

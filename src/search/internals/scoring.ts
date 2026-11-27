@@ -27,7 +27,7 @@ const DEGREE_BOOST_TOP_N = 2;
  * into the final score. Passed in to keep `scoreRows` pure / unit-
  * testable. When `null`, raw confidence is used unchanged.
  */
-export interface ConfidenceCalibrator {
+interface ConfidenceCalibrator {
   calibrate(rawConfidence: number): number;
 }
 

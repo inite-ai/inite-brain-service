@@ -25,7 +25,7 @@ export type ProviderFailureClass = 'billing' | 'key' | 'quota' | 'outage' | 'har
 export type ProviderCapability = 'embed' | 'chat';
 
 /** The classes that mean "the server's models are unavailable", as the caller is told. */
-export const SERVER_MODELS_UNAVAILABLE: readonly ProviderFailureClass[] = [
+const SERVER_MODELS_UNAVAILABLE: readonly ProviderFailureClass[] = [
   'billing',
   'key',
   'quota',

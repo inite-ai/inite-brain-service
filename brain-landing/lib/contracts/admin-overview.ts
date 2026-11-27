@@ -60,7 +60,7 @@ export const OverviewResponseSchema = z.object({
 })
 
 export type OverviewResponse = z.infer<typeof OverviewResponseSchema>
-export type AdminTenantRow = z.infer<typeof AdminTenantRowSchema>
+type AdminTenantRow = z.infer<typeof AdminTenantRowSchema>
 export type AdminDeadLetterRow = z.infer<typeof AdminDeadLetterRowSchema>
 export type AdminForgottenRow = z.infer<typeof AdminForgottenRowSchema>
-export type AdminMetrics = z.infer<typeof AdminMetricsSchema>
+type AdminMetrics = z.infer<typeof AdminMetricsSchema>

@@ -20,7 +20,7 @@ const EXT_OF_MEDIA_TYPE: Record<string, string> = Object.fromEntries(
   Object.entries(MEDIA_TYPES).map(([ext, mt]) => [mt, ext]),
 );
 
-export function extOfName(name: string): string {
+function extOfName(name: string): string {
   const i = name.lastIndexOf('.');
   return i === -1 ? '' : name.slice(i + 1).toLowerCase();
 }

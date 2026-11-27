@@ -48,7 +48,7 @@ function statements(message: string): string[] {
  * The anchor rule, stated so it can be quoted into the fact: a path the
  * message names, else the commit's ONLY changed file, else nothing.
  */
-export function anchorForCommit(
+function anchorForCommit(
   commit: CommitRecord,
   statement: string,
 ): {
@@ -118,7 +118,7 @@ interface Section {
 }
 
 /** Pure: markdown ATX sections with their 1-based line spans. */
-export function parseSections(markdown: string): Section[] {
+function parseSections(markdown: string): Section[] {
   const lines = markdown.split('\n');
   const sections: Section[] = [];
   let current: { heading: string; start: number; body: string[] } | null = null;

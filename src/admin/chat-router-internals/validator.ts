@@ -66,7 +66,7 @@ export function validateSpan(
  * splice. filterOp selects which edits to apply — used to derive
  * cleanedQuery by skipping canonicalize_mention edits.
  */
-export function applyEdits(
+function applyEdits(
   original: string,
   edits: EditOp[],
   filterOp: (op: EditOp['op']) => boolean,
@@ -89,7 +89,7 @@ export function applyEdits(
   return working.replace(/\s+/g, ' ').trim();
 }
 
-export function isValidIso(s: string): boolean {
+function isValidIso(s: string): boolean {
   const d = new Date(s);
   return !Number.isNaN(d.getTime());
 }

@@ -169,7 +169,7 @@ export class OneDriveConnector implements Connector {
 }
 
 /** `/me/drive`, `/drives/{id}` or `/sites/{id}/drive`. */
-export function driveResource(apiBase: string, cfg: OneDriveConnectorConfig): string {
+function driveResource(apiBase: string, cfg: OneDriveConnectorConfig): string {
   if (cfg.siteId) return `${apiBase}/sites/${encodeURIComponent(cfg.siteId)}/drive`;
   if (cfg.driveId) return `${apiBase}/drives/${encodeURIComponent(cfg.driveId)}`;
   return `${apiBase}/me/drive`;

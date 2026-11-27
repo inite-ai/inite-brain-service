@@ -293,7 +293,7 @@ export async function swapPackSceneSlice(
 }
 
 /** 0106 asserts confidence ∈ [0,1]; a non-finite input takes the 0.7 default. */
-export function clampConfidence(n: number): number {
+function clampConfidence(n: number): number {
   if (!Number.isFinite(n)) return 0.7;
   return Math.min(1, Math.max(0, n));
 }

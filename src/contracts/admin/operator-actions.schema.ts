@@ -27,4 +27,3 @@ export const OperatorActionsResponseSchema = z.object({
 });
 
 export type OperatorActionsResponse = z.infer<typeof OperatorActionsResponseSchema>;
-export type OperatorActionRow = z.infer<typeof OperatorActionRowSchema>;

@@ -15,7 +15,7 @@ export {
 import { containsAnyOf } from '../memory-fitness/scorers';
 
 /** Words that tell a state as past. */
-export const PAST_QUALIFIERS = [
+const PAST_QUALIFIERS = [
   'was ',
   'were ',
   'had been',
@@ -36,7 +36,7 @@ export const PAST_QUALIFIERS = [
 ] as const;
 
 /** Words that tell a claim as rejected. */
-export const NEGATION_QUALIFIERS = [
+const NEGATION_QUALIFIERS = [
   'not ',
   'no ',
   "n't",
@@ -55,7 +55,7 @@ export const NEGATION_QUALIFIERS = [
 ] as const;
 
 /** Words that tell a claim as a guess. */
-export const HEDGE_QUALIFIERS = [
+const HEDGE_QUALIFIERS = [
   'might',
   'may ',
   'maybe',

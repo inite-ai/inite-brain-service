@@ -912,8 +912,14 @@ describe('parseCommitLog', () => {
       mkdirSync(dirname(join(root, rel)), { recursive: true });
       writeFileSync(join(root, rel), text, 'utf8');
     };
+    // Run from a commit hook, git hands the hook GIT_AUTHOR_NAME, GIT_INDEX_FILE
+    // and friends: inherited, they named the outer commit's author on these
+    // commits (and could reach the outer repo). The throwaway repo gets none.
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+    );
     const git = (...args: string[]): void => {
-      execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+      execFileSync('git', args, { cwd: root, stdio: 'ignore', env });
     };
     git('init', '-q', '-b', 'main');
     git('config', 'user.email', 'ada@example.com');

@@ -166,6 +166,14 @@ export const IngestMentionRequestSchema = z.strictObject({
   emittedAt: z.string().optional(),
   /** IANA zone of the speaker's session, anchoring relative dates. */
   timezone: z.string().max(64).optional(),
+  /**
+   * Caller meta (an inbox's `conversation_id`, `channel`, `direction`,
+   * `author`): snake_case keys, scalar values ≤256 chars, ≤16 keys — the
+   * same rule as document `meta` and fact `metadata`; anything else is a
+   * 400 `invalid_meta`. Kept as the turn's `source.meta` (ABAC-matchable)
+   * and erased with the user's forget.
+   */
+  meta: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
 });
 
 export const IngestMentionResponseSchema = z.object({
@@ -188,8 +196,3 @@ export const IngestMentionResponseSchema = z.object({
    */
   episodeId: z.string().optional(),
 });
-
-export type IngestFactRequest = z.infer<typeof IngestFactRequestSchema>;
-export type IngestFactResponse = z.infer<typeof IngestFactResponseSchema>;
-export type IngestMentionRequest = z.infer<typeof IngestMentionRequestSchema>;
-export type IngestMentionResponse = z.infer<typeof IngestMentionResponseSchema>;

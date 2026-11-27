@@ -48,7 +48,7 @@ export function inferredStamp(by: InferredBy): {
   return { assertion: 'inferred', inferredBy };
 }
 
-export function isAssertion(v: unknown): v is Assertion {
+function isAssertion(v: unknown): v is Assertion {
   return typeof v === 'string' && (ASSERTIONS as readonly string[]).includes(v);
 }
 

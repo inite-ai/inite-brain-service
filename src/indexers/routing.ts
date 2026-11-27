@@ -96,7 +96,7 @@ export function routeByRules(
  * non-alphanumeric edges (Unicode-aware) so only a standalone occurrence
  * counts. Multi-word keywords are bounded as a whole phrase.
  */
-export function headMatchesKeyword(head: string, keyword: string): boolean {
+function headMatchesKeyword(head: string, keyword: string): boolean {
   const kw = keyword.trim().toLowerCase();
   if (!kw) return false;
   const esc = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

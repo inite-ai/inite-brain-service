@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { ComponentType } from 'react'
 
-export interface ShellSection {
+interface ShellSection {
   slug: string
   title: string
   icon: ComponentType<{ className?: string }>

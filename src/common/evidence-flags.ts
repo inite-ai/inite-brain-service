@@ -141,7 +141,7 @@ export function evidenceFsRoot(): string | null {
  * const that mentions a key as "captured at boot", and the selector
  * below is genuinely per-call.
  */
-export const BLOB_STORE_SCHEMES = ['fs', 's3'] as const;
+const BLOB_STORE_SCHEMES = ['fs', 's3'] as const;
 export type EvidenceStorageScheme = (typeof BLOB_STORE_SCHEMES)[number];
 
 /**
@@ -785,7 +785,7 @@ export type OcrLanguage = (typeof OCR_SUPPORTED_LANGUAGES)[number];
  * of Brain stamps on rows (`lang`). How a tenant's own language selects a
  * model (OcrAdapter: the configured set plus the tenant's language).
  */
-export const OCR_LANGUAGE_ISO: Readonly<Record<OcrLanguage, string>> = {
+const OCR_LANGUAGE_ISO: Readonly<Record<OcrLanguage, string>> = {
   eng: 'en',
   rus: 'ru',
   por: 'pt',

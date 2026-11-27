@@ -1,0 +1,15 @@
+#!/bin/sh
+# Checks on every commit, on this machine (owner, 17.11.2026: tests and checks
+# run where the code is written; CI on GitHub stays for this public repo).
+# `pnpm install` turns it on (prepare: git config core.hooksPath .githooks).
+# Scoped to what the commit stages: the typecheck, ESLint on the staged files
+# (no --fix: a commit is checked, not rewritten), and the unit tests they
+# reach. Never --no-verify.
+set -e
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.ts' | tr '\n' ' ')
+[ -n "$staged" ] || exit 0
+pnpm run typecheck
+# shellcheck disable=SC2086
+pnpm exec eslint --no-warn-ignored $staged
+# shellcheck disable=SC2086
+NODE_OPTIONS='--experimental-vm-modules --no-warnings' pnpm exec jest --config ./test/jest-unit.json --findRelatedTests --passWithNoTests $staged

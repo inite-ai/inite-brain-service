@@ -6,12 +6,12 @@
  * judge, fixture-pinned wire shapes) and stays frozen mid-program.
  */
 
-export interface EvalTurn {
+interface EvalTurn {
   role: string;
   content: string;
 }
 
-export interface EvalSession {
+interface EvalSession {
   sessionId: string;
   dateIso: string;
   turns: EvalTurn[];

@@ -69,7 +69,7 @@ const NULL_MAX_LENGTH = 128;
 export const SECRET_MASK = '[SECRET]';
 
 /** Shannon entropy of `s`, in bits per character. */
-export function shannonEntropy(s: string): number {
+function shannonEntropy(s: string): number {
   const counts = new Map<string, number>();
   for (const ch of s) counts.set(ch, (counts.get(ch) ?? 0) + 1);
   let h = 0;
@@ -102,7 +102,7 @@ function classOf(ch: string): CharClass {
 }
 
 /** Share of adjacent character pairs whose classes differ. */
-export function classChangeRate(s: string): number {
+function classChangeRate(s: string): number {
   let changes = 0;
   for (let i = 1; i < s.length; i++) if (classOf(s[i - 1]!) !== classOf(s[i]!)) changes += 1;
   return changes / (s.length - 1);
@@ -122,7 +122,7 @@ const floors = new Map<string, NullFloors>();
  * strings of `length` from the `size`-symbol alphabet, by a seeded Monte
  * Carlo, memoised per (size, length) — a handful of lengths ever occur.
  */
-export function randomStringFloors(size: 62 | 64, length: number): NullFloors {
+function randomStringFloors(size: 62 | 64, length: number): NullFloors {
   const key = `${size}:${length}`;
   const known = floors.get(key);
   if (known !== undefined) return known;

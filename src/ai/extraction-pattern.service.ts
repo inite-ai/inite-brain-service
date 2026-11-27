@@ -22,13 +22,13 @@ import { LRUCache } from '../common/lru-cache';
  * only records observations — consumption is layered in next.
  */
 
-export interface CachedFactTemplate {
+interface CachedFactTemplate {
   predicate: string;
   valueSpan: string;
   confidence: number;
 }
 
-export interface CachedEdgeTemplate {
+interface CachedEdgeTemplate {
   kind: string;
   /** Relative entity position within the clause. */
   fromEntityIndex: number;

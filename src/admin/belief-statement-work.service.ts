@@ -12,7 +12,7 @@ import {
 } from './belief-statement';
 
 /** Beliefs per batch: a line or two each. */
-export const BELIEFS_PER_BATCH = 20;
+const BELIEFS_PER_BATCH = 20;
 
 /** What a submitted batch of statements did. */
 export interface BeliefsSubmitOutcome {

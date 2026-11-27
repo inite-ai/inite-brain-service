@@ -60,6 +60,15 @@ export const CATALOG_PART_03: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: false,
   },
+  {
+    key: 'THROTTLE_INGEST_LIMIT',
+    category: 'throttle',
+    defaultValue: '600',
+    runtimeMutable: false,
+    isBooleanFlag: false,
+    description:
+      'Per-credential mentions per minute on POST /v1/ingest/mention while mentions are queued through the document pipeline (INGEST_MENTION_VIA_DOCUMENT): the request is an enqueue and extraction runs in the batch job. The direct path keeps 10/min. Search, synthesize and the other model routes keep THROTTLE_EXPENSIVE_LIMIT-style caps.',
+  },
   // ── Jobs / trace persistence ────────────────────────
   {
     key: 'JOB_RUN_PERSIST',

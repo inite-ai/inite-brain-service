@@ -40,7 +40,7 @@ import { serverModelsRefused } from '../common/model-source';
  * The optimistic update keeps the loser fact intact on any DB error
  * — there is no "partial state" branch.
  */
-export interface ResolverResolution {
+interface ResolverResolution {
   winnerFactId: string;
   loserFactId: string;
   predicate: string;

@@ -121,14 +121,14 @@ LIMIT $LIMIT
  * is preserved on label fields when available, but the mapper
  * doesn't depend on it — language tags are noise for our pipeline.
  */
-export interface WikidataBindingValue {
+interface WikidataBindingValue {
   type: string;
   value: string;
   'xml:lang'?: string;
 }
 export type WikidataBinding = Record<string, WikidataBindingValue | undefined>;
 
-export interface MapperStats {
+interface MapperStats {
   rawBindings: number;
   uniqueEntities: number;
   skippedEntities: number;

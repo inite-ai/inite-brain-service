@@ -60,5 +60,3 @@ export const LeasesResponseSchema = z.object({
 });
 
 export type LeasesResponse = z.infer<typeof LeasesResponseSchema>;
-export type LeaderLeaseRow = z.infer<typeof LeaderLeaseRowSchema>;
-export type ActiveClaimRow = z.infer<typeof ActiveClaimRowSchema>;

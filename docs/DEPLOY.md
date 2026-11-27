@@ -109,6 +109,13 @@ retries for 2 minutes.
    shows up in `brain_migration_blocked{migration}` and the
    `MigrationBlocked` alert. See
    [operations.md § Schema migrations](operations.md#schema-migrations).
+6. The global pack registry fills itself: at boot each replica publishes the
+   image's first-party packs (`packs/*.pack.json`) through the normal publish
+   path, off the request path and idempotently (`REGISTRY_SEED_FIRST_PARTY`,
+   default on). A release that bumps a pack's version publishes the new
+   version on its first boot; the log line `first-party packs: N published,
+M already present, K failed` says what happened. No `pnpm registry:seed`
+   step is needed.
 
 ## Subsequent deploys
 

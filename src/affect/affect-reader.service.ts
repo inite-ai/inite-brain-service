@@ -49,7 +49,7 @@ export interface AffectBatch {
 }
 
 /** An OWN turn's coordinates: what an observation of it cites and inherits. */
-export interface OwnTurn {
+interface OwnTurn {
   episodeId: string;
   conversationId?: string;
   occurredAt: string;

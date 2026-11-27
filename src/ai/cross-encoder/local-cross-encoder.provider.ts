@@ -51,7 +51,7 @@ const FAIL_RETRY_MS = 5 * 60_000;
  * chunk from the worst pair seen so far, so the overshoot is bounded by
  * one padded chunk on a host slower than its own history).
  */
-export const SCORE_MARGIN_MS = 250;
+const SCORE_MARGIN_MS = 250;
 
 export class LocalCrossEncoderProvider {
   readonly modelId: string;

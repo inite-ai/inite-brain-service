@@ -8,7 +8,7 @@ import { BadRequestException } from '@nestjs/common';
  * replaces this: callers branch on `status`, and `failed[].key` is what a
  * retry selector (`keys`) accepts.
  */
-export type BatchStatus = 'complete' | 'degraded' | 'failed';
+type BatchStatus = 'complete' | 'degraded' | 'failed';
 
 export interface BatchFailure {
   /** The unit's retry key (conversation id, asset id, table, entity id);

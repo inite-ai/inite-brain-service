@@ -50,7 +50,7 @@ export const DECISION_QUERY_CLASS_CAP = 64;
 
 /** Cap on opaque id / enum-ish string fields (requestId, chosenAction,
  *  policyVersion, alternatives[*].action). */
-export const DECISION_STRING_CAP = 128;
+const DECISION_STRING_CAP = 128;
 
 export interface DecisionInput {
   decisionKind: DecisionKind;

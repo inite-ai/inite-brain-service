@@ -1,0 +1,8 @@
+[
+  {
+    "advisory": "GHSA-fc5q-39xc-vjpf",
+    "package": "picomatch",
+    "reason": "ReDoS in extglobs, no patched release exists (every version <=4.0.7). Reached only from dev tooling: @nestjs/cli, @nestjs/schematics, jest (root) and @typescript-eslint/parser (brain-landing); `pnpm audit --prod` is clean in both. Upgrade when a patched picomatch ships.",
+    "expires": "2026-12-17"
+  }
+]

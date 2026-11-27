@@ -49,8 +49,8 @@ const LABEL_MAX = 200;
 const PURPOSE_MAX = 64;
 const MODALITIES = new Set<string>(EVIDENCE_MODALITIES);
 const REPR_KINDS = new Set<string>(DERIVED_REPRESENTATION_KINDS);
-export const EVIDENCE_GRANT_OWNER_KINDS = ['user', 'pack', 'system'] as const;
-export type EvidenceGrantOwnerKind = (typeof EVIDENCE_GRANT_OWNER_KINDS)[number];
+const EVIDENCE_GRANT_OWNER_KINDS = ['user', 'pack', 'system'] as const;
+type EvidenceGrantOwnerKind = (typeof EVIDENCE_GRANT_OWNER_KINDS)[number];
 const GRANT_OWNER_KINDS = new Set<string>(EVIDENCE_GRANT_OWNER_KINDS);
 /** Leading window of representation content handed to the embedder. A
  *  derived representation may legitimately be a megabyte of extracted
@@ -58,8 +58,6 @@ const GRANT_OWNER_KINDS = new Set<string>(EVIDENCE_GRANT_OWNER_KINDS);
  *  accepts — and the leading window is what one retrieval vector can
  *  represent anyway. */
 const EMBED_TEXT_MAX_CHARS = 8000;
-
-export type { DerivedRepresentationKind, EvidenceModality } from '../common/evidence-taxonomy';
 
 export interface RegisterAssetInput {
   modality: EvidenceModality;

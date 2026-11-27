@@ -5,7 +5,7 @@
  * silently run with defaults.
  */
 
-export type FlagType = 'string' | 'int' | 'bool' | 'list';
+type FlagType = 'string' | 'int' | 'bool' | 'list';
 
 export interface FlagSpec {
   /** Destination key on the args object. */

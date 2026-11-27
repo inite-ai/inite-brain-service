@@ -38,7 +38,7 @@ export interface LiveFactEvent {
  * stream can no longer promise completeness. Saying so is the honest move;
  * silently skipping events is not.
  */
-export interface LiveResyncEvent {
+interface LiveResyncEvent {
   kind: 'resync';
   reason: 'backpressure' | 'retention';
 }

@@ -1,4 +1,5 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { gateCallerMeta } from '../common/caller-meta-gate';
 import { envFlagEnabled } from '../common/env-validation';
 import { MentionViaDocumentService } from '../documents/mention-via-document.service';
 import { IngestFactDto } from './dto/ingest-fact.dto';
@@ -10,7 +11,7 @@ import { MentionIngestService } from './mention-ingest.service';
 import { LinkIngestService } from './link-ingest.service';
 
 // Re-exported for callers that import the result types from this module.
-export type { IngestOutcome, IngestResult } from './ingest-result';
+export type { IngestResult } from './ingest-result';
 
 /**
  * Thin facade over the three ingest paths, each its own focused service:
@@ -20,10 +21,13 @@ export type { IngestOutcome, IngestResult } from './ingest-result';
  *
  * The shared per-fact write primitive lives in `FactResolverService`
  * (embed + policy + fn::resolve_fact + HyPE), entity resolution in
- * `EntityUpsertService`. This class only routes; it holds no logic of its own.
+ * `EntityUpsertService`. This class only routes (and gates a mention's caller meta once, for
+ * both of its paths); it holds no other logic.
  */
 @Injectable()
 export class IngestService {
+  private readonly logger = new Logger(IngestService.name);
+
   // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly factIngest: FactIngestService,
@@ -45,6 +49,18 @@ export class IngestService {
    * one synchronous extraction per turn.
    */
   ingestMention(companyId: string, dto: IngestMentionDto) {
+    // Caller meta is checked HERE, once, before either path captures an
+    // episode or stages a document: a refused bag is a 400 with nothing
+    // written. In lax mode (SOURCE_META_STRICT=0) the clean remainder
+    // rides on.
+    if (dto.meta !== undefined) {
+      const meta = gateCallerMeta(dto.meta, {
+        warn: (count, first) =>
+          this.logger.warn(`mention meta partially dropped (${count} issue(s)): ${first}`),
+      });
+      const { meta: _raw, ...rest } = dto;
+      dto = meta ? { ...rest, meta } : rest;
+    }
     if (this.mentionViaDocument && envFlagEnabled(process.env.INGEST_MENTION_VIA_DOCUMENT)) {
       return this.mentionViaDocument.ingest(companyId, dto);
     }

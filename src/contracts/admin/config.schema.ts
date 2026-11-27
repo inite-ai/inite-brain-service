@@ -62,6 +62,7 @@ export const ConfigSetRequestSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+/** @public the source of ConfigWriteResponse, read only as a type (z.infer). */
 export const ConfigWriteResponseSchema = z.object({
   key: z.string(),
   /** 'set' | 'cleared' | 'absent' — what the write actually did. */
@@ -71,6 +72,4 @@ export const ConfigWriteResponseSchema = z.object({
 });
 
 export type ConfigResponse = z.infer<typeof ConfigResponseSchema>;
-export type ConfigEntry = z.infer<typeof ConfigEntrySchema>;
-export type ConfigSetRequest = z.infer<typeof ConfigSetRequestSchema>;
 export type ConfigWriteResponse = z.infer<typeof ConfigWriteResponseSchema>;

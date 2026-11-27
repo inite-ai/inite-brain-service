@@ -47,7 +47,7 @@ export interface JsonDirectoryFact {
   tag?: string;
 }
 
-export interface JsonDirectoryRetract {
+interface JsonDirectoryRetract {
   /** References a fact's tag declared on the same entity. */
   tag: string;
   reason: string;
@@ -62,7 +62,7 @@ export interface JsonDirectoryEntity {
   retract?: JsonDirectoryRetract[];
 }
 
-export interface JsonDirectoryForget {
+interface JsonDirectoryForget {
   ref: string; // 'vertical.id' OR just 'id' (uses default vertical)
   reason: 'gdpr_request' | 'tenant_offboarding' | 'operator_request';
   requestId: string;

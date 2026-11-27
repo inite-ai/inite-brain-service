@@ -27,8 +27,8 @@
  */
 export const SAFETY_READER_VERSION = 'safety-reader-v1';
 
-export const RISK_LEVELS = ['concern', 'urgent'] as const;
-export type RiskLevel = (typeof RISK_LEVELS)[number];
+const RISK_LEVELS = ['concern', 'urgent'] as const;
+type RiskLevel = (typeof RISK_LEVELS)[number];
 
 const MAX_PER_TURN = 2;
 

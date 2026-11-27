@@ -446,7 +446,7 @@ export function isCorrect(row: {
 }
 
 /** Map key for a (sourceKey, domain) scope — NUL can't appear in either. */
-export function scopeKeyOf(sourceKey: string, domain: string | null): string {
+function scopeKeyOf(sourceKey: string, domain: string | null): string {
   return `${sourceKey}\u0000${domain ?? ''}`;
 }
 

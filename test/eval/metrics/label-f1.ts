@@ -18,7 +18,7 @@ export interface LabelRecord {
   gold: string;
 }
 
-export interface LabelClassMetrics {
+interface LabelClassMetrics {
   label: string;
   precision: number;
   recall: number;

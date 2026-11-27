@@ -67,7 +67,7 @@ export interface TruthOptions {
   tolerance?: number;
 }
 
-export interface SourceAccuracy {
+interface SourceAccuracy {
   sourceKey: string;
   /** null: the source's accuracy across every domain. */
   domain: string | null;

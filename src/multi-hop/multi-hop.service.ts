@@ -5,7 +5,7 @@ import { withSpan } from '../common/tracing';
 import { NOOP_REPORTER } from '../mcp/progress-reporter';
 import { MultiHopResult, MultiHopRunOptions } from './multi-hop.types';
 
-export type { HopOutcome, MultiHopResult, MultiHopRunOptions } from './multi-hop.types';
+export type { MultiHopResult, MultiHopRunOptions } from './multi-hop.types';
 
 /**
  * MultiHopService — chained search across hop-decomposed sub-queries.

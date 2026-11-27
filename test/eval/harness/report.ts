@@ -8,7 +8,7 @@ import { EvalScore, EvalWorld } from './types';
  * counts are always surfaced.
  */
 
-export interface GroupAccuracy {
+interface GroupAccuracy {
   group: string;
   n: number;
   judgeAccuracy?: number | undefined;

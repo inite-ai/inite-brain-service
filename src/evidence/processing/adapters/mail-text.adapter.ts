@@ -45,4 +45,4 @@ export class MailTextAdapter implements ProcessorAdapter {
 }
 
 const RENDER_CONTRACT = 'headers-body-attachments-v1';
-export const MAIL_MEDIA_TYPE = 'message/rfc822';
+const MAIL_MEDIA_TYPE = 'message/rfc822';

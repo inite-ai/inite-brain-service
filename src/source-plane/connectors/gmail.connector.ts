@@ -48,7 +48,7 @@ import { modalityOf } from './media';
  *
  * Needs SOURCE_OAUTH_CLIENT (the grant) as well as SOURCE_KIND_GMAIL.
  */
-export interface GmailConnectorConfig {
+interface GmailConnectorConfig {
   /** Gmail search syntax narrowing what is read (`label:clients -category:promotions`). */
   query?: string | undefined;
   /** Label ids every message must carry (`INBOX`, `SENT`, a user label's id). */

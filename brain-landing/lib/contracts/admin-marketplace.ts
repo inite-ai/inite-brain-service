@@ -9,7 +9,7 @@ import { z } from 'zod'
  * the 402 PaymentRequiredHint).
  */
 
-export const DisplayPriceSchema = z.object({
+const DisplayPriceSchema = z.object({
   /** Minor units (e.g. cents). */
   amount: z.number().int().positive(),
   /** 3-letter ISO 4217 currency code. */
@@ -17,7 +17,7 @@ export const DisplayPriceSchema = z.object({
 })
 
 /** One published version's discovery metadata (no manifest body). */
-export const RegistryVersionSchema = z.object({
+const RegistryVersionSchema = z.object({
   packId: z.string(),
   version: z.string(),
   checksum: z.string(),
@@ -123,14 +123,14 @@ export const PaymentRequiredHintSchema = z.object({
 export type DisplayPrice = z.infer<typeof DisplayPriceSchema>
 export type RegistryVersion = z.infer<typeof RegistryVersionSchema>
 export type RegistryPackSummary = z.infer<typeof RegistryPackSummarySchema>
-export type RegistryListResponse = z.infer<typeof RegistryListResponseSchema>
+type RegistryListResponse = z.infer<typeof RegistryListResponseSchema>
 export type RegistryVersionsResponse = z.infer<
   typeof RegistryVersionsResponseSchema
 >
-export type PublisherProfile = z.infer<typeof PublisherProfileSchema>
+type PublisherProfile = z.infer<typeof PublisherProfileSchema>
 export type PublisherResponse = z.infer<typeof PublisherResponseSchema>
-export type PackPricingResponse = z.infer<typeof PackPricingResponseSchema>
-export type FeatureResponse = z.infer<typeof FeatureResponseSchema>
-export type YankPackResponse = z.infer<typeof YankPackResponseSchema>
+type PackPricingResponse = z.infer<typeof PackPricingResponseSchema>
+type FeatureResponse = z.infer<typeof FeatureResponseSchema>
+type YankPackResponse = z.infer<typeof YankPackResponseSchema>
 export type CheckoutResponse = z.infer<typeof CheckoutResponseSchema>
 export type PaymentRequiredHint = z.infer<typeof PaymentRequiredHintSchema>

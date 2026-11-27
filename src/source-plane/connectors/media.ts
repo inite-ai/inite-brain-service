@@ -56,7 +56,7 @@ export const TEXT_EXTENSIONS = [
 ];
 
 /** Binary extensions with the evidence modality each one enters under. */
-export const BINARY_MODALITIES: Record<string, EvidenceModality> = {
+const BINARY_MODALITIES: Record<string, EvidenceModality> = {
   pdf: 'document',
   docx: 'document',
   xlsx: 'document',

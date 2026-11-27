@@ -61,7 +61,7 @@ export function predictProba(model: GateModel, feats: Map<number, number>): numb
 }
 
 /** P(kind) for each per-kind head the model carries. Empty for a v1 model. */
-export function predictKindProbas(
+function predictKindProbas(
   model: GateModel,
   feats: Map<number, number>,
 ): Partial<Record<DecisionKind, number>> {

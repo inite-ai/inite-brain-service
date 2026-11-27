@@ -45,7 +45,7 @@ export interface DedupCandidate {
   names?: { a?: string | undefined; b?: string | undefined };
 }
 
-export interface DedupIdentityLink {
+interface DedupIdentityLink {
   survivorId: string;
   loserId: string;
   cosine: number;

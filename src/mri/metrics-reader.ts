@@ -39,11 +39,6 @@ export interface PromMetricJson {
   }>;
 }
 
-/** The `registry.getMetricsAsJSON()` surface — kept tiny so callers can stub it. */
-export interface PromRegistryLike {
-  getMetricsAsJSON(): Promise<PromMetricJson[]>;
-}
-
 function normLabels(labels: Record<string, string | number> | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!labels) return out;

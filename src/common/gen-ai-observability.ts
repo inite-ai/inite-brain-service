@@ -25,7 +25,7 @@
 import type { MetricsService } from '../metrics/metrics.service';
 import { withSpan } from './tracing';
 
-export type GenAiKind = 'chat' | 'embed';
+type GenAiKind = 'chat' | 'embed';
 
 interface OpenAiLikeUsage {
   prompt_tokens?: number;

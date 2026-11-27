@@ -134,7 +134,7 @@ export interface QueryExpectation {
 // RAGAS-style claim-decomposed verifier (test/eval/metrics/faithfulness.ts).
 // Aggregated as `faithfulness:mean` and `faithfulness:verifier-failures`.
 
-export interface SynthesizeExpectation {
+interface SynthesizeExpectation {
   /** Free-text query handed to /v1/synthesize. */
   query: string;
   /**
@@ -511,11 +511,11 @@ export interface EvalReport {
 export type LanguageCode = 'en' | 'ru' | 'de' | 'es' | 'zh' | 'ar' | 'hi';
 
 /** mono = store-lang equals query-lang; cross = the boundary is crossed. */
-export type MatrixDirection = 'mono' | 'cross';
+type MatrixDirection = 'mono' | 'cross';
 
 /** The failure modes the roadmap names; every case is tagged with one so
  *  the report can slice recall by failure mode, not just by language. */
-export type MultilingualFailureMode =
+type MultilingualFailureMode =
   | 'cross_lingual_retrieval'
   | 'short_string_mislabel'
   | 'entity_fragmentation'
@@ -525,7 +525,7 @@ export type MultilingualFailureMode =
 /** One surface mention in a specific language — the atom entity-linking
  *  gold is expressed over (the same real-world entity written in ru, zh,
  *  ar … must collapse to one node). */
-export interface MultilingualSurface {
+interface MultilingualSurface {
   surface: string;
   lang: LanguageCode;
 }
@@ -547,7 +547,7 @@ export interface LanguageAttributionSample {
  *  runner scores only the dimensions a case declares and the metric layer
  *  returns null for absent slices (same null-on-empty contract as the
  *  retrieval metrics). */
-export interface MultilingualGold {
+interface MultilingualGold {
   /** Cross-lingual retrieval: the canonical entity ref that must rank top
    *  plus the full candidate corpus the model ranks — refs, not surface
    *  strings, so the gold is script-agnostic. */

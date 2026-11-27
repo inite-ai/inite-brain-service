@@ -168,8 +168,3 @@ export const RetractFactResponseSchema = z.object({
    */
   revivedFactIds: z.array(z.string()),
 });
-
-export type FactReadResponse = z.infer<typeof FactReadResponseSchema>;
-export type FactProvenanceResponse = z.infer<typeof FactProvenanceResponseSchema>;
-export type RetractFactRequest = z.infer<typeof RetractFactRequestSchema>;
-export type RetractFactResponse = z.infer<typeof RetractFactResponseSchema>;

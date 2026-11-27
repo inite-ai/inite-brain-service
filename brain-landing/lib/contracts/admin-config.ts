@@ -57,12 +57,12 @@ export const ConfigResponseSchema = z.object({
   secretsWritable: z.boolean(),
 })
 
-export const ConfigWriteResponseSchema = z.object({
+const ConfigWriteResponseSchema = z.object({
   key: z.string(),
   outcome: z.enum(['set', 'cleared', 'absent']),
   restartRequired: z.boolean(),
 })
 
-export type ConfigResponse = z.infer<typeof ConfigResponseSchema>
+type ConfigResponse = z.infer<typeof ConfigResponseSchema>
 export type ConfigEntry = z.infer<typeof ConfigEntrySchema>
-export type ConfigWriteResponse = z.infer<typeof ConfigWriteResponseSchema>
+type ConfigWriteResponse = z.infer<typeof ConfigWriteResponseSchema>

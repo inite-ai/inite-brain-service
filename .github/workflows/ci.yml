@@ -458,15 +458,18 @@ jobs:
       # Blocks the PR on any high/critical advisory in the resolved
       # dependency tree. Dependabot (4 ecosystems) still opens the fix PRs;
       # this is the gate that stops a known-vulnerable tree from merging.
+      # The one way past it is an entry in .inite/audit-allow.json with a
+      # reason and an expiry at most 90 days out, for an advisory no
+      # release fixes yet (scripts/ci/audit.mjs; an expired entry fails).
       - name: pnpm audit (high+ blocks)
-        run: pnpm audit --audit-level=high --ignore-workspace
+        run: pnpm audit --json --ignore-workspace | node scripts/ci/audit.mjs
 
       # The landing app has its own lockfile, so the root audit never saw
       # it: on 2026-10-27 it carried 6 high advisories nobody was gated on.
       # `pnpm audit` reads the lockfile, no install needed.
       - name: pnpm audit brain-landing (high+ blocks)
         working-directory: brain-landing
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --json | node ../scripts/ci/audit.mjs
 
   # ---------------------------------------------------------------------
   # Image build + smoke, and on main the PUBLISH.

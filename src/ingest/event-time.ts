@@ -482,7 +482,7 @@ export function resolveEventTimeOpts(timeZone: string | undefined): EventTimeRes
  * validFrom (inverted interval, fact hidden from asOf). single_active is
  * guarded (INSERTED_HISTORICAL); bitemporal is not.
  */
-export function factValidFrom(
+function factValidFrom(
   f: { predicate: string; clause?: string | undefined },
   emittedAt: string | Date,
   opts: EventTimeResolveOpts,

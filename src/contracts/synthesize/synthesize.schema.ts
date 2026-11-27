@@ -137,6 +137,3 @@ export const SynthesizeResponseSchema = z.object({
   /** Why, and what to do about it (BYOK or harness mode). Present with `degraded`. */
   notice: ServerModelsNoticeSchema.optional(),
 });
-
-export type SynthesizeRequest = z.infer<typeof SynthesizeRequestSchema>;
-export type SynthesizeResponse = z.infer<typeof SynthesizeResponseSchema>;

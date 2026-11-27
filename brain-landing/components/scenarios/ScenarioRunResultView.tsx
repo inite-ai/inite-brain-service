@@ -11,7 +11,7 @@ import {
   XCircle,
 } from 'lucide-react'
 
-export interface QueryRunResult {
+interface QueryRunResult {
   query: string
   expectedTopEntityRef: string
   rankOfExpected: number
@@ -32,7 +32,7 @@ export interface QueryRunResult {
   error?: string
 }
 
-export interface MemoryAssertionResult {
+interface MemoryAssertionResult {
   description: string
   kind: 'no_search_match' | 'search_object_present' | 'search_object_absent'
   passed: boolean
@@ -40,7 +40,7 @@ export interface MemoryAssertionResult {
   durationMs: number
 }
 
-export interface IdentityMergeOutcomeShape {
+interface IdentityMergeOutcomeShape {
   survivorRef: string
   loserRef: string
   merged: boolean
@@ -49,7 +49,7 @@ export interface IdentityMergeOutcomeShape {
   detail?: string
 }
 
-export interface SynthesizeOutcomeShape {
+interface SynthesizeOutcomeShape {
   scenarioId: string
   query: string
   answer: string | null

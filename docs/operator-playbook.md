@@ -10,6 +10,7 @@ pack tools, billing), see [operations.md](operations.md).
 
 1. [Issue an ApiKey](#issue-an-apikey)
 2. [Promote a tenant from dev to prod auth](#promote-a-tenant-from-dev-to-prod-auth)
+   - [Onboard a family product](#onboard-a-family-product)
 3. [Troubleshoot: ingest is failing](#troubleshoot-ingest-is-failing)
 4. [Troubleshoot: search returns nothing](#troubleshoot-search-returns-nothing)
 5. [Troubleshoot: search returns _wrong_ results (the un-indexed tenant)](#troubleshoot-search-returns-wrong-results-the-un-indexed-tenant)
@@ -88,8 +89,32 @@ rules, trust review, and audits.
 1. Make sure `AUTH_SERVICE_JWKS_URL` points to the prod auth-service (`https://auth.inite.ai/.well-known/jwks.json`).
 2. Set `AUTH_SERVICE_ISSUER` to the auth-service's `JWT_ISSUER` (the `iss` it signs — in INITE's own deployment `https://auth-api.inite.ai`, not the `auth.inite.ai` JWKS host) and `BRAIN_PUBLIC_URL` to this deployment's public URL; `AUTH_SERVICE_AUDIENCE` stays `brain`. The full rule set is the [Triad token contract](https://github.com/inite-ai/inite-triad/blob/main/docs/compatibility.md).
 3. Set `NODE_ENV=production`. The boot log should say `Static BRAIN_API_KEYS disabled in production with a remote verifier enabled`.
-4. Have the vertical re-issue its credentials. Brain accepts JWTs whose `scopes` (array, M2M tokens) or `scope` (space-delimited, user tokens) claim contains the brain scopes (`brain:read`, `brain:write`, optionally `brain:read_pii`, `brain:admin`). Tenant/user mapping: an `org` claim makes it a user-bound token (tenant = `org`, end-user = `sub`, per-user memory pinned to that user); without `org`, `sub` is the company ID (M2M).
+4. Have the vertical re-issue its credentials. Brain accepts JWTs whose `scopes` (array, M2M tokens) or `scope` (space-delimited, user tokens) claim contains the brain scopes: `brain:read`, `brain:write`, and as needed `brain:erase` (erase one end-user and nothing else: `POST /v1/users/:userId/forget`, plus the affect and consent deletes), `brain:read_pii` (PII text), `brain:read_media` (media and biometric evidence; stricter than `read_pii`, not implied by it) and `brain:admin` (operate this tenant). `brain:platform_admin` is cross-tenant operator authority, held only by the hosting operator's own credentials; never grant it to a product. The full table is in [api.md § Auth + scopes](api.md#auth--scopes). Tenant/user mapping: an `org` claim makes it a user-bound token (tenant = `org`, end-user = `sub`, per-user memory pinned to that user); without `org`, `sub` is the company ID (M2M).
 5. Verify with a single `curl` that uses the JWT — expect `200 OK` on `GET /v1/entities/<id>` for the company's data.
+
+### Onboard a family product
+
+An INITE family product (inite.rent, inite.training, …) gets its own Brain
+tenant and talks to it machine-to-machine.
+
+1. In auth.inite.ai, create a machine client named `<product>-brain`:
+   kind `machine`, `companyId` = the product's tenant id, scopes
+   `brain:read brain:write brain:erase`, audience
+   `https://brain.inite.ai` (this deployment's `BRAIN_PUBLIC_URL`; the
+   vertical name `brain` is accepted too). Add `brain:read_pii` only if
+   the product must read PII values back, and nothing broader:
+   `brain:admin` is for an operator, `brain:platform_admin` never.
+2. There is nothing to create on the Brain side. The tenant database
+   `co_<companyId>` is created and migrated by the first request that
+   reaches it, and HNSW provisioning picks it up off the request path.
+3. In the product, use `@inite/knowledge` (inite-shared) with the client
+   credentials: it fetches and refreshes the token, queues writes through
+   its outbox, sends each inbox message as a mention, and calls
+   `POST /v1/users/:userId/forget` (`brain:erase`) when a person asks to
+   be erased.
+4. Check it: one write (`POST /v1/ingest/mention`) and one read
+   (`POST /v1/search`) with the product's token answer 2xx, and the
+   request log shows `company=<companyId>`.
 
 ## Troubleshoot: ingest is failing
 
@@ -181,6 +206,21 @@ curl -X POST https://brain.example.com/v1/entities/$ENTITY_ID/forget \
 ```
 
 `reason` is one of `gdpr_request`, `tenant_offboarding`, `operator_request`. The HMAC means you can prove a forget happened without recovering what you forgot.
+
+A user forget (`POST /v1/users/:userId/forget`) also leaves a tombstone in
+`user_tombstone` (migration 0200): the record key is an HMAC of the user id
+(under `FORGET_HMAC_KEY`) and the row holds `forgottenAt`. Every write path
+for that user (document store, mention persist, document commit, episode
+capture, the fact resolver under every job) drops work that was ACCEPTED at
+or before `forgottenAt`: a request by its arrival time, a job by its claim,
+a stored document by its `createdAt`. So a background extraction that
+finishes after the forget writes nothing, and the log says
+`commit for a forgotten user dropped (N facts, …)` or `mention for a
+forgotten user dropped`. Work accepted after the forget is written: a
+person who re-consents in the product is remembered again, and a product
+that must erase again sends another forget. Rotating `FORGET_HMAC_KEY`
+orphans existing tombstones; only work already in flight at the rotation
+is affected.
 
 For a whole-tenant forget, hit `dropCompanyDatabase` directly (admin tooling, not exposed via HTTP). That's a single-statement `REMOVE DATABASE co_<companyId>`.
 

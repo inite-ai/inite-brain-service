@@ -58,7 +58,7 @@ export function mailTurnOf(raw: Buffer, opts: { maxParts?: number | undefined } 
   };
 }
 
-export function turnText(p: { parsed: ParsedMail; subject: string; starter: boolean }): string {
+function turnText(p: { parsed: ParsedMail; subject: string; starter: boolean }): string {
   const body = stripQuotes(p.parsed.body);
   const parts: string[] = [];
   if (p.starter && p.subject.length > 0) parts.push(`Subject: ${p.subject}`);
@@ -69,14 +69,14 @@ export function turnText(p: { parsed: ParsedMail; subject: string; starter: bool
 }
 
 /** The first id in References (the thread's root), else In-Reply-To, else null. */
-export function threadRootOf(h: MailHeaders): string | null {
+function threadRootOf(h: MailHeaders): string | null {
   const refs = idsOf(h.get('References'));
   if (refs[0]) return refs[0];
   return idOf(h.get('In-Reply-To'));
 }
 
 /** Angle-bracketed message ids in a header, in order. */
-export function idsOf(v: string | undefined): string[] {
+function idsOf(v: string | undefined): string[] {
   if (!v) return [];
   const out: string[] = [];
   for (const m of v.matchAll(/<([^<>\s]+)>/g)) if (m[1]) out.push(m[1]);
@@ -138,7 +138,7 @@ function splitAddresses(v: string): string[] {
  * address in the turn text would be redacted as PII by the episode
  * store (`[EMAIL]: …`), a name reads as a speaker.
  */
-export function speakerOf(from: string | undefined): string {
+function speakerOf(from: string | undefined): string {
   const [first] = addressesOf(from);
   if (!first) return 'unknown sender';
   if (first.name) return first.name;

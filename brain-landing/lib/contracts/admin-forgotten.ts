@@ -11,4 +11,4 @@ export const ForgottenResponseSchema = z.object({
   rows: z.array(AdminForgottenRowSchema),
 })
 
-export type ForgottenResponse = z.infer<typeof ForgottenResponseSchema>
+type ForgottenResponse = z.infer<typeof ForgottenResponseSchema>

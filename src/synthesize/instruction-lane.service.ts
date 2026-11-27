@@ -5,7 +5,7 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { makeRowPolicyFilter } from '../policy/row-filter';
 
 /** The predicate the extractor files a standing instruction under. */
-export const INSTRUCTION_PREDICATE = 'instruction';
+const INSTRUCTION_PREDICATE = 'instruction';
 /** Standing instructions per prompt — the section's own budget. */
 const INSTRUCTION_TOP_K = 8;
 

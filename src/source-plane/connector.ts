@@ -96,7 +96,7 @@ export type PrincipalDelta =
   | { type: 'group'; group: string; title?: string | undefined }
   | { type: 'member'; group: string; account: PrincipalAccount };
 
-export interface PrincipalAccount {
+interface PrincipalAccount {
   externalId: string;
   handle?: string | undefined;
   displayName?: string | undefined;

@@ -10,7 +10,7 @@ import type { SourceCatalogEntry } from '../../../../lib/contracts/admin-source-
  * — the JSON view in Advanced shows exactly what the brain receives.
  */
 
-export type FieldType = 'text' | 'path' | 'url' | 'number' | 'boolean' | 'list' | 'select';
+type FieldType = 'text' | 'path' | 'url' | 'number' | 'boolean' | 'list' | 'select';
 
 export interface FieldSpec {
   key: string;
@@ -48,7 +48,7 @@ export type CredentialLabel = 'webhookUrl' | 'longLivedToken' | 'password' | 'bo
  */
 export type OAuthAlternative = 'token' | 'jwtBearer' | 'webhookUrl' | 'longLivedToken' | 'botToken';
 
-export type CredentialSpec =
+type CredentialSpec =
   | {
       kind: 'single';
       required: (values: FormValues) => boolean;
@@ -77,7 +77,7 @@ export interface ConnectorForm {
   finalize?: (config: Record<string, unknown>, values: FormValues) => Record<string, unknown>;
 }
 
-export type FormValue = string | boolean;
+type FormValue = string | boolean;
 export type FormValues = Record<string, FormValue>;
 
 export interface FormContext {

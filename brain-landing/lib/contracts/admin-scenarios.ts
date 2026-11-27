@@ -21,5 +21,5 @@ export const ScenariosResponseSchema = z.object({
   scenarios: z.array(ScenarioListItemSchema),
 })
 
-export type ScenariosResponse = z.infer<typeof ScenariosResponseSchema>
+type ScenariosResponse = z.infer<typeof ScenariosResponseSchema>
 export type ScenarioListItem = z.infer<typeof ScenarioListItemSchema>

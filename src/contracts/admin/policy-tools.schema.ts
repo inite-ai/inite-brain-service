@@ -92,6 +92,7 @@ export const SimulateActionsResponseSchema = z.object({
   ),
 });
 
+/** @public the source of PreviewRuleResponse, read only as a type (z.infer). */
 export const PreviewRuleResponseSchema = z.object({
   matched: z.number(),
   sampled: z.number(),

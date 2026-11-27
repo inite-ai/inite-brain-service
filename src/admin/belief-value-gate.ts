@@ -60,7 +60,7 @@
 /** The three dimensions the gate reads. Ordered for stable log lines. */
 export const VALUE_GATE_DIMS = ['novelty', 'contradiction', 'stateChange'] as const;
 
-export type ValueGateDim = (typeof VALUE_GATE_DIMS)[number];
+type ValueGateDim = (typeof VALUE_GATE_DIMS)[number];
 
 /** The gated slice of the value vector; every dimension optional. */
 export type SceneValueVector = { [K in ValueGateDim]?: number };

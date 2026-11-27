@@ -25,7 +25,7 @@ export interface HarnessWork {
 }
 
 /** A judging or summarising batch claims nothing; its token lives this long. */
-export const BATCH_WORK_TTL_MS = 30 * 60_000;
+const BATCH_WORK_TTL_MS = 30 * 60_000;
 
 export function workNonce(): string {
   return randomBytes(12).toString('base64url');

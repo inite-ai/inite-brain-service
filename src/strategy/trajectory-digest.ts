@@ -39,14 +39,14 @@ export const TRAJECTORY_DIGEST_LEN = PAYLOAD_DIGEST_LEN;
 export { digestPayload };
 
 /** Tool-name clear-text cap (a function identifier, not free text). */
-export const TRAJECTORY_TOOL_CAP = 80;
+const TRAJECTORY_TOOL_CAP = 80;
 
 /** Hard bound on stored steps per trajectory (keeps the row + prompt small). */
 export const TRAJECTORY_MAX_STEPS = 32;
 
 export type VerifiedOutcome = 'success' | 'failure' | 'unknown';
 
-export const VERIFIED_OUTCOMES: readonly VerifiedOutcome[] = ['success', 'failure', 'unknown'];
+const VERIFIED_OUTCOMES: readonly VerifiedOutcome[] = ['success', 'failure', 'unknown'];
 
 export function isVerifiedOutcome(v: unknown): v is VerifiedOutcome {
   return typeof v === 'string' && (VERIFIED_OUTCOMES as readonly string[]).includes(v);

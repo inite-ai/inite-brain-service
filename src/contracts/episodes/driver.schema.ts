@@ -25,16 +25,14 @@ export const EpisodeWireSchema = z.object({
   lang: z.string().optional(),
   source: z.record(z.string(), z.unknown()),
 });
-export type EpisodeWire = z.infer<typeof EpisodeWireSchema>;
 
 export const EpisodesListResponseSchema = z.object({
   episodes: z.array(EpisodeWireSchema),
   /** Present exactly when the page is full; resume with ?cursor=. */
   nextCursor: z.string().optional(),
 });
-export type EpisodesListResponse = z.infer<typeof EpisodesListResponseSchema>;
 
-export const PROJECTION_STATUSES = ['building', 'built', 'live', 'residual', 'failed'] as const;
+const PROJECTION_STATUSES = ['building', 'built', 'live', 'residual', 'failed'] as const;
 
 /** One derived-surface version (projection registry row). */
 export const ProjectionRowSchema = z.object({
@@ -48,14 +46,12 @@ export const ProjectionRowSchema = z.object({
   finishedAt: z.string().optional(),
   stats: z.record(z.string(), z.unknown()).optional(),
 });
-export type ProjectionRow = z.infer<typeof ProjectionRowSchema>;
 
 export const ProjectionsListResponseSchema = z.object({
   projections: z.array(ProjectionRowSchema),
   /** The process-local live read pin (RETRIEVAL_DERIVED_VERSION). */
   readPin: z.string().nullable(),
 });
-export type ProjectionsListResponse = z.infer<typeof ProjectionsListResponseSchema>;
 
 export const RebuildProjectionRequestSchema = z.object({
   /** Short kebab-case world tag; defaults to the builder's current version. */
@@ -72,7 +68,6 @@ export const RebuildProjectionRequestSchema = z.object({
   /** Allow rewriting the currently pinned world in place (eval only). */
   force: z.boolean().optional(),
 });
-export type RebuildProjectionRequest = z.infer<typeof RebuildProjectionRequestSchema>;
 
 export const RebuildProjectionResponseSchema = z.object({
   conversations: z.number().int(),
@@ -92,15 +87,11 @@ export const RebuildProjectionResponseSchema = z.object({
   activated: z.boolean().optional(),
   previousVersion: z.string().nullable().optional(),
 });
-export type RebuildProjectionResponse = z.infer<typeof RebuildProjectionResponseSchema>;
 
 export const CreateEpisodeSubscriptionRequestSchema = z.object({
   /** Absolute http(s) endpoint that will receive signed pushes. */
   url: z.string(),
 });
-export type CreateEpisodeSubscriptionRequest = z.infer<
-  typeof CreateEpisodeSubscriptionRequestSchema
->;
 
 export const CreateEpisodeSubscriptionResponseSchema = z.object({
   id: z.string(),
@@ -109,9 +100,6 @@ export const CreateEpisodeSubscriptionResponseSchema = z.object({
   /** Only episodes recorded after this instant will be announced. */
   watermark: z.string(),
 });
-export type CreateEpisodeSubscriptionResponse = z.infer<
-  typeof CreateEpisodeSubscriptionResponseSchema
->;
 
 /** Registered endpoint as listed (never includes the secret). */
 export const EpisodeSubscriptionRowSchema = z.object({
@@ -122,21 +110,14 @@ export const EpisodeSubscriptionRowSchema = z.object({
   failureCount: z.number().int(),
   createdAt: z.string(),
 });
-export type EpisodeSubscriptionRowWire = z.infer<typeof EpisodeSubscriptionRowSchema>;
 
 export const EpisodeSubscriptionsListResponseSchema = z.object({
   subscriptions: z.array(EpisodeSubscriptionRowSchema),
 });
-export type EpisodeSubscriptionsListResponse = z.infer<
-  typeof EpisodeSubscriptionsListResponseSchema
->;
 
 export const DeleteEpisodeSubscriptionResponseSchema = z.object({
   deleted: z.boolean(),
 });
-export type DeleteEpisodeSubscriptionResponse = z.infer<
-  typeof DeleteEpisodeSubscriptionResponseSchema
->;
 
 /**
  * The HMAC-signed webhook push body (X-Brain-Signature: sha256=<hex>
@@ -160,4 +141,3 @@ export const EpisodesAvailableEventSchema = z.object({
   watermark: z.string(),
   ts: z.string(),
 });
-export type EpisodesAvailableEventWire = z.infer<typeof EpisodesAvailableEventSchema>;

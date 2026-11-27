@@ -15,6 +15,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import { runWithRequestContext } from './request-context';
+import { runAccepted } from './user-tombstone';
 
 export function correlationIdMiddleware() {
   return function (req: Request, res: Response, next: NextFunction) {
@@ -56,6 +57,10 @@ export function correlationIdMiddleware() {
         if (!res.writableFinished) controller.abort();
       });
     }
-    runWithRequestContext({ correlationId, abortSignal: controller.signal }, () => next());
+    // The request's arrival is when its work was accepted: a write it
+    // still makes after the user's forget is dropped (user-tombstone.ts).
+    runAccepted(new Date(), () =>
+      runWithRequestContext({ correlationId, abortSignal: controller.signal }, () => next()),
+    );
   };
 }

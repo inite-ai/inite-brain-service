@@ -27,6 +27,7 @@ const DebugArtifactSchema = z.object({
   value: z.unknown(),
 });
 
+/** @public the source of TraceDetailResponse, read only as a type (z.infer). */
 export const TraceDetailResponseSchema = z.object({
   requestId: z.string(),
   ts: z.string(),

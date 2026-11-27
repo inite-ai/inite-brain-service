@@ -3,9 +3,9 @@ import { queryRows } from '../surreal.service';
 import type { DataMigration } from './data-migration';
 
 /** Rows one step fixes. One request each; small enough to stay a short write. */
-export const DATA_MIGRATION_BATCH = 500;
+const DATA_MIGRATION_BATCH = 500;
 
-export interface DataMigrationOutcome {
+interface DataMigrationOutcome {
   id: string;
   /** Rows fixed in this run. */
   fixed: number;

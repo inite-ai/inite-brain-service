@@ -171,7 +171,7 @@ export interface McpRoundtripCheck extends BaseCheck {
  *  tools: the code-memory tools (`why` / `recall_decisions` /
  *  `record_decision`) are core-hardcoded single-underscore names, and
  *  no pack declares mcpTools today (domain-pack battery law). */
-export interface NoRogueToolsCheck extends BaseCheck {
+interface NoRogueToolsCheck extends BaseCheck {
   kind: 'no-rogue-tools';
 }
 
@@ -189,7 +189,7 @@ export type Check =
   | NoRogueToolsCheck;
 export type CheckKind = Check['kind'];
 
-export type CheckStatus = 'pass' | 'fail' | 'skipped';
+type CheckStatus = 'pass' | 'fail' | 'skipped';
 
 export interface CheckResult {
   id: string;

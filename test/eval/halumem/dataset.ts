@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 
-export interface HaluMemTurn {
+interface HaluMemTurn {
   role: 'user' | 'assistant';
   content: string;
   /** "Sep 04, 2025, 18:42:18" */

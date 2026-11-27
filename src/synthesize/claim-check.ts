@@ -33,7 +33,7 @@ import { numberClash } from '../ai/extractor-internals/value-entailment';
 import { parseFactHandle, type Citation } from './fact-index';
 
 /** One sentence of an answer, with the handles it cites. */
-export interface AnswerSentence {
+interface AnswerSentence {
   /** The sentence as written, citation markers included. */
   text: string;
   /** The text with the whitespace that follows it — rebuilding an answer from spans keeps its layout. */
@@ -118,7 +118,7 @@ function handlesOf(text: string): string[] {
 }
 
 /** One NLI pair for a sentence: what it cites, and what it claims. */
-export interface ClaimPair {
+interface ClaimPair {
   sentence: AnswerSentence;
   premise: string;
   hypothesis: string;

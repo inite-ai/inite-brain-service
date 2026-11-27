@@ -45,7 +45,7 @@ export interface ScorePairsRequest {
  * enough that the first (unestimated) chunk always fits a 2 s budget and
  * the between-chunk check has several points at which to stop.
  */
-export const SCORE_CHUNK = 4;
+const SCORE_CHUNK = 4;
 
 /**
  * Relevance logit per document, in input order; -Infinity where the

@@ -16,12 +16,7 @@ import { offlineServiceTier, providerSideFailure } from './openai-client';
 
 export type { ConversationContext } from './extractor-internals/prompts';
 
-export type {
-  ExtractedEntity,
-  ExtractedFact,
-  ExtractedEdge,
-  ExtractionResult,
-} from './extractor-internals/types';
+export type { ExtractionResult } from './extractor-internals/types';
 
 /**
  * Closed-vocabulary, span-grounded entity-and-fact extractor.

@@ -65,7 +65,7 @@ export interface AdminOverview {
   recentForgotten: AdminForgottenRow[];
 }
 
-export interface AuditEventRow {
+interface AuditEventRow {
   id: string;
   companyId: string;
   source: string;
@@ -87,7 +87,7 @@ export interface AuditQuery {
   limit?: number | undefined;
 }
 
-export interface CostBucket {
+interface CostBucket {
   key: string;
   calls: number;
   promptTokens: number;

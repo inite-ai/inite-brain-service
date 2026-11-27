@@ -28,7 +28,15 @@ interface Row {
   nameKeys: string[];
   userId?: string;
   facts: string[];
+  /** Outgoing edges as `kind: other entity` lines (works_at, lives_at, …). */
+  edges?: string[];
 }
+
+const asPairs = (lines: string[]) =>
+  lines.map((l) => {
+    const at = l.indexOf(': ');
+    return { predicate: l.slice(0, at), object: l.slice(at + 2) };
+  });
 
 /** A tenant DB that answers the ladder's statements over `rows`. */
 function fakeDb(rows: Row[]) {
@@ -53,6 +61,15 @@ function fakeDb(rows: Row[]) {
         return [
           rows.filter((r) => visible(r) && r.nameKeys.includes(String(params.key))).map(pick),
         ];
+      }
+      // The judge-less evidence reads: an entity's live facts and edges.
+      if (sql.includes('FROM knowledge_fact') && 'eid' in params) {
+        const r = rows.find((x) => x.id === String(params.eid));
+        return [asPairs(r?.facts ?? [])];
+      }
+      if (sql.includes('FROM knowledge_edge') && 'eid' in params) {
+        const r = rows.find((x) => x.id === String(params.eid));
+        return [asPairs(r?.edges ?? [])];
       }
       if (sql.startsWith('CREATE')) {
         const d = params.d as { canonicalName: string; aliases: string[]; nameKeys: string[] };
@@ -178,11 +195,26 @@ describe('same name, different person (#815)', () => {
     expect(judge.judge).not.toHaveBeenCalled();
   });
 
-  it('an "unsure" verdict keeps the reuse the ladder always made', async () => {
+  it('an "unsure" verdict on facts that do not clash keeps the reuse', async () => {
     const rows = [vet()];
     const { resolve, judge } = makeLadder(rows);
     judge.judge.mockResolvedValue('unsure');
-    expect(await resolve('Anna Schmidt', ENGINEER_FACTS)).toBe('knowledge_entity:vet');
+    expect(await resolve('Anna Schmidt', ['treats: our dog', 'located_in: Munich'])).toBe(
+      'knowledge_entity:vet',
+    );
+  });
+
+  it('an "unsure" verdict on clashing facts is no licence to merge (#815)', async () => {
+    // "unsure" is also what the judge answers when its call fails (a
+    // timeout, a refused key, the budget): the name alone then fused the
+    // vet and the engineer. Unconfirmed + contradicted = someone else.
+    const rows = [vet()];
+    const { resolve, judge, steps } = makeLadder(rows);
+    judge.judge.mockResolvedValue('unsure');
+    const id = await resolve('Anna Schmidt', ENGINEER_FACTS);
+    expect(id).not.toBe('knowledge_entity:vet');
+    expect(steps).toEqual(['created']);
+    expect(rows).toHaveLength(2);
   });
 
   // Cyrillic and Latin spellings that fold to one key ("ivan petrov").
@@ -250,13 +282,6 @@ describe('same name, different person (#815)', () => {
     expect(steps).toEqual(['judge']);
   });
 
-  it('with inline resolution off the exact rung reuses as it always did', async () => {
-    const rows = [vet()];
-    const { resolve, judge } = makeLadder(rows, { INGEST_INLINE_RESOLUTION_ENABLED: '0' });
-    expect(await resolve('Anna Schmidt', ENGINEER_FACTS)).toBe('knowledge_entity:vet');
-    expect(judge.judge).not.toHaveBeenCalled();
-  });
-
   it('a personal entity of the same name is never a candidate (scope fence kept)', async () => {
     const rows = [{ ...vet(), userId: 'u1' }];
     const { resolve, db, judge } = makeLadder(rows);
@@ -268,6 +293,103 @@ describe('same name, different person (#815)', () => {
       .filter((s) => s.includes('canonicalNameLc = $name') || s.includes('nameKeys CONTAINS $key'));
     expect(ladderSql.length).toBeGreaterThan(0);
     for (const sql of ladderSql) expect(sql).toContain('userId IS NONE');
+  });
+});
+
+/**
+ * The issue's own two mentions as the extractor files them, with no judge
+ * (no model key, harness mode, the resolver off). The two sides name the
+ * same attributes with different predicates — `occupation` / `role`,
+ * `located_in` / `lives_in` — and the city of one sits on an edge, so a
+ * comparison of identical single-valued predicates found nothing to
+ * disagree on and the name merged them.
+ */
+describe('same name, different person, no judge (#815)', () => {
+  const OFF = { INGEST_INLINE_RESOLUTION_ENABLED: '0' };
+  const munichVet = (): Row => ({
+    id: 'knowledge_entity:vet',
+    canonicalName: 'Anna Schmidt',
+    aliases: ['Anna Schmidt'],
+    nameKeys: [nameKey('Anna Schmidt')],
+    facts: ['occupation: vet', 'runs: small animal clinic', 'treats: our dog'],
+    edges: ['located_in: Munich'],
+  });
+  // "Anna Schmidt joined Orbital as a software engineer in Lisbon last
+  // spring; she writes Rust." — the employer arrives as an edge line.
+  const LISBON_ENGINEER = [
+    'role: software engineer',
+    'writes: Rust',
+    'works_at: Orbital',
+    'lives_in: Lisbon',
+  ];
+
+  it('the Lisbon engineer is not filed under the Munich vet', async () => {
+    const rows = [munichVet()];
+    const { resolve, judge, steps } = makeLadder(rows, OFF);
+    const id = await resolve('Anna Schmidt', LISBON_ENGINEER);
+    expect(id).not.toBe('knowledge_entity:vet');
+    expect(steps).toEqual(['created']);
+    expect(rows).toHaveLength(2);
+    expect(judge.judge).not.toHaveBeenCalled();
+  });
+
+  it('the vet mentioned again, in other words, is still the vet', async () => {
+    const rows = [munichVet()];
+    const { resolve, steps } = makeLadder(rows, OFF);
+    expect(
+      await resolve('Anna Schmidt', ['profession: Vet', 'works_in_city: Munich, Bavaria']),
+    ).toBe('knowledge_entity:vet');
+    expect(steps).toEqual(['exact']);
+  });
+
+  it('facts about other things than who she is are no contradiction', async () => {
+    const rows = [munichVet()];
+    const { resolve } = makeLadder(rows, OFF);
+    expect(await resolve('Anna Schmidt', ['recommended: a new diet for Rex'])).toBe(
+      'knowledge_entity:vet',
+    );
+  });
+
+  it('one attribute in common outweighs another that changed (a move)', async () => {
+    // Same employer, a new city: the person moved. Something identifies her.
+    const rows: Row[] = [
+      {
+        ...munichVet(),
+        id: 'knowledge_entity:eng',
+        facts: ['role: software engineer'],
+        edges: ['works_at: Orbital', 'lives_in: Munich'],
+      },
+    ];
+    const { resolve } = makeLadder(rows, OFF);
+    expect(await resolve('Anna Schmidt', LISBON_ENGINEER)).toBe('knowledge_entity:eng');
+  });
+
+  it('an ended value is history, not a contradiction', async () => {
+    const rows = [munichVet()];
+    const { resolve, db } = makeLadder(rows, OFF);
+    const base = db.query.getMockImplementation()!;
+    db.query.mockImplementation(async (sql: string, params: Record<string, unknown> = {}) => {
+      if (sql.includes('FROM knowledge_edge') && 'eid' in params) {
+        return [[{ predicate: 'located_in', object: 'Munich', ended: true }]];
+      }
+      if (sql.includes('FROM knowledge_fact') && 'eid' in params) {
+        return [[{ predicate: 'treats', object: 'our dog' }]];
+      }
+      return base(sql, params);
+    });
+    expect(await resolve('Anna Schmidt', ['lives_in: Lisbon'])).toBe('knowledge_entity:vet');
+  });
+
+  it('with both stored, each later mention finds its own Anna', async () => {
+    const rows = [munichVet()];
+    const { resolve } = makeLadder(rows, OFF);
+    const engineer = await resolve('Anna Schmidt', LISBON_ENGINEER);
+    const eng = rows.find((r) => r.id === engineer)!;
+    eng.facts.push('role: software engineer', 'writes: Rust');
+    eng.edges = ['works_at: Orbital', 'lives_in: Lisbon'];
+    expect(await resolve('Anna Schmidt', ['employer: Orbital'])).toBe(engineer);
+    expect(await resolve('Anna Schmidt', ['occupation: vet'])).toBe('knowledge_entity:vet');
+    expect(rows).toHaveLength(2);
   });
 });
 
@@ -312,6 +434,39 @@ describe('EntityResolverService.confirmSameName', () => {
     const { svc, judge } = make(['same', 'same']);
     expect(await call(svc)).toEqual({ kind: 'reuse', entityId: 'knowledge_entity:a' });
     expect(judge.judge).toHaveBeenCalledTimes(1);
+  });
+
+  it('an "unsure" candidate the facts confirm wins over one they leave open', async () => {
+    const { svc } = make(['unsure', 'unsure']);
+    const db = {
+      query: jest.fn(async (sql: string, params: Record<string, unknown> = {}) => {
+        if (sql.includes('FROM knowledge_edge') && String(params.eid) === 'knowledge_entity:b') {
+          return [[{ predicate: 'works_at', object: 'Orbital' }]];
+        }
+        return [[]];
+      }),
+    };
+    expect(
+      await svc.confirmSameName({
+        db: db as never,
+        name: 'Anna Schmidt',
+        candidates: C,
+        incomingFacts: ['employer: Orbital'],
+      }),
+    ).toEqual({ kind: 'reuse', entityId: 'knowledge_entity:b' });
+  });
+
+  it('a failing evidence read after "unsure" keeps the candidate (never throws)', async () => {
+    const { svc } = make(['unsure']);
+    const db = { query: jest.fn().mockRejectedValue(new Error('surreal down')) };
+    expect(
+      await svc.confirmSameName({
+        db: db as never,
+        name: 'Anna Schmidt',
+        candidates: [C[0]!],
+        incomingFacts: ['lives_in: Lisbon'],
+      }),
+    ).toEqual({ kind: 'reuse', entityId: 'knowledge_entity:a' });
   });
 
   it('is distinct only when every candidate is contradicted', async () => {

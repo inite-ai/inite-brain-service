@@ -40,7 +40,7 @@ export type IndexerExecutionMode = 'virtual' | 'dedicated' | 'external';
  * provides `source.originKey` (corroboration independence — two indexers
  * on one document are NEVER independent evidence).
  */
-export interface CandidateProvenance {
+interface CandidateProvenance {
   indexerId: string;
   packVersion: string;
   executionMode: IndexerExecutionMode;
@@ -125,6 +125,3 @@ export interface CandidateBatch {
 
 /** Row-shape helpers for the `candidate` table (payload is FLEXIBLE). */
 export type CandidateKind = 'entity' | 'fact' | 'relation' | 'scene' | 'state_delta';
-
-export type CandidateStatus =
-  'pending' | 'committed' | 'merged' | 'duplicate' | 'rejected' | 'expired';

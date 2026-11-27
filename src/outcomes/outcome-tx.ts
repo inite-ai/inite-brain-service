@@ -34,11 +34,11 @@ import { recordIdOf } from '../db/record-key';
 
 /** In-tx pre-select: which of this batch's deterministic ids already
  *  exist (a replay / the loser of a concurrent race after retry). */
-export const OUTCOME_TX_PRESELECT = `LET $existing = (SELECT VALUE id FROM memory_outcome WHERE id INSIDE $rawIds)`;
+const OUTCOME_TX_PRESELECT = `LET $existing = (SELECT VALUE id FROM memory_outcome WHERE id INSIDE $rawIds)`;
 
 /** Raw append — rows carry explicit deterministic ids; IGNORE no-ops
  *  primary-key collisions (the #92 changefeed idiom). */
-export const OUTCOME_TX_RAW_INSERT = `INSERT IGNORE INTO memory_outcome $rows`;
+const OUTCOME_TX_RAW_INSERT = `INSERT IGNORE INTO memory_outcome $rows`;
 
 /**
  * Delta gating: only deltas whose gating raw row is NEW this dispatch
@@ -47,7 +47,7 @@ export const OUTCOME_TX_RAW_INSERT = `INSERT IGNORE INTO memory_outcome $rows`;
  * today's behavior, documented residual: such deltas are not
  * replay-protected.
  */
-export const OUTCOME_TX_DELTA_GATE = `LET $newDeltas = (SELECT * FROM $deltas WHERE rawId NOTINSIDE $existing OR rawId IS NONE)`;
+const OUTCOME_TX_DELTA_GATE = `LET $newDeltas = (SELECT * FROM $deltas WHERE rawId NOTINSIDE $existing OR rawId IS NONE)`;
 
 /**
  * Per-delta stat fold. Multiple deltas per subject fold naturally
@@ -56,7 +56,7 @@ export const OUTCOME_TX_DELTA_GATE = `LET $newDeltas = (SELECT * FROM $deltas WH
  * `LET $r = $d.row` hop keeps the INSERT source a plain variable (the
  * form verified in prod code) rather than a path expression.
  */
-export const OUTCOME_TX_STAT_FOLD = `FOR $d IN $newDeltas {
+const OUTCOME_TX_STAT_FOLD = `FOR $d IN $newDeltas {
   LET $r = $d.row;
   INSERT INTO memory_outcome_stat $r
     ON DUPLICATE KEY UPDATE
@@ -73,7 +73,7 @@ export const OUTCOME_TX_STAT_FOLD = `FOR $d IN $newDeltas {
 
 /** Observability tail: how many raw ids the batch carried and how many
  *  were already present (replay/race detection in logs, if ever read). */
-export const OUTCOME_TX_RETURN = `RETURN { total: array::len($rawIds), skipped: array::len($existing) }`;
+const OUTCOME_TX_RETURN = `RETURN { total: array::len($rawIds), skipped: array::len($existing) }`;
 
 /**
  * Event → rollup mapping ('auto' statDeltas). `retrieved` is
@@ -127,7 +127,7 @@ export function outcomeEventId(dedupeKey: string, requestScope: string, batchSeq
 
 /** One per-delta stat row: six counters (one signed non-zero), gated by
  *  the raw row that produced it (absent rawId = ungated). */
-export interface OutcomeTxDeltaRow {
+interface OutcomeTxDeltaRow {
   rawId?: RecordId;
   row: {
     subjectId: StringRecordId;

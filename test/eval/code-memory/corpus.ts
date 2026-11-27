@@ -65,7 +65,7 @@ export function packHasPredicate(localId: string): boolean {
  * composed either way, and `gap040` (below) supplies the honest
  * annotation for the period the predicate does not exist.
  */
-export function plannedPredicate(localId: string): string {
+function plannedPredicate(localId: string): string {
   return composePredicateId(CODE_MEMORY_PACK.id, localId);
 }
 
@@ -89,7 +89,7 @@ export function gap040(localId: string, alsoUnknown: string): string {
 }
 
 /** Baseline annotation for the 4 predicates that DO exist today. */
-export const PROFILE_GAP =
+const PROFILE_GAP =
   'code_memory ships no extractionProfile (the only pack without one — audit ' +
   'gap #2), so mention-path phrasing has never canonicalized into ' +
   'code_memory__* vocabulary; a coined open-vocab predicate here is the ' +
@@ -97,7 +97,7 @@ export const PROFILE_GAP =
   'lands and extraction consults it.';
 
 /** Gap annotation for the flag-transition history check. */
-export const FLAG_TRANSITION_GAP =
+const FLAG_TRANSITION_GAP =
   'Diagnosed 2026-09 (k08 lottery): the state-verb lane binds "we enabled ' +
   'FLAG" to a person-or-speaker holder — absent on agent-recorded turns, so ' +
   'the match DROPS — and the LLM redraw sometimes lands a stage as a decided ' +

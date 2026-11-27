@@ -30,7 +30,7 @@ interface SearchOut {
  * `results[].canonicalName` / `facts[].predicate` / `facts[].object`
  * (the plugin's recall hook) reads both.
  */
-export interface CompactSearchHit {
+interface CompactSearchHit {
   canonicalName: string;
   entityId: string;
   facts: Array<{

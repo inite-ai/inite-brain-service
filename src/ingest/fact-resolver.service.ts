@@ -38,6 +38,12 @@ import { followNameFact } from './entity-name';
 import { UNKNOWN_START } from './event-time';
 import { stampExpectation } from './fact-expectation';
 import { PERSON_ENTITY_TYPES } from '../common/entity-types';
+import { acceptedBeforeForget, USER_FORGOTTEN } from '../common/user-tombstone';
+
+/** A write for a user forgotten after the work was accepted: nothing stored. */
+function forgottenOutcome(): ResolveOutcome {
+  return { outcome: 'REJECTED', factId: null, reason: USER_FORGOTTEN };
+}
 
 /**
  * V9 §1 — aspect classes for the derived-world lifecycle. The deriver's
@@ -190,7 +196,7 @@ export function conflictSlotSemantics(
  * doctrine). Keep this table SMALL and declared: every entry is a
  * deliberate ontology statement, not a similarity guess.
  */
-export const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
+const SLOT_CANONICAL_ALIASES: ReadonlyMap<string, string> = new Map([
   // "runs until December 2026" (a duration phrase → duration_limit,
   // append_only) vs "ends in September 2026" (a lifecycle claim →
   // status, single_active): same attribute, two slots (s07).
@@ -424,6 +430,11 @@ export class FactResolverService {
       supersedes?: string[] | undefined;
     },
   ): Promise<{ result: ResolveOutcome; semantics: string }> {
+    // The net under every fact write, jobs included: work accepted before
+    // the user's forget is rejected here (user-tombstone.ts).
+    if (await acceptedBeforeForget(db, p.companyId, p.userId)) {
+      return { result: forgottenOutcome(), semantics: 'append_only' };
+    }
     // Read policy from the per-tenant registry. Pre-warm the snapshot so the
     // cache is populated before the synchronous policyFor() lookup. Defensive:
     // a registry bootstrap failure must not 500 the ingest — policyFor falls
@@ -461,6 +472,23 @@ export class FactResolverService {
   ): Promise<Array<{ result: ResolveOutcome; semantics: string }>> {
     if (inputs.length === 0) return [];
     const firstCompanyId = inputs[0]!.companyId; // inputs non-empty (checked)
+    // Same net as resolve(); a batch is one mention, one user.
+    const forgotten = await Promise.all(
+      [...new Set(inputs.map((p) => p.userId))].map(
+        async (u) => [u, await acceptedBeforeForget(db, firstCompanyId, u)] as const,
+      ),
+    );
+    if (forgotten.some(([, gone]) => gone)) {
+      const gone = new Set(forgotten.filter(([, g]) => g).map(([u]) => u));
+      const kept = inputs.filter((p) => !gone.has(p.userId));
+      const keptOut = await this.resolveMany(db, kept);
+      let k = 0;
+      return inputs.map((p) =>
+        gone.has(p.userId)
+          ? { result: forgottenOutcome(), semantics: 'append_only' }
+          : keptOut[k++]!,
+      );
+    }
     try {
       await this.predicateRegistry.getSnapshot(firstCompanyId);
     } catch (e) {

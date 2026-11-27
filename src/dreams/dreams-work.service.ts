@@ -25,7 +25,7 @@ import {
 import { alreadyJudged, loadPairMemo, pairSignature, recordPairVerdict } from './pair-memo';
 
 /** Pairs per batch: one prompt, one reply, a handful of verdicts. */
-export const PAIRS_PER_BATCH = 10;
+const PAIRS_PER_BATCH = 10;
 
 /** What a submitted batch of verdicts did. */
 export interface PairsSubmitOutcome {
