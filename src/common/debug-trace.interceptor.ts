@@ -2,6 +2,7 @@ import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nes
 import type { Request, Response } from 'express';
 import { Observable, catchError, map, throwError } from 'rxjs';
 import { getDebugContext, type DebugTraceSnapshot } from './debug-trace-core';
+import { getRequestContext } from './request-context';
 import { TraceBufferService } from './trace-buffer.service';
 
 /**
@@ -45,6 +46,7 @@ export class DebugTraceInterceptor implements NestInterceptor {
       // when the request ends — no GET /admin/traces access exists for them.
       const isAdmin = !!auth?.scopes?.includes('brain:admin');
       if (!isAdmin) return null;
+      const userId = getRequestContext()?.authUserId;
       return {
         requestId: ctx.requestId,
         ts: new Date(ctx.startedAt).toISOString(),
@@ -53,6 +55,7 @@ export class DebugTraceInterceptor implements NestInterceptor {
         status: res.statusCode,
         durationMs: Date.now() - ctx.startedAt,
         companyId: auth?.companyId,
+        ...(userId ? { userId } : {}),
         spans: ctx.spans,
         artifacts: ctx.artifacts,
         ...(errored ? { errored } : {}),

@@ -49,6 +49,13 @@ export interface DebugTraceSnapshot {
   status: number;
   durationMs: number;
   companyId?: string | undefined;
+  /**
+   * The end user a user-bound token acted for. Such a trace is that
+   * user's: only a viewer bound to the same user sees it, a tenant-wide
+   * viewer does not (personal memory is never mixed into a tenant-wide
+   * read), and it is never persisted (debug_trace has no owner column).
+   */
+  userId?: string | undefined;
   spans: DebugSpan[];
   artifacts: DebugArtifact[];
   /** Set when the underlying handler threw. */

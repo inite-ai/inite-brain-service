@@ -449,6 +449,37 @@ the admin UI at brain-landing is the primary consumer):
 | Demo             | `POST /v1/admin/demo/*`, `GET /v1/admin/demo/state`                                                                                                                               | Sandboxed demo-tenant flows for the public playground.                                                                            |
 | Tenancy          | `DELETE /v1/admin/tenants/:companyId`                                                                                                                                             | Whole-tenant erasure (`REMOVE DATABASE`).                                                                                         |
 
+
+`brain:admin` does not imply `brain:read_pii`, and a user-bound key (an
+Auth token acting for one end user) never reads another end user's memory,
+on the admin surface as on every read:
+
+- **Dead letters** (`GET /v1/admin/dlq`, the overview's recent list): a
+  refused claim's value (`payload.object`) and its source evidence are
+  `[redacted]` (with `payload.redacted: true`) unless the caller passes the
+  predicate's registry row policy (`requiresScope`, then ABAC); a tenant-wide
+  key sees another user's personal row redacted. A user-bound key sees only
+  its own rows and tenant-global ones (owner = the user of the entity the
+  claim names, else of the document it came from; a row whose owner cannot be
+  determined is absent). `DELETE /v1/admin/dlq/:companyId/:id` acts on the
+  caller's own tenant only (403 otherwise) unless the caller is the platform
+  operator.
+- **Dreams**: `POST /v1/dreams/run` and `POST /v1/admin/dreams/run` answer
+  counts and ids; the facts' values (`winnerObject`, `loserObject`,
+  `incumbentObject`, `corroboratingObject`) are `[redacted]`. Emit rows are
+  stored without them; for older rows, `GET /v1/admin/dreams/runs/:runId/emits`
+  redacts a value the caller may not read and hides another user's emit from a
+  user-bound key.
+- **Debug traces** (`X-Brain-Debug: 1` → `__trace`, `GET /v1/admin/traces…`):
+  the search legs' artifacts carry ids, predicates and scores, never a fact's
+  value, an entity's name or a segment's text. A user-bound request's trace is
+  visible to that user only (not to a tenant-wide key) and is not persisted.
+- **Operator-only**: `GET /v1/admin/mri` (+`/operating-point`) is process-wide
+  telemetry and answers 404 unless the caller is the platform operator
+  (`brain:platform_admin` + `BRAIN_TENANT_OVERRIDE_ENABLED`).
+  `DELETE /v1/admin/tenants/:companyId` drops an `eval_*` tenant that is the
+  caller's own, or any `eval_*` tenant for the platform operator.
+
 ## MCP
 
 | Endpoint              | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |

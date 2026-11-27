@@ -149,7 +149,8 @@ export class RelearnFromRawService implements OnModuleInit {
     }
     traceArtifact('relearn.from_raw', { turns, facts });
     this.logger.log(
-      `[relearn] ${req.companyId}: ${turns} raw turn(s) read again for «${clip(req.question, 80)}» — ${facts} fact(s) committed`,
+      // Counts only: the question is the user's words (memory content).
+      `[relearn] ${req.companyId}: ${turns} raw turn(s) read again — ${facts} fact(s) committed`,
     );
     return { turns, facts };
   }

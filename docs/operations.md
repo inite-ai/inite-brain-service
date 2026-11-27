@@ -542,7 +542,10 @@ operator can expect.
   The compose monitoring stack discovers containers by label, so a scaled
   service is picked up as long as every replica carries the label.
 - **`DEBUG_TRACE_PERSIST=1`** if operators must see traces from every
-  replica on the admin traces page.
+  replica on the admin traces page. A trace of a request made with a
+  user-bound token is that end user's: it stays in the replica's memory
+  (never written to `debug_trace`) and only a key bound to the same user
+  sees it.
 
 ## Second SurrealDB node
 

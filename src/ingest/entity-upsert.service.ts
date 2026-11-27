@@ -933,9 +933,7 @@ export class EntityUpsertService {
       if (isCodeSymbolShaped(target)) return await this.reusePathEntityForSymbol(db, target);
       return null;
     } catch (err) {
-      this.logger.warn(
-        `[ingest.code_alias] resolution failed for "${e.name}": ${(err as Error).message}`,
-      );
+      this.logger.warn(`[ingest.code_alias] resolution failed: ${(err as Error).message}`);
       return null;
     }
   }
@@ -1040,9 +1038,7 @@ export class EntityUpsertService {
         refId: hint.id,
       });
     } catch (err) {
-      this.logger.warn(
-        `[ingest.participant] naming ${entityId} "${name}" failed: ${(err as Error).message}`,
-      );
+      this.logger.warn(`[ingest.participant] naming ${entityId} failed: ${(err as Error).message}`);
     }
   }
 
@@ -1123,7 +1119,7 @@ export class EntityUpsertService {
       };
     } catch (err) {
       this.logger.warn(
-        `[ingest.name_embedding] entity "${name}" created without one: ${(err as Error).message}`,
+        `[ingest.name_embedding] entity created without one: ${(err as Error).message}`,
       );
       return {};
     }
@@ -1144,11 +1140,12 @@ export class EntityUpsertService {
     if (!envFlagNotDisabled(process.env.INGEST_CONFUSABLES_CHECK)) return;
     const risk = analyzeConfusables(name);
     if (!risk.flagged) return;
+    // The name and its skeleton are a person's or a thing's name (memory
+    // content, ground rule 6): the signal is logged, the text is not.
     this.logger.warn(
-      `[ingest.confusables] entity name "${name}" is a homoglyph risk ` +
-        `(skeleton="${risk.skeleton}", mixedScript=${risk.mixedScript}, ` +
-        `hasConfusables=${risk.hasConfusables}) — flagged for review; ` +
-        'resolution NOT blocked',
+      `[ingest.confusables] an entity name is a homoglyph risk ` +
+        `(mixedScript=${risk.mixedScript}, hasConfusables=${risk.hasConfusables}) — ` +
+        'flagged for review; resolution NOT blocked',
     );
   }
 
