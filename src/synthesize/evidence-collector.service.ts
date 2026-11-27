@@ -567,6 +567,7 @@ export class EvidenceCollectorService {
     lane: LaneId | null;
     companyId: string;
     userId?: string | undefined;
+    callerScopes: string[];
   }): Promise<string[]> {
     if (!opts.profile.digestEvidence || !this.digestLane) return [];
     if (
@@ -582,7 +583,11 @@ export class EvidenceCollectorService {
     // in SQL, so a user-scoped request reads only purely tenant-global
     // digests and its own single-user digests.
     return this.digestLane
-      .digestLines({ companyId: opts.companyId, userId: opts.userId })
+      .digestLines({
+        companyId: opts.companyId,
+        userId: opts.userId,
+        includePii: opts.callerScopes.includes('brain:read_pii'),
+      })
       .then((v) => v ?? []);
   }
 

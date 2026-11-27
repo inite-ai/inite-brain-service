@@ -8,6 +8,7 @@
 import { DigestLaneService } from '../src/synthesize/digest-lane.service';
 import { EvidenceCollectorService } from '../src/synthesize/evidence-collector.service';
 import type { SurrealService } from '../src/db/surreal.service';
+import { runWithRequestContext } from '../src/common/request-context';
 import type { SearchService } from '../src/search/search.service';
 import {
   resolveRetrievalProfile,
@@ -23,6 +24,8 @@ function makeLane(
       fn({
         query: async (sql: string, params?: Record<string, unknown>) => {
           capture?.push({ sql, params });
+          // The PII screen's per-conversation probes: none hold PII here.
+          if (sql.includes('FROM episode')) return Object.keys(params ?? {}).map(() => []);
           return [rows];
         },
       }),
@@ -105,6 +108,7 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
         fn({
           query: async (sql: string, params?: Record<string, unknown>) => {
             capture.push({ sql, params });
+            if (sql.includes('FROM episode')) return Object.keys(params ?? {}).map(() => []);
             const gated = sql.includes('userScopes');
             const u = params?.digestUserId as string | undefined;
             const out = ROWS.filter((r) => {
@@ -121,20 +125,24 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
 
   const summaries = (lines: string[]) => lines.map((l) => l.split('\n')[1]);
 
-  it('tenant-global caller (no userId) sees every digest, no user gate', async () => {
+  it('tenant-global caller (no userId) sees tenant-global digests only, never a personal one', async () => {
     const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
     const lines = await makePolicyLane(capture).digestLines({
       companyId: 'c1',
     });
-    expect(summaries(lines)).toEqual([
-      'GLOBAL-NONE',
-      'GLOBAL-EMPTY',
-      'OWN-B',
-      'OTHER-A',
-      'MIXED-AB',
-    ]);
-    expect(capture[0]!.sql).not.toContain('userScopes');
+    expect(summaries(lines)).toEqual(['GLOBAL-NONE', 'GLOBAL-EMPTY']);
+    expect(capture[0]!.sql).toContain('userScopes IS NONE OR array::len(userScopes) = 0');
+    expect(capture[0]!.sql).not.toContain('$digestUserId');
     expect(capture[0]!.params).not.toHaveProperty('digestUserId');
+  });
+
+  it('a user-bound token with no asserted userId is pinned to its own user', async () => {
+    const capture: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
+    const lines = await runWithRequestContext({ correlationId: 'c', authUserId: 'user-b' }, () =>
+      makePolicyLane(capture).digestLines({ companyId: 'c1' }),
+    );
+    expect(summaries(lines)).toEqual(['GLOBAL-NONE', 'GLOBAL-EMPTY', 'OWN-B']);
+    expect(capture[0]!.params).toMatchObject({ digestUserId: 'user-b' });
   });
 
   it('user-scoped caller sees global + own only; other-user and mixed-scope excluded', async () => {
@@ -149,6 +157,40 @@ describe('digest user-scope policy (0087, V11 item 10)', () => {
     expect(capture[0]!.sql).toContain('array::len(userScopes) = 0');
     expect(capture[0]!.sql).toContain('userScopes = [$digestUserId]');
     expect(capture[0]!.params).toMatchObject({ digestUserId: 'user-b' });
+  });
+});
+
+describe('digest PII screen', () => {
+  const ROWS = [
+    { summary: 'CLEAN', lastEventAt: '2026-03-15T18:00:00Z', conversationId: 'conv-clean' },
+    { summary: 'HAS-PII', lastEventAt: '2026-03-14T18:00:00Z', conversationId: 'conv-pii' },
+  ];
+  function lane(capture: string[]): DigestLaneService {
+    return new DigestLaneService({
+      withCompany: async (_c: string, fn: (db: unknown) => Promise<unknown>) =>
+        fn({
+          query: async (sql: string, params?: Record<string, unknown>) => {
+            capture.push(sql);
+            if (!sql.includes('FROM episode')) return [ROWS];
+            // One result per probe; the PII conversation has a PII-classed turn.
+            return Object.values(params ?? {}).map((c) => (c === 'conv-pii' ? ['episode:e1'] : []));
+          },
+        }),
+    } as unknown as SurrealService);
+  }
+
+  it('without read_pii, a digest of a conversation with PII-classed turns is not served', async () => {
+    const capture: string[] = [];
+    const lines = await lane(capture).digestLines({ companyId: 'c1' });
+    expect(lines.map((l) => l.split('\n')[1])).toEqual(['CLEAN']);
+    expect(capture[1]).toContain('piiClass IS NOT NONE');
+  });
+
+  it('with read_pii, every digest is served and no probe runs', async () => {
+    const capture: string[] = [];
+    const lines = await lane(capture).digestLines({ companyId: 'c1', includePii: true });
+    expect(lines.map((l) => l.split('\n')[1])).toEqual(['CLEAN', 'HAS-PII']);
+    expect(capture).toHaveLength(1);
   });
 });
 
