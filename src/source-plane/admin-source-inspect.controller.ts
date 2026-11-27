@@ -64,12 +64,21 @@ export class AdminSourceInspectController {
     return this.history.list(req.brainAuth.companyId, connectionId, Number(limit ?? 20) || 20);
   }
 
+  /**
+   * The drawer reads memory content, so it carries the documented read
+   * fences (see SourceInspectService): `userId` names the end user whose
+   * personal rows may show (a user-bound token is pinned to its own; no
+   * userId = tenant-global only), and brain:read_pii — not brain:admin —
+   * is what lets PII-classed turns and scope-fenced facts through.
+   */
+  // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id/items/:itemId')
   @RequireScopes('brain:admin')
   async item(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Param('itemId') itemId: string,
+    @Query('userId') userId?: string,
   ): Promise<SourceItemInspectResponse> {
     assertEnabled();
     const connectionId = assertId(id);
@@ -78,6 +87,8 @@ export class AdminSourceInspectController {
     return this.inspect.item(req.brainAuth.companyId, {
       connectionId,
       itemId: itemId.startsWith('source_item:') ? itemId : `source_item:${itemId}`,
+      userId: userId === undefined || userId === '' ? undefined : userId,
+      scopes: req.brainAuth.scopes,
     });
   }
 }

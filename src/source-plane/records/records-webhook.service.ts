@@ -73,7 +73,7 @@ export class RecordsWebhookService {
     p: { connectionId: string; secret?: string | undefined; baseUrl: string },
   ): Promise<WebhookSetupResponse> {
     this.assertEnabled();
-    const row = await this.connections.load(companyId, p.connectionId);
+    const row = await this.connections.loadForCaller(companyId, p.connectionId);
     const connector = this.connections.resolveConnector(row);
     const scheme = schemeOf(connector);
     if (!scheme) {
@@ -99,7 +99,7 @@ export class RecordsWebhookService {
 
   async disable(companyId: string, connectionId: string): Promise<void> {
     this.assertEnabled();
-    await this.connections.load(companyId, connectionId);
+    await this.connections.loadForCaller(companyId, connectionId);
     await this.connections.setWebhookSecret(companyId, connectionId, null);
   }
 

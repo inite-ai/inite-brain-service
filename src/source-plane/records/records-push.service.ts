@@ -41,7 +41,7 @@ export class RecordsPushService {
     companyId: string,
     p: { connectionId: string; body: PushRecordsRequest; actor: string },
   ): Promise<PushRecordsResponse> {
-    const row = await this.connections.load(companyId, p.connectionId);
+    const row = await this.connections.loadForCaller(companyId, p.connectionId);
     if (row.shape !== 'structure') {
       throw new BadRequestException(
         `connection ${p.connectionId} takes ${row.shape}-shaped items, not records`,
