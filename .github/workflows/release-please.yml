@@ -72,3 +72,12 @@ jobs:
     permissions:
       contents: read
       actions: read
+
+  # The landing (brain.inite.ai) moves on the same release, not on a push.
+  deploy-landing:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/deploy-brain-landing.yml
+    secrets: inherit
+    permissions:
+      contents: read
