@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.12.1](https://github.com/inite-ai/inite-brain-service/compare/v2.12.0...v2.12.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **admin:** operator surfaces stop returning memory content past the PII and user fences ([#988](https://github.com/inite-ai/inite-brain-service/issues/988)) ([6e0982a](https://github.com/inite-ai/inite-brain-service/commit/6e0982a8b50022269d4baef05e5ea4487081e8d2))
+* **read:** beliefs, scenes, entities, summaries, diffs, composers and links keep personal memory personal ([#989](https://github.com/inite-ai/inite-brain-service/issues/989)) ([af03b0c](https://github.com/inite-ai/inite-brain-service/commit/af03b0c23065846583c9f601c8177bed8cf8cd0c))
+
 ## [2.12.0](https://github.com/inite-ai/inite-brain-service/compare/v2.11.0...v2.12.0) (2026-11-28)
 
 
