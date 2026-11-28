@@ -13,7 +13,12 @@ import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { ForgetEntityDto } from './dto/forget.dto';
 import { BrainScope } from '../auth/api-key.types';
 import { EntityForgetService } from './entity-forget.service';
-import { normalizeEntityId, blockedPredicates, activeFactWhere } from './entity-read.helpers';
+import {
+  normalizeEntityId,
+  blockedPredicates,
+  activeFactWhere,
+  entityRowVisible,
+} from './entity-read.helpers';
 import { makeRowPolicyFilter, PolicyFilterableRow } from '../policy/row-filter';
 import { readSurfaceUserScopeEnabled } from '../common/read-scope-flags';
 import { pinUserScope, userReadFence } from '../auth/user-scope';
@@ -195,6 +200,8 @@ interface EntityProfileRow {
   externalRefs?: Record<string, string>;
   mergedAt?: string | Date;
   mergedInto?: unknown;
+  userId?: unknown;
+  scope?: unknown;
 }
 
 interface FactProfileRow extends PolicyFilterableRow {
@@ -316,11 +323,12 @@ export class EntitiesService {
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const entity = await queryFirst<EntityProfileRow>(
         db,
-        `SELECT ${ENTITY_PROFILE_FIELDS}
+        `SELECT ${ENTITY_PROFILE_FIELDS}, userId, scope
          FROM type::record('knowledge_entity', $rid) LIMIT 1`,
         { rid: ref.id },
       );
-      if (!entity) {
+      // Another user's personal entity is absent, not forbidden.
+      if (!entity || !entityRowVisible(entity, user.userId)) {
         throw new NotFoundException(`Entity ${entityIdRaw} not found`);
       }
 
@@ -404,13 +412,17 @@ export class EntitiesService {
     // stable storage contract.
     const safe = (s: string) => s.replace(/\./g, '__');
     const key = `${safe(vertical)}__${safe(id)}`;
+    const reader = userReadFence(userId).userId;
     const entityId = await this.surreal.withScopedCompany(companyId, scopes, async (db) => {
-      const rows = await queryRows<unknown>(
+      const rows = await queryRows<{ entity?: unknown; userId?: unknown; scope?: unknown }>(
         db,
-        `SELECT VALUE entity FROM entity_external_ref WHERE key = $key LIMIT 1`,
+        `SELECT entity, entity.userId AS userId, entity.scope AS scope
+           FROM entity_external_ref WHERE key = $key LIMIT 1`,
         { key },
       );
-      return rows[0] ? String(rows[0]) : null;
+      // Another user's personal entity answers as "no entity carries that ref".
+      const row = rows[0];
+      return row?.entity && entityRowVisible(row, reader) ? String(row.entity) : null;
     });
     if (!entityId) return null;
     return this.getProfile({ companyId, entityIdRaw: entityId, asOfRaw, userId, scopes });
@@ -680,11 +692,15 @@ export class EntitiesService {
 
       // The name a scene's state deltas use for this entity (the text
       // timeline keeps only this entity's changes from a shared scene).
-      const [names] = await db.query<[string[]]>(
-        `SELECT VALUE canonicalName FROM type::record('knowledge_entity', $rid)`,
-        { rid: ref.id },
-      );
-      const canonicalName = names?.[0];
+      // Not another user's personal entity's name, though.
+      const [names] = await db.query<
+        [Array<{ canonicalName?: string; userId?: unknown; scope?: unknown }>]
+      >(`SELECT canonicalName, userId, scope FROM type::record('knowledge_entity', $rid)`, {
+        rid: ref.id,
+      });
+      const named = names?.[0];
+      const canonicalName =
+        named && entityRowVisible(named, scopeUserId) ? named.canonicalName : undefined;
       return { entityId: ref.full, ...(canonicalName ? { canonicalName } : {}), events };
     });
   }
@@ -836,6 +852,8 @@ export class EntitiesService {
       Math.max(Math.trunc(limit ?? AUTOCOMPLETE_DEFAULT_LIMIT), 1),
       AUTOCOMPLETE_MAX_LIMIT,
     );
+    // The scope-tag fence: a circle's or a group's entity names only for it.
+    const tags = scopeFenceSql(undefined, 'acScopeTag');
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const [rows] = await db.query<
         [Array<{ id: unknown; type: string; canonicalName: string; score: number }>]
@@ -845,9 +863,10 @@ export class EntitiesService {
           WHERE mergedInto IS NONE
             AND userId IS NONE
             AND canonicalNameLc @1@ $q
+            ${tags.clause}
           ORDER BY score DESC
           LIMIT $lim`,
-        { q: term, lim },
+        { q: term, lim, ...tags.params },
       );
       return {
         suggestions: (

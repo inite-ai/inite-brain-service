@@ -154,14 +154,20 @@ export class ScenesService {
     scopes: readonly BrainScope[];
   }): Promise<SceneReadResult> {
     const scopeUserId = pinUserScope(undefined);
+    // The scope-tag fence the list applies (a circle's or a group's scene
+    // only for that circle or group); before, a scene id read past it.
+    const scope = scopeFenceSql(scopeUserId);
+    const where = [piiFence(opts.scopes), scope.clause.replace(/^AND /u, '')].filter(
+      (c): c is string => c !== null && c !== '',
+    );
     return this.surreal.withScopedCompany(opts.companyId, opts.scopes, async (db) => {
       const rows = await queryRows<SceneReadRow>(
         db,
         `SELECT ${SELECT_COLUMNS}
            FROM type::record('memory_episode', $rid)
-          WHERE ${piiFence(opts.scopes) ?? 'true'}
+          WHERE ${where.length > 0 ? where.join(' AND ') : 'true'}
           LIMIT 1`,
-        { rid: tailOf(opts.sceneId, 'memory_episode') },
+        { rid: tailOf(opts.sceneId, 'memory_episode'), ...scope.params },
       );
       const scene = rows[0];
       if (!scene || !sceneVisible(scene, scopeUserId)) {

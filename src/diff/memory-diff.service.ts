@@ -228,12 +228,16 @@ export class MemoryDiffService {
       );
       const replacementMap = new Map<string, FactRef>();
       if (replacementIds.length > 0) {
+        // The replacement is read by id, so it needs the user (and
+        // scope-tag) fence spelled out: a tenant-global fact superseded
+        // by another user's personal fact must not hand over that fact.
+        const replacementFence = userReadFence(args.userId);
         const afterRows = await queryRows<FactRow>(
           db,
           `SELECT ${FACT_FIELDS}
              FROM knowledge_fact
-             WHERE id INSIDE $ids`,
-          { ids: replacementIds.map((id) => new StringRecordId(id)) },
+             WHERE id INSIDE $ids AND ${replacementFence.clause}`,
+          { ids: replacementIds.map((id) => new StringRecordId(id)), ...replacementFence.params },
         );
         for (const r of afterRows) {
           if (rowFilter.filter(r)) {

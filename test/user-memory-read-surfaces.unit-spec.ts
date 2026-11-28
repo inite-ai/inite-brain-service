@@ -87,7 +87,9 @@ describe('a user-bound token reads its own memory on every entity surface', () =
 
   it('`why` resolves the anchor and reads the same slice', async () => {
     const { surreal, captured } = fakeDb((sql) =>
-      sql.includes('FROM entity_external_ref') ? ['knowledge_entity:e1'] : entityRows(sql),
+      sql.includes('FROM entity_external_ref')
+        ? [{ entity: 'knowledge_entity:e1' }]
+        : entityRows(sql),
     );
     const svc = new EntitiesService(surreal, undefined as never);
     await asUser(() =>
@@ -143,6 +145,54 @@ describe('memory_diff for a user-bound token', () => {
     expect(out.newEntities[0]!.createdAt).toBe('2026-09-24T17:00:00.000Z');
   });
 
+  it('the superseding fact read by id carries the user fence', async () => {
+    const { surreal, captured } = fakeDb((sql) => {
+      if (sql.includes('WHERE retractedAt >= $from'))
+        return [
+          {
+            id: 'knowledge_fact:old',
+            entityId: 'knowledge_entity:e1',
+            predicate: 'model',
+            object: 'gpt-5',
+            confidence: 0.9,
+            validFrom: at,
+            recordedAt: at,
+            retractedAt: at,
+            supersededBy: 'knowledge_fact:new',
+          },
+        ];
+      return [];
+    });
+    // An M2M caller naming no user: the replacement must be tenant-global.
+    const out = await new MemoryDiffService(surreal).diff('co', window, scopes);
+    expect(out.changedFacts).toHaveLength(1);
+    const byId = captured.find((q) => q.sql.includes('WHERE id INSIDE $ids'))!;
+    expect(byId.sql).toContain('AND userId IS NONE');
+    expect(byId.params).not.toHaveProperty('scopeUserId');
+    // A user-bound token: global + its own.
+    const user = fakeDb((sql) =>
+      sql.includes('WHERE retractedAt >= $from')
+        ? [
+            {
+              id: 'knowledge_fact:old',
+              entityId: 'knowledge_entity:e1',
+              predicate: 'model',
+              object: 'x',
+              confidence: 0.9,
+              validFrom: at,
+              recordedAt: at,
+              retractedAt: at,
+              supersededBy: 'knowledge_fact:new',
+            },
+          ]
+        : [],
+    );
+    await asUser(() => new MemoryDiffService(user.surreal).diff('co', window, scopes));
+    const userById = user.captured.find((q) => q.sql.includes('WHERE id INSIDE $ids'))!;
+    expect(userById.sql).toContain('(userId IS NONE OR userId = $scopeUserId)');
+    expect(userById.params.scopeUserId).toBe('user-42');
+  });
+
   it('rejects another user’s window', async () => {
     const { surreal } = fakeDb();
     await asUser(async () => {
@@ -176,5 +226,32 @@ describe('summarize_entity never serves one user’s summary to another', () => 
     );
     await svc.summarize('co', { entityId: 'e1' }, scopes);
     expect(profiles).toEqual(['user-42', 'user-7', undefined]);
+  });
+
+  it('keys its cache by the circle the credential acts in', async () => {
+    let builds = 0;
+    const entities = {
+      freshnessWatermark: async () => ({ maxRecordedAt: null, maxValidFrom: null }),
+      getProfile: async () => {
+        builds += 1;
+        return {
+          entityId: 'knowledge_entity:e1',
+          canonicalName: 'brain',
+          type: 'project',
+          externalRefs: {},
+          facts: [],
+        };
+      },
+    } as unknown as EntitiesService;
+    const svc = new SummarizeEntityService(entities);
+    const inCircle = (circle: string) =>
+      runWithRequestContext({ correlationId: 't', actingCircle: circle }, () =>
+        svc.summarize('co', { entityId: 'e1' }, scopes),
+      );
+    await inCircle('family');
+    expect((await inCircle('family')).cached).toBe(true);
+    expect((await inCircle('work')).cached).toBe(false);
+    expect((await svc.summarize('co', { entityId: 'e1' }, scopes)).cached).toBe(false);
+    expect(builds).toBe(3);
   });
 });

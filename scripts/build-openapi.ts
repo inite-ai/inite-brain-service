@@ -2802,7 +2802,9 @@ function memoryReadPaths(): Json {
           'from enriched scenes), filtered by exact subject/field key, ' +
           'lifecycle status (default active) and user scope. A ' +
           'user-bound token is pinned to its own user (userId mismatch ' +
-          'is 403); M2M keys may scope to any user or list tenant-wide. ' +
+          'is 403); M2M keys may scope to any user. Beliefs are always ' +
+          'personal, so a request naming no user (an M2M key without ' +
+          '`userId`) lists none. ' +
           'Page capped at 100 (default 25). On by default; ' +
           'BELIEFS_API_ENABLED=0 makes it a 404. Source: ' +
           'src/beliefs/beliefs.controller.ts.',
