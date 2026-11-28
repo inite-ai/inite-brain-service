@@ -168,7 +168,8 @@ export class MemoryContextService {
         });
         traceArtifact('extractor.memory_context', {
           recentTurns: ctx.recentTurns.length,
-          entities: ctx.entities.map((e) => `${e.handle}:${e.name}`),
+          // Handles only: the names are memory content (trace reaches the caller).
+          entities: ctx.entities.map((e) => e.handle),
           facts: ctx.facts.length,
           predicates: ctx.predicates.length,
         });

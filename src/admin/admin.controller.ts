@@ -12,9 +12,11 @@ import {
 } from '@nestjs/common';
 import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
+import { platformTenantCapable } from '../auth/tenant-scope';
 import { AdminService } from './admin.service';
 import { DreamsService } from '../dreams/dreams.service';
 import { RunDreamsDto } from '../dreams/dto/run-dreams.dto';
+import { redactDreamRunStats } from '../dreams/dream-emit-fence';
 import { ChatRouterCacheService } from './chat-router-cache.service';
 import { CollapsePatternService } from './collapse-pattern.service';
 import { IntentClassifierService } from './intent-classifier.service';
@@ -142,10 +144,14 @@ export class AdminController {
     @Req() req: AuthenticatedRequest,
     @Body() body: RunDreamsDto,
   ): Promise<DreamsRunResponse> {
-    return (await this.dreams.runForTenant(
-      req.brainAuth.companyId,
-      body.operations ?? ['dedup', 'resolve'],
-    )) satisfies DreamsRunResponse;
+    // Counts and ids only: the facts' values a run touched are memory
+    // content of any user and predicate (dream-emit-fence.ts).
+    return redactDreamRunStats(
+      await this.dreams.runForTenant(
+        req.brainAuth.companyId,
+        body.operations ?? ['dedup', 'resolve'],
+      ),
+    ) satisfies DreamsRunResponse;
   }
 
   /**
@@ -284,9 +290,22 @@ export class AdminController {
     } satisfies CalibrationResponse;
   }
 
+  /**
+   * Drop an ephemeral eval tenant. Two fences, both required: the target
+   * is an `eval_*` tenant (never a real `co_<companyId>` database), and it
+   * is the caller's own tenant unless the caller is the platform operator
+   * (brain:platform_admin + the cross-tenant gate). Before the second one,
+   * any tenant's brain:admin could drop any other eval tenant by naming it.
+   */
   @Delete('tenants/:companyId')
   @RequireScopes('brain:admin')
-  async dropTenant(@Param('companyId') companyId: string): Promise<DropTenantResponse> {
+  async dropTenant(
+    @Req() req: AuthenticatedRequest,
+    @Param('companyId') companyId: string,
+  ): Promise<DropTenantResponse> {
+    if (companyId !== req.brainAuth.companyId && !platformTenantCapable(req.brainAuth.scopes)) {
+      throw new ForbiddenException('another workspace’s eval tenant is the platform operator’s');
+    }
     if (!companyId.startsWith('eval_')) {
       throw new ForbiddenException(`Only ephemeral eval_* tenants can be dropped via admin API`);
     }

@@ -240,7 +240,8 @@ export class DreamsCorroborateService {
         if (verdict === 'unsure') {
           result.unsurePairs++;
           this.logger.warn(
-            `[dreams.corroborate] unsure: entity=${String(pair.incumbent.entityId)} predicate=${pair.incumbent.predicate} a='${pair.incumbent.object}' vs b='${pair.younger.object}'`,
+            // Ids only: the two values are memory content.
+            `[dreams.corroborate] unsure: entity=${String(pair.incumbent.entityId)} predicate=${pair.incumbent.predicate} a=${String(pair.incumbent.id)} b=${String(pair.younger.id)}`,
           );
           continue;
         }

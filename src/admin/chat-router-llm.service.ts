@@ -100,7 +100,7 @@ message: ${message}`;
       return { kind: 'parsed', parsed };
     } catch (e) {
       this.logger.warn(
-        `chat router parse failed: ${(e as Error).message}; raw="${content.slice(0, 200)}"`,
+        `chat router parse failed: ${(e as Error).message} (raw output ${content.length} chars)`,
       );
       return { kind: 'parse_error', message: (e as Error).message };
     }

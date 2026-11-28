@@ -4,6 +4,7 @@ import { ApiKeyGuard, RequireScopes } from '../auth/api-key.guard';
 import { PolicyAction } from '../policy/action-registry';
 import { AuthenticatedRequest } from '../auth/api-key.types';
 import { DreamsService } from './dreams.service';
+import { redactDreamRunStats } from './dream-emit-fence';
 import { RunDreamsDto } from './dto/run-dreams.dto';
 
 /**
@@ -28,9 +29,13 @@ export class DreamsController {
   // the shared OpenAI budget; hard-cap manual triggers to 3/min.
   @Throttle({ expensive: { limit: 3, ttl: 60_000 } })
   async run(@Req() req: AuthenticatedRequest, @Body() body: RunDreamsDto) {
-    return this.dreams.runForTenant(
-      req.brainAuth.companyId,
-      body.operations ?? ['dedup', 'resolve'],
+    // Counts and ids only: the facts' values a run touched are memory
+    // content of any user and predicate (dream-emit-fence.ts).
+    return redactDreamRunStats(
+      await this.dreams.runForTenant(
+        req.brainAuth.companyId,
+        body.operations ?? ['dedup', 'resolve'],
+      ),
     );
   }
 }

@@ -129,14 +129,12 @@ export class EntityResolverService {
         }
       }
       if (asked.size === 0) {
-        this.logger.debug(`[ingest.inline_resolution] no candidate for "${name}" (${type})`);
+        this.logger.debug(`[ingest.inline_resolution] no candidate (${type})`);
       }
       return null;
     } catch (err) {
       // Never block ingest — fall back to "create new".
-      this.logger.warn(
-        `[ingest.inline_resolution] failed for "${name}": ${(err as Error).message}`,
-      );
+      this.logger.warn(`[ingest.inline_resolution] failed (${type}): ${(err as Error).message}`);
       return null;
     }
   }
@@ -162,26 +160,28 @@ export class EntityResolverService {
       similarity: judgeSimilarity(candidate.matchKind),
       names: { a: candidate.canonicalName, b: name },
     });
-    // The whole question and the whole answer, on the trace: which
-    // candidate, found how, what each side's evidence was, and what the
-    // judge said. The span around the LLM call carries none of this.
+    // The question and the answer, on the trace: which candidate, found
+    // how, the caller's own evidence, and what the judge said. The
+    // candidate's side is memory the caller may not read (any user, any
+    // predicate, before any read fence) and the trace reaches the caller
+    // as __trace and the tenant's trace buffer: its id and the size of
+    // its evidence, never its name or facts.
     traceArtifact('ingest.entity.judge', {
       name,
       type,
       candidate: {
         entityId: candidate.entityId,
-        canonicalName: candidate.canonicalName,
         matchKind: candidate.matchKind,
         cosine: candidate.cosine,
       },
-      existingFacts,
+      existingFactLines: lineCount(existingFacts),
       incoming,
       verdict,
       decision: verdict === 'same' ? 'reuse' : 'reject',
     });
     if (verdict === 'same') {
       this.logger.log(
-        `[ingest.inline_resolution] reused ${candidate.entityId} for "${name}" ` +
+        `[ingest.inline_resolution] reused ${candidate.entityId} ` +
           `(cos=${candidate.cosine.toFixed(3)})`,
       );
       return candidate.entityId;
@@ -189,7 +189,7 @@ export class EntityResolverService {
     // Logged, because a silent null here is indistinguishable from "no
     // candidate" and that is the question every linking miss asks first.
     this.logger.log(
-      `[ingest.inline_resolution] judge said ${verdict} for "${name}" vs ` +
+      `[ingest.inline_resolution] judge said ${verdict} vs ` +
         `${candidate.entityId} (${candidate.matchKind}=${candidate.cosine.toFixed(3)})`,
     );
     return null;
@@ -262,10 +262,11 @@ export class EntityResolverService {
       const evidence: IdentityMatch =
         verdict === 'unsure' && !empty ? await check(c.entityId) : 'unrelated';
       const contradicted = evidence === 'contradicts';
+      // The candidate's side as an id and a size (see ingest.entity.judge).
       traceArtifact('ingest.entity.same_name', {
         name,
-        candidate: { entityId: c.entityId, canonicalName: c.canonicalName },
-        existingFacts,
+        candidate: { entityId: c.entityId },
+        existingFactLines: empty ? 0 : lineCount(existingFacts),
         incoming,
         verdict,
         contradicted,
@@ -363,4 +364,9 @@ export class EntityResolverService {
       }
     };
   }
+}
+
+/** Lines of a rendered fact list — the trace's measure of the candidate's evidence. */
+function lineCount(text: string): number {
+  return text.split('\n').filter((l) => l.trim().length > 0).length;
 }
