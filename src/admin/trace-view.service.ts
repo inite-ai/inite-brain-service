@@ -4,7 +4,12 @@ import { filter } from 'rxjs/operators';
 import type { Surreal } from 'surrealdb';
 import { LRUCache } from '../common/lru-cache';
 import type { DebugTraceSnapshot } from '../common/debug-trace-core';
-import { TraceBufferService, type TraceListItem } from '../common/trace-buffer.service';
+import {
+  TraceBufferService,
+  traceVisibleTo,
+  type TraceListItem,
+  type TraceViewer,
+} from '../common/trace-buffer.service';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { anchorAt, pollingObservable, type PollPage } from './db-poll-stream';
 
@@ -51,18 +56,25 @@ export class TraceViewService {
     @Optional() private readonly surreal?: SurrealService,
   ) {}
 
-  list(companyId: string): TraceListItem[] {
-    return this.traces.list(companyId);
+  list(companyId: string, viewer: TraceViewer = {}): TraceListItem[] {
+    return this.traces.list(companyId, viewer);
   }
 
-  get(requestId: string, companyId: string): Promise<DebugTraceSnapshot | undefined> {
-    return this.traces.get(requestId, companyId);
+  get(
+    requestId: string,
+    companyId: string,
+    viewer: TraceViewer = {},
+  ): Promise<DebugTraceSnapshot | undefined> {
+    return this.traces.get(requestId, companyId, viewer);
   }
 
-  observe(companyId: string): Observable<TraceListItem> {
-    const local = this.traces.observe().pipe(filter((t) => t.companyId === companyId));
+  observe(companyId: string, viewer: TraceViewer = {}): Observable<TraceListItem> {
+    const local = this.traces
+      .observe()
+      .pipe(filter((t) => t.companyId === companyId && traceVisibleTo(t, viewer)));
     const surreal = this.surreal;
-    if (!surreal || !this.traces.persistsToDb()) return local;
+    // Persisted traces are tenant-wide requests' only (TraceBufferService.add).
+    if (!surreal || !this.traces.persistsToDb() || viewer.userId) return local;
     let floor: Date | undefined;
     const polled = pollingObservable<TraceListItem, Date>({
       intervalMs: TRACE_STREAM_POLL_MS,

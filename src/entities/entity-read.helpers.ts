@@ -11,6 +11,7 @@
  */
 import { PREDICATE_POLICIES } from '../ingest/conflict-resolver';
 import { BrainScope } from '../auth/api-key.types';
+import { principalScopeTags, scopeFenceActive, visibleUnderScope } from '../auth/scope-visibility';
 
 /**
  * Split a raw entity reference into the bare record id and the full
@@ -136,4 +137,23 @@ export function activeFactWhere(
     ],
     params: {},
   };
+}
+
+/**
+ * Whether the entity ROW itself (its name, type, externalRefs) is visible
+ * to the reader the userId fence resolved: a personal entity (userId
+ * set, migration 0055) only to that user, and — with the scope-tag fence
+ * on — a scope-tagged entity only to a principal holding its tags. The
+ * fact fences already kept another user's facts out of the profile and
+ * timeline; the entity row read by id did not, so another user's
+ * personal entity answered with its name and externalRefs.
+ */
+export function entityRowVisible(
+  entity: { userId?: unknown; scope?: unknown },
+  readerUserId: string | undefined,
+): boolean {
+  const owner = typeof entity.userId === 'string' && entity.userId !== '' ? entity.userId : null;
+  if (owner !== null && owner !== readerUserId) return false;
+  if (!scopeFenceActive() || !Array.isArray(entity.scope)) return true;
+  return visibleUnderScope(entity.scope.map(String), principalScopeTags());
 }

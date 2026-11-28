@@ -211,28 +211,30 @@ describe('beliefs read API (e2e)', () => {
     expect((await f.http.get('/v1/beliefs/b_corrupt').set(m2m())).status).toBe(404);
   });
 
-  it('list (M2M, defaults): active rows only, corrupt row never serves', async () => {
+  it('list (M2M, no userId): beliefs are personal, so none are listed', async () => {
     const res = await f.http.get('/v1/beliefs').set(m2m());
     expect(res.status).toBe(200);
     expect(BeliefsListResponseSchema.safeParse(res.body).success).toBe(true);
+    expect(res.body).toEqual({ beliefs: [], found: 0 });
+  });
+
+  it('list (M2M, one user, defaults): active rows only, corrupt row never serves', async () => {
+    const res = await f.http.get(`/v1/beliefs?userId=${USER}`).set(m2m());
+    expect(res.status).toBe(200);
     const ids = res.body.beliefs.map((b: { beliefId: string }) => b.beliefId);
-    // Deterministic order: userId ASC, subject ASC, field ASC, rev DESC.
-    expect(ids).toEqual([
-      'semantic_belief:b_coffee',
-      'semantic_belief:b_city_r2',
-      'semantic_belief:b_other',
-    ]);
-    expect(res.body.found).toBe(3);
+    // Deterministic order: subject ASC, field ASC, rev DESC.
+    expect(ids).toEqual(['semantic_belief:b_coffee', 'semantic_belief:b_city_r2']);
+    expect(res.body.found).toBe(2);
   });
 
   it('list filters: subject+field exact match, status=all / superseded, userId scope', async () => {
     const keyed = await f.http
-      .get('/v1/beliefs?subject=mika&field=home.city&status=all')
+      .get(`/v1/beliefs?subject=mika&field=home.city&status=all&userId=${USER}`)
       .set(m2m());
     expect(keyed.status).toBe(200);
     expect(keyed.body.beliefs.map((b: { revision: number }) => b.revision)).toEqual([2, 1]);
 
-    const superseded = await f.http.get('/v1/beliefs?status=superseded').set(m2m());
+    const superseded = await f.http.get(`/v1/beliefs?status=superseded&userId=${USER}`).set(m2m());
     expect(superseded.body.beliefs.map((b: { beliefId: string }) => b.beliefId)).toEqual([
       'semantic_belief:b_city_r1',
     ]);
@@ -260,7 +262,7 @@ describe('beliefs read API (e2e)', () => {
   });
 
   it('list caps: limit honored, invalid limits 400, oversize clamped not erred', async () => {
-    const one = await f.http.get('/v1/beliefs?limit=1').set(m2m());
+    const one = await f.http.get(`/v1/beliefs?limit=1&userId=${USER}`).set(m2m());
     expect(one.status).toBe(200);
     expect(one.body.beliefs).toHaveLength(1);
     expect(one.body.found).toBe(1);

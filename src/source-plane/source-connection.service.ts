@@ -32,6 +32,7 @@ import { decryptSecret, encryptSecret } from '../common/secret-cipher';
 import { CredentialProvider } from './oauth/credential-provider';
 import { SourceOAuthService } from './oauth/source-oauth.service';
 import type { Connector, ConnectorConnectionView, ConnectorRegistry } from './connector';
+import { assertCallerMayActOn, assertCallerMayOwn, callerMayActOn } from './connection-owner-fence';
 import {
   AGENT_ONLY_CONNECTORS,
   connectorState,
@@ -113,6 +114,8 @@ export class SourceConnectionService {
   ) {}
 
   async create(companyId: string, dto: CreateSourceConnectionRequest): Promise<SourceConnection> {
+    // A user-bound key may own its connections, never another user's.
+    assertCallerMayOwn(dto.ownerUserId);
     const { manifest, entry } = await this.resolveSourceEntry(companyId, dto.packId, dto.sourceId);
     if (!VERTICAL.test(dto.vertical)) {
       throw new BadRequestException(`vertical must match ${VERTICAL}`);
@@ -202,11 +205,25 @@ export class SourceConnectionService {
         `SELECT * FROM source_connection ORDER BY createdAt DESC LIMIT 500`,
       ),
     );
-    return rows.map(toView);
+    // A user-bound key lists org connections and its own, never another
+    // user's personal ones (connection-owner-fence.ts).
+    return rows.filter(callerMayActOn).map(toView);
   }
 
   async get(companyId: string, connectionId: string): Promise<SourceConnection> {
-    return toView(await this.load(companyId, connectionId));
+    return toView(await this.loadForCaller(companyId, connectionId));
+  }
+
+  /**
+   * `load` for a request: another user's personal connection is a 404
+   * to a user-bound key. Every request-driven entry point (admin routes,
+   * the agent protocol, records push, webhook setup) reads through this;
+   * the engine's background reads use `load`.
+   */
+  async loadForCaller(companyId: string, connectionId: string): Promise<SourceConnectionRow> {
+    const row = await this.load(companyId, connectionId);
+    assertCallerMayActOn(row);
+    return row;
   }
 
   /** The raw row, credential included — the engine's read. */
@@ -227,20 +244,12 @@ export class SourceConnectionService {
     connectionId: string,
     patch: UpdateSourceConnectionRequest,
   ): Promise<SourceConnection> {
-    const current = await this.load(companyId, connectionId);
+    const current = await this.loadForCaller(companyId, connectionId);
     if (patch.label !== undefined && patch.label !== null && patch.label.length > LABEL_MAX) {
       throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
     }
     if (patch.config !== undefined && current.connector === 'db') assertDbConfig(patch.config);
-    if (patch.credential !== undefined) {
-      const { source } = await this.sourceContext(companyId, current);
-      await this.assertCredential(companyId, {
-        connector: current.connector,
-        host: current.host,
-        credential: patch.credential ?? undefined,
-        mcpOAuth: source ? mcpOAuthResourceOf(source, patch.config ?? current.config ?? {}) : null,
-      });
-    }
+    await this.assertCredentialOnUpdate(companyId, current, patch);
     const sets: string[] = [];
     const vars: Record<string, unknown> = { tail: idTailOf(connectionId) };
     const assign = (field: string, value: unknown) => {
@@ -285,7 +294,7 @@ export class SourceConnectionService {
    * source. SELECT-ids-then-DELETE (the 3.2.4 planner discipline).
    */
   async remove(companyId: string, connectionId: string): Promise<{ items: number }> {
-    await this.load(companyId, connectionId);
+    await this.loadForCaller(companyId, connectionId);
     const tail = idTailOf(connectionId);
     return this.surreal.withCompany(companyId, async (db) => {
       await db.query(`UPDATE type::record('source_connection', $tail) SET status = 'deleting'`, {
@@ -563,6 +572,38 @@ export class SourceConnectionService {
         `connected account ${grantId} is ${grant.status} — reconnect it`,
       );
     }
+  }
+
+  /**
+   * The update half of the credential fence. A new credential is checked
+   * as on create; so is the KEPT credential when the patch moves the MCP
+   * server it signs in at — otherwise `{ config: { url } }` alone would
+   * re-point a grant made for one server at another, and its access token
+   * would be sent there (code-scanning js/user-controlled-bypass).
+   */
+  private async assertCredentialOnUpdate(
+    companyId: string,
+    current: SourceConnectionRow,
+    patch: UpdateSourceConnectionRequest,
+  ): Promise<void> {
+    const credentialPatched = patch.credential !== undefined;
+    if (!credentialPatched && patch.config === undefined) return;
+    const { source } = await this.sourceContext(companyId, current);
+    const nextResource = source
+      ? mcpOAuthResourceOf(source, patch.config ?? current.config ?? {})
+      : null;
+    if (!credentialPatched) {
+      const prevResource = source ? mcpOAuthResourceOf(source, current.config ?? {}) : null;
+      if (nextResource === prevResource) return;
+    }
+    await this.assertCredential(companyId, {
+      connector: current.connector,
+      host: current.host,
+      credential: credentialPatched
+        ? (patch.credential ?? undefined)
+        : (current.credential ?? undefined),
+      mcpOAuth: nextResource,
+    });
   }
 
   /** An MCP source that signs in (W4.3): the grant must be a `mcp` grant for THIS server — same origin, active. */

@@ -47,8 +47,10 @@ export class SafetyController {
     });
   }
 
+  // A crisis referral is special-category (health) data: reading the
+  // record takes brain:read_pii, the same bar as the affect export.
   @Get('users/:userId/safety-events')
-  @RequireScopes('brain:read')
+  @RequireScopes('brain:read', 'brain:read_pii')
   @PolicyAction('rest.users.safety_events.list')
   async list(
     @Req() req: AuthenticatedRequest,

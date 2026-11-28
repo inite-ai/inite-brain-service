@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import matter from 'gray-matter'
 import readingTime from 'reading-time'
-import { LANGS, DEFAULT_LANG, type Lang } from './i18n'
+import { DEFAULT_LANG, type Lang } from './i18n'
 
 /**
  * File-system blog collection. Posts live at

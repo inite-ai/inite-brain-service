@@ -24,11 +24,16 @@ afterEach(() => {
   else process.env.PRIVACY_COMPOSER_USER_SCOPE = savedFlag;
 });
 
-function makeHarness(proposals: StubProposal[]): {
+function makeHarness(
+  proposals: StubProposal[] | ((lines: string[]) => StubProposal[]),
+  extraFacts: Array<Record<string, unknown>> = [],
+): {
   run: () => ReturnType<typeof runInsightComposer<StubProposal>>;
   queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }>;
   warnings: string[];
+  prompts: string[][];
 } {
+  const prompts: string[][] = [];
   const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
   const db = {
     query: async (sql: string, params?: Record<string, unknown>) => {
@@ -60,6 +65,7 @@ function makeHarness(proposals: StubProposal[]): {
               userId: 'u2',
             },
             { id: 'knowledge_fact:f3', predicate: 'p', object: 'o3', validFrom: '2026-01-04' },
+            ...extraFacts,
           ],
         ];
       return [[]];
@@ -82,7 +88,10 @@ function makeHarness(proposals: StubProposal[]): {
     sourceExclusionSql: 'AND source.recorder != $recorder',
     sourceExclusionParams: { recorder: 'stub-composer-v1' },
     minFacts: 1,
-    propose: async () => proposals,
+    propose: async (_name, lines) => {
+      prompts.push(lines);
+      return typeof proposals === 'function' ? proposals(lines) : proposals;
+    },
     valid: (p, facts) => (p.members ?? []).every((m) => m >= 0 && m < facts.length),
     embeddingTextOf: (p) => p.name,
     buildRow: (p) => ({ predicate: `stub_${p.name}`, object: p.name }),
@@ -90,6 +99,7 @@ function makeHarness(proposals: StubProposal[]): {
   return {
     queries,
     warnings,
+    prompts,
     run: () => runInsightComposer({ surreal, embedding, logger }, spec, { companyId: 'co_x' }),
   };
 }
@@ -131,24 +141,49 @@ describe('composer user scope (PRIVACY_COMPOSER_USER_SCOPE)', () => {
     expect(h.warnings).toEqual([]);
   });
 
-  it('flag on: single-user stamped, cross-user dropped + warned + counted, global unchanged', async () => {
+  it('flag on: each prompt holds one scope — global alone, then global + one user', async () => {
     process.env.PRIVACY_COMPOSER_USER_SCOPE = '1';
-    const h = makeHarness(PROPOSALS);
+    // Every pass proposes one summary over everything it was shown.
+    const h = makeHarness((lines) => [
+      { name: `all${lines.length}`, members: lines.map((_l, i) => i) },
+    ]);
     const result = await h.run();
+    const shown = h.prompts.map((p) => p.map((l) => l.split(': ')[1]!.split(' ')[0]));
+    expect(shown).toEqual([['o3'], ['o0', 'o1', 'o3'], ['o2', 'o3']]);
     const rows = insertedRows(h.queries);
-    expect(rows).toHaveLength(2);
-    const single = rows.find((r) => r.predicate === 'stub_single');
-    expect(single?.userId).toBe('u1');
-    expect(single?.scope).toEqual(['user:u1']);
-    const global = rows.find((r) => r.predicate === 'stub_global');
-    expect(global).toBeDefined();
-    expect('userId' in global!).toBe(false);
-    expect(rows.some((r) => r.predicate === 'stub_cross')).toBe(false);
-    expect(result.written).toBe(2);
-    expect(result.droppedCrossUser).toBe(1);
-    expect(h.warnings).toHaveLength(1);
-    expect(h.warnings[0]).toContain('stub-composer-v1');
-    expect(h.warnings[0]).toContain('knowledge_entity:e1');
+    expect(rows).toHaveLength(3);
+    const global = rows.find((r) => r.predicate === 'stub_all1')!;
+    expect('userId' in global).toBe(false);
+    const u1 = rows.find((r) => r.predicate === 'stub_all3')!;
+    expect(u1.userId).toBe('u1');
+    expect(u1.scope).toEqual(['user:u1']);
+    const u2 = rows.find((r) => r.predicate === 'stub_all2')!;
+    expect(u2.userId).toBe('u2');
+    expect(result.written).toBe(3);
+    expect(result.droppedCrossUser).toBe(0);
+  });
+
+  it('flag on: a user pass keeps only proposals naming that user’s facts', async () => {
+    process.env.PRIVACY_COMPOSER_USER_SCOPE = '1';
+    // Index of the global fact o3 in each prompt — a global-only proposal.
+    const h = makeHarness((lines) => [
+      { name: 'globalOnly', members: [lines.findIndex((l) => l.includes(': o3 '))] },
+    ]);
+    await h.run();
+    const rows = insertedRows(h.queries);
+    expect(rows).toHaveLength(1);
+    expect('userId' in rows[0]!).toBe(false);
+  });
+
+  it('a predicate that needs a scope never reaches the prompt (flag on or off)', async () => {
+    for (const flag of ['0', '1']) {
+      process.env.PRIVACY_COMPOSER_USER_SCOPE = flag;
+      const h = makeHarness(PROPOSALS, [
+        { id: 'knowledge_fact:f4', predicate: 'dob', object: 'SECRET', validFrom: '2026-01-05' },
+      ]);
+      await h.run();
+      expect(h.prompts.flat().some((l) => l.includes('SECRET'))).toBe(false);
+    }
   });
 
   it('flag on: a proposal without a members array folds to global (no stamp, no drop)', async () => {

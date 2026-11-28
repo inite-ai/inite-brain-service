@@ -23,6 +23,9 @@ import { DistributedLeaseGuard } from '../common/distributed-lease.guard';
 import { tenantLeaseName } from '../common/lease-name';
 import { envFlagNotDisabled } from '../common/env-validation';
 import { ReadPinService } from '../episodes/read-pin.service';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { makeRowPolicyFilter } from '../policy/row-filter';
+import { emitDetailForStorage, fenceDreamEmits } from './dream-emit-fence';
 
 export interface DreamsTenantStats {
   companyId: string;
@@ -114,6 +117,10 @@ export class DreamsService implements OnModuleInit {
     // @Optional for the same positional-test reason; provided by
     // EpisodesModule. Legs fenced to the live derived world (audit W2 #10).
     @Optional() private readonly readPin?: ReadPinService,
+    // Registry-backed row policy for the emit drill's read fence
+    // (dream-emit-fence.ts); AiModule is @Global. @Optional for the
+    // positional unit tests — without it the static seed policy applies.
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
   ) {
     this.enabled = envFlagNotDisabled(this.configService.get<string>('DREAMS_ENABLED'));
     // Default operation set: every sub-service that's been individually
@@ -572,14 +579,16 @@ export class DreamsService implements OnModuleInit {
           kind: 'resolution',
           subject: res.winnerFactId ?? null,
           object: res.loserFactId ?? null,
-          detail: res,
+          // Ids, predicate, entity: never the two values (memory content
+          // of any user, read back by a brain:admin drill).
+          detail: emitDetailForStorage('resolution', res),
         })),
         ...(stats.corroborate?.corroborations ?? []).map((cor) => ({
           runId,
           kind: 'corroboration',
           subject: cor.incumbentFactId ?? null,
           object: cor.corroboratingFactId ?? null,
-          detail: cor,
+          detail: emitDetailForStorage('corroboration', cor),
         })),
       ];
       if (rows.length > 0) {
@@ -596,14 +605,30 @@ export class DreamsService implements OnModuleInit {
    * service that owns the table (write is 40 lines up), never in a
    * controller.
    */
-  async emitsForRun(companyId: string, runId: string): Promise<Array<Record<string, unknown>>> {
-    return this.surreal.withCompany(companyId, async (db) => {
-      const res = (await db.query<unknown[]>(
-        `SELECT runId, kind, ts, subject, object, detail
-           FROM dream_emit WHERE runId = $runId ORDER BY ts ASC`,
-        { runId },
-      )) as Array<Array<Record<string, unknown>>>;
-      return res[0] ?? [];
+  async emitsForRun(
+    companyId: string,
+    runId: string,
+    callerScopes: readonly string[],
+  ): Promise<Array<Record<string, unknown>>> {
+    // Rows written before the values were dropped from storage still
+    // carry them: the user fence and the predicate row policy decide
+    // what the caller sees (dream-emit-fence.ts).
+    const rowPolicy = makeRowPolicyFilter({
+      callerScopes,
+      surface: 'admin_dream_emits',
+      policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
     });
+    try {
+      return await this.surreal.withCompany(companyId, async (db) => {
+        const res = (await db.query<unknown[]>(
+          `SELECT runId, kind, ts, subject, object, detail
+             FROM dream_emit WHERE runId = $runId ORDER BY ts ASC`,
+          { runId },
+        )) as Array<Array<Record<string, unknown>>>;
+        return fenceDreamEmits(db, res[0] ?? [], rowPolicy);
+      });
+    } finally {
+      rowPolicy.finish();
+    }
   }
 }

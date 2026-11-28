@@ -351,7 +351,7 @@ export const CATALOG_PART_07: ConfigCatalogSpec[] = [
     runtimeMutable: false,
     isBooleanFlag: true,
     description:
-      "Realtime fact subscriptions (SSE at /v1/live/facts). A dedicated per-tenant connection OUTSIDE both pools holds a LIVE SELECT on knowledge_fact, with the 30-day changefeed as the gap-replay bridge on reconnect and the per-row ABAC/scope gate applied to every pushed event using the SUBSCRIBER's scopes. Single-pod prototype: multi-pod fan-out needs per-tenant leader election, not yet built. Off → no socket is opened and the endpoint answers 503.",
+      "Realtime fact subscriptions (SSE at /v1/live/facts). A dedicated per-tenant connection OUTSIDE both pools holds a LIVE SELECT on knowledge_fact, with the 30-day changefeed as the gap-replay bridge on reconnect and every pushed event fenced with the SUBSCRIBER's identity captured at subscribe time — the per-user fence (global rows plus its own user's; an M2M key names one with ?userId=), the scope-tag/circle fence and the row policy (predicate scope gate + its ABAC context). Single-pod prototype: multi-pod fan-out needs per-tenant leader election, not yet built. Off → no socket is opened and the endpoint answers 503.",
   },
   {
     key: 'INGEST_BATCH_EDGES',

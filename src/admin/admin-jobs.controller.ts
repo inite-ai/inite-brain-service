@@ -544,7 +544,7 @@ export class AdminJobsController {
     const emits: Array<Record<string, unknown>> = [];
     for (const companyId of tenants) {
       try {
-        const rows = await this.dreams.emitsForRun(companyId, runId);
+        const rows = await this.dreams.emitsForRun(companyId, runId, req.brainAuth.scopes);
         for (const r of rows) {
           emits.push({
             runId: r.runId,

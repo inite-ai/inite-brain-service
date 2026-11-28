@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AgentQaService } from '../src/agent-qa/agent-qa.service';
 import { EpisodeReadStoreService } from '../src/episodes/episode-read-store.service';
 import type { SearchService } from '../src/search/search.service';
+import { runWithRequestContext } from '../src/common/request-context';
 
 /**
  * AgentQaService — the ReAct loop. Stubs OpenAI (no network) and
@@ -179,7 +180,7 @@ describe('AgentQaService', () => {
         params?: Record<string, unknown> | undefined;
       }> = [];
       const surreal = {
-        withCompany: async (_c: string, fn: (d: unknown) => Promise<unknown>) =>
+        withScopedCompany: async (_c: string, _s: unknown, fn: (d: unknown) => Promise<unknown>) =>
           fn({
             query: async (sql: string, params?: Record<string, unknown>) => {
               queries.push({ sql, params });
@@ -390,6 +391,115 @@ describe('AgentQaService', () => {
         callerScopes: ['brain:read'],
       });
       expect(tools).toHaveLength(1);
+    });
+  });
+
+  describe('read fences on the timeline tool', () => {
+    const saved = process.env.AGENT_QA_TOOLS_V2;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.AGENT_QA_TOOLS_V2;
+      else process.env.AGENT_QA_TOOLS_V2 = saved;
+    });
+
+    const timelineCall = {
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 't1',
+                type: 'function',
+                function: { name: 'timeline', arguments: JSON.stringify({ topic: 'x' }) },
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    function harness(rows: unknown[]) {
+      const queries: Array<{ sql: string; params?: Record<string, unknown> | undefined }> = [];
+      const surreal = {
+        withScopedCompany: async (_c: string, _s: unknown, fn: (d: unknown) => Promise<unknown>) =>
+          fn({
+            query: async (sql: string, params?: Record<string, unknown>) => {
+              queries.push({ sql, params });
+              return [rows];
+            },
+          }),
+      };
+      const svc = new AgentQaService(
+        search([]),
+        cfg(),
+        surreal as never,
+        {
+          embed: async () => [1, 0],
+        } as never,
+      );
+      const toolMsgs: string[] = [];
+      let i = 0;
+      (svc as any).openai = {
+        chat: {
+          completions: {
+            create: async (req: any) => {
+              for (const m of req.messages) if (m.role === 'tool') toolMsgs.push(m.content);
+              return [timelineCall, finalReply][Math.min(i++, 1)];
+            },
+          },
+        },
+      };
+      return { svc, queries, toolMsgs };
+    }
+
+    const rows = [
+      { id: 'knowledge_fact:a', predicate: 'dob', object: '1990-01-01', validFrom: '2023-01-01' },
+      {
+        id: 'knowledge_fact:b',
+        predicate: 'activities',
+        object: 'hiking',
+        validFrom: '2023-02-01',
+      },
+    ];
+
+    it('an M2M caller scans tenant-global facts only, and PII predicates need read_pii', async () => {
+      process.env.AGENT_QA_TOOLS_V2 = '1';
+      const { svc, queries, toolMsgs } = harness(rows);
+      await svc.answer({ companyId: 'co_x', question: 'q', callerScopes: ['brain:read'] });
+      expect(queries[0]!.sql).toContain('userId IS NONE');
+      expect(queries[0]!.sql).not.toContain('$scopeUserId');
+      const rendered = toolMsgs.join('\n');
+      expect(rendered).toContain('hiking');
+      expect(rendered).not.toContain('1990-01-01');
+    });
+
+    it('a read_pii caller sees the PII predicate', async () => {
+      process.env.AGENT_QA_TOOLS_V2 = '1';
+      const { svc, toolMsgs } = harness(rows);
+      await svc.answer({
+        companyId: 'co_x',
+        question: 'q',
+        callerScopes: ['brain:read', 'brain:read_pii'],
+      });
+      expect(toolMsgs.join('\n')).toContain('1990-01-01');
+    });
+
+    it('a user-bound token scans global + its own facts', async () => {
+      process.env.AGENT_QA_TOOLS_V2 = '1';
+      const { svc, queries } = harness(rows);
+      await runWithRequestContext({ correlationId: 'c', authUserId: 'u1' } as never, () =>
+        svc.answer({ companyId: 'co_x', question: 'q', callerScopes: ['brain:read'] }),
+      );
+      expect(queries[0]!.sql).toContain('(userId IS NONE OR userId = $scopeUserId)');
+      expect(queries[0]!.params?.scopeUserId).toBe('u1');
+    });
+
+    it('a timeline call is not executed when the V1 loop never offered it', async () => {
+      delete process.env.AGENT_QA_TOOLS_V2;
+      const { svc, queries } = harness(rows);
+      await svc.answer({ companyId: 'co_x', question: 'q', callerScopes: ['brain:read'] });
+      expect(queries).toHaveLength(0);
     });
   });
 });

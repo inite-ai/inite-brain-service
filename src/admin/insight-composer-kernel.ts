@@ -7,6 +7,7 @@ import { spaceStamp } from '../ai/embedder/embedding-space';
 import { scopeForUser, withSourceScope } from '../auth/scope-tags';
 import { privacyComposerUserScopeEnabled } from '../common/privacy-flags';
 import { emptyBatchOutcome, foldBatchOutcome, type BatchOutcome } from '../common/batch-outcome';
+import { policyFor } from '../ingest/conflict-resolver';
 
 /**
  * The shared skeleton of the write-time insight composers (aggregates,
@@ -221,32 +222,46 @@ async function composeEntity<P>(
       ...spec.sourceExclusionParams,
     },
   );
-  if (!facts || facts.length < spec.minFacts) return { written: 0, droppedCrossUser: 0 };
+  // A composed row is persisted and read with only brain:read — it
+  // carries no per-caller redaction — so a predicate that needs a scope
+  // (brain:read_pii: address, dob, …) never reaches the prompt, or its
+  // value would surface in a summary every reader sees. The community
+  // builder's rule (community-builder.service.ts).
+  const pool = (facts ?? []).filter((f) => !policyFor(f.predicate).requiresScope);
+  if (pool.length < spec.minFacts) return { written: 0, droppedCrossUser: 0 };
 
-  const lines = facts.map((f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`);
-  const proposals = await spec.propose(name, lines);
-  const valid = proposals.filter((p) => spec.valid(p, facts));
-  // Cross-user scope rule (PRIVACY_COMPOSER_USER_SCOPE — the deriver
-  // drop idiom, derive-row-builder.ts): fold each proposal's
-  // member-fact userIds BEFORE the paid embedding step. 0 users →
-  // global row (unchanged); exactly 1 → the built row is stamped
-  // userId + scope below, so the 0055/0093 read fences apply to it;
-  // ≥2 → DROPPED — a cross-user summary must never become a
-  // tenant-global row served to every user. Flag off → byte-identical.
   const scopeOn = privacyComposerUserScopeEnabled();
-  const kept: Array<{ proposal: P; scopeUser: string | undefined }> = [];
+  const kept: Array<{ proposal: P; scopeUser: string | undefined; facts: FactRowLite[] }> = [];
   let droppedCrossUser = 0;
-  for (const p of valid) {
-    const users = scopeOn ? proposalScopeUsers(p, facts) : [];
-    if (users.length >= 2) {
-      droppedCrossUser += 1;
-      deps.logger.warn(
-        `${spec.recorder}: dropped cross-user proposal for ${entityId} ` +
-          `(${users.length} distinct member users)`,
-      );
-      continue;
+  for (const part of scopeOn ? userPartitions(pool) : [{ user: undefined, facts: pool }]) {
+    if (part.facts.length === 0 || part.facts.length < spec.minFacts) continue;
+    const lines = part.facts.map(
+      (f, i) => `${i}. ${f.predicate}: ${f.object} (${factDay(f.validFrom)})`,
+    );
+    const proposals = await spec.propose(name, lines);
+    for (const p of proposals.filter((x) => spec.valid(x, part.facts))) {
+      // Cross-user scope rule (PRIVACY_COMPOSER_USER_SCOPE — the deriver
+      // drop idiom, derive-row-builder.ts). With the flag on, each prompt
+      // holds ONE scope's facts: the tenant-global pass only global
+      // facts, a user's pass global + that user's. A model writes free
+      // text from everything in its prompt, not only the members it
+      // names, so the member fold alone could not keep a personal fact
+      // out of a "global" summary written beside it; the partition does.
+      // A user pass keeps only proposals naming at least one of that
+      // user's facts (the rest restate the global pass) and stamps the
+      // user; ≥2 member users cannot occur, and is still dropped.
+      const users = scopeOn ? proposalScopeUsers(p, part.facts) : [];
+      if (users.length >= 2) {
+        droppedCrossUser += 1;
+        deps.logger.warn(
+          `${spec.recorder}: dropped cross-user proposal for ${entityId} ` +
+            `(${users.length} distinct member users)`,
+        );
+        continue;
+      }
+      if (part.user !== undefined && users[0] !== part.user) continue;
+      kept.push({ proposal: p, scopeUser: part.user, facts: part.facts });
     }
-    kept.push({ proposal: p, scopeUser: users[0] });
   }
   // Every paid step (the proposal above, embeddings here) runs BEFORE
   // the delete — a failure leaves the previous derived set intact.
@@ -257,7 +272,7 @@ async function composeEntity<P>(
   const rows = kept.map((x, i) => {
     const built = spec.buildRow(x.proposal, {
       entityId: new StringRecordId(entityId),
-      facts,
+      facts: x.facts,
       vector: vectors[i]!, // vectors is 1:1 with kept (embedMany) ⇒ in-bounds
       version,
     });
@@ -276,7 +291,7 @@ async function composeEntity<P>(
     // Kernel-central stamp AFTER buildRow — both composers inherit it,
     // the specs stay untouched (D2).
     // Trust circles §3.5: a summary of facts said in a circle stays in it.
-    const members = proposalMemberFacts(x.proposal, facts);
+    const members = proposalMemberFacts(x.proposal, x.facts);
     if (x.scopeUser !== undefined) {
       return {
         ...row,
@@ -337,4 +352,21 @@ function proposalScopeUsers(proposal: unknown, facts: FactRowLite[]): string[] {
     }
   }
   return [...users].sort();
+}
+
+/**
+ * The prompt partitions of one entity's fact pool: the tenant-global
+ * facts alone, then — per user with personal facts — global + that
+ * user's, so no prompt ever holds two users' facts or a personal fact
+ * beside a summary that will be stored tenant-global.
+ */
+function userPartitions(
+  pool: FactRowLite[],
+): Array<{ user: string | undefined; facts: FactRowLite[] }> {
+  const global = pool.filter((f) => !f.userId);
+  const users = [...new Set(pool.map((f) => f.userId).filter((u): u is string => !!u))].sort();
+  return [
+    { user: undefined, facts: global },
+    ...users.map((u) => ({ user: u, facts: pool.filter((f) => !f.userId || f.userId === u) })),
+  ];
 }

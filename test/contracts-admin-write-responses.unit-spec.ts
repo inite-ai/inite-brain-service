@@ -26,7 +26,7 @@ import {
   BaselineSaveResponseSchema,
   BaselineDiffResponseSchema,
 } from '../src/contracts/admin/write-responses.schema';
-import { makeAdminController } from './helpers/admin-controllers';
+import { adminReq, makeAdminController } from './helpers/admin-controllers';
 import { AdminOpsController } from '../src/admin/admin-ops.controller';
 import { AdminJobsController } from '../src/admin/admin-jobs.controller';
 import { AdminEvalController } from '../src/admin/admin-eval.controller';
@@ -53,7 +53,7 @@ describe('write-side wire contracts', () => {
     };
 
     const ctl = makeAdminController({ admin });
-    const payload = await ctl.dropTenant('eval_test123');
+    const payload = await ctl.dropTenant(adminReq(undefined, 'eval_test123'), 'eval_test123');
     assertParses(DropTenantResponseSchema, payload, 'tenants drop');
   });
 
@@ -102,7 +102,7 @@ describe('write-side wire contracts', () => {
       deleteDeadLetter: async () => true,
     } as never;
     const ctl = new AdminOpsController(admin, undef);
-    const payload = await ctl.dlqDelete('tenant-a', 'dlq:1');
+    const payload = await ctl.dlqDelete(adminReq(), 'tenant-a', 'dlq:1');
     assertParses(DlqDeleteResponseSchema, payload, 'dlq DELETE');
   });
 

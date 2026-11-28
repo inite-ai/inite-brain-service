@@ -54,13 +54,19 @@ export class AdminOpsController {
     } satisfies DlqResponse;
   }
 
+  /**
+   * The path tenant must be the caller's own unless the caller is the
+   * platform operator (resolved in AdminService.deleteDeadLetter: a 403
+   * otherwise, never a silent cross-tenant delete).
+   */
   @Delete('dlq/:companyId/:id')
   @RequireScopes('brain:admin')
   async dlqDelete(
+    @Req() req: AuthenticatedRequest,
     @Param('companyId') companyId: string,
     @Param('id') id: string,
   ): Promise<DlqDeleteResponse> {
-    const deleted = await this.admin.deleteDeadLetter(companyId, id);
+    const deleted = await this.admin.deleteDeadLetter(req, { companyId, id });
     return { deleted } satisfies DlqDeleteResponse;
   }
 

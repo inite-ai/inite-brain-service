@@ -664,10 +664,9 @@ export class SearchService {
             added += 1;
           }
         }
-        traceArtifact('search.entity_expansion', {
-          expansionQuery,
-          added,
-        });
+        // Counts only: the expansion terms are entity names drawn from rows
+        // the row policy has not seen yet.
+        traceArtifact('search.entity_expansion', { added });
       }
     }
 

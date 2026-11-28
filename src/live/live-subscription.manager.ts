@@ -6,7 +6,13 @@ import { envFlagNotDisabled } from '../common/env-validation';
 import { queryRows, withTimeout } from '../db/surreal.service';
 import { SurrealSessionKeeper } from '../db/session-keeper';
 import { changefeedRow } from '../db/changefeed-row';
-import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
+import {
+  makeRowPolicyFilter,
+  type PolicyFilterableRow,
+  type PredicatePolicyLookup,
+} from '../policy/row-filter';
+import { runWithRequestContext } from '../common/request-context';
+import { liveRowVisible, type LiveFenceRow, type LiveReadFence } from './live-read-fence';
 
 /**
  * One `SHOW CHANGES` batch row: a versionstamp plus its changefeed items.
@@ -47,10 +53,24 @@ export type LiveEvent = LiveFactEvent | LiveResyncEvent;
 
 export interface LiveSubscribeOptions {
   callerScopes: readonly string[];
+  /**
+   * The subscriber's user / scope-tag / ABAC identity, resolved inside the
+   * subscribing request (`captureLiveReadFence`). Required: a subscriber
+   * with no fence would read every row in the tenant.
+   */
+  fence: LiveReadFence;
   /** Delivery sink. Must not throw; a throwing sink is dropped. */
   sink: (event: LiveEvent) => void;
   /** Tenant-aware predicate policy source (registry-backed on request paths). */
   policyLookup?: PredicatePolicyLookup;
+  /**
+   * Re-warms the tenant predicate registry behind `policyLookup`. A stream
+   * outlives any one request; after an admin edit invalidates the snapshot,
+   * the sync lookup would answer from the code seed — which does not know a
+   * tenant predicate's requiresScope — until something re-reads it. The
+   * catch-up tick calls this.
+   */
+  warmPolicyLookup?: () => Promise<unknown>;
 }
 
 export interface LiveHandle {
@@ -61,8 +81,10 @@ export interface LiveHandle {
 interface Subscriber {
   id: string;
   callerScopes: readonly string[];
+  fence: LiveReadFence;
   sink: (event: LiveEvent) => void;
   policyLookup?: PredicatePolicyLookup | undefined;
+  warmPolicyLookup?: (() => Promise<unknown>) | undefined;
   /** Bounded outbox depth; overflow → resync signal, never unbounded memory. */
   queued: number;
 }
@@ -146,7 +168,8 @@ type LiveCredentials =
  * PERMISSIONS fence is known-partial (system users bypass it — the
  * "phantom-fence" finding). A standing subscription that skipped the gate
  * would be a permanent ABAC bypass, so every event is filtered with the
- * SUBSCRIBER's scopes before delivery.
+ * SUBSCRIBER's identity before delivery: its scopes, its end user, its
+ * scope tags / circle and its ABAC context (see fanOut, live-read-fence.ts).
  */
 @Injectable()
 export class LiveSubscriptionManager implements OnApplicationShutdown {
@@ -215,8 +238,10 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     channel.subscribers.set(id, {
       id,
       callerScopes: opts.callerScopes,
+      fence: opts.fence,
       sink: opts.sink,
       policyLookup: opts.policyLookup,
+      warmPolicyLookup: opts.warmPolicyLookup,
       queued: 0,
     });
     return {
@@ -294,7 +319,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
       const event = toFactEvent(msg, 'live');
       if (!event) return;
       channel.delivered.add(event.factId);
-      this.fanOut(channel, event);
+      this.fanOut(channel, event, fenceRowOf(msg.value, event));
     });
     const offConnected = conn.subscribe('connected', () => this.tick(companyId));
     const offDisconnected = conn.subscribe('disconnected', () => this.tick(companyId));
@@ -334,6 +359,7 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
     channel.catchingUp = true;
     try {
       await this.ensureLive(companyId, channel);
+      await this.warmPolicyLookups(channel);
       const changes = await withTimeout(
         queryRows<ChangefeedShowRow>(
           channel.conn,
@@ -425,7 +451,8 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
         if (!event) continue;
         // Already pushed over the socket — replay must not double-deliver.
         if (channel.delivered.delete(event.factId)) continue;
-        this.fanOut(channel, event);
+        // Fenced on the same post-image the event was built from.
+        this.fanOut(channel, event, fenceRowOf(replayRowOf(item), event));
         emitted += 1;
       }
     }
@@ -438,31 +465,62 @@ export class LiveSubscriptionManager implements OnApplicationShutdown {
   }
 
   /**
-   * Deliver one event to every subscriber that is allowed to see it, applying
-   * the SAME per-row scope/ABAC verdict `/v1/search` applies. `policy: null`
-   * keeps the scope gate while forcing the ABAC context off: a push has no
-   * request context to read one from, and inheriting whatever context happened
-   * to be on the async stack would make delivery non-deterministic.
+   * Deliver one event to every subscriber that is allowed to read its row,
+   * with the fences every documented read applies, in the SUBSCRIBER's
+   * identity captured at subscribe time (live-read-fence.ts):
+   *   1. per-user — global rows, plus the one user the subscriber reads as;
+   *   2. scope tags / trust circles — the `visibleUnderScope` verdict;
+   *   3. row policy — the predicate scope gate (registry-backed lookup) and
+   *      ABAC with the subscriber's own PolicyContext.
+   * Nothing is read from the async stack: this runs on the stack the
+   * channel's socket was opened on, which is the first subscriber's request.
+   * The decision summary is recorded inside the subscriber's own (minimal)
+   * context so it is attributed to its key and its request.
    */
-  private fanOut(channel: TenantChannel, event: LiveFactEvent): void {
+  private fanOut(channel: TenantChannel, event: LiveFactEvent, row: LiveFenceRow): void {
     for (const s of channel.subscribers.values()) {
-      const gate = makeRowPolicyFilter({
-        callerScopes: s.callerScopes,
-        surface: 'live_subscription',
-        policy: null,
-        policyLookup: s.policyLookup,
-      });
-      const allowed = gate.filter({
-        predicate: event.predicate,
-        id: event.factId,
-      });
-      gate.finish();
-      if (!allowed) continue;
+      if (!this.allowed(s, row)) continue;
       if (s.queued >= this.maxQueuePerSubscriber) {
         this.safeSend(channel, s, { kind: 'resync', reason: 'backpressure' });
         continue;
       }
       this.safeSend(channel, s, event);
+    }
+  }
+
+  private allowed(s: Subscriber, row: LiveFenceRow): boolean {
+    if (!liveRowVisible(s.fence, row)) return false;
+    const { fence } = s;
+    return runWithRequestContext(
+      {
+        correlationId: fence.correlationId ?? s.id,
+        ...(fence.policy ? { policy: fence.policy } : {}),
+        ...(fence.recordPolicyRows ? { recordPolicyRows: fence.recordPolicyRows } : {}),
+      },
+      () => {
+        const gate = makeRowPolicyFilter({
+          callerScopes: s.callerScopes,
+          surface: 'live_subscription',
+          policy: fence.policy,
+          policyLookup: s.policyLookup,
+        });
+        const ok = gate.filter(row);
+        gate.finish();
+        return ok;
+      },
+    );
+  }
+
+  /** One warm per distinct lookup source; a failure keeps the cached snapshot. */
+  private async warmPolicyLookups(channel: TenantChannel): Promise<void> {
+    const warms = new Set<() => Promise<unknown>>();
+    for (const s of channel.subscribers.values()) {
+      if (s.warmPolicyLookup) warms.add(s.warmPolicyLookup);
+    }
+    for (const warm of warms) {
+      await warm().catch((e) =>
+        this.logger.warn(`live policy lookup warm failed: ${(e as Error).message}`),
+      );
     }
   }
 
@@ -550,6 +608,43 @@ export function toFactEvent(
 }
 
 /**
+ * The fields the read fences need, taken from the pushed row server-side.
+ * They never reach the wire event: `userId` and `scope` decide delivery,
+ * they are not delivered.
+ */
+function fenceRowOf(value: unknown, event: LiveFactEvent): LiveFenceRow {
+  const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  return {
+    id: event.factId,
+    predicate: event.predicate,
+    source: v.source,
+    trustSnapshot: (v.trustSnapshot ?? null) as NonNullable<
+      PolicyFilterableRow['trustSnapshot']
+    > | null,
+    corroboration: (v.corroboration ?? null) as NonNullable<
+      PolicyFilterableRow['corroboration']
+    > | null,
+    // Present-but-not-a-string is kept as-is so the user fence hides it.
+    userId: v.userId === undefined || v.userId === null ? null : (v.userId as string),
+    scope: v.scope ?? null,
+  };
+}
+
+/**
+ * The row a changefeed item carries. Post-image via the shared helper: on a
+ * CREATE the row is under `update`, but on an UPDATE `update` is a reverse
+ * PATCH ARRAY and the row is under `current` — reading `item.update.id`
+ * there is undefined, which silently dropped every fact UPDATE from replay
+ * (same shape trap as the audit drain, R4 #3). A delete carries only its
+ * id, so keep the prior id-only path.
+ */
+function replayRowOf(item: unknown): Record<string, unknown> | undefined {
+  if (!item || typeof item !== 'object') return undefined;
+  const i = item as Record<string, unknown>;
+  return changefeedRow(item) ?? (i.delete as Record<string, unknown> | undefined);
+}
+
+/**
  * One `SHOW CHANGES` item → event. The changefeed's shape differs from a LIVE
  * message: the row sits under `update` / `delete` rather than `value`, and
  * carries no action of its own.
@@ -557,12 +652,7 @@ export function toFactEvent(
 export function toReplayEvent(item: unknown): LiveFactEvent | null {
   if (!item || typeof item !== 'object') return null;
   const i = item as Record<string, unknown>;
-  // Post-image via the shared helper: on a CREATE the row is under `update`,
-  // but on an UPDATE `update` is a reverse PATCH ARRAY and the row is under
-  // `current` — reading `item.update.id` there is undefined, which silently
-  // dropped every fact UPDATE from replay (same shape trap as the audit drain,
-  // R4 #3). A delete carries only its id, so keep the prior id-only path.
-  const row = changefeedRow(item) ?? (i.delete as Record<string, unknown> | undefined);
+  const row = replayRowOf(item);
   if (!row) return null;
   return toFactEvent(
     { action: i.delete ? 'DELETE' : 'UPDATE', recordId: row.id, value: row },

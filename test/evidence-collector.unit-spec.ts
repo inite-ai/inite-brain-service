@@ -308,9 +308,9 @@ describe('EvidenceCollectorService branches', () => {
   });
 
   it('digest lane threads the caller userId through (0087 — no more hard fail-close)', async () => {
-    const calls: Array<{ companyId: string; userId?: string }> = [];
+    const calls: Array<{ companyId: string; userId?: string; includePii?: boolean }> = [];
     const digestLane = {
-      digestLines: async (o: { companyId: string; userId?: string }) => {
+      digestLines: async (o: { companyId: string; userId?: string; includePii?: boolean }) => {
         calls.push(o);
         return ['digest line'];
       },
@@ -332,7 +332,8 @@ describe('EvidenceCollectorService branches', () => {
     // Pre-0087 a user-scoped caller was hard fail-closed to []; the
     // lane now applies the userScopes policy itself in SQL.
     expect(out.insightLines).toEqual(['digest line']);
-    expect(calls).toEqual([{ companyId: 'c1', userId: 'user-b' }]);
+    // The caller's read_pii decides whether PII-touched digests serve.
+    expect(calls).toEqual([{ companyId: 'c1', userId: 'user-b', includePii: false }]);
   });
 
   it('community summaries serve summary-routed questions only, after the digests', async () => {
