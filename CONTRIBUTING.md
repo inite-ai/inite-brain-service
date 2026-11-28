@@ -14,7 +14,7 @@ REST route, migration or extraction lane, and the idea → PR loop. In Claude
 Code, `/contribute` runs that loop; `/spec-idea` files an idea without code.
 [Open in Codespaces](https://codespaces.new/inite-ai/inite-brain-service) for
 a ready environment. Where this file and AGENTS.md disagree on a command,
-AGENTS.md matches CI (the stale test commands below are tracked in #745).
+AGENTS.md matches CI — please fix this one.
 
 ## Before you start
 
@@ -39,7 +39,7 @@ AGENTS.md matches CI (the stale test commands below are tracked in #745).
 # Clone + install
 git clone git@github.com:inite-ai/inite-brain-service.git
 cd inite-brain-service
-pnpm install
+pnpm install --frozen-lockfile
 
 # Bring up SurrealDB
 docker compose up -d surrealdb
@@ -59,23 +59,32 @@ onboarding docs are wrong. Don't suffer in silence.
 
 ### 1. Tests pass
 
-Local:
+Local (the same checks CI runs; see the Commands table in
+[AGENTS.md](AGENTS.md)):
 
 ```bash
-pnpm test                          # unit suite (~5s, currently 485 cases)
-pnpm test:e2e:real                 # testcontainers Surreal — slower (~30s)
+pnpm lint:ci          # zero warnings (pnpm lint auto-fixes)
+pnpm format:check     # the one people forget (pnpm format fixes it)
+pnpm typecheck
+pnpm build
+pnpm test             # unit suite — no database, no Docker, no API key
+pnpm test:socket      # loopback HTTP — no Docker either
 ```
 
-CI also runs `pnpm test:eval` — the multi-vertical retrieval eval against
-real OpenAI. It enforces hard thresholds (recall@1 ≥ 0.6, MRR ≥ 0.5,
-memory-lifecycle = 1.0, etc.) and diffs against `.eval-baseline/main.json`.
-A retrieval-quality regression beyond per-metric tolerance blocks merge.
-
-If you touched anything in `src/jobs/`, run the real-Surreal jobs e2e:
+The end-to-end suites need Docker: they start their own SurrealDB container
+via testcontainers (set `SURREALDB_URL` to reuse a running one).
 
 ```bash
-pnpm test:e2e:real -- --testPathPattern=jobs.real
+pnpm test:e2e         # stubbed models; CI runs it in 4 shards
+pnpm test:e2e:jobs    # real-Surreal job queue; run it if you touched src/jobs/
 ```
+
+CI also has a real-LLM quality eval (`pnpm test:eval`, the `quality-eval`
+job). It does **not** run on pull requests: it runs nightly against `main`
+and on manual dispatch. It enforces per-metric thresholds (overall and per
+vertical) and diffs the report against the committed golden
+`test/eval/golden-baseline.json`. It spends real money, so don't run it
+locally without a maintainer's OK.
 
 ### 2. Migrations are append-only
 
@@ -155,7 +164,7 @@ expected — we keep the trail honest.
 - **Feature flags as a way to avoid making a decision.** If the new code
   is right, ship it on. If it's not, don't merge it. (Real A/B operator
   flags for eval-driven rollout are different — those are documented in
-  README § Operations.)
+  [docs/operations.md](docs/operations.md).)
 - **Tests that mock out the part you're testing.** A unit test that
   mocks the conflict resolver to verify the conflict resolver is a
   tautology. Use real internals; the only legitimate mocks are external
