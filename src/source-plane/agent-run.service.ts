@@ -17,6 +17,7 @@ import {
   type AgentRunCounters,
   type AgentRunState,
 } from './agent-sync.service';
+import { callerMayActOn } from './connection-owner-fence';
 import {
   SourceConnectionService,
   toView,
@@ -50,7 +51,8 @@ export class AgentRunService {
     assertEnabled();
     const rows = await this.connections.listRows(companyId);
     const out: AgentConnectionsListResponse['connections'] = [];
-    for (const row of rows.filter((r) => r.host === host)) {
+    // A user-bound key sees org connections and its own personal ones.
+    for (const row of rows.filter((r) => r.host === host && callerMayActOn(r))) {
       const { source } = await this.connections.sourceContext(companyId, row);
       out.push({
         connection: toView(row),
@@ -149,7 +151,7 @@ export class AgentRunService {
     connectionId: string,
     host: string,
   ): Promise<SourceConnectionRow> {
-    const row = await this.connections.load(companyId, connectionId);
+    const row = await this.connections.loadForCaller(companyId, connectionId);
     if (row.host !== host) {
       throw new NotFoundException(`connection ${connectionId} is not hosted on ${host}`);
     }
@@ -170,7 +172,7 @@ export class AgentRunService {
     }
     if (job.status !== 'running') throw new ConflictException(`run ${runId} is ${job.status}`);
     const state = fromProgress(job);
-    const row = await this.connections.load(companyId, connectionId);
+    const row = await this.connections.loadForCaller(companyId, connectionId);
     if (state.connectionId !== String(row.id)) {
       throw new NotFoundException(`run ${runId} does not belong to connection ${connectionId}`);
     }

@@ -19,6 +19,7 @@ import {
   type UploadedEvidenceBlob,
 } from './blob-upload.interceptor';
 import { EvidenceStoreService } from './evidence-store.service';
+import { pinEvidenceWriteScope } from './evidence-write-scope';
 import { EvidenceUploadService, type UploadEvidenceBlobResult } from './evidence-upload.service';
 import { validateLocator } from './locator';
 import { IngestEvidenceAssetDto, IngestEvidenceFragmentDto } from './dto/ingest-evidence-asset.dto';
@@ -100,6 +101,8 @@ export class EvidenceIngestController {
     if (!evidenceIngestEnabled()) throw new NotFoundException();
     this.validateFragments(body);
     const companyId = req.brainAuth.companyId;
+    // A user-bound key registers for itself only (evidence-write-scope.ts).
+    const owner = pinEvidenceWriteScope({ userId: body.userId, scope: body.scope });
     // Composition with 0121/0122 (deliberate, not an omission):
     //  - `origin` stays the default 'internal' — origin means "where the
     //    BYTES came from", and this surface never takes bytes into
@@ -118,8 +121,8 @@ export class EvidenceIngestController {
       // METADATA-ONLY: originUri, never storageRef (MM-6 boundary).
       originUri: body.originUri,
       vertical: body.vertical,
-      userId: body.userId,
-      scope: body.scope,
+      userId: owner.userId,
+      scope: owner.scope,
       piiClasses: body.piiClasses,
       recorder: body.recorder,
       retainUntil: body.retainUntil !== undefined ? new Date(body.retainUntil) : undefined,
@@ -165,13 +168,14 @@ export class EvidenceIngestController {
   ): Promise<UploadEvidenceBlobResult> {
     if (!evidenceBlobUploadEnabled()) throw new NotFoundException();
     if (!file) throw new BadRequestException(`a '${EVIDENCE_BLOB_FIELD}' file part is required`);
+    const owner = pinEvidenceWriteScope({ userId: body.userId, scope: body.scope });
     return this.uploads.upload(req.brainAuth.companyId, file, {
       modality: body.modality,
       mediaType: body.mediaType,
       occurredAt: new Date(body.occurredAt),
       vertical: body.vertical,
-      userId: body.userId,
-      scope: body.scope,
+      userId: owner.userId,
+      scope: owner.scope,
       piiClasses: body.piiClasses,
       recorder: body.recorder,
       retainUntil: body.retainUntil !== undefined ? new Date(body.retainUntil) : undefined,
