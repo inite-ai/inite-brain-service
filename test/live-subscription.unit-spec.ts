@@ -5,6 +5,17 @@ import {
   dbNameFor,
   type LiveEvent,
 } from '../src/live/live-subscription.manager';
+import type { LiveReadFence } from '../src/live/live-read-fence';
+import { TENANT_WIDE } from '../src/auth/scope-visibility';
+
+/** An M2M subscriber that named no user: tenant-global rows, no policies. */
+const M2M_FENCE: LiveReadFence = {
+  userId: undefined,
+  principal: TENANT_WIDE,
+  policy: null,
+  recordPolicyRows: undefined,
+  correlationId: undefined,
+};
 
 /**
  * LIVE subscriptions (LIVE_SUBSCRIPTIONS_ENABLED) — the two things the design
@@ -73,6 +84,7 @@ describe('LiveSubscriptionManager', () => {
       channel.subscribers.set(id, {
         id,
         callerScopes: scopes,
+        fence: M2M_FENCE,
         sink: (event: LiveEvent) => received.push({ sub: id, event }),
         policyLookup: lookup,
         queued: 0,
@@ -416,6 +428,7 @@ describe('LiveSubscriptionManager', () => {
       channel.subscribers.set('broken', {
         id: 'broken',
         callerScopes: ['brain:read'],
+        fence: M2M_FENCE,
         sink: () => {
           throw new Error('client gone');
         },
@@ -431,7 +444,7 @@ describe('LiveSubscriptionManager', () => {
       const mgr = makeManager({ LIVE_SUBSCRIPTIONS_ENABLED: '0' });
       expect(mgr.isEnabled()).toBe(false);
       await expect(
-        mgr.subscribe('co_x', { callerScopes: ['brain:read'], sink: () => {} }),
+        mgr.subscribe('co_x', { callerScopes: ['brain:read'], fence: M2M_FENCE, sink: () => {} }),
       ).rejects.toThrow(/disabled/);
     });
 
@@ -443,7 +456,7 @@ describe('LiveSubscriptionManager', () => {
       const { addSubscriber } = installChannel(mgr);
       addSubscriber('first', ['brain:read']);
       await expect(
-        mgr.subscribe('co_x', { callerScopes: ['brain:read'], sink: () => {} }),
+        mgr.subscribe('co_x', { callerScopes: ['brain:read'], fence: M2M_FENCE, sink: () => {} }),
       ).rejects.toThrow(/cap reached/);
     });
 
@@ -452,6 +465,7 @@ describe('LiveSubscriptionManager', () => {
       installChannel(mgr);
       const handle = await mgr.subscribe('co_x', {
         callerScopes: ['brain:read'],
+        fence: M2M_FENCE,
         sink: () => {},
       });
       expect((mgr as any).channels.size).toBe(1);

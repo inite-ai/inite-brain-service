@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { StringRecordId } from 'surrealdb';
 import { scopeForUser } from '../auth/scope-tags';
+import { userReadFence } from '../auth/user-scope';
 import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
 import type { SourceItem } from '../contracts/source-plane/source-plane.schema';
@@ -273,15 +274,23 @@ export class SourceItemService {
     p: {
       connectionId: string;
       state?: SourceItem['state'] | undefined;
+      /** The end user whose personal rows may show (pinned for a user-bound key). */
+      userId?: string | undefined;
       limit: number;
       offset: number;
     },
   ): Promise<{ items: SourceItem[]; total: number }> {
+    // The catalogue names a user's files (title, path, origin), so it
+    // reads through the documented per-user fence, fail-closed: no
+    // userId = tenant-global rows only; a user-bound key is pinned to
+    // its own user (the item drawer's rule, source-inspect.service.ts).
+    const fence = userReadFence(p.userId);
     return this.surreal.withCompany(companyId, async (db) => {
       const where = `connectionId = type::record('source_connection', $tail)${
         p.state ? ' AND state = $state' : ''
-      }`;
+      } AND ${fence.clause}`;
       const vars = {
+        ...fence.params,
         tail: idTailOf(p.connectionId),
         ...(p.state ? { state: p.state } : {}),
         limit: p.limit,

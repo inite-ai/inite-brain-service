@@ -42,20 +42,6 @@ export function DecisionBadge({ decision }: { decision: Decision }) {
   )
 }
 
-function EffectBadge({ effect }: { effect: 'allow' | 'deny' }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
-        effect === 'allow'
-          ? 'text-[var(--success)] bg-[var(--success)]/10'
-          : 'text-[var(--danger)] bg-[var(--danger)]/10'
-      }`}
-    >
-      {effect}
-    </span>
-  )
-}
-
 export function PostureChip({
   domain,
   posture,

@@ -243,6 +243,17 @@ All routes 404 until their flag is on.
 | `GET /v1/projections`                   | Derived surfaces as first-class records (migration 0076): status `building/built/live/residual/failed`, watermark, builder, stats, plus the live read pin (`RETRIEVAL_DERIVED_VERSION`). Flag `PROJECTIONS_API_ENABLED`.                                                                                                                                       |
 | `POST /v1/projections/:name/rebuild`    | The public rebuild verb over the maintenance batch engine (`brain:admin`; v1 rebuilds `facts` via the session-window deriver). Body: `version` / `conversation` / `keys` (retry selector: exactly these conversation ids) / `activate` / `force`. The response carries `outcome` (see [batch outcome](#batch-outcome)). Flag `PROJECTIONS_API_ENABLED`.        |
 
+## Evidence ingest
+
+`POST /v1/ingest/evidence-asset` (metadata only, `EVIDENCE_INGEST_ENABLED`)
+and `POST /v1/ingest/evidence-blob` (multipart bytes,
+`EVIDENCE_BLOB_UPLOAD_ENABLED`) take `brain:write`. `userId` is the
+asset's owner: a user-bound token is pinned to its own user (an omitted
+one defaults to it, another is a 403); M2M names any. A caller-named
+`scope` may carry only tags the principal holds (its own `user:` tag and
+the groups it belongs to) — anything else is a 403 for a user-bound
+token; omitted, the scope follows the owner.
+
 ## Evidence raw-read gateway
 
 The ONE surface that turns stored evidence rows back into original

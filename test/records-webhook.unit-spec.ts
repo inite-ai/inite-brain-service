@@ -104,6 +104,10 @@ describe('RecordsWebhookService (inline, no queue)', () => {
         if (id !== row.id) throw new NotFoundException();
         return row;
       },
+      loadForCaller: async (_c: string, id: string) => {
+        if (id !== row.id) throw new NotFoundException();
+        return row;
+      },
       webhookSecretOf: (r: typeof row) => (r.webhookSecret ? secret : null),
       resolveConnector: () => connector,
       connectorUnavailable: () => 'unavailable',

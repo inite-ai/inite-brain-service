@@ -1,4 +1,6 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
+import { userReadFence } from '../auth/user-scope';
 import type {
   SourceConnectionStats,
   SourceItemAsset,
@@ -9,6 +11,7 @@ import type {
 } from '../contracts/source-plane/source-plane.schema';
 import { SurrealService, queryFirst, queryRows } from '../db/surreal.service';
 import { idTailOf } from '../ingest/ingest-utils';
+import { makeRowPolicyFilter, type PolicyFilterableRow } from '../policy/row-filter';
 import { toItemView, type SourceItemRow } from './source-item.service';
 
 type Db = Parameters<Parameters<SurrealService['withCompany']>[1]>[0];
@@ -36,12 +39,26 @@ const EPISODE_TEXT_MAX = 4000;
  * the same shape the gone policy walks); every one is bounded by a
  * page and a query timeout, and a count that times out is reported
  * as null rather than a failure.
+ *
+ * The drawer shows memory content (a turn's text, fact values), so it
+ * reads through the same fences as every documented read, not around
+ * them: the per-user/scope-tag fence (`userReadFence`, fail-closed — a
+ * caller acting for no one sees tenant-global rows only) on the item,
+ * its turn and its facts; the PII gate on the turn (a PII-classed turn
+ * is absent without brain:read_pii, as in EpisodeReadStoreService); and
+ * the registry-backed row policy (predicate requiresScope + ABAC) on
+ * every fact. brain:admin alone never widened what a key may read —
+ * before this, the drawer was a way past brain:read_pii and past
+ * another end user's scope.
  */
 @Injectable()
 export class SourceInspectService {
   private readonly logger = new Logger(SourceInspectService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
+  ) {}
 
   async stats(companyId: string, connectionId: string): Promise<SourceConnectionStats> {
     const tail = idTailOf(connectionId);
@@ -88,30 +105,57 @@ export class SourceInspectService {
 
   async item(
     companyId: string,
-    p: { connectionId: string; itemId: string },
+    p: { connectionId: string; itemId: string; userId?: string | undefined; scopes: string[] },
   ): Promise<SourceItemInspectResponse> {
-    return this.surreal.withCompany(companyId, async (db) => {
-      const row = await queryFirst<SourceItemRow>(
-        db,
-        `SELECT * FROM type::record('source_item', $tail)`,
-        { tail: idTailOf(p.itemId) },
-      );
-      // The item must belong to the connection named in the URL — a
-      // tenant's items are one table, and the row id alone would let
-      // one connection's drawer open another's.
-      if (!row || String(row.connectionId) !== p.connectionId) {
-        throw new NotFoundException('source item not found');
-      }
-      const item = toItemView(row);
-      const documents = await this.documentsOf(db, row);
-      const asset = row.assetId ? await this.assetOf(db, row.assetId) : null;
-      const episode = row.episodeId ? await this.episodeOf(db, row.episodeId) : null;
-      const { facts, truncated } = await this.factsOf(db, [
+    const fence = userReadFence(p.userId);
+    const read: ReadFences = {
+      fence,
+      includePii: p.scopes.includes('brain:read_pii'),
+      rowPolicy: makeRowPolicyFilter({
+        callerScopes: p.scopes,
+        surface: 'source_item_inspect',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(companyId),
+      }),
+    };
+    try {
+      return await this.surreal.withCompany(companyId, (db) => this.itemIn(db, p, read));
+    } finally {
+      read.rowPolicy.finish();
+    }
+  }
+
+  private async itemIn(
+    db: Db,
+    p: { connectionId: string; itemId: string },
+    read: ReadFences,
+  ): Promise<SourceItemInspectResponse> {
+    const row = await queryFirst<SourceItemRow>(
+      db,
+      `SELECT * FROM type::record('source_item', $tail) WHERE ${read.fence.clause}`,
+      { tail: idTailOf(p.itemId), ...read.fence.params },
+    );
+    // The item must belong to the connection named in the URL — a
+    // tenant's items are one table, and the row id alone would let
+    // one connection's drawer open another's. Another user's item is
+    // the same 404 (never a 403, which would confirm it exists).
+    if (!row || String(row.connectionId) !== p.connectionId) {
+      throw new NotFoundException('source item not found');
+    }
+    const item = toItemView(row);
+    const documents = await this.documentsOf(db, row);
+    const asset = row.assetId ? await this.assetOf(db, row.assetId) : null;
+    const episode = row.episodeId ? await this.episodeOf(db, row.episodeId, read) : null;
+    // Facts follow the turn by its id even when the turn itself is
+    // fenced: each fact carries its own fences, applied below.
+    const { facts, truncated } = await this.factsOf(
+      db,
+      [
         ...documents.map((d) => ({ documentId: d.id })),
-        ...(episode ? [{ episodeId: episode.id }] : []),
-      ]);
-      return { item, documents, asset, episode, facts, factsTruncated: truncated };
-    });
+        ...(row.episodeId ? [{ episodeId: episodeRef(row.episodeId) }] : []),
+      ],
+      read,
+    );
+    return { item, documents, asset, episode, facts, factsTruncated: truncated };
   }
 
   /** The document a text item became, or the parts the bridge made of a binary one. */
@@ -176,13 +220,18 @@ export class SourceInspectService {
   }
 
   /** The turn a conversation-shaped item was captured as (the mention door's episode). */
-  private async episodeOf(db: Db, episodeId: string): Promise<SourceItemEpisode | null> {
+  private async episodeOf(
+    db: Db,
+    episodeId: string,
+    read: ReadFences,
+  ): Promise<SourceItemEpisode | null> {
     try {
       const row = await queryFirst<RawEpisode>(
         db,
         `SELECT id, conversationId, messageId, speaker, text, occurredAt
-           FROM type::record('episode', $tail)`,
-        { tail: idTailOf(episodeId) },
+           FROM type::record('episode', $tail)
+          WHERE ${read.fence.clause} ${read.includePii ? '' : 'AND piiClass IS NONE'}`,
+        { tail: idTailOf(episodeId), ...read.fence.params },
       );
       if (!row) return null;
       return {
@@ -203,6 +252,7 @@ export class SourceInspectService {
   private async factsOf(
     db: Db,
     refs: Array<{ documentId: string } | { episodeId: string }>,
+    read: ReadFences,
   ): Promise<{ facts: SourceItemFact[]; truncated: boolean }> {
     const facts: SourceItemFact[] = [];
     let truncated = false;
@@ -214,13 +264,17 @@ export class SourceInspectService {
           db,
           // 3.x: an ORDER BY field must be in the projection.
           `SELECT id, entityId, predicate, object, confidence, status, recordedAt,
-                  source.sourceVersion.version AS version, staleAt, staleReason, validUntil
+                  source.sourceVersion.version AS version, staleAt, staleReason, validUntil,
+                  source, userId, trustSnapshot, corroboration
              FROM knowledge_fact
             WHERE ${byDocument ? 'source.documentId = $ref' : 'source.episodeIds CONTAINS $ref'}
+              AND ${read.fence.clause}
             ORDER BY recordedAt ASC LIMIT ${FACTS_PAGE + 1} TIMEOUT ${SCAN_TIMEOUT}`,
-          { ref: byDocument ? ref.documentId : ref.episodeId },
+          { ref: byDocument ? ref.documentId : ref.episodeId, ...read.fence.params },
         );
-        for (const r of rows) facts.push(toFact(r));
+        // The predicate scope gate (brain:read_pii & co) and ABAC: a
+        // fenced fact is absent here, as it is on GET /v1/facts/:id.
+        for (const r of rows) if (read.rowPolicy.filter(r)) facts.push(toFact(r));
       } catch (e) {
         this.logger.warn(
           `facts of ${byDocument ? ref.documentId : ref.episodeId} skipped: ${(e as Error).message}`,
@@ -271,7 +325,19 @@ interface RawRepresentation {
   createdAt?: unknown;
 }
 
-interface RawFact {
+/** The read fences of one drawer request, resolved once. */
+interface ReadFences {
+  fence: ReturnType<typeof userReadFence>;
+  includePii: boolean;
+  rowPolicy: ReturnType<typeof makeRowPolicyFilter>;
+}
+
+/** `source.episodeIds` holds full `episode:<id>` strings. */
+function episodeRef(episodeId: string): string {
+  return episodeId.startsWith('episode:') ? episodeId : `episode:${idTailOf(episodeId)}`;
+}
+
+interface RawFact extends PolicyFilterableRow {
   id: unknown;
   entityId: unknown;
   predicate: string;
