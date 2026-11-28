@@ -53,9 +53,9 @@ describe('event time in languages chrono cannot parse', () => {
     it('कल → minus one day', () => expect(t('मैं कल गया था')).toBe('2023-05-07'));
     it('5 दिन पहले → minus five days', () => expect(t('5 दिन पहले हुआ')).toBe('2023-05-03'));
     it('पिछले साल → prior year', () =>
-      expect(
-        resolveEventTime('पिछले साल शुरू किया', ref, { lang: 'hi' })?.date.getUTCFullYear(),
-      ).toBe(2022));
+      expect(resolveEventTime('पिछले साल शुरू किया', ref, { lang: 'hi' })?.date.getUTCFullYear()).toBe(
+        2022,
+      ));
     it('does not match कल inside कलम (script boundary guard)', () =>
       expect(t('मैंने कलम खरीदी')).toBeNull());
   });

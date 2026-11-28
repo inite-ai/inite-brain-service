@@ -23,6 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { Surreal } from 'surrealdb';
 import { SurrealService } from '../src/db/surreal.service';
 import { LiveSubscriptionManager } from '../src/live/live-subscription.manager';
+import { captureLiveReadFence } from '../src/live/live-read-fence';
 
 const SCOPED_USER = 'brain_caller';
 const SCOPED_PASS = 'scoped-session-expiry-spec';
@@ -215,6 +216,8 @@ describe('Scoped pool — session expiry', () => {
     const received: string[] = [];
     const handle = await mgr.subscribe(tenant, {
       callerScopes: ['brain:read'],
+      // No request context: an M2M subscriber that named no user.
+      fence: captureLiveReadFence(undefined),
       sink: (e) => {
         if (e.kind === 'fact') received.push(e.object);
       },

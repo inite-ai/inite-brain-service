@@ -191,7 +191,9 @@ const PARTY_LIKE = new Set(['person', 'organization', 'contact', 'company', 'acc
 export function entityTypeOf(collection: string): string | null {
   const noun = collection.toLowerCase().replace(/[^a-z0-9_]/g, '_');
   if (SKIP_COLLECTIONS.has(noun)) return null;
-  const known = TYPE_ALIASES[noun];
+  // Own keys only: `constructor` / `__proto__` / `tostring` are collection
+  // names a document can carry, and must not read Object.prototype.
+  const known = Object.hasOwn(TYPE_ALIASES, noun) ? TYPE_ALIASES[noun] : undefined;
   if (known) return known;
   const singular = noun.endsWith('ies')
     ? `${noun.slice(0, -3)}y`
@@ -200,8 +202,27 @@ export function entityTypeOf(collection: string): string | null {
       : noun.endsWith('s') && !noun.endsWith('ss')
         ? noun.slice(0, -1)
         : noun;
-  const clean = singular.replace(/^_+|_+$/g, '');
-  return /^[a-z][a-z0-9_]{0,31}$/.test(clean) ? clean : null;
+  const clean = trimUnderscores(singular);
+  return isEntityType(clean) ? clean : null;
+}
+
+/** A brain entity type: a short lowercase noun — never `__proto__`, so safe as an object key. */
+export function isEntityType(type: unknown): type is string {
+  return typeof type === 'string' && /^[a-z][a-z0-9_]{0,31}$/.test(type);
+}
+
+/**
+ * Leading and trailing `_` off, in one linear pass. The regex this
+ * replaces (`/^_+|_+$/g`) retried `_+$` from every underscore of a long
+ * inner run — quadratic on a hostile path segment (code-scanning
+ * js/polynomial-redos).
+ */
+function trimUnderscores(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s.charCodeAt(start) === 95) start++;
+  while (end > start && s.charCodeAt(end - 1) === 95) end--;
+  return s.slice(start, end);
 }
 
 /** The collection a path names: its last literal segment, past a trailing verb (`/tickets/search` → `tickets`). */

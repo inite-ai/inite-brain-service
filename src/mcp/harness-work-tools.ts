@@ -145,8 +145,10 @@ async function take(
       return deps.dreams ? deps.dreams.takeFactCorroboration(companyId, opts) : null;
     case 'predicate_semantics':
       return deps.predicates ? deps.predicates.take(companyId, opts) : null;
-    case 'media_reading':
-      return deps.media?.()?.take(companyId, opts) ?? null;
+    case 'media_reading': {
+      const media = deps.media?.();
+      return media ? media.take(companyId, opts) : null;
+    }
     case 'scene_summary':
     case 'belief_statement':
     case 'affect_reading':
@@ -164,8 +166,14 @@ function takeLazy(
     ...opts
   }: { companyId: string; userId: string | undefined; max: number | undefined },
 ): Promise<HarnessWork | null> | null {
-  if (kind === 'scene_summary') return deps.scenes?.()?.take(companyId, opts) ?? null;
-  if (kind === 'belief_statement') return deps.beliefs?.()?.take(companyId, opts) ?? null;
+  if (kind === 'scene_summary') {
+    const scenes = deps.scenes?.();
+    return scenes ? scenes.take(companyId, opts) : null;
+  }
+  if (kind === 'belief_statement') {
+    const beliefs = deps.beliefs?.();
+    return beliefs ? beliefs.take(companyId, opts) : null;
+  }
   const affect = deps.affect?.();
   if (!affect) return null;
   return kind === 'affect_reading'

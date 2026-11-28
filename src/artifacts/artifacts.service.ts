@@ -1,4 +1,11 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Optional,
+} from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Surreal, StringRecordId } from 'surrealdb';
 import {
   SurrealService,
@@ -9,6 +16,11 @@ import {
 import { policyFor } from '../ingest/conflict-resolver';
 import type { FactSource } from '../ingest/dto/ingest-fact.dto';
 import { BrainScope } from '../auth/api-key.types';
+import { scopeFenceSql } from '../auth/scope-visibility';
+import { actingCircleTags } from '../auth/circle-scope';
+import { getPolicyContext, getRequestContext } from '../common/request-context';
+import { makeRowPolicyFilter, type PredicatePolicyLookup } from '../policy/row-filter';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import {
   TEMPLATES,
   ARTIFACT_FIELD_TO_PREDICATE,
@@ -82,10 +94,12 @@ interface EntityIdRow {
   id: unknown;
 }
 
-/** The wrapped `payload` column: `{ payload, _citations }` (see upsertArtifact). */
+/** The wrapped `payload` column: `{ payload, _citations, _visibility }` (see upsertArtifact). */
 interface WrappedPayload {
   payload?: Record<string, unknown>;
   _citations?: KnowledgeArtifact['citations'];
+  /** Visibility key of the caller the artifact was compiled for. */
+  _visibility?: string;
 }
 
 /** A cached knowledge_artifact row as read by fetchCached. */
@@ -114,6 +128,40 @@ interface ActiveFactRow {
   recordedAt: string;
   source: FactSource;
   status: string;
+  trustSnapshot?: { authority?: number; declaredTrust?: number; learnedTrust?: number } | null;
+  corroboration?: { count?: number } | null;
+  userId?: string | null;
+}
+
+/** A cached or freshly stored artifact, before shaping for the caller. */
+interface ArtifactRecord {
+  payload: Record<string, unknown>;
+  citations: KnowledgeArtifact['citations'];
+  sourceFactIds: string[];
+  builtAt: string;
+  staleAfterMs: number;
+  dirty: boolean;
+  visibility?: string | undefined;
+}
+
+/**
+ * The caller's VISIBILITY — what the compiled facts depended on: the
+ * scope set (the predicate gate, brain:read_pii), the ABAC policy (its
+ * key identity), the user a user-bound token is (the scope-tag fence)
+ * and the circle it acts in. The cache has one slot per (entity, type)
+ * (a UNIQUE index), so the key rides in the payload and a cached
+ * artifact is served only to a caller with the same key; anyone else
+ * recompiles from what they may see. Before, an artifact compiled for a
+ * read_pii caller was served to a brain:read one until it went stale.
+ */
+function visibilityKey(scopes: readonly BrainScope[]): string {
+  const raw = [
+    [...scopes].sort().join(','),
+    getPolicyContext()?.keyHash ?? 'no-policy',
+    getRequestContext()?.authUserId ?? '',
+    [...actingCircleTags()].sort().join(','),
+  ].join('::');
+  return createHash('sha256').update(raw).digest('hex').slice(0, 32);
 }
 
 export interface GetArtifactOptions {
@@ -134,7 +182,15 @@ export interface RecompileArtifactOptions {
 export class ArtifactsService {
   private readonly logger = new Logger(ArtifactsService.name);
 
-  constructor(private readonly surreal: SurrealService) {}
+  constructor(
+    private readonly surreal: SurrealService,
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
+  ) {}
+
+  /** Registry-backed predicate policy (tenant predicates), seed fallback. */
+  private async policyLookup(companyId: string): Promise<PredicatePolicyLookup> {
+    return (await this.predicateRegistry?.rowPolicyLookup(companyId)) ?? policyFor;
+  }
 
   async getArtifact({
     companyId,
@@ -143,6 +199,8 @@ export class ArtifactsService {
     scopes,
   }: GetArtifactOptions): Promise<KnowledgeArtifact> {
     const ref = this.normalizeEntityId(entityIdRaw);
+    const lookup = await this.policyLookup(companyId);
+    const visibility = visibilityKey(scopes);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       // 1. Verify entity exists.
       const ent = await queryFirst<EntityIdRow>(
@@ -157,21 +215,22 @@ export class ArtifactsService {
       // 2. Try cache lookup.
       const cached = await this.fetchCached(db, ref.id, artifactType);
       const now = Date.now();
-      if (cached && !cached.dirty) {
+      if (cached && !cached.dirty && cached.visibility === visibility) {
         const ageMs = now - new Date(cached.builtAt).getTime();
         if (ageMs < cached.staleAfterMs) {
           return this.shapeForReturn({
             cached,
             fullSelf: ref.full,
             scopes,
+            lookup,
             ageMs,
             artifactType,
           });
         }
       }
 
-      // 3. Recompile from current facts.
-      const facts = await this.fetchActiveFacts(db, ref.id, scopes);
+      // 3. Recompile from the facts this caller may see.
+      const facts = await this.fetchActiveFacts({ db, rid: ref.id, scopes, lookup });
       const compiled = this.compile(artifactType, facts);
 
       // 4. UPSERT into knowledge_artifact. Two-statement tx semantics
@@ -185,6 +244,7 @@ export class ArtifactsService {
         payload: compiled.payload,
         citations: compiled.citations,
         sourceFactIds: compiled.sourceFactIds,
+        visibility,
         // dirty as observed before we read facts; the CAS clears it only if
         // unchanged since (no fact-change event fired during compile).
         expectedDirty: cached?.dirty ?? false,
@@ -194,6 +254,7 @@ export class ArtifactsService {
         cached: stored,
         fullSelf: ref.full,
         scopes,
+        lookup,
         ageMs,
         artifactType,
       });
@@ -208,6 +269,7 @@ export class ArtifactsService {
     scopes,
   }: RecompileArtifactOptions): Promise<KnowledgeArtifact> {
     const ref = this.normalizeEntityId(entityIdRaw);
+    const lookup = await this.policyLookup(companyId);
     return this.surreal.withScopedCompany(companyId, scopes, async (db) => {
       const ent = await queryFirst<EntityIdRow>(
         db,
@@ -220,7 +282,7 @@ export class ArtifactsService {
       // Observe dirty BEFORE reading facts so the CAS in upsertArtifact can
       // tell whether a fact-change event fired mid-compile and preserve it.
       const before = await this.fetchCached(db, ref.id, artifactType);
-      const facts = await this.fetchActiveFacts(db, ref.id, scopes);
+      const facts = await this.fetchActiveFacts({ db, rid: ref.id, scopes, lookup });
       const compiled = this.compile(artifactType, facts);
       const stored = await this.upsertArtifact({
         db,
@@ -229,12 +291,14 @@ export class ArtifactsService {
         payload: compiled.payload,
         citations: compiled.citations,
         sourceFactIds: compiled.sourceFactIds,
+        visibility: visibilityKey(scopes),
         expectedDirty: before?.dirty ?? false,
       });
       return this.shapeForReturn({
         cached: stored,
         fullSelf: ref.full,
         scopes,
+        lookup,
         ageMs: 0,
         artifactType,
       });
@@ -273,14 +337,7 @@ export class ArtifactsService {
     db: Surreal,
     rid: string,
     artifactType: ArtifactType,
-  ): Promise<{
-    payload: Record<string, unknown>;
-    citations: KnowledgeArtifact['citations'];
-    sourceFactIds: string[];
-    builtAt: string;
-    staleAfterMs: number;
-    dirty: boolean;
-  } | null> {
+  ): Promise<ArtifactRecord | null> {
     const row = await queryFirst<CachedArtifactRow>(
       db,
       `SELECT payload, sourceFactIds, builtAt, staleAfterMs, dirty
@@ -300,14 +357,21 @@ export class ArtifactsService {
       builtAt: row.builtAt,
       staleAfterMs: row.staleAfterMs ?? 300_000,
       dirty: !!row.dirty,
+      visibility: row.payload?._visibility,
     };
   }
 
-  private async fetchActiveFacts(
-    db: Surreal,
-    rid: string,
-    scopes: BrainScope[],
-  ): Promise<FactRow[]> {
+  private async fetchActiveFacts({
+    db,
+    rid,
+    scopes,
+    lookup,
+  }: {
+    db: Surreal;
+    rid: string;
+    scopes: BrainScope[];
+    lookup: PredicatePolicyLookup;
+  }): Promise<FactRow[]> {
     // Mirrors fn::active_facts_for (migration 0003; removed as dead in
     // 0090 — this inline query is the live implementation) but pins the
     // tenant-GLOBAL scope: artifacts are a tenant-wide surface with no
@@ -319,36 +383,42 @@ export class ArtifactsService {
     // this ran unbounded on the artifact read path — a long-lived entity
     // shipped its entire fact history per cache miss. 500 newest is far
     // beyond what any template renders.
+    //
+    // The scope-tag fence rides along (a circle's or a group's rows only
+    // for that circle or group), and every row passes the registry row
+    // filter: a tenant-authored predicate's requiresScope and the ABAC
+    // verdict, not only the static seed policy.
+    const tags = scopeFenceSql(undefined, 'artifactScopeTag');
     const rows = await queryRows<ActiveFactRow>(
       db,
       `SELECT id, predicate, object, confidence, validFrom, validUntil,
-              recordedAt, source, status
+              recordedAt, source, status, trustSnapshot, corroboration, userId
          FROM knowledge_fact
          WHERE entityId = type::record('knowledge_entity', $rid)
            AND retractedAt IS NONE
            AND userId IS NONE
+           ${tags.clause}
          ORDER BY recordedAt DESC
          LIMIT 500`,
-      { rid },
+      { rid, ...tags.params },
     );
-    return rows
-      .filter((f) => {
-        const policy = policyFor(f.predicate);
-        if (policy.requiresScope && !scopes.includes(policy.requiresScope)) {
-          return false;
-        }
-        return true;
-      })
-      .map((f) => ({
-        id: f.id,
-        predicate: f.predicate,
-        object: f.object,
-        confidence: f.confidence,
-        validFrom: f.validFrom,
-        recordedAt: f.recordedAt,
-        source: f.source,
-        status: f.status,
-      }));
+    const rowFilter = makeRowPolicyFilter({
+      callerScopes: scopes,
+      surface: 'artifacts',
+      policyLookup: lookup,
+    });
+    const visible = rows.filter((f) => rowFilter.filter(f));
+    rowFilter.finish();
+    return visible.map((f) => ({
+      id: f.id,
+      predicate: f.predicate,
+      object: f.object,
+      confidence: f.confidence,
+      validFrom: f.validFrom,
+      recordedAt: f.recordedAt,
+      source: f.source,
+      status: f.status,
+    }));
   }
 
   private async upsertArtifact({
@@ -358,6 +428,7 @@ export class ArtifactsService {
     payload,
     citations,
     sourceFactIds,
+    visibility,
     expectedDirty,
   }: {
     db: Surreal;
@@ -366,12 +437,13 @@ export class ArtifactsService {
     payload: Record<string, unknown>;
     citations: KnowledgeArtifact['citations'];
     sourceFactIds: string[];
+    visibility: string;
     expectedDirty: boolean;
-  }) {
+  }): Promise<ArtifactRecord> {
     // Wrap payload + citations together so they round-trip as a single
     // FLEXIBLE object — schema has one `payload` field, no need for
-    // a separate citations column.
-    const wrapped = { payload, _citations: citations };
+    // a separate citations column. The visibility key rides along.
+    const wrapped = { payload, _citations: citations, _visibility: visibility };
     const factRecords = sourceFactIds.map((id) => new StringRecordId(id));
 
     // SurrealDB UPSERT semantics: try UPDATE first; if no rows
@@ -433,68 +505,74 @@ export class ArtifactsService {
       // Reflect the persisted flag: the CAS above may have left dirty=true
       // if a fact-change event fired during compile (CREATE always clean).
       dirty: !!row.dirty,
+      visibility,
     };
   }
 
+  /**
+   * PII filter on the COMPILED payload, defence in depth behind the
+   * visibility-keyed cache: a field whose source predicate needs a scope
+   * the caller lacks is dropped. A list field whose items carry their own
+   * predicate (risk_snapshot's competingFacts / lowConfidenceFacts list
+   * facts of ANY predicate) is filtered item by item, its citations with
+   * it. sourceFactIds keeps only ids still cited, so no gated factId
+   * leaks through the id list either.
+   */
   private shapeForReturn({
     cached,
     fullSelf,
     scopes,
+    lookup,
     ageMs,
     artifactType,
   }: {
-    cached: {
-      payload: Record<string, unknown>;
-      citations: KnowledgeArtifact['citations'];
-      sourceFactIds: string[];
-      builtAt: string;
-      staleAfterMs: number;
-    };
+    cached: ArtifactRecord;
     fullSelf: string;
     scopes: BrainScope[];
+    lookup: PredicatePolicyLookup;
     ageMs: number;
     artifactType: ArtifactType;
   }): KnowledgeArtifact {
-    // PII filter on the COMPILED payload — drop fields whose source
-    // predicates require a scope the caller doesn't carry. The
-    // citations array also gets pruned so we don't leak factIds for
-    // gated material.
+    const gated = (predicate: string): boolean => {
+      const policy = lookup(predicate);
+      return (
+        !!policy.requiresScope && !(scopes as readonly string[]).includes(policy.requiresScope)
+      );
+    };
     const filteredPayload: Record<string, unknown> = {};
     const filteredCitations: KnowledgeArtifact['citations'] = {};
     for (const [field, value] of Object.entries(cached.payload)) {
       const cites = cached.citations[field];
-      if (cites && cites.length > 0) {
-        // Look up source predicate via citation; if any citation has a
-        // restricted predicate and caller lacks scope, hide the field.
-        // This is a defence-in-depth: fetchActiveFacts already filters
-        // by scope before compile, so a fresh-built artifact is already
-        // clean. Cached artifacts, however, may have been built with a
-        // higher-scope caller — re-check on every read.
-        const restricted = cites.some(() => {
-          // Citations carry only id/conf/source — not the predicate
-          // directly. Field name === predicate for canonical templates,
-          // so we use the field name as the policy key. For composed
-          // fields (recentInteractions, complaints) the field name
-          // matches the source predicate's category.
-          // Map field → underlying predicate:
-          const predicate = ARTIFACT_FIELD_TO_PREDICATE[field] ?? field;
-          const policy = policyFor(predicate);
-          return policy.requiresScope && !scopes.includes(policy.requiresScope);
+      if (Array.isArray(value) && value.some(itemPredicate)) {
+        const keep = value.map((item) => {
+          const p = itemPredicate(item);
+          return p === undefined ? !gated(ARTIFACT_FIELD_TO_PREDICATE[field] ?? field) : !gated(p);
         });
-        if (restricted) continue;
+        filteredPayload[field] = value.filter((_v, i) => keep[i]);
+        if (cites) filteredCitations[field] = cites.filter((_c, i) => keep[i]);
+        continue;
+      }
+      if (cites && cites.length > 0) {
+        // Field name === predicate for canonical templates; composed
+        // fields map to their source predicate.
+        if (gated(ARTIFACT_FIELD_TO_PREDICATE[field] ?? field)) continue;
         filteredCitations[field] = cites;
       }
       filteredPayload[field] = value;
     }
+    const cited = new Set(
+      Object.values(filteredCitations).flatMap((cs) => cs.map((c) => String(c.factId))),
+    );
+    const sourceFactIds = cached.sourceFactIds.filter((id) => cited.has(id));
     return {
-      artifactId: `knowledge_artifact:${fullSelf.replace('knowledge_entity:', '')}::${cached.sourceFactIds.length}`,
+      artifactId: `knowledge_artifact:${fullSelf.replace('knowledge_entity:', '')}::${sourceFactIds.length}`,
       entityId: fullSelf,
       artifactType,
       payload: filteredPayload,
       citations: filteredCitations,
       builtAt: new Date(cached.builtAt).toISOString(),
       freshFor: Math.max(0, cached.staleAfterMs - ageMs),
-      sourceFactIds: cached.sourceFactIds,
+      sourceFactIds,
     };
   }
 
@@ -502,4 +580,11 @@ export class ArtifactsService {
     const id = raw.startsWith('knowledge_entity:') ? raw.slice('knowledge_entity:'.length) : raw;
     return { id, full: `knowledge_entity:${id}` };
   }
+}
+
+/** The predicate a list item carries (risk_snapshot's fact items), if any. */
+function itemPredicate(item: unknown): string | undefined {
+  if (item === null || typeof item !== 'object') return undefined;
+  const p = (item as { predicate?: unknown }).predicate;
+  return typeof p === 'string' ? p : undefined;
 }

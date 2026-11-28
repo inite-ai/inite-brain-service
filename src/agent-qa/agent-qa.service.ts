@@ -11,6 +11,9 @@ import { ReadPinService } from '../episodes/read-pin.service';
 import { getAbortSignal } from '../common/request-context';
 import { withSpan } from '../common/tracing';
 import { envFlagEnabled } from '../common/env-validation';
+import { userReadFence } from '../auth/user-scope';
+import { makeRowPolicyFilter } from '../policy/row-filter';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 
 /**
  * AgentQaService — agent-in-loop question answering.
@@ -154,6 +157,22 @@ export interface AgentQaResult {
   escalated?: boolean;
 }
 
+/** Tool names each loop mode offers the model — and the only ones it runs. */
+const V1_TOOL_NAMES: ReadonlySet<string> = new Set(['search_memory']);
+const V2_TOOL_NAMES: ReadonlySet<string> = new Set(['search_memory', 'timeline', 'grep_episodes']);
+
+/** A timeline row: the fields the render needs plus what the row filter reads. */
+interface TimelineRow {
+  id?: unknown;
+  predicate: string;
+  object: string;
+  validFrom?: unknown;
+  source?: unknown;
+  trustSnapshot?: { authority?: number; declaredTrust?: number; learnedTrust?: number } | null;
+  corroboration?: { count?: number } | null;
+  userId?: string | null;
+}
+
 /** Hedging phrases that mark a one-shot answer as too weak to keep. */
 const HEDGE = new RegExp(
   [
@@ -188,6 +207,7 @@ export class AgentQaService {
     @Optional() private readonly multiHop?: MultiHopService,
     @Optional() private readonly episodes?: EpisodeReadStoreService,
     @Optional() private readonly readPin?: ReadPinService,
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
   ) {
     this.openai = createOpenAiClientOrThrow(config);
     this.model = config.get<string>('AGENT_QA_MODEL', chatModel(config));
@@ -243,6 +263,7 @@ export class AgentQaService {
       { role: 'user', content: input.question },
     ];
     const queries: string[] = [];
+    const offered = v2 ? V2_TOOL_NAMES : V1_TOOL_NAMES;
     // Masked retrieval (V2): fact ids already shown this question are
     // never re-rendered, forcing each search to surface NEW evidence.
     const seenFactIds = new Set<string>();
@@ -272,6 +293,7 @@ export class AgentQaService {
           const rendered = await this.dispatchTool({
             input,
             name: call.function.name,
+            offered,
             query,
             mask: v2 ? seenFactIds : undefined,
           });
@@ -327,17 +349,27 @@ export class AgentQaService {
     }
   }
 
+  /**
+   * Only a tool offered in this mode runs. A model can emit a call to a
+   * tool it was never given (hallucinated or prompt-injected); before,
+   * `timeline` ran on a V1 loop too, a read surface the mode never opened.
+   * An unknown name falls back to search_memory, the one tool both modes
+   * offer.
+   */
   private async dispatchTool({
     input,
     name,
+    offered,
     query,
     mask,
   }: {
     input: AgentQaInput;
     name: string;
+    offered: ReadonlySet<string>;
     query: string;
     mask?: Set<string> | undefined;
   }): Promise<string> {
+    if (!offered.has(name)) return this.runSearch(input, query, mask);
     if (name === 'timeline') return this.runTimeline(input, query);
     if (name === 'grep_episodes') return this.runGrep(input, query);
     return this.runSearch(input, query, mask);
@@ -377,31 +409,50 @@ export class AgentQaService {
    * Chronological enumerator (V2): topic-similar facts of the pinned
    * derived world, oldest-first — collection and counting instead of
    * top-k similarity sampling.
+   *
+   * Fenced like every other read lane: the userId + scope-tag fence in
+   * SQL (tenant-global facts for an M2M caller, global + own for a
+   * user-bound token, a circle's rows only for that circle) and the
+   * registry row filter (requiresScope such as brain:read_pii, plus the
+   * ABAC verdict) over the rows. The rendered lines go into the model's
+   * context and can be quoted back verbatim, so an unfenced scan here is
+   * a read of every user's memory.
    */
   private async runTimeline(input: AgentQaInput, topic: string): Promise<string> {
     if (!topic.trim()) return 'No topic provided.';
     if (!this.surreal || !this.embedder) return 'Timeline unavailable.';
     try {
+      const fence = userReadFence(undefined);
       const vec = await this.embedder.embed(topic);
       // Per-tenant derived world (audit W2 #9): registry first, env
       // bootstrap when this tenant has no registry row yet.
       const version =
         (await this.readPin?.resolve(input.companyId)) ?? ReadPinService.bootstrapDefault();
       const versionClause = version ? 'AND derivedVersion = $dv' : 'AND derivedVersion IS NONE';
-      const rows = await this.surreal.withCompany(input.companyId, async (db) => {
-        const [r] = await db.query<
-          [Array<{ predicate: string; object: string; validFrom?: unknown }>]
-        >(
-          `SELECT predicate, object, validFrom,
+      const rowFilter = makeRowPolicyFilter({
+        callerScopes: input.callerScopes,
+        surface: 'agent_qa.timeline',
+        policyLookup: await this.predicateRegistry?.rowPolicyLookup(input.companyId),
+      });
+      const raw = await this.surreal.withScopedCompany(
+        input.companyId,
+        input.callerScopes,
+        async (db) => {
+          const [r] = await db.query<[TimelineRow[]]>(
+            `SELECT id, predicate, object, validFrom, source, trustSnapshot, corroboration, userId,
                     vector::similarity::cosine(embedding, $q) AS score
                FROM knowledge_fact
               WHERE status = 'active' AND embedding != NONE AND array::len(embedding) = array::len($q) ${versionClause}
+                AND ${fence.clause}
               ORDER BY score DESC
               LIMIT 40`,
-          { q: vec, dv: version },
-        );
-        return r ?? [];
-      });
+            { q: vec, dv: version, ...fence.params },
+          );
+          return r ?? [];
+        },
+      );
+      const rows = raw.filter((r) => rowFilter.filter(r));
+      rowFilter.finish();
       if (rows.length === 0) return 'No facts found for that topic.';
       return rows
         .slice()
@@ -426,11 +477,14 @@ export class AgentQaService {
     if (!pattern.trim()) return 'No pattern provided.';
     if (!this.episodes) return 'Transcript search unavailable.';
     try {
+      // A user-bound token reads its own turns too; M2M stays global-only.
+      const userId = userReadFence(undefined).userId;
       const rows = await this.episodes.searchText({
         companyId: input.companyId,
         query: pattern,
         limit: 10,
         includePii: input.callerScopes.includes('brain:read_pii'),
+        ...(userId ? { userId } : {}),
       });
       if (rows.length === 0) return 'No transcript turns match.';
       return rows
