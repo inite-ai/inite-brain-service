@@ -9,9 +9,11 @@ import { BlockList, isIPv4, isIPv6 } from 'node:net';
  * The check resolves the host and rejects when ANY address is
  * loopback / private / link-local / ULA / unspecified — which covers the
  * cloud metadata endpoint (169.254.169.254). Known limitation (stated in
- * docs/mcp-pack-tools.md): the address is not pinned between this check
- * and the subsequent fetch, so a fast-flux DNS rebind is a residual
- * risk; the check runs at install time AND per call to narrow the window.
+ * docs/mcp-pack-tools.md): this check alone does not pin the address
+ * between itself and a later fetch, so a fast-flux DNS rebind is a
+ * residual risk for a caller that only pre-checks. The source plane's
+ * connectors close it: `src/source-plane/connectors/pinned-request.ts`
+ * re-checks every address at connect time with `isNonPublicAddress`.
  */
 export class EgressDeniedError extends Error {}
 
@@ -57,13 +59,21 @@ export async function assertPublicHost(host: string): Promise<void> {
     throw new EgressDeniedError(`cannot resolve endpoint host "${host}"`);
   }
   for (const { address, family } of addrs) {
-    const blocked = family === 6 ? isBlockedIPv6(address) : isBlockedIPv4(address);
-    if (blocked) {
+    if (isNonPublicAddress(address, family)) {
       throw new EgressDeniedError(
         `endpoint host "${host}" resolves to a non-public address (${address})`,
       );
     }
   }
+}
+
+/**
+ * True when a resolved address is not globally reachable — the predicate
+ * `assertPublicHost` applies, exported for a connect-time `lookup` that
+ * re-checks the address the socket actually dials (DNS-rebinding pin).
+ */
+export function isNonPublicAddress(address: string, family: number): boolean {
+  return family === 6 ? isBlockedIPv6(address) : isBlockedIPv4(address);
 }
 
 /**

@@ -302,11 +302,6 @@ export function entriesFor(card: SourceCard, choice: ShapeChoice | null): Source
   return card.entries.slice(0, 1);
 }
 
-/** The kind + shape line a connection reads as (`Folder · files`). */
-function connectionFamily(c: SourceConnection): SourceFamily {
-  return familyOf(c);
-}
-
 export interface Grouped<T> {
   group: SourceGroup;
   items: T[];

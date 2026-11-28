@@ -249,15 +249,7 @@ export class SourceConnectionService {
       throw new BadRequestException(`label must be at most ${LABEL_MAX} characters`);
     }
     if (patch.config !== undefined && current.connector === 'db') assertDbConfig(patch.config);
-    if (patch.credential !== undefined) {
-      const { source } = await this.sourceContext(companyId, current);
-      await this.assertCredential(companyId, {
-        connector: current.connector,
-        host: current.host,
-        credential: patch.credential ?? undefined,
-        mcpOAuth: source ? mcpOAuthResourceOf(source, patch.config ?? current.config ?? {}) : null,
-      });
-    }
+    await this.assertCredentialOnUpdate(companyId, current, patch);
     const sets: string[] = [];
     const vars: Record<string, unknown> = { tail: idTailOf(connectionId) };
     const assign = (field: string, value: unknown) => {
@@ -580,6 +572,38 @@ export class SourceConnectionService {
         `connected account ${grantId} is ${grant.status} — reconnect it`,
       );
     }
+  }
+
+  /**
+   * The update half of the credential fence. A new credential is checked
+   * as on create; so is the KEPT credential when the patch moves the MCP
+   * server it signs in at — otherwise `{ config: { url } }` alone would
+   * re-point a grant made for one server at another, and its access token
+   * would be sent there (code-scanning js/user-controlled-bypass).
+   */
+  private async assertCredentialOnUpdate(
+    companyId: string,
+    current: SourceConnectionRow,
+    patch: UpdateSourceConnectionRequest,
+  ): Promise<void> {
+    const credentialPatched = patch.credential !== undefined;
+    if (!credentialPatched && patch.config === undefined) return;
+    const { source } = await this.sourceContext(companyId, current);
+    const nextResource = source
+      ? mcpOAuthResourceOf(source, patch.config ?? current.config ?? {})
+      : null;
+    if (!credentialPatched) {
+      const prevResource = source ? mcpOAuthResourceOf(source, current.config ?? {}) : null;
+      if (nextResource === prevResource) return;
+    }
+    await this.assertCredential(companyId, {
+      connector: current.connector,
+      host: current.host,
+      credential: credentialPatched
+        ? (patch.credential ?? undefined)
+        : (current.credential ?? undefined),
+      mcpOAuth: nextResource,
+    });
   }
 
   /** An MCP source that signs in (W4.3): the grant must be a `mcp` grant for THIS server — same origin, active. */

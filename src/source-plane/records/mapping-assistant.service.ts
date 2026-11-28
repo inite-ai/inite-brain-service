@@ -15,6 +15,7 @@ import { MetricsService } from '../../metrics/metrics.service';
 import { safeFetch } from '../connectors/safe-fetch';
 import {
   coreTypeOf,
+  isEntityType,
   proposeFromOperations,
   proposeFromSample,
   proposeMapping,
@@ -295,7 +296,12 @@ function assemble(
   const endpoints: Record<string, RestEntity> = {};
   const mapping: RecordMapping = {};
   const entities: MappingAssistResponse['entities'] = [];
+  // Every key written below is an entity type (`isEntityType`): the
+  // operator's are schema-checked, the heuristics' and the model's are
+  // checked where they are made — re-checked here so no path can write
+  // `__proto__` into the answer's objects.
   for (const [type, own] of Object.entries(req.endpoints ?? {})) {
+    if (!isEntityType(type)) continue;
     endpoints[type] = own;
     mapping[type] = mappings.get(type) ?? { fields: {}, coreType: coreTypeOf(type) };
     entities.push({
@@ -308,7 +314,7 @@ function assemble(
     });
   }
   for (const p of proposals.values()) {
-    if (endpoints[p.type]) continue;
+    if (!isEntityType(p.type) || Object.hasOwn(endpoints, p.type)) continue;
     endpoints[p.type] = p.endpoint;
     mapping[p.type] = mappings.get(p.type) ?? { fields: {}, coreType: coreTypeOf(p.type) };
     entities.push({
@@ -408,7 +414,7 @@ function toRestEntity(m: ModelEntity): RestEntity | null {
     ...(m.deleted ? { deleted: m.deleted } : {}),
   };
   const parsed = RestEntitySchema.safeParse(candidate);
-  return parsed.success && /^[a-z][a-z0-9_]{0,31}$/.test(m.type) ? parsed.data : null;
+  return parsed.success && isEntityType(m.type) ? parsed.data : null;
 }
 
 function attributeKeysOfModel(m: ModelEntity): string[] {

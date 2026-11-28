@@ -5,11 +5,13 @@ import {
   EgressDeniedError,
 } from '../../common/egress-guard';
 import { sourceEgressAllowPrivate } from '../../common/source-plane-flags';
+import { pinnedRequest } from './pinned-request';
 
 /**
  * The one outbound HTTP path of the network connectors. Every hop —
  * the first request AND every redirect — passes the egress guard before
- * it is fetched, so a public URL redirecting into the metadata endpoint
+ * it is fetched, and the socket re-checks the address it dials
+ * (`pinnedRequest`: no DNS-rebinding window between check and connect), so a public URL redirecting into the metadata endpoint
  * is refused at the hop, not followed. Redirects are followed manually
  * (`redirect: 'manual'`) for exactly that reason. Bodies are read up to
  * `maxBytes` and refused beyond it; a timeout aborts the request.
@@ -84,13 +86,16 @@ export async function safeFetch(
     const onOuterAbort = () => controller.abort();
     opts.signal?.addEventListener('abort', onOuterAbort, { once: true });
     try {
-      const res = await fetch(url, {
-        method: opts.method ?? 'GET',
-        headers: { 'user-agent': 'inite-brain-source/1.0', ...headers },
-        ...(opts.method === 'POST' && opts.body !== undefined ? { body: opts.body } : {}),
-        redirect: 'manual',
-        signal: controller.signal,
-      });
+      const res = await pinnedRequest(
+        url,
+        {
+          method: opts.method ?? 'GET',
+          headers: { 'user-agent': 'inite-brain-source/1.0', ...headers },
+          body: opts.method === 'POST' ? opts.body : undefined,
+          signal: controller.signal,
+        },
+        allowHttp ? 'not-link-local' : 'public',
+      );
       if (res.status >= 300 && res.status < 400) {
         const location = res.headers.get('location');
         if (!location) throw new Error(`redirect without location from ${url}`);
@@ -180,8 +185,8 @@ async function readBounded(res: Response, maxBytes: number, url: string): Promis
 /**
  * The guard as a `fetch` a client library can be handed (the MCP SDK's
  * Streamable HTTP transport takes one): every URL it is asked for passes
- * the same egress check as safeFetch's hops, redirects are never
- * followed (`manual` — a 3xx surfaces as the library's own error), and
+ * the same egress check as safeFetch's hops (connect-time pinned too),
+ * redirects are never followed (`manual` — a 3xx surfaces as the library's own error), and
  * the outer signal aborts in-flight requests. Bodies are the library's
  * to read; the MCP transport streams JSON-RPC, so no byte cap applies
  * here — the connector caps what it keeps.
@@ -199,10 +204,22 @@ export function guardedFetch(opts: {
       opts.signal && init?.signal
         ? AbortSignal.any([opts.signal, init.signal])
         : (init?.signal ?? opts.signal);
-    return fetch(target, {
-      ...init,
-      redirect: 'manual',
-      ...(signal ? { signal } : {}),
-    });
+    return pinnedRequest(
+      target,
+      {
+        method: init?.method,
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: await requestBody(init?.body),
+        signal: signal ?? undefined,
+      },
+      allowHttp ? 'not-link-local' : 'public',
+    );
   };
+}
+
+/** A fetch `body` as bytes for `pinnedRequest` (the MCP SDK sends JSON strings). */
+async function requestBody(body: RequestInit['body']): Promise<string | Buffer | undefined> {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body === 'string') return body;
+  return Buffer.from(await new Response(body).arrayBuffer());
 }
