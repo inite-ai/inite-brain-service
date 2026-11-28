@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { PredicateRegistryService } from '../ai/predicate-registry.service';
 import { ApiKeyService } from '../auth/api-key.service';
 import type { AuthenticatedRequest } from '../auth/api-key.types';
-import { resolvePlatformTenantScope } from '../auth/tenant-scope';
+import { resolvePlatformTenant, resolvePlatformTenantScope } from '../auth/tenant-scope';
+import { idTailOf } from '../ingest/ingest-utils';
+import { readDeadLetters } from './dead-letter-fence';
 import { SurrealService, queryRows } from '../db/surreal.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { mapWithLimit } from '../common/parallel';
@@ -192,10 +195,12 @@ export class AdminService {
   /** Tenants whose view-read failure has already been logged (log once). */
   private readonly viewFallbackLogged = new Set<string>();
 
+  // eslint-disable-next-line max-params -- Nest DI constructor; each param is an injection token
   constructor(
     private readonly apiKeys: ApiKeyService,
     private readonly surreal: SurrealService,
     private readonly metrics: MetricsService,
+    @Optional() private readonly predicateRegistry?: PredicateRegistryService,
   ) {}
 
   async buildOverview(req: AuthenticatedRequest): Promise<AdminOverview> {
@@ -223,7 +228,7 @@ export class AdminService {
     const tenantResults = await mapWithLimit({
       items: tenants,
       concurrency: TENANT_FANOUT,
-      fn: (companyId) => this.collectTenant(companyId, dayAgoIso),
+      fn: (companyId) => this.collectTenant(companyId, dayAgoIso, req.brainAuth.scopes),
       onError: (err, companyId) =>
         this.logger.warn(`Failed to collect admin overview for ${companyId}: ${err.message}`),
     });
@@ -480,22 +485,21 @@ export class AdminService {
       items: tenants,
       concurrency: TENANT_FANOUT,
       fn: async (companyId) => {
-        const rows = await this.surreal.withCompany(companyId, async (db) =>
-          queryRows<DeadLetterRow>(
+        return this.surreal.withCompany(companyId, async (db) => {
+          const rows = await queryRows<DeadLetterRow>(
             db,
             `SELECT id, reason, rejectedAt, payload
                FROM ingest_dead_letter ${whereSql}
               ORDER BY rejectedAt DESC LIMIT ${limit}`,
             params,
-          ),
-        );
-        return rows.map((r) => ({
-          companyId,
-          id: String(r.id),
-          reason: r.reason,
-          rejectedAt: new Date(r.rejectedAt).toISOString(),
-          payload: r.payload ?? {},
-        }));
+          );
+          return readDeadLetters(db, {
+            companyId,
+            rows,
+            scopes: req.brainAuth.scopes,
+            registry: this.predicateRegistry,
+          });
+        });
       },
       onError: (err, companyId) =>
         this.logger.warn(`dead-letter list failed for ${companyId}: ${err.message}`),
@@ -508,21 +512,30 @@ export class AdminService {
   }
 
   /**
-   * Permanently delete a dead-letter row. Reversible only via DB
-   * backup. Caller should already have confirmed at the UI layer.
+   * Permanently delete a dead-letter row (reversible only via backup).
+   * The path tenant resolves through the platform gate: another tenant is
+   * a 403 unless the caller is the platform operator. Addressed as a
+   * record: `WHERE id = $id` against the listed string matched nothing.
    */
-  async deleteDeadLetter(companyId: string, id: string): Promise<boolean> {
+  async deleteDeadLetter(
+    req: AuthenticatedRequest,
+    target: { companyId: string; id: string },
+  ): Promise<boolean> {
+    const companyId = resolvePlatformTenant(req, target.companyId, {
+      knownTenants: () => this.apiKeys.knownCompanyIds(),
+    });
+    const tail = idTailOf(target.id);
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
         const rows = await queryRows<unknown>(
           db,
-          `DELETE ingest_dead_letter WHERE id = $id RETURN BEFORE`,
-          { id },
+          `DELETE type::record('ingest_dead_letter', $tail) RETURN BEFORE`,
+          { tail },
         );
         return rows.length > 0;
       });
     } catch (e) {
-      this.logger.warn(`dead-letter delete failed (${companyId}/${id}): ${(e as Error).message}`);
+      this.logger.warn(`dead-letter delete failed (${companyId}/${tail}): ${(e as Error).message}`);
       return false;
     }
   }
@@ -570,14 +583,7 @@ export class AdminService {
             params,
           ),
         );
-        return rows.map((r) => ({
-          companyId,
-          entityIdHash: r.entityIdHash,
-          reason: r.reason,
-          forgottenAt: new Date(r.forgottenAt).toISOString(),
-          factsDeleted: r.factsDeleted ?? 0,
-          edgesDeleted: r.edgesDeleted ?? 0,
-        }));
+        return rows.map((r) => toForgottenRow(companyId, r));
       },
       onError: (err, companyId) =>
         this.logger.warn(`forgotten list failed for ${companyId}: ${err.message}`),
@@ -763,6 +769,7 @@ export class AdminService {
   private async collectTenant(
     companyId: string,
     dayAgoIso: string,
+    scopes: readonly string[],
   ): Promise<{
     row: AdminTenantRow;
     deadLetter: AdminDeadLetterRow[];
@@ -777,7 +784,7 @@ export class AdminService {
     // (pre-0088 tenant) logs once per tenant and falls back live.
     if (envFlagNotDisabled(process.env.STATS_VIEWS_ENABLED)) {
       try {
-        return await this.collectTenantFromViews(companyId, dayAgoIso);
+        return await this.collectTenantFromViews(companyId, dayAgoIso, scopes);
       } catch (err) {
         if (!this.viewFallbackLogged.has(companyId)) {
           this.viewFallbackLogged.add(companyId);
@@ -832,21 +839,13 @@ export class AdminService {
           factsActive: c1,
           factsRetracted: c2,
         },
-        deadLetter: deadLetterRows.map((r) => ({
+        deadLetter: await readDeadLetters(db, {
           companyId,
-          id: String(r.id),
-          reason: r.reason,
-          rejectedAt: new Date(r.rejectedAt).toISOString(),
-          payload: r.payload ?? {},
-        })),
-        forgotten: forgottenRows.map((r) => ({
-          companyId,
-          entityIdHash: r.entityIdHash,
-          reason: r.reason,
-          forgottenAt: new Date(r.forgottenAt).toISOString(),
-          factsDeleted: r.factsDeleted ?? 0,
-          edgesDeleted: r.edgesDeleted ?? 0,
-        })),
+          rows: deadLetterRows,
+          scopes,
+          registry: this.predicateRegistry,
+        }),
+        forgotten: forgottenRows.map((r) => toForgottenRow(companyId, r)),
         deadLetter24h: dl24,
         forgotten24h: fg24,
       };
@@ -861,6 +860,7 @@ export class AdminService {
   private async collectTenantFromViews(
     companyId: string,
     dayAgoIso: string,
+    scopes: readonly string[],
   ): Promise<{
     row: AdminTenantRow;
     deadLetter: AdminDeadLetterRow[];
@@ -899,21 +899,13 @@ export class AdminService {
           factsActive: byStatus.get('active') ?? 0,
           factsRetracted: byStatus.get('retracted') ?? 0,
         },
-        deadLetter: deadLetterRows.map((r) => ({
+        deadLetter: await readDeadLetters(db, {
           companyId,
-          id: String(r.id),
-          reason: r.reason,
-          rejectedAt: new Date(r.rejectedAt).toISOString(),
-          payload: r.payload ?? {},
-        })),
-        forgotten: forgottenRows.map((r) => ({
-          companyId,
-          entityIdHash: r.entityIdHash,
-          reason: r.reason,
-          forgottenAt: new Date(r.forgottenAt).toISOString(),
-          factsDeleted: r.factsDeleted ?? 0,
-          edgesDeleted: r.edgesDeleted ?? 0,
-        })),
+          rows: deadLetterRows,
+          scopes,
+          registry: this.predicateRegistry,
+        }),
+        forgotten: forgottenRows.map((r) => toForgottenRow(companyId, r)),
         deadLetter24h: dl24,
         forgotten24h: fg24,
       };
@@ -957,4 +949,15 @@ function statusCountsOf(stmtResult: StatusCountRow[]): Map<string, number> {
 
 function sum(xs: number[]): number {
   return xs.reduce((a, b) => a + (b > 0 ? b : 0), 0);
+}
+
+function toForgottenRow(companyId: string, r: ForgottenRow): AdminForgottenRow {
+  return {
+    companyId,
+    entityIdHash: r.entityIdHash,
+    reason: r.reason,
+    forgottenAt: new Date(r.forgottenAt).toISOString(),
+    factsDeleted: r.factsDeleted ?? 0,
+    edgesDeleted: r.edgesDeleted ?? 0,
+  };
 }

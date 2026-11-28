@@ -516,7 +516,7 @@ operator can expect.
 | Pack tools reader mirror (`MCP_PACK_TOOLS_CACHE_TTL_MS`)           | 30 s                                                             | A pack install surfaces on every replica within the TTL.                                                                                                                                                      |
 | Collapse-pattern snapshot                                          | 60 s                                                             | Same.                                                                                                                                                                                                         |
 | Token introspection cache (`IntrospectionClient`)                  | 60 s positive, 15 s negative                                     | A revoked key keeps working on a replica for at most the positive TTL; that window is what the revocation deny-list closes.                                                                                   |
-| Live subscriptions (`LIVE_MAX_SUBSCRIBERS_PER_TENANT`, default 20) | per replica                                                      | The cap bounds sockets per process, so the tenant-wide ceiling is 20 × N. The manager is a single-pod prototype behind `LIVE_SUBSCRIPTIONS_ENABLED` (default off) — do not rely on it in a scaled deployment. |
+| Live subscriptions (`LIVE_MAX_SUBSCRIBERS_PER_TENANT`, default 20) | per replica                                                      | The cap bounds sockets per process, so the tenant-wide ceiling is 20 × N. The manager is a single-pod prototype behind `LIVE_SUBSCRIPTIONS_ENABLED` (default on) — do not rely on it in a scaled deployment. |
 | Trace ring buffer (`GET /v1/admin/traces`)                         | 100 entries per replica                                          | The list is this replica's traces; `get` and the stream fall through to `debug_trace` with `DEBUG_TRACE_PERSIST=1`.                                                                                           |
 | In-process cancel hints (`JobRunService`)                          | none needed                                                      | The durable signal is `job_run.cancelRequested`, read on every lease renew.                                                                                                                                   |
 | Throttler (`THROTTLE_LIMIT` / `THROTTLE_TTL_MS`)                   | per replica                                                      | Until the shared state lands, the effective limit is N × the configured limit per window — size it accordingly.                                                                                               |
@@ -542,7 +542,10 @@ operator can expect.
   The compose monitoring stack discovers containers by label, so a scaled
   service is picked up as long as every replica carries the label.
 - **`DEBUG_TRACE_PERSIST=1`** if operators must see traces from every
-  replica on the admin traces page.
+  replica on the admin traces page. A trace of a request made with a
+  user-bound token is that end user's: it stays in the replica's memory
+  (never written to `debug_trace`) and only a key bound to the same user
+  sees it.
 
 ## Second SurrealDB node
 

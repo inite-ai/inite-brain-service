@@ -435,16 +435,18 @@ export class ExtractorRunnerService {
     const premise = valuePremise(trimmed, context);
     const checks = facts.map((f) => valueCheck(premise, f.object));
     const judged = facts.flatMap((f, i) => (checks[i] === 'reject' ? [] : [i]));
-    const labels = await (this.nli?.nli(
-      premise,
-      judged.map((i) =>
-        valueHypothesis({
-          entityName: entities[facts[i]!.entityIndex]?.name ?? '',
-          predicate: facts[i]!.predicate,
-          value: facts[i]!.object,
-        }),
-      ),
-    ) ?? Promise.resolve(judged.map(() => undefined)));
+    const labels = this.nli
+      ? await this.nli.nli(
+          premise,
+          judged.map((i) =>
+            valueHypothesis({
+              entityName: entities[facts[i]!.entityIndex]?.name ?? '',
+              predicate: facts[i]!.predicate,
+              value: facts[i]!.object,
+            }),
+          ),
+        )
+      : judged.map(() => undefined);
     const labelOf = new Map(judged.map((i, j) => [i, labels[j]]));
     const kept = facts.filter((_, i) => valueStands(checks[i]!, labelOf.get(i)));
     if (kept.length < facts.length) {

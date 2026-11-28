@@ -168,6 +168,12 @@ export class AdminSourceConnectionsController {
     return { deleted: true, items };
   }
 
+  /**
+   * The catalogue lists file names and paths, so it carries the per-user
+   * read fence: `userId` names the end user whose personal items may
+   * show (a user-bound key is pinned to its own); without it, tenant-global
+   * items only.
+   */
   // eslint-disable-next-line max-params -- decorated HTTP route handler; each param is a @Req/@Param/@Query binding, cannot be folded into an options object without breaking Nest param resolution
   @Get(':id/items')
   @RequireScopes('brain:admin')
@@ -177,6 +183,7 @@ export class AdminSourceConnectionsController {
     @Query('state') state?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('userId') userId?: string,
   ): Promise<SourceItemsListResponse> {
     assertEnabled();
     const lim = Math.min(Math.max(Number(limit ?? 50) || 50, 1), 500);
@@ -185,6 +192,7 @@ export class AdminSourceConnectionsController {
     const { items, total } = await this.items.list(req.brainAuth.companyId, {
       connectionId: assertId(id),
       state: st,
+      userId: userId === undefined || userId === '' ? undefined : userId,
       limit: lim,
       offset: off,
     });

@@ -22,7 +22,6 @@ const ItemStateSchema = z.enum(['seen', 'fetched', 'indexed', 'gone']);
 const AvailabilitySchema = z.enum(['ready', 'disabled', 'missing', 'agent', 'external']);
 
 export const SOURCE_SCHEDULES = ScheduleSchema.options;
-const SOURCE_CONTENT_POLICIES = ContentPolicySchema.options;
 export const SOURCE_DELETE_POLICIES = DeletePolicySchema.options;
 export const SOURCE_ITEM_STATES = ItemStateSchema.options;
 

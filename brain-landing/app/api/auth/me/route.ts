@@ -8,7 +8,7 @@ import { withSession } from '@/lib/server-auth'
  * `useAuth` hook + Header.tsx to decide whether to show the "Admin" nav
  * link, and by the end-user app shell to gate on "is logged in".
  *
- * Resolves via {@link getUserSession} so a logged-in non-admin is
+ * Resolves via `withSession` (a user session, not an admin one) so a logged-in non-admin is
  * distinguishable from an anonymous visitor: anonymous →
  * `{ isAuthenticated: false, isAdmin: false }`, logged-in user →
  * `{ isAuthenticated: true, isAdmin: <bool> }`. Always 200 (never 401)

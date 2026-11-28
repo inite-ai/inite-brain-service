@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [2.12.0](https://github.com/inite-ai/inite-brain-service/compare/v2.11.0...v2.12.0) (2026-11-28)
+
+
+### Features
+
+* **forget:** a forgotten user stays forgotten when work accepted before the forget finishes after it ([e544966](https://github.com/inite-ai/inite-brain-service/commit/e5449667b8b2b67c961b2b74e09be7f4b7d15f8e))
+* **forget:** a forgotten user stays forgotten when work accepted before the forget finishes after it ([37b8e4b](https://github.com/inite-ai/inite-brain-service/commit/37b8e4b43e15f992cc779c4406e08e327a06ce36))
+* **ingest:** a mention carries its caller's meta, checked like a document's and erased with the user ([3e837c0](https://github.com/inite-ai/inite-brain-service/commit/3e837c0f3e90ffec34280c09f5231f02a8a38435))
+* **ingest:** a mention carries its caller's meta, checked like a document's and erased with the user ([c5bc262](https://github.com/inite-ai/inite-brain-service/commit/c5bc2623678d7d44ec47162bde36a787e3c9bb7a))
+* **registry:** every boot publishes the first-party packs, so a release carries them into the registry ([ffa87f8](https://github.com/inite-ai/inite-brain-service/commit/ffa87f8c3c864b5b90f8c37a15806e430dd4c306))
+* **registry:** every boot publishes the first-party packs, so a release carries them into the registry ([fa69ffd](https://github.com/inite-ai/inite-brain-service/commit/fa69ffdd981efcdc64d9c136cdf2002903f0b0e2))
+* **retention:** a tenant can have a person's memory erased after a stretch without contact ([a135541](https://github.com/inite-ai/inite-brain-service/commit/a135541d10ab458a4fecbb929dd58ea17c546bcd))
+* **retention:** a tenant can have a person's memory erased after a stretch without contact ([6a60dc9](https://github.com/inite-ai/inite-brain-service/commit/6a60dc9f94c497c8fac6a3879c47c3c28e942bb5))
+* **seo:** one company in the graph — the product is a node of INITE, not an Organization ([#949](https://github.com/inite-ai/inite-brain-service/issues/949)) ([56f5495](https://github.com/inite-ai/inite-brain-service/commit/56f5495a3398d512ae40e0035c468481a01894a0))
+* **tenants:** one product machine client keeps each client company's memory in a child tenant of its own ([82c7036](https://github.com/inite-ai/inite-brain-service/commit/82c7036d260d12cb08a5481fb6b60c401043a2dc))
+* **tenants:** one product machine client keeps each client company's memory in a child tenant of its own ([f604800](https://github.com/inite-ai/inite-brain-service/commit/f6048002f5bea468cb46dd9162b70d832bdc129d))
+* **throttle:** a queued mention is an enqueue, and the model-route cap counts only the routes that ask for it ([5351f40](https://github.com/inite-ai/inite-brain-service/commit/5351f4007c31f8c64ddf03891fa7f08db84068df))
+* **throttle:** a queued mention is an enqueue, and the model-route cap counts only the routes that ask for it ([a37b54d](https://github.com/inite-ai/inite-brain-service/commit/a37b54d73ddb9d337fcced9c3a1bc8c96bfb86cd))
+
+
+### Bug Fixes
+
+* **ingest:** one code for a refused meta bag, and the strict default said where it is read ([c3c7d9a](https://github.com/inite-ai/inite-brain-service/commit/c3c7d9a08960dd858e54604e561f8ef124504e19))
+* **ingest:** one code for a refused meta bag; strict-by-default stated where it is read ([af5c8a0](https://github.com/inite-ai/inite-brain-service/commit/af5c8a06b2ee35d7bbeaef5dbf2d209854277bfd))
+* **ingest:** two people who share a name stay two when the judge hedges or their facts use other words ([#961](https://github.com/inite-ai/inite-brain-service/issues/961)) ([f28b0a2](https://github.com/inite-ai/inite-brain-service/commit/f28b0a26306dcfbfcb490420fc2a1bdd3f4843bd))
+* **live:** the fact stream pushes only what the subscriber may read — user, circle and row-policy fences ([#985](https://github.com/inite-ai/inite-brain-service/issues/985)) ([6ff748d](https://github.com/inite-ai/inite-brain-service/commit/6ff748dd0cc6f17ed50943289a70c8bec436eaf1))
+* **read:** agent QA timeline, digests, safety events and artifacts read behind the user, PII and scope fences ([#987](https://github.com/inite-ai/inite-brain-service/issues/987)) ([4f70c00](https://github.com/inite-ai/inite-brain-service/commit/4f70c00d62f017c3e01e05d1a23b9c259423d7cb))
+* **security:** close the open code-scanning findings in the source plane ([#986](https://github.com/inite-ai/inite-brain-service/issues/986)) ([cea15fc](https://github.com/inite-ai/inite-brain-service/commit/cea15fce89098ad434d8e107815dde5d6fff1445))
+* **source-plane:** a user-bound key reads and writes only its own items, connections and evidence ([#984](https://github.com/inite-ai/inite-brain-service/issues/984)) ([de6b320](https://github.com/inite-ai/inite-brain-service/commit/de6b32094eaf43b4c1ce49f0b6ac3427184029b8))
+* **source-plane:** the item drawer reads through the user, PII and predicate-scope fences ([#980](https://github.com/inite-ai/inite-brain-service/issues/980)) ([a12d1e9](https://github.com/inite-ai/inite-brain-service/commit/a12d1e9e1f8ed66e099675e825318b1a1df54aaa))
+* **test:** repos the tests make with git take no GIT_* from a commit hook ([83cd33d](https://github.com/inite-ai/inite-brain-service/commit/83cd33d95c4abc901929bf06f1319030e70ac30a))
+* **test:** repos the tests make with git take no GIT_* from a commit hook ([16d67a2](https://github.com/inite-ai/inite-brain-service/commit/16d67a2f427b7ac5666c838fecd641e3ae0fa4f9))
+
 ## [2.11.0](https://github.com/inite-ai/inite-brain-service/compare/v2.10.0...v2.11.0) (2026-11-14)
 
 

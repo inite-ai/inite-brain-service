@@ -50,6 +50,23 @@ interface DebugTraceRow {
  */
 export type TraceListItem = Omit<DebugTraceSnapshot, 'spans' | 'artifacts'>;
 
+/**
+ * Who is reading traces: the end user a user-bound token acts for, or
+ * none (a tenant-wide key). The trace of a user-bound request carries
+ * that user's memory (their input, their search hits), so it is theirs.
+ */
+export interface TraceViewer {
+  userId?: string | undefined;
+}
+
+/** A user-bound trace for that user only; a tenant-wide one for tenant-wide viewers only. */
+export function traceVisibleTo(
+  snapshot: Pick<DebugTraceSnapshot, 'userId'>,
+  viewer: TraceViewer,
+): boolean {
+  return (snapshot.userId ?? undefined) === (viewer.userId ?? undefined);
+}
+
 @Injectable()
 export class TraceBufferService {
   private readonly logger = new Logger(TraceBufferService.name);
@@ -111,7 +128,9 @@ export class TraceBufferService {
     }
     const { spans: _s, artifacts: _a, ...meta } = snapshot;
     this.stream.next(meta);
-    if (this.persistEnabled && snapshot.companyId) {
+    // A user-bound request's trace stays in memory: the persisted row has
+    // no owner column, and a reader could not be fenced to its user.
+    if (this.persistEnabled && snapshot.companyId && !snapshot.userId) {
       this.persistChain = this.persistChain.then(() =>
         this.persist(snapshot).catch((e) => {
           this.logger.warn(
@@ -146,20 +165,31 @@ export class TraceBufferService {
    * (auto-refresh) and a per-call DB hit would tax the tenant DB.
    * Operators looking at older traces use the explicit `get`.
    */
-  list(companyId?: string): Array<Omit<DebugTraceSnapshot, 'spans' | 'artifacts'>> {
+  list(
+    companyId?: string,
+    viewer: TraceViewer = {},
+  ): Array<Omit<DebugTraceSnapshot, 'spans' | 'artifacts'>> {
     const rows = companyId ? this.buffer.filter((s) => s.companyId === companyId) : this.buffer;
-    return rows.map(({ spans: _s, artifacts: _a, ...rest }) => rest);
+    return rows
+      .filter((s) => traceVisibleTo(s, viewer))
+      .map(({ spans: _s, artifacts: _a, ...rest }) => rest);
   }
 
-  async get(requestId: string, companyId?: string): Promise<DebugTraceSnapshot | undefined> {
+  async get(
+    requestId: string,
+    companyId?: string,
+    viewer: TraceViewer = {},
+  ): Promise<DebugTraceSnapshot | undefined> {
     const hit = this.buffer.find((s) => s.requestId === requestId);
     if (hit) {
       if (companyId && hit.companyId && hit.companyId !== companyId) {
         return undefined;
       }
-      return hit;
+      return traceVisibleTo(hit, viewer) ? hit : undefined;
     }
-    if (!this.persistEnabled || !this.surreal || !companyId) return undefined;
+    // Persisted rows are never a user-bound request's (add() keeps those
+    // in memory), so a user-bound viewer has nothing of its own there.
+    if (!this.persistEnabled || !this.surreal || !companyId || viewer.userId) return undefined;
     try {
       return await this.surreal.withCompany(companyId, async (db) => {
         const row = await queryFirst<DebugTraceRow>(

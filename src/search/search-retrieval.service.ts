@@ -99,13 +99,16 @@ export class SearchRetrievalService {
                 return [];
               }
               span.setAttribute('candidates', rows.length);
+              // Ids, predicate and score only. These hits are traced BEFORE
+              // the row policy (requiresScope / ABAC) runs, and the trace
+              // reaches the caller as __trace and the tenant's trace buffer:
+              // a value here would be a way past brain:read_pii.
               traceArtifact(
                 'search.vector_hits',
                 rows.slice(0, 20).map((r) => ({
                   factId: String(r.id),
                   entityId: String(r.entityId),
                   predicate: r.predicate,
-                  object: r.object,
                   simScore: r.simScore,
                 })),
               );
@@ -128,13 +131,13 @@ export class SearchRetrievalService {
                 stemLang: stemLangOf(ctx.dto.query, ctx.dto.queryLang),
               });
               span.setAttribute('candidates', rows.length);
+              // Ids, predicate and score only (pre-row-policy, as above).
               traceArtifact(
                 'search.lexical_hits',
                 rows.slice(0, 20).map((r) => ({
                   factId: String(r.id),
                   entityId: String(r.entityId),
                   predicate: r.predicate,
-                  object: r.object,
                   bm25Score: r.bm25Score,
                 })),
               );
@@ -192,11 +195,14 @@ export class SearchRetrievalService {
           fetchK: ctx.candidateK,
         });
         span.setAttribute('candidates', rows.length);
+        // Ids and predicate only: names and the related value are memory
+        // content, traced before the row policy runs.
         traceArtifact(
           'search.relation_hits',
           rows.slice(0, 10).map((r) => ({
             edgeId: String(r.id),
-            line: `${r.entity?.canonicalName ?? ''} — ${r.predicate} → ${r.object}`,
+            entityId: String(r.entityId),
+            predicate: r.predicate,
             validFrom: r.validFrom,
             validUntil: r.validUntil,
           })),
@@ -237,12 +243,12 @@ export class SearchRetrievalService {
           }
         }
         span.setAttribute('candidates', fused.length);
+        // Ids and score only: a segment's text is raw conversation.
         traceArtifact(
           'search.segment_hits',
           fused.slice(0, 10).map((r) => ({
             segmentId: String(r.id),
             fusedScore: r.fusedScore,
-            object: r.object.slice(0, 120),
           })),
         );
         // Verified-use / tenant-decay opts deliberately absent here:

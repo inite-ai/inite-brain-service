@@ -3150,8 +3150,12 @@ function affectPaths(): Json {
         operationId: 'listSafetyEvents',
         tag: 'Users',
         summary: "A person's safety protocol record",
-        description: 'Newest first. ' + pin + 'Source: src/affect/safety.controller.ts.',
-        scope: 'brain:read',
+        description:
+          'Newest first. A crisis referral is health data, so the record needs `brain:read_pii`, ' +
+          'like the affect export. ' +
+          pin +
+          'Needs `brain:read` as well. Source: src/affect/safety.controller.ts.',
+        scope: 'brain:read_pii',
         parameters: [user],
         responses: {
           '200': jsonResponse('The events.', ref('SafetyEventListResponse')),

@@ -18,6 +18,7 @@ import type { AuthenticatedRequest } from '../auth/api-key.types';
 import { ScenarioRunnerService, ScenarioRunOutcome } from './scenario-runner.service';
 import { BaselineService } from './baseline.service';
 import { TraceViewService } from './trace-view.service';
+import { pinUserScope } from '../auth/user-scope';
 import type { ScenariosResponse } from '../contracts/admin/scenarios.schema';
 import type { BaselinesResponse } from '../contracts/admin/baselines.schema';
 import type { TracesResponse } from '../contracts/admin/traces.schema';
@@ -182,12 +183,14 @@ export class AdminEvalController {
   // refuses to write snapshots for non-admin callers in the first place,
   // and the buffer filter here keeps one admin from reading another
   // tenant's artifacts. There is intentionally no super-admin global view.
+  // Within a tenant, a user-bound request's trace is that user's: a key
+  // bound to another user, or a tenant-wide key, does not see it.
 
   @Get('traces')
   @RequireScopes('brain:admin')
   listTraces(@Req() req: AuthenticatedRequest): TracesResponse {
     return {
-      traces: this.traces.list(req.brainAuth.companyId),
+      traces: this.traces.list(req.brainAuth.companyId, traceViewer()),
     } satisfies TracesResponse;
   }
 
@@ -210,7 +213,9 @@ export class AdminEvalController {
   @Sse('traces/stream')
   @RequireScopes('brain:admin')
   streamTraces(@Req() req: AuthenticatedRequest): Observable<{ data: unknown }> {
-    return this.traces.observe(req.brainAuth.companyId).pipe(map((t) => ({ data: t })));
+    return this.traces
+      .observe(req.brainAuth.companyId, traceViewer())
+      .pipe(map((t) => ({ data: t })));
   }
 
   @Get('traces/:requestId')
@@ -219,8 +224,14 @@ export class AdminEvalController {
     @Req() req: AuthenticatedRequest,
     @Param('requestId') requestId: string,
   ): Promise<TraceDetailResponse> {
-    const t = await this.traces.get(requestId, req.brainAuth.companyId);
+    const t = await this.traces.get(requestId, req.brainAuth.companyId, traceViewer());
     if (!t) throw new NotFoundException(`Trace ${requestId} not found`);
     return t satisfies TraceDetailResponse;
   }
+}
+
+/** The reader of a trace: the end user a user-bound token acts for, if any. */
+function traceViewer(): { userId?: string } {
+  const userId = pinUserScope(undefined);
+  return userId ? { userId } : {};
 }

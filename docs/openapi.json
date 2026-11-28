@@ -11407,7 +11407,7 @@
     },
     "summary": "The community-facing platform surface: the memory core (fact ingest, search, multi-hop, synthesize, entity and fact reads), the Domain Pack registry and tenant pack admin, the document pipeline, the external-indexer work protocol, the raw-substrate driver, the evidence substrate, and source reputation reads.",
     "title": "INITE Brain — Platform API",
-    "version": "2.11.0"
+    "version": "2.12.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -17378,7 +17378,7 @@
     },
     "/v1/users/{userId}/safety-events": {
       "get": {
-        "description": "Newest first. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Source: src/affect/safety.controller.ts.\n\nRequired scope: `brain:read`.",
+        "description": "Newest first. A crisis referral is health data, so the record needs `brain:read_pii`, like the affect export. A user-bound token acts only for its own user (another → 403); an M2M key for any user. Needs `brain:read` as well. Source: src/affect/safety.controller.ts.\n\nRequired scope: `brain:read_pii`.",
         "operationId": "listSafetyEvents",
         "parameters": [
           {
